@@ -5,12 +5,26 @@ import { FeishuAdapter } from "./feishu-adapter.js";
 import type { FeishuClient } from "./feishu-client.js";
 import {
   APPEND_DOCX_TOOL_NAME,
+  ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+  ADD_DOCX_COMMENT_TOOL_NAME,
+  BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
   CREATE_DOCX_TOOL_NAME,
+  DELETE_DOCX_BLOCKS_TOOL_NAME,
+  EMBED_DOCX_MEDIA_TOOL_NAME,
   extractDocxDocumentId,
+  GET_DOCX_BLOCK_TOOL_NAME,
   getFeishuDocxChannelTools,
+  INSERT_DOCX_BLOCKS_TOOL_NAME,
+  LIST_DOCX_BLOCKS_TOOL_NAME,
+  LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+  LIST_DOCX_COMMENTS_TOOL_NAME,
   maybeExecuteFeishuDocxToolCall,
   READ_DOCX_TOOL_NAME,
+  RESOLVE_DOCX_COMMENT_TOOL_NAME,
   resolveDocxDocumentId,
+  UPDATE_DOCX_BLOCKS_TOOL_NAME,
+  UPDATE_DOCX_CONTENT_TOOL_NAME,
+  UPDATE_DOCX_TITLE_TOOL_NAME,
   toFeishuDocxChildren,
   type FeishuSimpleBlock,
 } from "./feishu-docx-tools.js";
@@ -23,6 +37,7 @@ import {
   LIST_WIKI_SPACES_TOOL_NAME,
   MOVE_DOCX_TO_WIKI_TOOL_NAME,
   MOVE_WIKI_NODE_TOOL_NAME,
+  RENAME_WIKI_NODE_TOOL_NAME,
 } from "./feishu-wiki-tools.js";
 
 const DOC_ID = "DocxPlaceholder000000000001";
@@ -52,7 +67,25 @@ test("docx channel tool registry only returns tools when enabled", () => {
   const tools = getFeishuDocxChannelTools(true);
   assert.deepEqual(
     tools.map((tool) => String(tool.name ?? "")),
-    [CREATE_DOCX_TOOL_NAME, READ_DOCX_TOOL_NAME, APPEND_DOCX_TOOL_NAME],
+    [
+      CREATE_DOCX_TOOL_NAME,
+      READ_DOCX_TOOL_NAME,
+      APPEND_DOCX_TOOL_NAME,
+      LIST_DOCX_BLOCKS_TOOL_NAME,
+      GET_DOCX_BLOCK_TOOL_NAME,
+      INSERT_DOCX_BLOCKS_TOOL_NAME,
+      UPDATE_DOCX_BLOCKS_TOOL_NAME,
+      DELETE_DOCX_BLOCKS_TOOL_NAME,
+      UPDATE_DOCX_TITLE_TOOL_NAME,
+      UPDATE_DOCX_CONTENT_TOOL_NAME,
+      EMBED_DOCX_MEDIA_TOOL_NAME,
+      LIST_DOCX_COMMENTS_TOOL_NAME,
+      BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+      LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+      ADD_DOCX_COMMENT_TOOL_NAME,
+      ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+      RESOLVE_DOCX_COMMENT_TOOL_NAME,
+    ],
   );
 });
 
@@ -113,6 +146,20 @@ test("FeishuAdapter only registers docx tools when docs config is enabled", () =
       CREATE_DOCX_TOOL_NAME,
       READ_DOCX_TOOL_NAME,
       APPEND_DOCX_TOOL_NAME,
+      LIST_DOCX_BLOCKS_TOOL_NAME,
+      GET_DOCX_BLOCK_TOOL_NAME,
+      INSERT_DOCX_BLOCKS_TOOL_NAME,
+      UPDATE_DOCX_BLOCKS_TOOL_NAME,
+      DELETE_DOCX_BLOCKS_TOOL_NAME,
+      UPDATE_DOCX_TITLE_TOOL_NAME,
+      UPDATE_DOCX_CONTENT_TOOL_NAME,
+      EMBED_DOCX_MEDIA_TOOL_NAME,
+      LIST_DOCX_COMMENTS_TOOL_NAME,
+      BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+      LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+      ADD_DOCX_COMMENT_TOOL_NAME,
+      ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+      RESOLVE_DOCX_COMMENT_TOOL_NAME,
       LIST_WIKI_NODES_TOOL_NAME,
       GET_WIKI_NODE_INFO_TOOL_NAME,
       MOVE_DOCX_TO_WIKI_TOOL_NAME,
@@ -120,6 +167,7 @@ test("FeishuAdapter only registers docx tools when docs config is enabled", () =
       LIST_WIKI_SPACES_TOOL_NAME,
       GET_WIKI_SPACE_TOOL_NAME,
       CREATE_WIKI_NODE_TOOL_NAME,
+      RENAME_WIKI_NODE_TOOL_NAME,
     ],
   );
 });
@@ -524,4 +572,496 @@ test("FeishuAppendDocxContent appends blocks at the root using translated docx c
       { blockId: "blk_5", kind: "divider" },
     ],
   });
+});
+
+test("FeishuListDocxBlocks returns block page", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async listDocxBlocks() {
+      return {
+        documentId: DOC_ID,
+        items: [{ blockId: "blk_1", blockType: 2, textContent: "hello" }],
+        nextPageToken: "next",
+        hasMore: true,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: LIST_DOCX_BLOCKS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, pageSize: 20 },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { items: unknown[] }).items.length, 1);
+});
+
+test("FeishuGetDocxBlock returns one block", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      return { blockId, blockType: 2, textContent: "hello" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: GET_DOCX_BLOCK_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, blockId: "blk_100" },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { block: { blockId: string } }).block.blockId, "blk_100");
+});
+
+test("FeishuInsertDocxBlocks inserts blocks at explicit index", async () => {
+  let capturedIndex = -99;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async createDocxBlocks(_docId: string, _parentId: string, options: { index?: number; children: unknown[] }) {
+      capturedIndex = options.index ?? -99;
+      return {
+        documentId: DOC_ID,
+        revisionId: 3,
+        blocks: options.children.map((_, i) => ({ blockId: `blk_${i + 1}`, blockType: 2 })),
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: INSERT_DOCX_BLOCKS_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      parentBlockId: DOC_ID,
+      index: 0,
+      blocks: [{ kind: "paragraph", text: "inserted" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(capturedIndex, 0);
+});
+
+test("FeishuUpdateDocxBlocks passes raw requests", async () => {
+  let requestCount = 0;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async updateDocxBlocks(_documentId: string, requests: Record<string, unknown>[]) {
+      requestCount = requests.length;
+      return {
+        documentId: DOC_ID,
+        revisionId: 12,
+        updatedBlocks: [{ blockId: "blk_1", blockType: 2 }],
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: UPDATE_DOCX_BLOCKS_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      requests: [{ block_id: "blk_1", replace_text: { elements: [] } }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(requestCount, 1);
+});
+
+test("FeishuDeleteDocxBlocks deletes child range", async () => {
+  let deleted: [number, number] | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async deleteDocxBlockChildren(_documentId: string, _parent: string, startIndex: number, endIndex: number) {
+      deleted = [startIndex, endIndex];
+      return {
+        documentId: DOC_ID,
+        parentBlockId: DOC_ID,
+        startIndex,
+        endIndex,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: DELETE_DOCX_BLOCKS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, parentBlockId: DOC_ID, startIndex: 1, endIndex: 2 },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.deepEqual(deleted, [1, 2]);
+});
+
+test("FeishuUpdateDocxTitle updates title block", async () => {
+  let updateCalled = 0;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async updateDocxBlocks() {
+      updateCalled += 1;
+      return { documentId: DOC_ID, updatedBlocks: [] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: UPDATE_DOCX_TITLE_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, title: "New Title" },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(updateCalled, 1);
+});
+
+test("FeishuUpdateDocxContent supports append mode", async () => {
+  let appendCalled = 0;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock() {
+      return { blockId: DOC_ID, blockType: 1, children: [] };
+    },
+    async createDocxBlocks() {
+      appendCalled += 1;
+      return { documentId: DOC_ID, blocks: [{ blockId: "blk_1", blockType: 2 }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: UPDATE_DOCX_CONTENT_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, mode: "append", markdown: "hello" },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(appendCalled, 1);
+});
+
+test("FeishuUpdateDocxContent selectionByTitle uses block_type to find heading boundary", async () => {
+  let deletedRange: [number, number] | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["h1", "p1", "p2", "h2", "p3"] };
+      }
+      if (blockId === "h1") {
+        return { blockId: "h1", blockType: 3, textContent: "Section A" };
+      }
+      if (blockId === "h2") {
+        return { blockId: "h2", blockType: 3, textContent: "Section B" };
+      }
+      return { blockId, blockType: 2, textContent: `${blockId} text` };
+    },
+    async deleteDocxBlockChildren(_documentId: string, _parentBlockId: string, startIndex: number, endIndex: number) {
+      deletedRange = [startIndex, endIndex];
+      return {
+        documentId: DOC_ID,
+        parentBlockId: DOC_ID,
+        startIndex,
+        endIndex,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: UPDATE_DOCX_CONTENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      mode: "deleteRange",
+      selectionByTitle: "Section A",
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.deepEqual(deletedRange, [0, 3]);
+});
+
+test("FeishuEmbedDocxMedia uploads and binds media", async () => {
+  const temp = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const filePath = path.join(os.tmpdir(), `dotcraft-feishu-test-${Date.now()}.txt`);
+  await temp.writeFile(filePath, "hello media");
+  try {
+    let uploaded = false;
+    let updated = false;
+    const client = {
+      async getWikiNode() {
+        throw new Error("should not call");
+      },
+      async getDocxBlock() {
+        return { blockId: DOC_ID, blockType: 1, children: [] };
+      },
+      async createDocxBlocks() {
+        return { documentId: DOC_ID, blocks: [{ blockId: "blk_1", blockType: 27 }] };
+      },
+      async uploadDocxMedia() {
+        uploaded = true;
+        return { fileToken: "file_tok_1" };
+      },
+      async updateDocxBlocks() {
+        updated = true;
+        return { documentId: DOC_ID, updatedBlocks: [] };
+      },
+    } as unknown as FeishuClient;
+    const result = await maybeExecuteFeishuDocxToolCall({
+      toolName: EMBED_DOCX_MEDIA_TOOL_NAME,
+      args: { documentIdOrUrl: DOC_ID, filePath, mediaType: "image" },
+      client,
+    });
+    assert.equal(result?.success, true);
+    assert.equal(uploaded, true);
+    assert.equal(updated, true);
+  } finally {
+    await temp.unlink(filePath).catch(() => {});
+  }
+});
+
+test("FeishuListDocxComments returns paged comment cards", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async listDocxComments() {
+      return {
+        fileToken: DOC_ID,
+        items: [{ commentId: "comment_1", replyList: { replies: [] } }],
+        nextPageToken: "next",
+        hasMore: true,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: LIST_DOCX_COMMENTS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, pageSize: 20 },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { items: unknown[] }).items.length, 1);
+});
+
+test("FeishuBatchQueryDocxComments queries by commentIds", async () => {
+  let captured: string[] = [];
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments(_options: { fileToken: string; commentIds: string[] }) {
+      captured = _options.commentIds;
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentIds: ["comment_1"] },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.deepEqual(captured, ["comment_1"]);
+});
+
+test("FeishuListDocxCommentReplies returns replies page", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async listDocxCommentReplies() {
+      return {
+        fileToken: DOC_ID,
+        commentId: "comment_1",
+        items: [{ replyId: "reply_1" }],
+        hasMore: false,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentId: "comment_1" },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { items: Array<{ replyId: string }> }).items[0]?.replyId, "reply_1");
+});
+
+test("FeishuAddDocxComment creates full comment when no locator is provided", async () => {
+  let capturedAnchor: string | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async createDocxComment(options: { anchorBlockId?: string }) {
+      capturedAnchor = options.anchorBlockId;
+      return { fileToken: DOC_ID, commentId: "comment_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      content: [{ type: "text", text: "hello" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(capturedAnchor, undefined);
+  assert.equal((result?.structuredResult as { commentMode: string }).commentMode, "full");
+});
+
+test("FeishuAddDocxComment resolves selectionWithEllipsis into anchor block id", async () => {
+  let capturedAnchor = "";
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["blk_1"] };
+      }
+      return { blockId: "blk_1", blockType: 2, textContent: "hello world" };
+    },
+    async createDocxComment(options: { anchorBlockId?: string }) {
+      capturedAnchor = String(options.anchorBlockId ?? "");
+      return { fileToken: DOC_ID, commentId: "comment_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      selectionWithEllipsis: "hello",
+      content: [{ type: "text", text: "local comment" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(capturedAnchor, "blk_1");
+  assert.equal((result?.structuredResult as { commentMode: string }).commentMode, "local");
+});
+
+test("FeishuAddDocxComment returns AmbiguousMatch when selection hits multiple blocks", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["blk_1", "blk_2"] };
+      }
+      return { blockId, blockType: 2, textContent: "same needle" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      selectionWithEllipsis: "needle",
+      content: [{ type: "text", text: "local comment" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "AmbiguousMatch",
+    errorMessage: "Selection 'needle' matched 2 blocks: blk_1, blk_2. Narrow selectionWithEllipsis.",
+  });
+});
+
+test("FeishuAddDocxCommentReply creates reply for replyable comment", async () => {
+  let created = false;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: false, isSolved: false, replyList: { replies: [] } }] };
+    },
+    async createDocxCommentReply() {
+      created = true;
+      return { fileToken: DOC_ID, commentId: "comment_1", replyId: "reply_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(created, true);
+});
+
+test("FeishuAddDocxCommentReply rejects full comments", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: true, isSolved: false, replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "CommentNotReplyable",
+    errorMessage: "Full comments do not support replies.",
+  });
+});
+
+test("FeishuAddDocxCommentReply rejects solved comments", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: false, isSolved: true, replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "CommentNotReplyable",
+    errorMessage: "Resolved comments do not support replies.",
+  });
+});
+
+test("FeishuResolveDocxComment patches solved state", async () => {
+  let patched: boolean | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async patchDocxCommentSolved(options: { isSolved: boolean }) {
+      patched = options.isSolved;
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: RESOLVE_DOCX_COMMENT_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentId: "comment_1", isSolved: true },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(patched, true);
 });

@@ -102,6 +102,28 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
 
         var threadId = thread.Id;
 
+        // Mark automation-triggered turns so client UIs can render a
+        // "Sent via automation" affordance on the synthesized user message.
+        TurnTriggerInfo? triggerInfo = null;
+        if (sessionKey.StartsWith("heartbeat"))
+        {
+            triggerInfo = new TurnTriggerInfo { Kind = "heartbeat", Label = threadDisplayName };
+        }
+        else if (sessionKey.StartsWith("cron:"))
+        {
+            var jobId = sessionKey.Length > 5 ? sessionKey[5..] : null;
+            triggerInfo = new TurnTriggerInfo
+            {
+                Kind = "cron",
+                RefId = string.IsNullOrEmpty(jobId) ? null : jobId,
+                Label = !string.IsNullOrWhiteSpace(threadDisplayName)
+                    ? threadDisplayName
+                    : (rawUserPrompt.Length > 50 ? rawUserPrompt[..50] + "..." : rawUserPrompt)
+            };
+        }
+
+        using var triggerScope = triggerInfo != null ? TurnTriggerScope.Set(triggerInfo) : null;
+
         // Consume the event stream and accumulate the agent response text
         var sb = new StringBuilder();
         int? inputTokens = null;

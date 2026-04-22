@@ -20,7 +20,7 @@ It is built on:
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
-- Optional docx + wiki channel tools for create/read/append/list/get/move-to-wiki/move-wiki-node
+- Optional docx + wiki channel tools for create/read/update/insert/delete/media-embed/list/get/move/rename
 - Public `FeishuClient.sendTextMessage(...)` and `replyToMessage(...)`
 
 ## What This Adapter Does Not Cover
@@ -155,6 +155,11 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - Approvals: rendered as interactive cards
 - Replies: sent as static interactive cards after the turn finishes
 - Docx tools (`documentIdOrUrl`) accept a raw docx token, a docx URL (`/docx/<token>`), or a wiki node URL/token that points to a docx-backed node
+- New docx block primitives: `FeishuListDocxBlocks`, `FeishuGetDocxBlock`, `FeishuInsertDocxBlocks`, `FeishuUpdateDocxBlocks`, `FeishuDeleteDocxBlocks`
+- New high-level edit tool `FeishuUpdateDocxContent` supports `append`, `overwrite`, `replaceRange`, `replaceAll`, `insertBefore`, `insertAfter`, `deleteRange`, with optional `newTitle`
+- New media tool `FeishuEmbedDocxMedia` uploads a local image/file and inserts it into a docx block flow (with rollback on downstream failure)
+- New title tools: `FeishuUpdateDocxTitle` and wiki node rename `FeishuRenameWikiNode`
+- New docx comment tools: `FeishuListDocxComments`, `FeishuBatchQueryDocxComments`, `FeishuListDocxCommentReplies`, `FeishuAddDocxComment`, `FeishuAddDocxCommentReply`, `FeishuResolveDocxComment`
 - Legacy `/doc/<token>` URLs (old-style Feishu documents) are **not supported**; the docx v1 API only covers `/docx/...`. Open the file in Feishu and copy the new `/docx/<token>` URL instead. The tool surface returns a dedicated `UnsupportedLegacyDoc` error in this case.
 - Wiki tools (`spaceIdOrUrl`) accept a numeric `space_id`, a wiki settings URL (`/wiki/settings/<space_id>`), or a wiki node URL/token; node URLs/tokens are auto-resolved by calling `getWikiNode` and default that node as parent when parent is omitted
 - `FeishuMoveDocxToWiki` aligns with the official Lark CLI: when the API returns a `task_id` (async path), the tool polls `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move` up to 30 times at 2 s intervals (~60 s window). On success it returns `ready=true` with the resolved `wikiToken`; on timeout it returns `ready=false, timedOut=true, taskId` so the caller can re-query later. Pass `waitForCompletion: false` to skip polling and get the raw `taskId` immediately.
@@ -180,6 +185,12 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 | Create docx `createDocxDocument` | `POST /open-apis/docx/v1/documents` | `docx:document` or `docx:document:create` | No |
 | Read docx raw content `getDocxRawContent` | `GET /open-apis/docx/v1/documents/{document_id}/raw_content` | `docx:document` or `docx:document:readonly` | No |
 | Append docx blocks `createDocxBlocks` | `POST /open-apis/docx/v1/documents/{document_id}/blocks/{block_id}/children` | `docx:document` or `docx:document:write_only` | No |
+| List docx comments `listDocxComments` | `GET /open-apis/drive/v1/files/{file_token}/comments?file_type=docx` | `docs:document.comment:read` | No |
+| Batch query docx comments `batchQueryDocxComments` | `POST /open-apis/drive/v1/files/{file_token}/comments/batch_query?file_type=docx` | `docs:document.comment:read` | No |
+| List docx comment replies `listDocxCommentReplies` | `GET /open-apis/drive/v1/files/{file_token}/comments/{comment_id}/replies?file_type=docx` | `docs:document.comment:read` | No |
+| Create docx comment `createDocxComment` | `POST /open-apis/drive/v1/files/{file_token}/new_comments` | `docs:document.comment:create` | No |
+| Create docx comment reply `createDocxCommentReply` | `POST /open-apis/drive/v1/files/{file_token}/comments/{comment_id}/replies?file_type=docx` | `docs:document.comment:create` | No |
+| Resolve/unresolve docx comment `patchDocxCommentSolved` | `PATCH /open-apis/drive/v1/files/{file_token}/comments/{comment_id}?file_type=docx` | `docs:document.comment:update` | No |
 | Create wiki node `createWikiNode` | `POST /open-apis/wiki/v2/spaces/{space_id}/nodes` | `wiki:wiki` or `wiki:node:create` | No |
 | Get wiki node `getWikiNode` | `GET /open-apis/wiki/v2/spaces/get_node` | `wiki:wiki` or `wiki:wiki:readonly` | No |
 | List wiki child nodes `listWikiNodes` | `GET /open-apis/wiki/v2/spaces/{space_id}/nodes` | `wiki:wiki` or `wiki:wiki:readonly` | No |

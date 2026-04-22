@@ -120,7 +120,28 @@ public sealed class CronTools(CronService cronService)
 
                 var deleteAfter = !hasDaily && delaySeconds.HasValue && !everySeconds.HasValue;
                 var job = cronService.AddJob(name ?? message[..Math.Min(message.Length, 30)], schedule, payload, deleteAfterRun: deleteAfter);
-                return JsonSerializer.Serialize(new { status = "created", job.Id, job.Name, nextRun = job.State.NextRunAtMs });
+                return JsonSerializer.Serialize(new
+                {
+                    status = "created",
+                    job.Id,
+                    job.Name,
+                    nextRun = job.State.NextRunAtMs,
+                    schedule = new
+                    {
+                        kind = job.Schedule.Kind,
+                        everyMs = job.Schedule.EveryMs,
+                        initialDelayMs = job.Schedule.InitialDelayMs,
+                        dailyHour = job.Schedule.DailyHour,
+                        dailyMinute = job.Schedule.DailyMinute,
+                        atMs = job.Schedule.AtMs,
+                        tz = job.Schedule.Tz
+                    },
+                    deleteAfterRun = deleteAfter,
+                    message,
+                    deliver,
+                    channel = payload.Channel,
+                    toUser = payload.To
+                });
             }
 
             case "list":

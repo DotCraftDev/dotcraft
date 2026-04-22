@@ -415,7 +415,12 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
             }
 
             if (aiContents.Count > 0)
+            {
+                if (result.StructuredResult != null)
+                    aiContents.Add(new TextContent(result.StructuredResult.ToJsonString()));
+
                 return aiContents;
+            }
         }
 
         if (result.StructuredResult != null)

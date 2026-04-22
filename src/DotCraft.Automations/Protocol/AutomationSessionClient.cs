@@ -50,13 +50,32 @@ public sealed class AutomationSessionClient(ISessionService sessionService, DotC
 
     /// <summary>
     /// Submits a turn and yields session events until the turn reaches a terminal state.
+    /// Optionally annotates the synthesized user message with automation trigger metadata
+    /// so clients can render a "Sent via automation" affordance.
     /// </summary>
     public async IAsyncEnumerable<SessionEvent> SubmitTurnAsync(
         string threadId,
         string message,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct,
+        TurnTriggerInfo? trigger = null)
     {
-        await foreach (var evt in sessionService.SubmitInputAsync(threadId, message, sender: null, messages: null, ct))
+        // The scope only needs to be active while SubmitInputAsync synchronously
+        // builds the UserMessage item; we can release it before enumerating the
+        // event stream.
+        IAsyncEnumerable<SessionEvent> stream;
+        if (trigger != null)
+        {
+            using (TurnTriggerScope.Set(trigger))
+            {
+                stream = sessionService.SubmitInputAsync(threadId, message, sender: null, messages: null, ct);
+            }
+        }
+        else
+        {
+            stream = sessionService.SubmitInputAsync(threadId, message, sender: null, messages: null, ct);
+        }
+
+        await foreach (var evt in stream.WithCancellation(ct))
         {
             yield return evt;
             if (evt.EventType is SessionEventType.TurnCompleted

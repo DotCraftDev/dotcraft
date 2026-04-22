@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
 import type { FeishuClient } from "./feishu-client.js";
@@ -7,8 +8,32 @@ import { extractWikiNodeToken, resolveWikiSpaceTarget } from "./feishu-wiki-tool
 export const CREATE_DOCX_TOOL_NAME = "FeishuCreateDocxAndShareToCurrentChat";
 export const READ_DOCX_TOOL_NAME = "FeishuReadDocxContent";
 export const APPEND_DOCX_TOOL_NAME = "FeishuAppendDocxContent";
+export const LIST_DOCX_BLOCKS_TOOL_NAME = "FeishuListDocxBlocks";
+export const GET_DOCX_BLOCK_TOOL_NAME = "FeishuGetDocxBlock";
+export const INSERT_DOCX_BLOCKS_TOOL_NAME = "FeishuInsertDocxBlocks";
+export const UPDATE_DOCX_BLOCKS_TOOL_NAME = "FeishuUpdateDocxBlocks";
+export const DELETE_DOCX_BLOCKS_TOOL_NAME = "FeishuDeleteDocxBlocks";
+export const UPDATE_DOCX_CONTENT_TOOL_NAME = "FeishuUpdateDocxContent";
+export const UPDATE_DOCX_TITLE_TOOL_NAME = "FeishuUpdateDocxTitle";
+export const EMBED_DOCX_MEDIA_TOOL_NAME = "FeishuEmbedDocxMedia";
+export const LIST_DOCX_COMMENTS_TOOL_NAME = "FeishuListDocxComments";
+export const BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME = "FeishuBatchQueryDocxComments";
+export const LIST_DOCX_COMMENT_REPLIES_TOOL_NAME = "FeishuListDocxCommentReplies";
+export const ADD_DOCX_COMMENT_TOOL_NAME = "FeishuAddDocxComment";
+export const ADD_DOCX_COMMENT_REPLY_TOOL_NAME = "FeishuAddDocxCommentReply";
+export const RESOLVE_DOCX_COMMENT_TOOL_NAME = "FeishuResolveDocxComment";
 
 const DOCX_ID_PATTERN = /^[A-Za-z0-9]{16,40}$/;
+const MEDIA_ALIGN_MAP = new Map<string, number>([
+  ["left", 1],
+  ["center", 2],
+  ["right", 3],
+]);
+const FILE_VIEW_MAP = new Map<string, number>([
+  ["card", 1],
+  ["preview", 2],
+  ["inline", 3],
+]);
 const SIMPLE_BLOCK_KINDS = [
   "paragraph",
   "heading1",
@@ -107,6 +132,15 @@ export interface FeishuSimpleBlock {
   checked?: boolean;
   language?: string;
 }
+
+type DocxUpdateMode =
+  | "append"
+  | "overwrite"
+  | "replaceRange"
+  | "replaceAll"
+  | "insertBefore"
+  | "insertAfter"
+  | "deleteRange";
 
 class DocxToolError extends Error {
   readonly code: string;
@@ -209,6 +243,327 @@ export function getFeishuDocxChannelTools(enabled: boolean): Record<string, unkn
         operation: "append",
       },
     },
+    {
+      name: LIST_DOCX_BLOCKS_TOOL_NAME,
+      description: "List blocks from a Feishu docx document.",
+      display: {
+        icon: "\u{1F4DC}",
+        title: "List Feishu docx blocks",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          pageSize: { type: "integer" },
+          pageToken: { type: "string" },
+        },
+        required: ["documentIdOrUrl"],
+      },
+    },
+    {
+      name: GET_DOCX_BLOCK_TOOL_NAME,
+      description: "Get one block from a Feishu docx document.",
+      display: {
+        icon: "\u{1F50E}",
+        title: "Get Feishu docx block",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          blockId: { type: "string" },
+        },
+        required: ["documentIdOrUrl", "blockId"],
+      },
+    },
+    {
+      name: INSERT_DOCX_BLOCKS_TOOL_NAME,
+      description: "Insert children blocks under a parent docx block at index.",
+      display: {
+        icon: "\u{2795}",
+        title: "Insert Feishu docx blocks",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          parentBlockId: { type: "string" },
+          index: { type: "integer" },
+          blocks: { type: "array", items: simpleBlockSchema },
+        },
+        required: ["documentIdOrUrl", "parentBlockId", "blocks"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: UPDATE_DOCX_BLOCKS_TOOL_NAME,
+      description: "Batch update Feishu docx blocks with raw update requests.",
+      display: {
+        icon: "\u{1F527}",
+        title: "Batch update Feishu docx blocks",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          requests: { type: "array", items: { type: "object" } },
+        },
+        required: ["documentIdOrUrl", "requests"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: DELETE_DOCX_BLOCKS_TOOL_NAME,
+      description: "Delete child blocks by [startIndex, endIndex) under parent block.",
+      display: {
+        icon: "\u{1F5D1}\u{FE0F}",
+        title: "Delete Feishu docx blocks",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          parentBlockId: { type: "string" },
+          startIndex: { type: "integer" },
+          endIndex: { type: "integer" },
+        },
+        required: ["documentIdOrUrl", "parentBlockId", "startIndex", "endIndex"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "delete",
+      },
+    },
+    {
+      name: UPDATE_DOCX_TITLE_TOOL_NAME,
+      description: "Update Feishu docx title text only.",
+      display: {
+        icon: "\u{1F3F7}\u{FE0F}",
+        title: "Update Feishu docx title",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          title: { type: "string" },
+        },
+        required: ["documentIdOrUrl", "title"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: UPDATE_DOCX_CONTENT_TOOL_NAME,
+      description:
+        "Update Feishu docx content with high-level modes: append/overwrite/replaceRange/replaceAll/insertBefore/insertAfter/deleteRange.",
+      display: {
+        icon: "\u{270D}\u{FE0F}",
+        title: "Update Feishu docx content",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          mode: {
+            type: "string",
+            enum: ["append", "overwrite", "replaceRange", "replaceAll", "insertBefore", "insertAfter", "deleteRange"],
+          },
+          markdown: { type: "string" },
+          selectionWithEllipsis: { type: "string" },
+          selectionByTitle: { type: "string" },
+          newTitle: { type: "string" },
+        },
+        required: ["documentIdOrUrl", "mode"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: EMBED_DOCX_MEDIA_TOOL_NAME,
+      description: "Upload local image/file and embed it into Feishu docx.",
+      display: {
+        icon: "\u{1F4F7}",
+        title: "Embed media into Feishu docx",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          filePath: { type: "string" },
+          mediaType: { type: "string", enum: ["image", "file"] },
+          selectionWithEllipsis: { type: "string" },
+          before: { type: "boolean" },
+          align: { type: "string", enum: ["left", "center", "right"] },
+          caption: { type: "string" },
+          fileView: { type: "string", enum: ["card", "preview", "inline"] },
+        },
+        required: ["documentIdOrUrl", "filePath"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: LIST_DOCX_COMMENTS_TOOL_NAME,
+      description: "List comment cards from a Feishu docx document.",
+      display: {
+        icon: "\u{1F4AC}",
+        title: "List Feishu docx comments",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          pageSize: { type: "integer" },
+          pageToken: { type: "string" },
+          isSolved: { type: "boolean" },
+          isWhole: { type: "boolean" },
+        },
+        required: ["documentIdOrUrl"],
+      },
+    },
+    {
+      name: BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+      description: "Batch query Feishu docx comments by comment IDs.",
+      display: {
+        icon: "\u{1F4E6}",
+        title: "Batch query Feishu comments",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          commentIds: { type: "array", items: { type: "string" } },
+        },
+        required: ["documentIdOrUrl", "commentIds"],
+      },
+    },
+    {
+      name: LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+      description: "List replies under one Feishu docx comment card.",
+      display: {
+        icon: "\u{1F4DD}",
+        title: "List Feishu comment replies",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          commentId: { type: "string" },
+          pageSize: { type: "integer" },
+          pageToken: { type: "string" },
+        },
+        required: ["documentIdOrUrl", "commentId"],
+      },
+    },
+    {
+      name: ADD_DOCX_COMMENT_TOOL_NAME,
+      description: "Create a full or local comment in Feishu docx.",
+      display: {
+        icon: "\u{1F58A}\u{FE0F}",
+        title: "Add Feishu docx comment",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          content: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["text", "mention_user", "link"] },
+                text: { type: "string" },
+                mention_user: { type: "string" },
+                link: { type: "string" },
+              },
+              required: ["type"],
+            },
+          },
+          selectionWithEllipsis: { type: "string" },
+          blockId: { type: "string" },
+        },
+        required: ["documentIdOrUrl", "content"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+      description: "Add a reply to a Feishu docx comment.",
+      display: {
+        icon: "\u{21A9}\u{FE0F}",
+        title: "Reply Feishu docx comment",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          commentId: { type: "string" },
+          content: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["text", "mention_user", "link"] },
+                text: { type: "string" },
+                mention_user: { type: "string" },
+                link: { type: "string" },
+              },
+              required: ["type"],
+            },
+          },
+        },
+        required: ["documentIdOrUrl", "commentId", "content"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
+    {
+      name: RESOLVE_DOCX_COMMENT_TOOL_NAME,
+      description: "Resolve or unresolve a Feishu docx comment.",
+      display: {
+        icon: "\u{2705}",
+        title: "Resolve Feishu docx comment",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          documentIdOrUrl: { type: "string" },
+          commentId: { type: "string" },
+          isSolved: { type: "boolean" },
+        },
+        required: ["documentIdOrUrl", "commentId", "isSolved"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "write",
+      },
+    },
   ];
 }
 
@@ -227,7 +582,49 @@ export async function maybeExecuteFeishuDocxToolCall(params: {
     if (params.toolName === READ_DOCX_TOOL_NAME) {
       return await executeReadDocxTool(params);
     }
-    return await executeAppendDocxTool(params);
+    if (params.toolName === APPEND_DOCX_TOOL_NAME) {
+      return await executeAppendDocxTool(params);
+    }
+    if (params.toolName === LIST_DOCX_BLOCKS_TOOL_NAME) {
+      return await executeListDocxBlocksTool(params);
+    }
+    if (params.toolName === GET_DOCX_BLOCK_TOOL_NAME) {
+      return await executeGetDocxBlockTool(params);
+    }
+    if (params.toolName === INSERT_DOCX_BLOCKS_TOOL_NAME) {
+      return await executeInsertDocxBlocksTool(params);
+    }
+    if (params.toolName === UPDATE_DOCX_BLOCKS_TOOL_NAME) {
+      return await executeUpdateDocxBlocksTool(params);
+    }
+    if (params.toolName === DELETE_DOCX_BLOCKS_TOOL_NAME) {
+      return await executeDeleteDocxBlocksTool(params);
+    }
+    if (params.toolName === UPDATE_DOCX_TITLE_TOOL_NAME) {
+      return await executeUpdateDocxTitleTool(params);
+    }
+    if (params.toolName === UPDATE_DOCX_CONTENT_TOOL_NAME) {
+      return await executeUpdateDocxContentTool(params);
+    }
+    if (params.toolName === EMBED_DOCX_MEDIA_TOOL_NAME) {
+      return await executeEmbedDocxMediaTool(params);
+    }
+    if (params.toolName === LIST_DOCX_COMMENTS_TOOL_NAME) {
+      return await executeListDocxCommentsTool(params);
+    }
+    if (params.toolName === BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME) {
+      return await executeBatchQueryDocxCommentsTool(params);
+    }
+    if (params.toolName === LIST_DOCX_COMMENT_REPLIES_TOOL_NAME) {
+      return await executeListDocxCommentRepliesTool(params);
+    }
+    if (params.toolName === ADD_DOCX_COMMENT_TOOL_NAME) {
+      return await executeAddDocxCommentTool(params);
+    }
+    if (params.toolName === ADD_DOCX_COMMENT_REPLY_TOOL_NAME) {
+      return await executeAddDocxCommentReplyTool(params);
+    }
+    return await executeResolveDocxCommentTool(params);
   } catch (error) {
     if (error instanceof DocxToolError) {
       return {
@@ -381,7 +778,25 @@ export function toFeishuDocxChildren(blocks: FeishuSimpleBlock[]): Record<string
 }
 
 function isFeishuDocxToolName(toolName: string): boolean {
-  return toolName === CREATE_DOCX_TOOL_NAME || toolName === READ_DOCX_TOOL_NAME || toolName === APPEND_DOCX_TOOL_NAME;
+  return (
+    toolName === CREATE_DOCX_TOOL_NAME ||
+    toolName === READ_DOCX_TOOL_NAME ||
+    toolName === APPEND_DOCX_TOOL_NAME ||
+    toolName === LIST_DOCX_BLOCKS_TOOL_NAME ||
+    toolName === GET_DOCX_BLOCK_TOOL_NAME ||
+    toolName === INSERT_DOCX_BLOCKS_TOOL_NAME ||
+    toolName === UPDATE_DOCX_BLOCKS_TOOL_NAME ||
+    toolName === DELETE_DOCX_BLOCKS_TOOL_NAME ||
+    toolName === UPDATE_DOCX_TITLE_TOOL_NAME ||
+    toolName === UPDATE_DOCX_CONTENT_TOOL_NAME ||
+    toolName === EMBED_DOCX_MEDIA_TOOL_NAME ||
+    toolName === LIST_DOCX_COMMENTS_TOOL_NAME ||
+    toolName === BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME ||
+    toolName === LIST_DOCX_COMMENT_REPLIES_TOOL_NAME ||
+    toolName === ADD_DOCX_COMMENT_TOOL_NAME ||
+    toolName === ADD_DOCX_COMMENT_REPLY_TOOL_NAME ||
+    toolName === RESOLVE_DOCX_COMMENT_TOOL_NAME
+  );
 }
 
 async function executeCreateDocxTool(params: {
@@ -547,6 +962,529 @@ async function executeAppendDocxTool(params: {
   };
 }
 
+async function executeListDocxBlocksTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const page = await params.client.listDocxBlocks({
+    documentId,
+    pageSize: optionalInteger(params.args.pageSize, "pageSize"),
+    pageToken: optionalText(params.args.pageToken),
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Listed ${page.items.length} block(s) from docx ${documentId}.` }],
+    structuredResult: {
+      documentId,
+      items: page.items,
+      nextPageToken: page.nextPageToken,
+      hasMore: page.hasMore,
+    },
+  };
+}
+
+async function executeGetDocxBlockTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const blockId = requiredText(params.args.blockId, "blockId");
+  const block = await params.client.getDocxBlock(documentId, blockId);
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Loaded docx block ${blockId}.` }],
+    structuredResult: {
+      documentId,
+      block,
+    },
+  };
+}
+
+async function executeInsertDocxBlocksTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const parentBlockId = requiredText(params.args.parentBlockId, "parentBlockId");
+  const blocks = parseFeishuSimpleBlocks(params.args.blocks, "blocks");
+  const result = await params.client.createDocxBlocks(documentId, parentBlockId, {
+    children: toFeishuDocxChildren(blocks),
+    index: optionalIntegerAllowNegativeOne(params.args.index, "index") ?? -1,
+    documentRevisionId: -1,
+    clientToken: randomUUID(),
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Inserted ${result.blocks.length} block(s) into docx ${documentId}.` }],
+    structuredResult: {
+      documentId,
+      parentBlockId,
+      revisionId: result.revisionId,
+      blocks: result.blocks,
+    },
+  };
+}
+
+async function executeUpdateDocxBlocksTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const requests = parseObjectArray(params.args.requests, "requests");
+  const result = await params.client.updateDocxBlocks(documentId, requests);
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Updated ${requests.length} block request(s) in docx ${documentId}.` }],
+    structuredResult: result,
+  };
+}
+
+async function executeDeleteDocxBlocksTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const parentBlockId = requiredText(params.args.parentBlockId, "parentBlockId");
+  const startIndex = requiredInteger(params.args.startIndex, "startIndex");
+  const endIndex = requiredInteger(params.args.endIndex, "endIndex");
+  const result = await params.client.deleteDocxBlockChildren(documentId, parentBlockId, startIndex, endIndex);
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Deleted child blocks [${startIndex}, ${endIndex}) from ${parentBlockId}.` }],
+    structuredResult: result,
+  };
+}
+
+async function executeUpdateDocxTitleTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const title = requiredText(params.args.title, "title");
+  await updateDocxTitle(params.client, documentId, title);
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Updated docx ${documentId} title.` }],
+    structuredResult: {
+      documentId,
+      title,
+    },
+  };
+}
+
+async function executeUpdateDocxContentTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const mode = requiredMode(params.args.mode);
+  const markdown = optionalText(params.args.markdown) ?? "";
+  const selectionWithEllipsis = optionalText(params.args.selectionWithEllipsis);
+  const selectionByTitle = optionalText(params.args.selectionByTitle);
+  const newTitle = optionalText(params.args.newTitle);
+  if (selectionWithEllipsis && selectionByTitle) {
+    throw new DocxToolError(
+      "InvalidArguments",
+      "FeishuUpdateDocxContent requires either selectionWithEllipsis or selectionByTitle, not both.",
+    );
+  }
+  const selectionRequired = new Set(["replaceRange", "replaceAll", "insertBefore", "insertAfter", "deleteRange"]);
+  if (selectionRequired.has(mode) && !selectionWithEllipsis && !selectionByTitle) {
+    throw new DocxToolError("InvalidArguments", `FeishuUpdateDocxContent mode '${mode}' requires a selection.`);
+  }
+  if (mode !== "deleteRange" && !markdown) {
+    throw new DocxToolError("InvalidArguments", `FeishuUpdateDocxContent mode '${mode}' requires non-empty markdown.`);
+  }
+
+  const warnings = collectUpdateWarnings(mode, markdown);
+  const root = await params.client.getDocxBlock(documentId, documentId);
+  const rootChildren = root.children ?? [];
+  const blocks = markdown ? parseMarkdownToSimpleBlocks(markdown) : [];
+  const convertedChildren = blocks.length > 0 ? toFeishuDocxChildren(blocks) : [];
+  let operationResult: Record<string, unknown> = {};
+
+  if (mode === "append") {
+    const inserted = await params.client.createDocxBlocks(documentId, documentId, {
+      children: convertedChildren,
+      index: -1,
+      documentRevisionId: -1,
+      clientToken: randomUUID(),
+    });
+    operationResult = { appendedBlocks: inserted.blocks, revisionId: inserted.revisionId };
+  } else if (mode === "overwrite") {
+    if (rootChildren.length > 0) {
+      await params.client.deleteDocxBlockChildren(documentId, documentId, 0, rootChildren.length);
+    }
+    const inserted = await params.client.createDocxBlocks(documentId, documentId, {
+      children: convertedChildren,
+      index: 0,
+      documentRevisionId: -1,
+      clientToken: randomUUID(),
+    });
+    warnings.push("overwrite mode may remove media/comments from previous content.");
+    operationResult = { insertedBlocks: inserted.blocks, revisionId: inserted.revisionId };
+  } else {
+    const locate = await locateSelectionRange({
+      client: params.client,
+      documentId,
+      selectionWithEllipsis,
+      selectionByTitle,
+      rootChildren,
+    });
+    if (mode === "insertBefore" || mode === "insertAfter") {
+      const insertIndex = mode === "insertBefore" ? locate.startIndex : locate.endIndex;
+      const inserted = await params.client.createDocxBlocks(documentId, documentId, {
+        children: convertedChildren,
+        index: insertIndex,
+        documentRevisionId: -1,
+        clientToken: randomUUID(),
+      });
+      operationResult = { insertedBlocks: inserted.blocks, insertIndex, revisionId: inserted.revisionId };
+    } else if (mode === "deleteRange") {
+      await params.client.deleteDocxBlockChildren(documentId, documentId, locate.startIndex, locate.endIndex);
+      operationResult = { deletedRange: locate };
+    } else {
+      await params.client.deleteDocxBlockChildren(documentId, documentId, locate.startIndex, locate.endIndex);
+      if (convertedChildren.length > 0) {
+        const inserted = await params.client.createDocxBlocks(documentId, documentId, {
+          children: convertedChildren,
+          index: locate.startIndex,
+          documentRevisionId: -1,
+          clientToken: randomUUID(),
+        });
+        operationResult = {
+          replacedRange: locate,
+          insertedBlocks: inserted.blocks,
+          revisionId: inserted.revisionId,
+        };
+      } else {
+        operationResult = { replacedRange: locate, insertedBlocks: [] };
+      }
+    }
+  }
+
+  if (newTitle) {
+    await updateDocxTitle(params.client, documentId, newTitle);
+  }
+
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Updated Feishu docx ${documentId} using mode ${mode}.` }],
+    structuredResult: {
+      documentId,
+      mode,
+      warnings,
+      ...(newTitle ? { newTitle } : {}),
+      ...operationResult,
+    },
+  };
+}
+
+async function executeEmbedDocxMediaTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const filePath = requiredText(params.args.filePath, "filePath");
+  const mediaType = optionalText(params.args.mediaType) === "file" ? "file" : "image";
+  const selectionWithEllipsis = optionalText(params.args.selectionWithEllipsis);
+  const before = optionalBoolean(params.args.before) ?? false;
+  if (before && !selectionWithEllipsis) {
+    throw new DocxToolError("InvalidArguments", "FeishuEmbedDocxMedia 'before' requires selectionWithEllipsis.");
+  }
+  const align = optionalText(params.args.align);
+  const fileView = optionalText(params.args.fileView);
+  const caption = optionalText(params.args.caption);
+  const fileInfo = await stat(filePath).catch(() => null);
+  if (!fileInfo || !fileInfo.isFile()) {
+    throw new DocxToolError("InvalidArguments", `FeishuEmbedDocxMedia cannot access regular file '${filePath}'.`);
+  }
+
+  const root = await params.client.getDocxBlock(documentId, documentId);
+  const rootChildren = root.children ?? [];
+  let insertIndex = rootChildren.length;
+  if (selectionWithEllipsis) {
+    const locate = await locateSelectionRange({
+      client: params.client,
+      documentId,
+      selectionWithEllipsis,
+      rootChildren,
+    });
+    insertIndex = before ? locate.startIndex : locate.endIndex;
+  }
+
+  const createChild = mediaType === "file"
+    ? { block_type: 23, file: buildFileCreateOptions(fileView) }
+    : { block_type: 27, image: {} };
+  const inserted = await params.client.createDocxBlocks(documentId, documentId, {
+    children: [createChild],
+    index: insertIndex,
+    documentRevisionId: -1,
+    clientToken: randomUUID(),
+  });
+  const createdBlock = inserted.blocks[0];
+  if (!createdBlock?.blockId) {
+    throw new DocxToolError("EmbedMediaFailed", "Feishu docx media embed failed to create placeholder block.");
+  }
+
+  let rollbackError: string | undefined;
+  try {
+    const uploaded = await params.client.uploadDocxMedia({
+      filePath,
+      parentType: mediaType === "file" ? "docx_file" : "docx_image",
+      parentNode: createdBlock.blockId,
+      documentId,
+    });
+    const request = mediaType === "file"
+      ? {
+          block_id: createdBlock.blockId,
+          replace_file: {
+            token: uploaded.fileToken,
+          },
+        }
+      : {
+          block_id: createdBlock.blockId,
+          replace_image: {
+            token: uploaded.fileToken,
+            ...(align && MEDIA_ALIGN_MAP.has(align) ? { align: MEDIA_ALIGN_MAP.get(align) } : {}),
+            ...(caption ? { caption: { content: caption } } : {}),
+          },
+        };
+    await params.client.updateDocxBlocks(documentId, [request]);
+    return {
+      success: true,
+      contentItems: [{ type: "text", text: `Embedded ${mediaType} into docx ${documentId}.` }],
+      structuredResult: {
+        documentId,
+        mediaType,
+        filePath,
+        blockId: createdBlock.blockId,
+        insertIndex,
+        fileToken: uploaded.fileToken,
+      },
+    };
+  } catch (error) {
+    try {
+      await params.client.deleteDocxBlockChildren(documentId, documentId, insertIndex, insertIndex + 1);
+    } catch (rollback) {
+      rollbackError = String((rollback as Error).message ?? rollback);
+    }
+    throw new DocxToolError(
+      "EmbedMediaFailed",
+      `${error instanceof Error ? error.message : String(error)}${rollbackError ? ` (rollback failed: ${rollbackError})` : ""}`,
+    );
+  }
+}
+
+async function executeListDocxCommentsTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const page = await params.client.listDocxComments({
+    fileToken: documentId,
+    pageSize: optionalInteger(params.args.pageSize, "pageSize"),
+    pageToken: optionalText(params.args.pageToken),
+    isSolved: optionalBoolean(params.args.isSolved),
+    isWhole: optionalBoolean(params.args.isWhole),
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Listed ${page.items.length} comment card(s) from docx ${documentId}.` }],
+    structuredResult: page,
+  };
+}
+
+async function executeBatchQueryDocxCommentsTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const commentIds = requiredStringArray(params.args.commentIds, "commentIds");
+  const result = await params.client.batchQueryDocxComments({
+    fileToken: documentId,
+    commentIds,
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Loaded ${result.items.length} comment card(s) by ID from docx ${documentId}.` }],
+    structuredResult: result,
+  };
+}
+
+async function executeListDocxCommentRepliesTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const commentId = requiredText(params.args.commentId, "commentId");
+  const page = await params.client.listDocxCommentReplies({
+    fileToken: documentId,
+    commentId,
+    pageSize: optionalInteger(params.args.pageSize, "pageSize"),
+    pageToken: optionalText(params.args.pageToken),
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Listed ${page.items.length} reply item(s) from comment ${commentId}.` }],
+    structuredResult: page,
+  };
+}
+
+async function executeAddDocxCommentTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const selectionWithEllipsis = optionalText(params.args.selectionWithEllipsis);
+  const blockId = optionalText(params.args.blockId);
+  if (selectionWithEllipsis && blockId) {
+    throw new DocxToolError("InvalidArguments", "Provide either selectionWithEllipsis or blockId, not both.");
+  }
+  const replyElements = parseCommentReplyElements(params.args.content, "content");
+  let anchorBlockId = blockId;
+  let selectionSource: "blockId" | "selectionWithEllipsis" | "fullComment" = "fullComment";
+  if (!anchorBlockId && selectionWithEllipsis) {
+    const root = await params.client.getDocxBlock(documentId, documentId);
+    const rootChildren = root.children ?? [];
+    anchorBlockId = await locateCommentAnchorBlockId({
+      client: params.client,
+      documentId,
+      rootChildren,
+      selectionWithEllipsis,
+    });
+    selectionSource = "selectionWithEllipsis";
+  } else if (anchorBlockId) {
+    selectionSource = "blockId";
+  }
+  const result = await params.client.createDocxComment({
+    fileToken: documentId,
+    replyElements,
+    anchorBlockId,
+  });
+
+  return {
+    success: true,
+    contentItems: [
+      {
+        type: "text",
+        text: anchorBlockId
+          ? `Created local comment ${result.commentId} in docx ${documentId}.`
+          : `Created full comment ${result.commentId} in docx ${documentId}.`,
+      },
+    ],
+    structuredResult: {
+      ...result,
+      commentMode: anchorBlockId ? "local" : "full",
+      ...(anchorBlockId ? { anchorBlockId } : {}),
+      selectionSource,
+      ...(selectionWithEllipsis ? { selectionWithEllipsis } : {}),
+    },
+  };
+}
+
+async function executeAddDocxCommentReplyTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const commentId = requiredText(params.args.commentId, "commentId");
+  const replyElements = parseCommentReplyElements(params.args.content, "content");
+  const target = await params.client.batchQueryDocxComments({
+    fileToken: documentId,
+    commentIds: [commentId],
+  });
+  const comment = target.items.find((item) => item.commentId === commentId);
+  if (!comment) {
+    throw new DocxToolError("CommentNotFound", `Cannot find comment '${commentId}' in docx ${documentId}.`);
+  }
+  if (comment.isWhole === true) {
+    throw new DocxToolError("CommentNotReplyable", "Full comments do not support replies.");
+  }
+  if (comment.isSolved === true) {
+    throw new DocxToolError("CommentNotReplyable", "Resolved comments do not support replies.");
+  }
+  const result = await params.client.createDocxCommentReply({
+    fileToken: documentId,
+    commentId,
+    replyElements,
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Added reply ${result.replyId} to comment ${commentId}.` }],
+    structuredResult: result,
+  };
+}
+
+async function executeResolveDocxCommentTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
+  const commentId = requiredText(params.args.commentId, "commentId");
+  const isSolved = optionalBoolean(params.args.isSolved);
+  if (isSolved === undefined) {
+    throw new DocxToolError("InvalidArguments", "FeishuResolveDocxComment requires boolean 'isSolved'.");
+  }
+  await params.client.patchDocxCommentSolved({
+    fileToken: documentId,
+    commentId,
+    isSolved,
+  });
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `${isSolved ? "Resolved" : "Reopened"} comment ${commentId}.` }],
+    structuredResult: {
+      fileToken: documentId,
+      commentId,
+      isSolved,
+    },
+  };
+}
+
 function parseFeishuSimpleBlock(value: unknown, path: string): FeishuSimpleBlock {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new DocxToolError("InvalidBlocks", `${path} must be an object.`);
@@ -648,6 +1586,404 @@ function optionalText(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized ? normalized : undefined;
+}
+
+function requiredInteger(value: unknown, fieldName: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be an integer.`);
+  }
+  return parsed;
+}
+
+function optionalInteger(value: unknown, fieldName: string): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function optionalIntegerAllowNegativeOne(value: unknown, fieldName: string): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < -1) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be an integer >= -1.`);
+  }
+  return parsed;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "boolean") {
+    throw new DocxToolError("InvalidArguments", "Feishu docx tool boolean argument must be a boolean.");
+  }
+  return value;
+}
+
+function parseObjectArray(value: unknown, fieldName: string): Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be a non-empty array.`);
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] must be an object.`);
+    }
+    return item as Record<string, unknown>;
+  });
+}
+
+function requiredStringArray(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be a non-empty string array.`);
+  }
+  return value.map((item, index) => {
+    const parsed = String(item ?? "").trim();
+    if (!parsed) {
+      throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] must be a non-empty string.`);
+    }
+    return parsed;
+  });
+}
+
+function parseCommentReplyElements(value: unknown, fieldName: string): Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DocxToolError("InvalidArguments", `Feishu docx tool '${fieldName}' must be a non-empty array.`);
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] must be an object.`);
+    }
+    const record = item as Record<string, unknown>;
+    const type = String(record.type ?? "").trim();
+    if (!type) {
+      throw new DocxToolError("InvalidArguments", `${fieldName}[${index}].type is required.`);
+    }
+    if (type === "text") {
+      const text = String(record.text ?? "");
+      if (!text.trim()) {
+        throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] type=text requires non-empty text.`);
+      }
+      if (text.length > 1000) {
+        throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] text exceeds 1000 characters.`);
+      }
+      return { type: "text", text };
+    }
+    if (type === "mention_user") {
+      const mentionUser = optionalText(record.mention_user) ?? optionalText(record.text);
+      if (!mentionUser) {
+        throw new DocxToolError(
+          "InvalidArguments",
+          `${fieldName}[${index}] type=mention_user requires mention_user or text.`,
+        );
+      }
+      return { type: "mention_user", mention_user: mentionUser };
+    }
+    if (type === "link") {
+      const link = optionalText(record.link) ?? optionalText(record.text);
+      if (!link) {
+        throw new DocxToolError("InvalidArguments", `${fieldName}[${index}] type=link requires link or text.`);
+      }
+      return { type: "link", link };
+    }
+    throw new DocxToolError(
+      "InvalidArguments",
+      `${fieldName}[${index}].type must be one of: text, mention_user, link.`,
+    );
+  });
+}
+
+function requiredMode(value: unknown): DocxUpdateMode {
+  const normalized = String(value ?? "").trim();
+  const allowed = new Set([
+    "append",
+    "overwrite",
+    "replaceRange",
+    "replaceAll",
+    "insertBefore",
+    "insertAfter",
+    "deleteRange",
+  ]);
+  if (!allowed.has(normalized)) {
+    throw new DocxToolError(
+      "InvalidArguments",
+      "FeishuUpdateDocxContent 'mode' must be one of: append, overwrite, replaceRange, replaceAll, insertBefore, insertAfter, deleteRange.",
+    );
+  }
+  return normalized as DocxUpdateMode;
+}
+
+function collectUpdateWarnings(
+  mode: DocxUpdateMode,
+  markdown: string,
+): string[] {
+  const warnings: string[] = [];
+  if ((mode === "replaceRange" || mode === "replaceAll") && /\n\s*\n/.test(markdown)) {
+    warnings.push(
+      "replaceRange/replaceAll cannot split one existing block into multiple paragraph blocks; blank lines may render as literal line breaks.",
+    );
+  }
+  const combinedEmphasisPatterns = [
+    /\*\*\*[^*]+\*\*\*/,
+    /___[^_]+___/,
+    /\*\*_[^_]+_\*\*/,
+    /__\*[^*]+\*__/,
+    /_\*\*[^*]+\*\*_/,
+    /\*__[^_]+__\*/,
+  ];
+  if (combinedEmphasisPatterns.some((pattern) => pattern.test(markdown))) {
+    warnings.push("Combined bold+italic markdown may be downgraded by Feishu rendering.");
+  }
+  return warnings;
+}
+
+function parseMarkdownToSimpleBlocks(markdown: string): FeishuSimpleBlock[] {
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const blocks: FeishuSimpleBlock[] = [];
+  let inCode = false;
+  let codeLanguage = "";
+  let codeLines: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine ?? "";
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      if (inCode) {
+        blocks.push({
+          kind: "code",
+          text: codeLines.join("\n"),
+          language: codeLanguage,
+        });
+        inCode = false;
+        codeLanguage = "";
+        codeLines = [];
+      } else {
+        inCode = true;
+        codeLanguage = trimmed.slice(3).trim();
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+    if (!trimmed) continue;
+    if (/^#{1,2}\s+/.test(trimmed)) {
+      blocks.push({
+        kind: trimmed.startsWith("## ") ? "heading2" : "heading1",
+        text: trimmed.replace(/^#{1,2}\s+/, ""),
+      });
+      continue;
+    }
+    if (/^- \[([xX ])\]\s+/.test(trimmed)) {
+      const done = trimmed.startsWith("- [x]") || trimmed.startsWith("- [X]");
+      blocks.push({
+        kind: "todo",
+        checked: done,
+        text: trimmed.replace(/^- \[[xX ]\]\s+/, ""),
+      });
+      continue;
+    }
+    if (/^- /.test(trimmed)) {
+      blocks.push({
+        kind: "bullet",
+        text: trimmed.slice(2),
+      });
+      continue;
+    }
+    if (/^\d+\.\s+/.test(trimmed)) {
+      blocks.push({
+        kind: "ordered",
+        text: trimmed.replace(/^\d+\.\s+/, ""),
+      });
+      continue;
+    }
+    if (/^>\s+/.test(trimmed)) {
+      blocks.push({
+        kind: "quote",
+        text: trimmed.replace(/^>\s+/, ""),
+      });
+      continue;
+    }
+    if (/^---+$/.test(trimmed)) {
+      blocks.push({ kind: "divider" });
+      continue;
+    }
+    blocks.push({
+      kind: "paragraph",
+      text: line,
+    });
+  }
+  if (inCode) {
+    blocks.push({
+      kind: "code",
+      text: codeLines.join("\n"),
+      language: codeLanguage,
+    });
+  }
+  return blocks.length > 0 ? blocks : [{ kind: "paragraph", text: "" }];
+}
+
+async function locateSelectionRange(params: {
+  client: FeishuClient;
+  documentId: string;
+  rootChildren: string[];
+  selectionWithEllipsis?: string;
+  selectionByTitle?: string;
+}): Promise<{ startIndex: number; endIndex: number; reason: string }> {
+  const blocksWithText: Array<{ id: string; text: string; blockType: number }> = [];
+  for (const blockId of params.rootChildren) {
+    const block = await params.client.getDocxBlock(params.documentId, blockId);
+    blocksWithText.push({
+      id: blockId,
+      text: block.textContent ?? "",
+      blockType: block.blockType,
+    });
+  }
+
+  if (params.selectionByTitle) {
+    const plainTitle = params.selectionByTitle.trim().replace(/^#+\s*/, "");
+    const index = blocksWithText.findIndex((item) => isHeadingBlockType(item.blockType) && item.text.trim() === plainTitle);
+    if (index < 0) {
+      throw new DocxToolError("SelectionNotFound", `Cannot find title '${plainTitle}' in top-level docx blocks.`);
+    }
+    let endIndex = blocksWithText.length;
+    for (let i = index + 1; i < blocksWithText.length; i += 1) {
+      if (isHeadingBlockType(blocksWithText[i]!.blockType)) {
+        endIndex = i;
+        break;
+      }
+    }
+    return { startIndex: index, endIndex, reason: "selectionByTitle" };
+  }
+
+  const selection = params.selectionWithEllipsis?.trim() ?? "";
+  if (!selection) {
+    throw new DocxToolError("SelectionNotFound", "FeishuUpdateDocxContent selection is required for this mode.");
+  }
+  const unescaped = selection.replace(/\\\.\.\./g, "__LITERAL_ELLIPSIS__");
+  if (unescaped.includes("...")) {
+    const [rawStart, rawEnd] = unescaped.split("...", 2);
+    const startNeedle = rawStart.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+    const endNeedle = rawEnd.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+    const startIndex = blocksWithText.findIndex((item) => item.text.includes(startNeedle));
+    if (startIndex < 0) {
+      throw new DocxToolError("SelectionNotFound", `Cannot find selection start '${startNeedle}'.`);
+    }
+    let endIndex = -1;
+    for (let i = startIndex; i < blocksWithText.length; i += 1) {
+      if (blocksWithText[i]!.text.includes(endNeedle)) {
+        endIndex = i + 1;
+        break;
+      }
+    }
+    if (endIndex < 0) {
+      throw new DocxToolError("SelectionNotFound", `Cannot find selection end '${endNeedle}'.`);
+    }
+    return {
+      startIndex,
+      endIndex,
+      reason: "selectionWithEllipsisRange",
+    };
+  }
+
+  const needle = unescaped.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+  const matchedIndexes = blocksWithText
+    .map((item, index) => ({ index, matched: item.text.includes(needle) }))
+    .filter((item) => item.matched)
+    .map((item) => item.index);
+  if (matchedIndexes.length === 0) {
+    throw new DocxToolError("SelectionNotFound", `Cannot find selection '${needle}'.`);
+  }
+  if (matchedIndexes.length > 1) {
+    throw new DocxToolError(
+      "AmbiguousSelection",
+      `Selection '${needle}' matched ${matchedIndexes.length} top-level blocks. Use start...end form.`,
+    );
+  }
+  return {
+    startIndex: matchedIndexes[0]!,
+    endIndex: matchedIndexes[0]! + 1,
+    reason: "selectionWithEllipsisSingle",
+  };
+}
+
+function isHeadingBlockType(blockType: number): boolean {
+  return blockType >= 3 && blockType <= 11;
+}
+
+async function locateCommentAnchorBlockId(params: {
+  client: FeishuClient;
+  documentId: string;
+  rootChildren: string[];
+  selectionWithEllipsis: string;
+}): Promise<string> {
+  const selection = params.selectionWithEllipsis.trim();
+  if (!selection) {
+    throw new DocxToolError("SelectionNotFound", "FeishuAddDocxComment requires non-empty selectionWithEllipsis.");
+  }
+  const blocksWithText: Array<{ id: string; text: string }> = [];
+  for (const blockId of params.rootChildren) {
+    const block = await params.client.getDocxBlock(params.documentId, blockId);
+    blocksWithText.push({
+      id: blockId,
+      text: block.textContent ?? "",
+    });
+  }
+  const unescaped = selection.replace(/\\\.\.\./g, "__LITERAL_ELLIPSIS__");
+  if (unescaped.includes("...")) {
+    const [rawStart, rawEnd] = unescaped.split("...", 2);
+    const startNeedle = rawStart.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+    const endNeedle = rawEnd.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+    const startIndex = blocksWithText.findIndex((item) => item.text.includes(startNeedle));
+    if (startIndex < 0) {
+      throw new DocxToolError("SelectionNotFound", `Cannot find selection start '${startNeedle}'.`);
+    }
+    for (let i = startIndex; i < blocksWithText.length; i += 1) {
+      if (blocksWithText[i]!.text.includes(endNeedle)) {
+        return blocksWithText[startIndex]!.id;
+      }
+    }
+    throw new DocxToolError("SelectionNotFound", `Cannot find selection end '${endNeedle}'.`);
+  }
+  const needle = unescaped.replace(/__LITERAL_ELLIPSIS__/g, "...").trim();
+  const matchedIndexes = blocksWithText
+    .map((item, index) => ({ index, matched: item.text.includes(needle) }))
+    .filter((item) => item.matched)
+    .map((item) => item.index);
+  if (matchedIndexes.length === 0) {
+    throw new DocxToolError("SelectionNotFound", `Cannot find selection '${needle}'.`);
+  }
+  if (matchedIndexes.length > 1) {
+    const candidates = matchedIndexes.map((index) => blocksWithText[index]!.id).join(", ");
+    throw new DocxToolError(
+      "AmbiguousMatch",
+      `Selection '${needle}' matched ${matchedIndexes.length} blocks: ${candidates}. Narrow selectionWithEllipsis.`,
+    );
+  }
+  return blocksWithText[matchedIndexes[0]!]!.id;
+}
+
+function buildFileCreateOptions(fileView: string | undefined): Record<string, unknown> {
+  const normalized = (fileView ?? "").trim().toLowerCase();
+  if (!normalized) return {};
+  const mapped = FILE_VIEW_MAP.get(normalized);
+  if (!mapped) {
+    throw new DocxToolError("InvalidArguments", "FeishuEmbedDocxMedia fileView must be card, preview, or inline.");
+  }
+  return { view_type: mapped };
+}
+
+async function updateDocxTitle(client: FeishuClient, documentId: string, title: string): Promise<void> {
+  await client.updateDocxBlocks(documentId, [
+    {
+      block_id: documentId,
+      update_text_elements: {
+        elements: buildTextElements(title),
+      },
+    },
+  ]);
 }
 
 async function resolveWikiCreateTarget(params: {

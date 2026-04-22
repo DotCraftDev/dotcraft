@@ -385,6 +385,7 @@ public sealed class SessionService(
         var channelInfo = ChannelSessionScope.Current;
         var turnOriginChannel = channelInfo?.Channel ?? thread.OriginChannel;
         var turnChannelContext = channelInfo?.DefaultDeliveryTarget ?? thread.ChannelContext;
+        var triggerInfo = TurnTriggerScope.Current;
 
         // Step 2: Create Turn and UserMessage Item
         var turnSeq = thread.Turns.Count + 1;
@@ -432,7 +433,10 @@ public sealed class SessionService(
                 ChannelName = turnOriginChannel,
                 ChannelContext = turnChannelContext,
                 GroupId = sender?.GroupId ?? channelInfo?.GroupId,
-                Images = images.Count > 0 ? images : null
+                Images = images.Count > 0 ? images : null,
+                TriggerKind = triggerInfo?.Kind,
+                TriggerLabel = triggerInfo?.Label,
+                TriggerRefId = triggerInfo?.RefId
             }
         };
 

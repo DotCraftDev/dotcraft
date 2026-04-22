@@ -543,6 +543,13 @@ public sealed class AutomationOrchestrator
         var turnFailed = false;
         var turnCancelled = false;
 
+        var triggerInfo = new TurnTriggerInfo
+        {
+            Kind = "automation",
+            RefId = task.Id,
+            Label = task.Title
+        };
+
         await source.OnBeforeAgentRunAsync(task, workspacePath, ct);
         try
         {
@@ -551,7 +558,7 @@ public sealed class AutomationOrchestrator
                 round++;
                 foreach (var step in workflow.Steps)
                 {
-                    await foreach (var evt in client.SubmitTurnAsync(threadId, step.Prompt, ct))
+                    await foreach (var evt in client.SubmitTurnAsync(threadId, step.Prompt, ct, triggerInfo))
                     {
                         if (evt.EventType == SessionEventType.TurnCompleted && evt.TurnPayload is { } turn)
                             summary = ExtractSummaryFromTurn(turn);

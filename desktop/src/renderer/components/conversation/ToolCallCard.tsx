@@ -6,7 +6,8 @@ import { useConversationStore } from '../../stores/conversationStore'
 import {
   CRON_TOOL_NAME,
   formatCronRunningLabel,
-  formatCronResultLines
+  formatCronResultLines,
+  hasCronCreatedDisplayData
 } from '../../utils/cronToolDisplay'
 import {
   formatInvocationDisplay,
@@ -27,6 +28,7 @@ import {
 } from '../../utils/toolCallDisplay'
 import { PlanToolOutput } from './PlanToolOutput'
 import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
+import { CronCreatedCard } from './CronCreatedCard'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 
 interface ToolCallCardProps {
@@ -173,6 +175,15 @@ export const ToolCallCard = memo(function ToolCallCard({
 
   if (toolName === 'CreatePlan' && hasCreatePlanDisplayData(item)) {
     return <CreatePlanCard item={item} locale={locale} />
+  }
+
+  if (
+    toolName === CRON_TOOL_NAME
+    && !isRunning
+    && success
+    && hasCronCreatedDisplayData(item.result, locale)
+  ) {
+    return <CronCreatedCard item={item} locale={locale} />
   }
 
   if (isRunning) {

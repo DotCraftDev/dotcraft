@@ -150,6 +150,9 @@ function TurnBlock({
           nativeInputParts={item.nativeInputParts}
           imageDataUrls={item.imageDataUrls}
           images={item.images}
+          triggerKind={item.triggerKind}
+          triggerLabel={item.triggerLabel}
+          triggerRefId={item.triggerRefId}
         />
       ))}
 

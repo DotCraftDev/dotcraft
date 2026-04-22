@@ -118,12 +118,116 @@ export interface FeishuDocxRawContent {
 export interface FeishuDocxBlockInfo {
   blockId: string;
   blockType: number;
+  parentId?: string;
+  children?: string[];
+  textContent?: string;
 }
 
 export interface FeishuDocxBlockCreateResult {
   documentId: string;
   revisionId?: number;
   blocks: FeishuDocxBlockInfo[];
+}
+
+export interface FeishuDocxBlockListPage {
+  documentId: string;
+  items: FeishuDocxBlockInfo[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxBlockDeleteResult {
+  documentId: string;
+  parentBlockId: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface FeishuDocxBlockBatchUpdateResult {
+  documentId: string;
+  revisionId?: number;
+  updatedBlocks: FeishuDocxBlockInfo[];
+}
+
+export interface FeishuDriveMediaUploadResult {
+  fileToken: string;
+  fileName?: string;
+  size?: number;
+}
+
+export interface FeishuDocxCommentContentElement {
+  type: string;
+  text?: string;
+  mentionUser?: string;
+  link?: string;
+}
+
+export interface FeishuDocxCommentContent {
+  elements: FeishuDocxCommentContentElement[];
+}
+
+export interface FeishuDocxCommentReply {
+  replyId: string;
+  userId?: string;
+  createTime?: string;
+  updateTime?: string;
+  isSolved?: boolean;
+  text?: string;
+  content?: FeishuDocxCommentContent;
+}
+
+export interface FeishuDocxCommentReplyList {
+  replies: FeishuDocxCommentReply[];
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentQuote {
+  blockId?: string;
+  content?: FeishuDocxCommentContent;
+}
+
+export interface FeishuDocxComment {
+  commentId: string;
+  userId?: string;
+  createTime?: string;
+  updateTime?: string;
+  isSolved?: boolean;
+  isWhole?: boolean;
+  quote?: FeishuDocxCommentQuote;
+  replyList: FeishuDocxCommentReplyList;
+}
+
+export interface FeishuDocxCommentListPage {
+  fileToken: string;
+  items: FeishuDocxComment[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentBatchQueryResult {
+  fileToken: string;
+  items: FeishuDocxComment[];
+}
+
+export interface FeishuDocxCommentReplyListPage {
+  fileToken: string;
+  commentId: string;
+  items: FeishuDocxCommentReply[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentCreateResult {
+  fileToken: string;
+  commentId: string;
+  createTime?: string;
+}
+
+export interface FeishuDocxCommentReplyCreateResult {
+  fileToken: string;
+  commentId: string;
+  replyId: string;
+  createTime?: string;
 }
 
 export type FeishuWikiObjType =

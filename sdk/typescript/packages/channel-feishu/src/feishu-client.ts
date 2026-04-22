@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 
@@ -13,7 +14,21 @@ import type {
   FeishuBotInfo,
   FeishuCardActionEvent,
   FeishuDocxBlockCreateResult,
+  FeishuDocxBlockDeleteResult,
+  FeishuDocxBlockBatchUpdateResult,
+  FeishuDocxBlockInfo,
+  FeishuDocxBlockListPage,
+  FeishuDocxComment,
+  FeishuDocxCommentBatchQueryResult,
+  FeishuDocxCommentContent,
+  FeishuDocxCommentContentElement,
+  FeishuDocxCommentCreateResult,
+  FeishuDocxCommentReply,
+  FeishuDocxCommentReplyCreateResult,
+  FeishuDocxCommentReplyListPage,
+  FeishuDocxCommentListPage,
   FeishuDocxDocumentInfo,
+  FeishuDriveMediaUploadResult,
   FeishuDocxRawContent,
   FeishuListChatMessagesOptions,
   FeishuMoveDocxToWikiResult,
@@ -720,6 +735,521 @@ export class FeishuClient {
     };
   }
 
+  async listDocxComments(options: {
+    fileToken: string;
+    pageSize?: number;
+    pageToken?: string;
+    isSolved?: boolean;
+    isWhole?: boolean;
+  }): Promise<FeishuDocxCommentListPage> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment listing requires a fileToken.");
+    }
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu docx comment listing requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    params.set("file_type", "docx");
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+    if (options.isSolved !== undefined) {
+      params.set("is_solved", String(options.isSolved));
+    }
+    if (options.isWhole !== undefined) {
+      params.set("is_whole", String(options.isWhole));
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/comments?${params.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to list Feishu docx comments.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const items = Array.isArray(data.items)
+      ? data.items
+          .map((item) => mapDocxComment(item))
+          .filter((item): item is FeishuDocxComment => item !== null)
+      : [];
+    return {
+      fileToken: normalizedFileToken,
+      items,
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async batchQueryDocxComments(options: {
+    fileToken: string;
+    commentIds: string[];
+  }): Promise<FeishuDocxCommentBatchQueryResult> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment batch query requires a fileToken.");
+    }
+    if (!Array.isArray(options.commentIds) || options.commentIds.length === 0) {
+      throw new TypeError("Feishu docx comment batch query requires at least one commentId.");
+    }
+    const normalizedCommentIds = options.commentIds
+      .map((commentId) => commentId.trim())
+      .filter((commentId) => commentId.length > 0);
+    if (normalizedCommentIds.length === 0) {
+      throw new TypeError("Feishu docx comment batch query requires non-empty commentIds.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/comments/batch_query?file_type=docx`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              comment_ids: normalizedCommentIds,
+            }),
+          },
+        ),
+      "Failed to batch query Feishu docx comments.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const items = Array.isArray(data.items)
+      ? data.items
+          .map((item) => mapDocxComment(item))
+          .filter((item): item is FeishuDocxComment => item !== null)
+      : [];
+    return {
+      fileToken: normalizedFileToken,
+      items,
+    };
+  }
+
+  async listDocxCommentReplies(options: {
+    fileToken: string;
+    commentId: string;
+    pageSize?: number;
+    pageToken?: string;
+  }): Promise<FeishuDocxCommentReplyListPage> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment reply listing requires a fileToken.");
+    }
+    const normalizedCommentId = options.commentId.trim();
+    if (!normalizedCommentId) {
+      throw new TypeError("Feishu docx comment reply listing requires a commentId.");
+    }
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu docx comment reply listing requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    params.set("file_type", "docx");
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/comments/${encodeURIComponent(normalizedCommentId)}/replies?${params.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to list Feishu docx comment replies.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const itemsRaw = (Array.isArray(data.items) ? data.items : undefined) ?? (Array.isArray(data.replies) ? data.replies : undefined) ?? [];
+    return {
+      fileToken: normalizedFileToken,
+      commentId: normalizedCommentId,
+      items: itemsRaw
+        .map((item) => mapDocxCommentReply(item))
+        .filter((item): item is FeishuDocxCommentReply => item !== null),
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async createDocxComment(options: {
+    fileToken: string;
+    replyElements: Record<string, unknown>[];
+    anchorBlockId?: string;
+  }): Promise<FeishuDocxCommentCreateResult> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment creation requires a fileToken.");
+    }
+    if (!Array.isArray(options.replyElements) || options.replyElements.length === 0) {
+      throw new TypeError("Feishu docx comment creation requires at least one reply element.");
+    }
+    const normalizedAnchorBlockId = options.anchorBlockId?.trim();
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/new_comments`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            file_type: "docx",
+            reply_elements: options.replyElements,
+            ...(normalizedAnchorBlockId
+              ? {
+                  anchor: {
+                    block_id: normalizedAnchorBlockId,
+                  },
+                }
+              : {}),
+          }),
+        }),
+      "Failed to create Feishu docx comment.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const commentId = String(data.comment_id ?? "");
+    if (!commentId) {
+      throw new Error("Feishu docx comment creation response did not include comment_id.");
+    }
+    return {
+      fileToken: normalizedFileToken,
+      commentId,
+      createTime: data.created_at ? String(data.created_at) : data.create_time ? String(data.create_time) : undefined,
+    };
+  }
+
+  async createDocxCommentReply(options: {
+    fileToken: string;
+    commentId: string;
+    replyElements: Record<string, unknown>[];
+  }): Promise<FeishuDocxCommentReplyCreateResult> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment reply creation requires a fileToken.");
+    }
+    const normalizedCommentId = options.commentId.trim();
+    if (!normalizedCommentId) {
+      throw new TypeError("Feishu docx comment reply creation requires a commentId.");
+    }
+    if (!Array.isArray(options.replyElements) || options.replyElements.length === 0) {
+      throw new TypeError("Feishu docx comment reply creation requires at least one reply element.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/comments/${encodeURIComponent(normalizedCommentId)}/replies?file_type=docx`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              reply_elements: options.replyElements,
+            }),
+          },
+        ),
+      "Failed to create Feishu docx comment reply.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const replyId = String(data.reply_id ?? "");
+    if (!replyId) {
+      throw new Error("Feishu docx comment reply creation response did not include reply_id.");
+    }
+    return {
+      fileToken: normalizedFileToken,
+      commentId: normalizedCommentId,
+      replyId,
+      createTime: data.created_at ? String(data.created_at) : data.create_time ? String(data.create_time) : undefined,
+    };
+  }
+
+  async patchDocxCommentSolved(options: {
+    fileToken: string;
+    commentId: string;
+    isSolved: boolean;
+  }): Promise<void> {
+    const normalizedFileToken = options.fileToken.trim();
+    if (!normalizedFileToken) {
+      throw new TypeError("Feishu docx comment patch requires a fileToken.");
+    }
+    const normalizedCommentId = options.commentId.trim();
+    if (!normalizedCommentId) {
+      throw new TypeError("Feishu docx comment patch requires a commentId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/drive/v1/files/${encodeURIComponent(normalizedFileToken)}/comments/${encodeURIComponent(normalizedCommentId)}?file_type=docx`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              is_solved: options.isSolved,
+            }),
+          },
+        ),
+      "Failed to patch Feishu docx comment solved state.",
+    );
+  }
+
+  async listDocxBlocks(options: {
+    documentId: string;
+    pageSize?: number;
+    pageToken?: string;
+  }): Promise<FeishuDocxBlockListPage> {
+    const normalizedDocumentId = options.documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx block listing requires a documentId.");
+    }
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu docx block listing requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+    const query = params.toString();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/blocks${query ? `?${query}` : ""}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to list Feishu docx blocks.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const items = Array.isArray(data.items)
+      ? data.items
+          .map((item) => mapDocxBlockInfo(item))
+          .filter((item): item is FeishuDocxBlockInfo => item !== null)
+      : [];
+    return {
+      documentId: normalizedDocumentId,
+      items,
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async getDocxBlock(documentId: string, blockId: string): Promise<FeishuDocxBlockInfo> {
+    const normalizedDocumentId = documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx block lookup requires a documentId.");
+    }
+    const normalizedBlockId = blockId.trim();
+    if (!normalizedBlockId) {
+      throw new TypeError("Feishu docx block lookup requires a blockId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/blocks/${encodeURIComponent(normalizedBlockId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to get Feishu docx block.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const blockRaw = (data.block as Record<string, unknown> | undefined) ?? data;
+    const mapped = mapDocxBlockInfo(blockRaw);
+    if (!mapped) {
+      throw new Error("Feishu docx block response did not include block_id/block_type.");
+    }
+    return mapped;
+  }
+
+  async updateDocxBlocks(
+    documentId: string,
+    requests: Record<string, unknown>[],
+  ): Promise<FeishuDocxBlockBatchUpdateResult> {
+    const normalizedDocumentId = documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx block update requires a documentId.");
+    }
+    if (!Array.isArray(requests) || requests.length === 0) {
+      throw new TypeError("Feishu docx block update requires at least one request.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/blocks/batch_update`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ requests }),
+          },
+        ),
+      "Failed to batch update Feishu docx blocks.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const updatedRaw =
+      (Array.isArray(data.items) ? data.items : undefined) ??
+      (Array.isArray(data.updated_blocks) ? data.updated_blocks : undefined) ??
+      [];
+    return {
+      documentId: normalizedDocumentId,
+      revisionId: parseOptionalNumber(data.document_revision_id ?? data.revision_id),
+      updatedBlocks: updatedRaw
+        .map((item) => mapDocxBlockInfo(item))
+        .filter((item): item is FeishuDocxBlockInfo => item !== null),
+    };
+  }
+
+  async deleteDocxBlockChildren(
+    documentId: string,
+    parentBlockId: string,
+    startIndex: number,
+    endIndex: number,
+  ): Promise<FeishuDocxBlockDeleteResult> {
+    const normalizedDocumentId = documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx child deletion requires a documentId.");
+    }
+    const normalizedParentBlockId = parentBlockId.trim();
+    if (!normalizedParentBlockId) {
+      throw new TypeError("Feishu docx child deletion requires a parentBlockId.");
+    }
+    if (!Number.isInteger(startIndex) || !Number.isInteger(endIndex) || startIndex < 0 || endIndex <= startIndex) {
+      throw new TypeError("Feishu docx child deletion requires valid [startIndex, endIndex) range.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/blocks/${encodeURIComponent(normalizedParentBlockId)}/children/batch_delete`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              start_index: startIndex,
+              end_index: endIndex,
+            }),
+          },
+        ),
+      "Failed to delete Feishu docx child blocks.",
+    );
+    return {
+      documentId: normalizedDocumentId,
+      parentBlockId: normalizedParentBlockId,
+      startIndex,
+      endIndex,
+    };
+  }
+
+  async uploadDocxMedia(params: {
+    filePath: string;
+    parentType: "docx_image" | "docx_file";
+    parentNode: string;
+    documentId?: string;
+  }): Promise<FeishuDriveMediaUploadResult> {
+    const normalizedPath = params.filePath.trim();
+    if (!normalizedPath) {
+      throw new TypeError("Feishu docx media upload requires filePath.");
+    }
+    const normalizedParentNode = params.parentNode.trim();
+    if (!normalizedParentNode) {
+      throw new TypeError("Feishu docx media upload requires parentNode.");
+    }
+
+    const fileBuffer = await readFile(normalizedPath);
+    const fileName = path.basename(normalizedPath);
+    const token = await this.getTenantAccessToken();
+    const formData = new FormData();
+    formData.set("file_name", fileName);
+    formData.set("parent_type", params.parentType);
+    formData.set("parent_node", normalizedParentNode);
+    formData.set("size", String(fileBuffer.length));
+    if (params.documentId?.trim()) {
+      formData.set("extra", JSON.stringify({ drive_route_token: params.documentId.trim() }));
+    }
+    formData.set("file", new Blob([fileBuffer], { type: inferMediaType(fileName) }), fileName);
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/drive/v1/medias/upload_all`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }),
+      "Failed to upload media into Feishu docx.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const fileToken = String(data.file_token ?? "");
+    if (!fileToken) {
+      throw new Error("Feishu drive media upload response did not include file_token.");
+    }
+    return {
+      fileToken,
+      fileName: data.file_name ? String(data.file_name) : fileName,
+      size: parseOptionalNumber(data.size) ?? fileBuffer.length,
+    };
+  }
+
   async createDocxBlocks(
     documentId: string,
     blockId: string,
@@ -1345,16 +1875,188 @@ function mapChatMessageItem(input: unknown): FeishuChatMessageItem {
   };
 }
 
-function mapDocxBlockInfo(input: unknown): FeishuDocxBlockCreateResult["blocks"][number] | null {
+function mapDocxBlockInfo(input: unknown): FeishuDocxBlockInfo | null {
   const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
   if (!record) return null;
   const blockId = String(record.block_id ?? "");
   const blockType = parseOptionalNumber(record.block_type);
   if (!blockId || blockType === undefined) return null;
+  const children = Array.isArray(record.children)
+    ? record.children.map((child) => String(child ?? "")).filter((child) => child.length > 0)
+    : undefined;
+  const parentId = record.parent_id ? String(record.parent_id) : undefined;
+  const textContent = pickDocxBlockText(record);
   return {
     blockId,
     blockType,
+    ...(parentId ? { parentId } : {}),
+    ...(children && children.length > 0 ? { children } : {}),
+    ...(textContent ? { textContent } : {}),
   };
+}
+
+function mapDocxCommentContentElement(input: unknown): FeishuDocxCommentContentElement | null {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!record) return null;
+  const type = String(record.type ?? "").trim();
+  if (!type) return null;
+  let text = record.text ? String(record.text) : undefined;
+  let mentionUser = record.mention_user ? String(record.mention_user) : undefined;
+  let link = record.link ? String(record.link) : undefined;
+
+  if (type === "text_run") {
+    const textRun = record.text_run && typeof record.text_run === "object"
+      ? (record.text_run as Record<string, unknown>)
+      : undefined;
+    text = text ?? optionalString(textRun?.text) ?? optionalString(textRun?.content);
+    link = link ?? optionalString(textRun?.link) ?? optionalString(textRun?.url);
+  } else if (type === "docs_link") {
+    const docsLink = record.docs_link && typeof record.docs_link === "object"
+      ? (record.docs_link as Record<string, unknown>)
+      : undefined;
+    link = link ?? optionalString(docsLink?.url) ?? optionalString(docsLink?.link);
+  } else if (type === "person") {
+    const person = record.person && typeof record.person === "object"
+      ? (record.person as Record<string, unknown>)
+      : undefined;
+    mentionUser =
+      mentionUser ??
+      optionalString(person?.user_id) ??
+      optionalString(person?.open_id) ??
+      optionalString(person?.openid);
+  }
+
+  return {
+    type,
+    ...(text ? { text } : {}),
+    ...(mentionUser ? { mentionUser } : {}),
+    ...(link ? { link } : {}),
+  };
+}
+
+function mapDocxCommentContent(input: unknown): FeishuDocxCommentContent | undefined {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!record) return undefined;
+  const elementsRaw =
+    (Array.isArray(record.elements) ? record.elements : undefined) ??
+    (Array.isArray(record.reply_elements) ? record.reply_elements : undefined) ??
+    [];
+  const elements = elementsRaw
+    .map((item) => mapDocxCommentContentElement(item))
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  if (elements.length === 0) return undefined;
+  return { elements };
+}
+
+function mapDocxCommentReply(input: unknown): FeishuDocxCommentReply | null {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!record) return null;
+  const replyId = String(record.reply_id ?? "");
+  if (!replyId) return null;
+  const contentRecord =
+    (record.content && typeof record.content === "object" ? (record.content as Record<string, unknown>) : undefined) ?? record;
+  const content = mapDocxCommentContent(contentRecord);
+  const text = pickDocxCommentReplyText(content);
+  return {
+    replyId,
+    userId: record.user_id ? String(record.user_id) : undefined,
+    createTime: record.create_time ? String(record.create_time) : undefined,
+    updateTime: record.update_time ? String(record.update_time) : undefined,
+    isSolved: record.is_solved == null ? undefined : Boolean(record.is_solved),
+    ...(text ? { text } : {}),
+    ...(content ? { content } : {}),
+  };
+}
+
+function pickDocxCommentReplyText(content: FeishuDocxCommentContent | undefined): string | undefined {
+  if (!content) return undefined;
+  const joined = content.elements
+    .map((element) => element.text ?? element.link ?? element.mentionUser ?? "")
+    .join("");
+  const normalized = joined.trim();
+  return normalized ? normalized : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const normalized = String(value).trim();
+  return normalized ? normalized : undefined;
+}
+
+function mapDocxComment(input: unknown): FeishuDocxComment | null {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!record) return null;
+  const commentId = String(record.comment_id ?? "");
+  if (!commentId) return null;
+  const quoteRecord = record.quote && typeof record.quote === "object" ? (record.quote as Record<string, unknown>) : undefined;
+  const quoteContent = mapDocxCommentContent(quoteRecord?.content);
+  const replyList = record.reply_list && typeof record.reply_list === "object"
+    ? (record.reply_list as Record<string, unknown>)
+    : undefined;
+  const repliesRaw: unknown[] =
+    (Array.isArray(replyList?.replies) ? (replyList?.replies as unknown[]) : undefined) ??
+    (Array.isArray(record.replies) ? (record.replies as unknown[]) : undefined) ??
+    [];
+  const replies = repliesRaw
+    .map((item) => mapDocxCommentReply(item))
+    .filter((item): item is FeishuDocxCommentReply => item !== null);
+
+  return {
+    commentId,
+    userId: record.user_id ? String(record.user_id) : undefined,
+    createTime: record.create_time ? String(record.create_time) : undefined,
+    updateTime: record.update_time ? String(record.update_time) : undefined,
+    isSolved: record.is_solved == null ? undefined : Boolean(record.is_solved),
+    isWhole: record.is_whole == null ? undefined : Boolean(record.is_whole),
+    ...(quoteRecord
+      ? {
+          quote: {
+            blockId: quoteRecord.block_id ? String(quoteRecord.block_id) : undefined,
+            ...(quoteContent ? { content: quoteContent } : {}),
+          },
+        }
+      : {}),
+    replyList: {
+      replies,
+      hasMore: replyList?.has_more == null ? undefined : Boolean(replyList.has_more),
+    },
+  };
+}
+
+function pickDocxBlockText(record: Record<string, unknown>): string | undefined {
+  const blockFields = [
+    "text",
+    "heading1",
+    "heading2",
+    "heading3",
+    "heading4",
+    "heading5",
+    "heading6",
+    "heading7",
+    "heading8",
+    "heading9",
+    "quote",
+    "code",
+    "bullet",
+    "ordered",
+    "todo",
+  ];
+  for (const field of blockFields) {
+    const block = record[field];
+    if (!block || typeof block !== "object") continue;
+    const elements = (block as Record<string, unknown>).elements;
+    if (!Array.isArray(elements)) continue;
+    const text = elements
+      .map((element) => {
+        if (!element || typeof element !== "object") return "";
+        const textRun = (element as Record<string, unknown>).text_run;
+        if (!textRun || typeof textRun !== "object") return "";
+        return String((textRun as Record<string, unknown>).content ?? "");
+      })
+      .join("");
+    if (text) return text;
+  }
+  return undefined;
 }
 
 function mapWikiNodeInfo(input: unknown): FeishuWikiNodeInfo {
