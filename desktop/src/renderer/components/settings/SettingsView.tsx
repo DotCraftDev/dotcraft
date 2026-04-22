@@ -33,6 +33,7 @@ import {
 import { GeneralPanel } from './panels/GeneralPanel'
 import { ConnectionPanel } from './panels/ConnectionPanel'
 import { ProxyPanel } from './panels/ProxyPanel'
+import { ProxyProviderIcon } from './panels/ProxyProviderIcon'
 import { UsagePanel } from './panels/UsagePanel'
 import { ChannelsPanel } from './panels/ChannelsPanel'
 import { McpPanel } from './panels/McpPanel'
@@ -2491,16 +2492,33 @@ export function SettingsView({
                     return (
                       <SettingsRow
                         key={provider}
-                        label={t(`settings.proxy.provider.${provider}` as MessageKey)}
-                        description={
-                          <>
-                            {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
-                            {proxyProviderError[provider] && (
-                              <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
-                                {proxyProviderError[provider]}
+                        label={(
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                            <ProxyProviderIcon provider={provider} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                {t(`settings.proxy.provider.${provider}` as MessageKey)}
                               </div>
-                            )}
-                          </>
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--text-dimmed)',
+                                  lineHeight: 1.5,
+                                  marginTop: '4px'
+                                }}
+                              >
+                                {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
+                                {proxyProviderError[provider] && (
+                                  <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                    {proxyProviderError[provider]}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        description={
+                          undefined
                         }
                         control={
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
