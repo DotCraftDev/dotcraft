@@ -195,6 +195,20 @@ public sealed record UsageDeltaPayload
     /// Output tokens consumed in this LLM iteration (delta, not cumulative).
     /// </summary>
     public long OutputTokens { get; init; }
+
+    /// <summary>
+    /// Optional cumulative input-token snapshot for the thread at the time
+    /// of the delta (<c>TokenTracker.LastInputTokens</c>). Desktop clients use
+    /// this to drive the context-usage ring without waiting for turn completion.
+    /// </summary>
+    public long? TotalInputTokens { get; init; }
+
+    /// <summary>
+    /// Optional cumulative output-token total emitted so far in the current
+    /// turn. Mirrors <see cref="TotalInputTokens"/> and is populated when
+    /// possible; null otherwise.
+    /// </summary>
+    public long? TotalOutputTokens { get; init; }
 }
 
 /// <summary>

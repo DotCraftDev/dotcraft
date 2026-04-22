@@ -627,7 +627,9 @@ export function App(): JSX.Element {
           case 'item/usage/delta': {
             const input = (p.inputTokens as number) ?? 0
             const output = (p.outputTokens as number) ?? 0
-            conv.onUsageDelta(input, output)
+            const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
+            const totalOutput = typeof p.totalOutputTokens === 'number' ? (p.totalOutputTokens as number) : null
+            conv.onUsageDelta(input, output, totalInput, totalOutput)
             break
           }
 
@@ -647,7 +649,10 @@ export function App(): JSX.Element {
 
           // ── System events ─────────────────────────────────────────────
           case 'system/event':
-            conv.onSystemEvent((p.kind as string) ?? '')
+            conv.onSystemEvent((p.kind as string) ?? '', {
+              tokenCount: typeof p.tokenCount === 'number' ? (p.tokenCount as number) : null,
+              percentLeft: typeof p.percentLeft === 'number' ? (p.percentLeft as number) : null
+            })
             break
 
           // ── Plan updates ──────────────────────────────────────────────
@@ -1126,6 +1131,7 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+          useConversationStore.getState().setContextUsage(res.thread.contextUsage ?? null)
           const parked = useThreadStore.getState().consumeParkedApproval(requestedId)
           if (parked) {
             useConversationStore.getState().onApprovalRequest(parked.bridgeId, parked.rawParams)

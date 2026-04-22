@@ -1968,5 +1968,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         public Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default) => throw new NotImplementedException();
+        public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId) => null;
     }
 }

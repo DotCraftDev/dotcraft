@@ -258,6 +258,7 @@ Fields:
   - `ApprovalRequest` — Agent requests user approval for a sensitive operation.
   - `ApprovalResponse` — User's approval decision (approved/rejected).
   - `Error` — An error occurred during the Turn.
+  - `SystemNotice` — Persistent system-level marker in the conversation timeline (e.g. context compaction point). Emits `item/started` + `item/completed` back-to-back; no streaming phase.
 - `Status` (enum: `Started`, `Streaming`, `Completed`)
   - `Started` — Item has been created, payload may be partial or empty.
   - `Streaming` — Item is receiving incremental updates (deltas). Valid for `AgentMessage`, `ReasoningContent`, runtime-projected `CommandExecution`, and AppServer-projected streamed `ToolCall` argument previews.
@@ -412,6 +413,25 @@ Delta payload (during streaming):
   "fatal": boolean        // Whether the error terminates the Turn
 }
 ```
+
+#### SystemNotice
+
+```
+{
+  "kind": string,              // Notice classifier. Currently "compacted"; future kinds are additive.
+  "trigger": string,           // For kind="compacted": "auto" | "reactive" | "manual"
+  "mode": string,              // For kind="compacted": "micro" | "partial"
+  "tokensBefore": number,      // Approximate input tokens right before compaction ran
+  "tokensAfter": number,       // Approximate input tokens after compaction ran
+  "percentLeftAfter": number,  // Fraction of EffectiveContextWindow still available (0.0 - 1.0)
+  "clearedToolResults": number // Count of tool results cleared by the micro-compact pass (0 for partial only)
+}
+```
+
+`SystemNotice` items are created by Session Core and persisted via the normal
+rollout/`turn.Items` pipeline, so they survive thread reload and round-trip
+through `thread/read`. Clients treat them as inline dividers in the timeline
+rather than part of the model conversation.
 
 ### 4.3 Stable Identifiers and Normalization Rules
 

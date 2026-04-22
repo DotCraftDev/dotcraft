@@ -603,6 +603,21 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
 
+**`contextUsage` field**: When the server has a live token tracker for the thread (i.e. the thread has received at least one turn in the current process lifetime, or its rolled-out history was rehydrated), the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring:
+
+```
+"contextUsage": {
+  "tokens": number,                // Approximate input tokens currently consumed
+  "contextWindow": number,         // Configured effective context window (denominator)
+  "autoCompactThreshold": number,  // Token count at which auto-compact runs
+  "warningThreshold": number,      // Token count at which compactWarning starts firing
+  "errorThreshold": number,        // Token count at which compactError starts firing
+  "percentLeft": number            // Fraction of the context window still available (0.0 - 1.0)
+}
+```
+
+The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. The field is omitted when no token tracker exists yet (e.g. fresh thread before the first turn).
+
 ### 4.5 `thread/subscribe`
 
 Subscribe the current connection to future lifecycle events for a thread. Multiple passive subscribers may observe the same thread concurrently.
@@ -1393,7 +1408,9 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
   "threadId": "thread_...",
   "turnId": "turn_001",
   "inputTokens": 1200,
-  "outputTokens": 350
+  "outputTokens": 350,
+  "totalInputTokens": 14820,
+  "totalOutputTokens": 2610
 }
 ```
 
@@ -1403,6 +1420,8 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
 | `turnId` | string | Active turn. |
 | `inputTokens` | integer | Input tokens consumed in this LLM iteration (delta, not cumulative). |
 | `outputTokens` | integer | Output tokens consumed in this LLM iteration (delta, not cumulative). |
+| `totalInputTokens` | integer | Optional. Cumulative input-token snapshot from `TokenTracker.LastInputTokens`. Drives the desktop context-usage ring without waiting for turn completion. Absent when unavailable. |
+| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. Mirrors `totalInputTokens`; absent when unavailable. |
 
 **Emission rules**:
 
@@ -1482,6 +1501,7 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 - Reactive compaction fires on the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. The Turn still fails, but `compacting` and its terminal event are emitted first so UIs know the history was repaired before the user retries.
 - Consolidation is fire-and-forget after a successful compaction; the Turn completes without awaiting it. Clients see `consolidating` / `consolidated` events asynchronously.
 - Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
+- On a successful `compacted` event (auto or reactive trigger), Session Core additionally persists a `SystemNotice` SessionItem (kind = `"compacted"`) into the current turn and emits the normal `item/started` + `item/completed` pair for it. This gives clients a persistent timeline marker that survives thread reload, alongside the transient `system/event` notification used to drive toast/status-line UX. See [Session Core](session-core.md#systemnotice) for the payload schema.
 
 **Example sequence**:
 

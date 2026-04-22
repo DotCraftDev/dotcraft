@@ -23,6 +23,7 @@ import { FileSearchPopover } from './FileSearchPopover'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { ModelPicker } from './ModelPicker'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
+import { ContextUsageRing } from './ContextUsageRing'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -496,34 +497,35 @@ export function InputComposer({
           </div>
         }
         footerAction={
-          !isWaitingApproval ? (
-            isRunning ? (
-              <button
-                type="button"
-                onClick={stopTurn}
-                title={t('composer.stopTitle')}
-                aria-label={t('composer.stopAria')}
-                style={composerSendButtonStyle('enabled')}
-              >
-                <StopIcon />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  void sendMessage()
-                }}
-                disabled={!canSend}
-                title={t('composer.sendTitleAlt')}
-                aria-label={t('composer.sendAriaAlt')}
-                style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
-              >
-                <SendIcon />
-              </button>
-            )
-          ) : (
-            <div />
-          )
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ContextUsageRing />
+            {!isWaitingApproval ? (
+              isRunning ? (
+                <button
+                  type="button"
+                  onClick={stopTurn}
+                  title={t('composer.stopTitle')}
+                  aria-label={t('composer.stopAria')}
+                  style={composerSendButtonStyle('enabled')}
+                >
+                  <StopIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void sendMessage()
+                  }}
+                  disabled={!canSend}
+                  title={t('composer.sendTitleAlt')}
+                  aria-label={t('composer.sendAriaAlt')}
+                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                >
+                  <SendIcon />
+                </button>
+              )
+            ) : null}
+          </div>
         }
       />
     </div>

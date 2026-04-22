@@ -44,6 +44,7 @@ public class SerializationTests
     [InlineData(ItemType.ApprovalRequest, "ApprovalRequest")]
     [InlineData(ItemType.ApprovalResponse, "ApprovalResponse")]
     [InlineData(ItemType.Error, "Error")]
+    [InlineData(ItemType.SystemNotice, "SystemNotice")]
     public void ItemType_SerializesAsString(ItemType type, string expected)
     {
         var json = JsonSerializer.Serialize(type, Opts);
@@ -311,6 +312,120 @@ public class SerializationTests
         Assert.Equal("Something went wrong", payload.Message);
         Assert.Equal("agent_error", payload.Code);
         Assert.True(payload.Fatal);
+    }
+
+    [Fact]
+    public void SessionItem_SystemNotice_RoundTrip()
+    {
+        var item = BuildItem(ItemType.SystemNotice, ItemStatus.Completed,
+            new SystemNoticePayload
+            {
+                Kind = "compacted",
+                Trigger = "auto",
+                Mode = "partial",
+                TokensBefore = 180_000,
+                TokensAfter = 44_000,
+                PercentLeftAfter = 0.78,
+                ClearedToolResults = 3
+            });
+
+        var deserialized = RoundTrip(item);
+        var payload = deserialized.AsSystemNotice;
+        Assert.NotNull(payload);
+        Assert.Equal("compacted", payload!.Kind);
+        Assert.Equal("auto", payload.Trigger);
+        Assert.Equal("partial", payload.Mode);
+        Assert.Equal(180_000, payload.TokensBefore);
+        Assert.Equal(44_000, payload.TokensAfter);
+        Assert.Equal(0.78, payload.PercentLeftAfter, 3);
+        Assert.Equal(3, payload.ClearedToolResults);
+    }
+
+    [Fact]
+    public void SessionWireEvent_SystemNoticeItem_ProducesSystemNoticePayloadKind()
+    {
+        var item = BuildItem(ItemType.SystemNotice, ItemStatus.Completed,
+            new SystemNoticePayload
+            {
+                Kind = "compacted",
+                Trigger = "reactive",
+                Mode = "micro",
+                TokensBefore = 200_000,
+                TokensAfter = 100_000,
+                PercentLeftAfter = 0.5,
+                ClearedToolResults = 1
+            });
+        var evt = new SessionEvent
+        {
+            EventId = "evt_sn1",
+            EventType = SessionEventType.ItemCompleted,
+            ThreadId = "thread_001",
+            TurnId = "turn_001",
+            ItemId = item.Id,
+            Timestamp = new DateTimeOffset(2026, 3, 16, 10, 0, 0, TimeSpan.Zero),
+            Payload = item
+        };
+
+        var json = JsonSerializer.Serialize(evt.ToWire(), SessionWireJsonOptions.Default);
+
+        Assert.Contains("\"type\":\"systemNotice\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"kind\":\"compacted\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"trigger\":\"reactive\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SessionWireThread_ContextUsage_RoundTripsThroughWire()
+    {
+        var thread = new SessionThread
+        {
+            Id = "thread_001",
+            WorkspacePath = "/workspace",
+            OriginChannel = "cli",
+            Status = ThreadStatus.Active,
+            CreatedAt = new DateTimeOffset(2026, 3, 16, 10, 0, 0, TimeSpan.Zero),
+            LastActiveAt = new DateTimeOffset(2026, 3, 16, 10, 0, 0, TimeSpan.Zero)
+        };
+        var wire = thread.ToWire() with
+        {
+            ContextUsage = new ContextUsageSnapshot
+            {
+                Tokens = 48_000,
+                ContextWindow = 200_000,
+                AutoCompactThreshold = 180_000,
+                WarningThreshold = 176_000,
+                ErrorThreshold = 194_000,
+                PercentLeft = 0.76
+            }
+        };
+
+        var json = JsonSerializer.Serialize(wire, SessionWireJsonOptions.Default);
+        Assert.Contains("\"contextUsage\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"tokens\":48000", json, StringComparison.Ordinal);
+        Assert.Contains("\"contextWindow\":200000", json, StringComparison.Ordinal);
+        Assert.Contains("\"autoCompactThreshold\":180000", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UsageDeltaPayload_CumulativeTotals_RoundTrip()
+    {
+        var payload = new UsageDeltaPayload
+        {
+            InputTokens = 1200,
+            OutputTokens = 350,
+            TotalInputTokens = 14_820,
+            TotalOutputTokens = 2_610
+        };
+
+        var json = JsonSerializer.Serialize(payload, Opts);
+        var deserialized = JsonSerializer.Deserialize<UsageDeltaPayload>(json, Opts);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal(1200, deserialized!.InputTokens);
+        Assert.Equal(350, deserialized.OutputTokens);
+        Assert.Equal(14_820, deserialized.TotalInputTokens);
+        Assert.Equal(2_610, deserialized.TotalOutputTokens);
+        Assert.Contains("\"totalInputTokens\":14820", json, StringComparison.Ordinal);
+        Assert.Contains("\"totalOutputTokens\":2610", json, StringComparison.Ordinal);
     }
 
     [Fact]

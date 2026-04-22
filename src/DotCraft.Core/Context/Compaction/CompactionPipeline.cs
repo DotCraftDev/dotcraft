@@ -85,6 +85,12 @@ public sealed class CompactionPipeline
     internal CompactionFailureTracker Failures => _failures;
 
     /// <summary>
+    /// Exposes the configured effective context window. Used by the wire layer
+    /// to populate <see cref="Protocol.ContextUsageSnapshot.ContextWindow"/>.
+    /// </summary>
+    public int EffectiveContextWindow => _config.EffectiveContextWindow();
+
+    /// <summary>
     /// Computes the <see cref="CompactionThreshold"/> for a given token count.
     /// </summary>
     public CompactionThreshold EvaluateThreshold(long tokens)

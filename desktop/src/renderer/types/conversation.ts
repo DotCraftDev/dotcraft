@@ -21,6 +21,22 @@ export type ItemType =
   | 'toolResult'
   | 'error'
   | 'approvalCard'
+  | 'systemNotice'
+
+/**
+ * Payload for systemNotice items. Currently only the `compacted` kind is
+ * emitted by the backend; the optional fields below are populated for that
+ * kind and mirror `SystemNoticePayload` on the wire.
+ */
+export interface SystemNoticeInfo {
+  kind: string
+  trigger?: string
+  mode?: string
+  tokensBefore?: number
+  tokensAfter?: number
+  percentLeftAfter?: number
+  clearedToolResults?: number
+}
 
 export type ApprovalDecision =
   | 'accept'
@@ -111,6 +127,8 @@ export interface ConversationItem {
   triggerLabel?: string
   /** Optional routing id for client-side click-through (e.g. cron job id, task id). */
   triggerRefId?: string
+  /** Populated only for systemNotice items (e.g. context-compacted markers). */
+  systemNotice?: SystemNoticeInfo
 }
 
 export interface ConversationTurn {
@@ -302,8 +320,30 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.triggerLabel as string | undefined),
     triggerRefId: (raw.triggerRefId as string | undefined)
       ?? (payload.triggerRefId as string | undefined),
+    systemNotice: type === 'systemNotice' ? mapSystemNotice(raw, payload) : undefined,
     createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
     completedAt: (raw.completedAt as string | undefined)
+  }
+}
+
+function mapSystemNotice(
+  raw: Record<string, unknown>,
+  payload: Record<string, unknown>
+): SystemNoticeInfo {
+  const kind =
+    (typeof payload.kind === 'string' && payload.kind)
+    || (typeof raw.kind === 'string' && raw.kind)
+    || ''
+  return {
+    kind,
+    trigger: typeof payload.trigger === 'string' ? payload.trigger : undefined,
+    mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+    tokensBefore: typeof payload.tokensBefore === 'number' ? payload.tokensBefore : undefined,
+    tokensAfter: typeof payload.tokensAfter === 'number' ? payload.tokensAfter : undefined,
+    percentLeftAfter:
+      typeof payload.percentLeftAfter === 'number' ? payload.percentLeftAfter : undefined,
+    clearedToolResults:
+      typeof payload.clearedToolResults === 'number' ? payload.clearedToolResults : undefined
   }
 }
 

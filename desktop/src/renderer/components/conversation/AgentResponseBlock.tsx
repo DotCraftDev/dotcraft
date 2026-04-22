@@ -8,6 +8,7 @@ import { CancelledNotice } from './CancelledNotice'
 import { SubAgentProgressBlock } from './SubAgentProgressBlock'
 import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { ApprovalCard } from './ApprovalCard'
+import { SystemNoticeBlock } from './SystemNoticeBlock'
 import { planToolRunRender } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
@@ -169,6 +170,8 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
           isActive={isActiveApproval}
         />
       )
+    } else if (item.type === 'systemNotice') {
+      renderNodes.push(<SystemNoticeBlock key={item.id} item={item} />)
     }
 
     i++

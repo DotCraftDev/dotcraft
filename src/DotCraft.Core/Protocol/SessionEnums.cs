@@ -32,7 +32,8 @@ public enum ItemType
     ToolResult,
     ApprovalRequest,
     ApprovalResponse,
-    Error
+    Error,
+    SystemNotice
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

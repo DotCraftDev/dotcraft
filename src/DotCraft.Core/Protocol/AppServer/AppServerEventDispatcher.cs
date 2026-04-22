@@ -247,7 +247,9 @@ public sealed class AppServerEventDispatcher
             threadId = evt.ThreadId,
             turnId = evt.TurnId,
             inputTokens = usage.InputTokens,
-            outputTokens = usage.OutputTokens
+            outputTokens = usage.OutputTokens,
+            totalInputTokens = usage.TotalInputTokens,
+            totalOutputTokens = usage.TotalOutputTokens
         },
 
         // System event notification (spec Section 6.7)

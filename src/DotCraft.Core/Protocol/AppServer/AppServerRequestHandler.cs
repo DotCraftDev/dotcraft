@@ -336,11 +336,12 @@ public sealed class AppServerRequestHandler(
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
+        var startedWire = WithContextUsage(thread.ToWire(), thread.Id);
         await SendNotificationAfterResponseAsync(
             msg.Id,
-            new { thread = thread.ToWire() },
+            new { thread = startedWire },
             AppServerMethods.ThreadStarted,
-            new { thread = thread.ToWire() },
+            new { thread = startedWire },
             ct);
 
         // Return null to signal the response will be sent inline by SendNotificationAfterResponseAsync
@@ -357,8 +358,9 @@ public sealed class AppServerRequestHandler(
 
         // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
         var resumedBy = connection.ClientInfo?.Name ?? "appserver";
-        var responseResult = new { thread = thread.ToWire() };
-        var notifParams = new { thread = thread.ToWire(), resumedBy };
+        var resumedWire = WithContextUsage(thread.ToWire(), thread.Id);
+        var responseResult = new { thread = resumedWire };
+        var notifParams = new { thread = resumedWire, resumedBy };
 
         if (connection.HasSubscription(p.ThreadId))
         {
@@ -823,7 +825,13 @@ public sealed class AppServerRequestHandler(
         var p = GetParams<ThreadReadParams>(msg);
         var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var includeTurns = p.IncludeTurns ?? false;
-        return new { thread = thread.ToWire(includeTurns) };
+        return new { thread = WithContextUsage(thread.ToWire(includeTurns), thread.Id) };
+    }
+
+    private SessionWireThread WithContextUsage(SessionWireThread wire, string threadId)
+    {
+        var snapshot = sessionService.TryGetContextUsageSnapshot(threadId);
+        return snapshot is null ? wire : wire with { ContextUsage = snapshot };
     }
 
     private Task<object?> HandleThreadSubscribeAsync(AppServerIncomingMessage msg, CancellationToken ct)

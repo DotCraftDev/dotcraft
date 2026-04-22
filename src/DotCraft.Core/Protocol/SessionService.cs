@@ -76,6 +76,27 @@ public sealed class SessionService(
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+            return null;
+
+        var tracker = agentFactory.GetOrCreateTokenTracker(threadId);
+        var pipeline = agentFactory.CompactionPipeline;
+        var threshold = pipeline.EvaluateThreshold(tracker.LastInputTokens);
+
+        return new ContextUsageSnapshot
+        {
+            Tokens = threshold.Tokens,
+            ContextWindow = pipeline.EffectiveContextWindow,
+            AutoCompactThreshold = threshold.AutoThreshold,
+            WarningThreshold = threshold.WarningThreshold,
+            ErrorThreshold = threshold.ErrorThreshold,
+            PercentLeft = threshold.PercentLeft
+        };
+    }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -969,7 +990,11 @@ public sealed class SessionService(
                                             inputTokens += deltaIn;
                                             outputTokens += deltaOut;
                                             tokenTracker.UpdateWithStreamingDeltas(deltaIn, deltaOut, curIn);
-                                            eventChannel.EmitUsageDelta(deltaIn, deltaOut);
+                                            eventChannel.EmitUsageDelta(
+                                                deltaIn,
+                                                deltaOut,
+                                                totalInputTokens: tokenTracker.LastInputTokens,
+                                                totalOutputTokens: outputTokens);
                                         }
                                     }
 
@@ -1077,6 +1102,16 @@ public sealed class SessionService(
                                     "compacted",
                                     percentLeft: status.ThresholdAfter.PercentLeft,
                                     tokenCount: status.ThresholdAfter.Tokens);
+                                {
+                                    var noticeItem = CreateCompactionNoticeItem(
+                                        turn,
+                                        NextItemSeq(),
+                                        trigger: "auto",
+                                        status);
+                                    turn.Items.Add(noticeItem);
+                                    eventChannel.EmitItemStarted(noticeItem);
+                                    eventChannel.EmitItemCompleted(noticeItem);
+                                }
                                 ThreadRuntimeSignalForBroadcast?.Invoke(
                                     threadId,
                                     SessionThreadRuntimeSignal.ContextCompacted);
@@ -1170,6 +1205,16 @@ public sealed class SessionService(
                                 "compacted",
                                 percentLeft: status.ThresholdAfter.PercentLeft,
                                 tokenCount: status.ThresholdAfter.Tokens);
+                            {
+                                var noticeItem = CreateCompactionNoticeItem(
+                                    turn,
+                                    NextItemSeq(),
+                                    trigger: "reactive",
+                                    status);
+                                turn.Items.Add(noticeItem);
+                                eventChannel.EmitItemStarted(noticeItem);
+                                eventChannel.EmitItemCompleted(noticeItem);
+                            }
                             ThreadRuntimeSignalForBroadcast?.Invoke(
                                 threadId,
                                 SessionThreadRuntimeSignal.ContextCompacted);
@@ -1555,6 +1600,34 @@ public sealed class SessionService(
             CreatedAt = DateTimeOffset.UtcNow,
             CompletedAt = DateTimeOffset.UtcNow,
             Payload = new ErrorPayload { Message = message, Code = code, Fatal = fatal }
+        };
+    }
+
+    private static SessionItem CreateCompactionNoticeItem(
+        SessionTurn turn,
+        int seq,
+        string trigger,
+        CompactionStatus status)
+    {
+        var mode = status.Outcome == CompactionOutcome.Micro ? "micro" : "partial";
+        return new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(seq),
+            TurnId = turn.Id,
+            Type = ItemType.SystemNotice,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new SystemNoticePayload
+            {
+                Kind = "compacted",
+                Trigger = trigger,
+                Mode = mode,
+                TokensBefore = status.ThresholdBefore.Tokens,
+                TokensAfter = status.ThresholdAfter.Tokens,
+                PercentLeftAfter = status.ThresholdAfter.PercentLeft,
+                ClearedToolResults = status.ClearedToolResults
+            }
         };
     }
 

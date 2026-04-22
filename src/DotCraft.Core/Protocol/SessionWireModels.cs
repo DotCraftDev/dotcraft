@@ -89,6 +89,45 @@ public sealed record SessionExtensionCapability
 }
 
 /// <summary>
+/// Snapshot of the per-thread context usage used to drive the desktop token ring.
+/// Tokens is approximated from <c>TokenTracker.LastInputTokens</c> when available and
+/// falls back to <see cref="Context.Compaction.MessageTokenEstimator"/> otherwise.
+/// </summary>
+public sealed record ContextUsageSnapshot
+{
+    /// <summary>
+    /// Approximate input tokens currently consumed by the session history.
+    /// </summary>
+    public long Tokens { get; init; }
+
+    /// <summary>
+    /// Raw configured context window (<c>CompactionConfig.EffectiveContextWindow()</c>).
+    /// This is the denominator the desktop ring should use.
+    /// </summary>
+    public int ContextWindow { get; init; }
+
+    /// <summary>
+    /// Token count at which auto-compact runs (<c>CompactionConfig.AutoCompactThreshold()</c>).
+    /// </summary>
+    public int AutoCompactThreshold { get; init; }
+
+    /// <summary>
+    /// Token count at which <c>compactWarning</c> starts firing.
+    /// </summary>
+    public int WarningThreshold { get; init; }
+
+    /// <summary>
+    /// Token count at which <c>compactError</c> starts firing.
+    /// </summary>
+    public int ErrorThreshold { get; init; }
+
+    /// <summary>
+    /// Percent of the effective context window still available (0.0 - 1.0).
+    /// </summary>
+    public double PercentLeft { get; init; }
+}
+
+/// <summary>
 /// Wire DTO for a thread.
 /// </summary>
 public sealed record SessionWireThread
@@ -121,6 +160,13 @@ public sealed record SessionWireThread
     /// Turn summaries. Populated only when the caller requests turn history (e.g. thread/read with includeTurns = true).
     /// </summary>
     public List<SessionWireTurn>? Turns { get; init; }
+
+    /// <summary>
+    /// Context usage snapshot used by the desktop token ring. Populated on
+    /// <c>thread/start</c>, <c>thread/resumed</c>, and <c>thread/read</c>; null when the thread has
+    /// no live token tracker yet.
+    /// </summary>
+    public ContextUsageSnapshot? ContextUsage { get; init; }
 }
 
 /// <summary>
@@ -536,9 +582,10 @@ public static class SessionWireMapper
             ToolCallPayload => "toolCall",
             ExternalChannelToolCallPayload => "externalChannelToolCall",
             ToolResultPayload => "toolResult",
-            UserMessagePayload => "userMessage",
-            AgentMessagePayload => "agentMessage",
-            ReasoningContentPayload => "reasoningContent",
+        UserMessagePayload => "userMessage",
+        AgentMessagePayload => "agentMessage",
+        ReasoningContentPayload => "reasoningContent",
+        SystemNoticePayload => "systemNotice",
             SessionThread => "thread",
             SessionTurn => "turn",
             SessionItem => "item",

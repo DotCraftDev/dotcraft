@@ -43,6 +43,28 @@ export interface AgentPlan {
 }
 
 // ---------------------------------------------------------------------------
+// Context usage (token ring)
+// ---------------------------------------------------------------------------
+
+/** Threshold classification used by the token ring for color coding. */
+export type ContextUsageSeverity = 'normal' | 'warning' | 'error'
+
+/**
+ * Mirror of the backend `ContextUsageSnapshot` wire shape, plus a derived
+ * severity bucket for UI color coding. Null when the thread has no live
+ * token tracker yet.
+ */
+export interface ContextUsage {
+  tokens: number
+  contextWindow: number
+  autoCompactThreshold: number
+  warningThreshold: number
+  errorThreshold: number
+  percentLeft: number
+  severity: ContextUsageSeverity
+}
+
+// ---------------------------------------------------------------------------
 // State interface
 // ---------------------------------------------------------------------------
 
@@ -101,6 +123,12 @@ interface ConversationState {
   subAgentEntries: SubAgentEntry[]
   /** Current agent plan from plan/updated events — replaced wholesale */
   plan: AgentPlan | null
+  /**
+   * Approximate context usage snapshot for the active thread. Seeded from
+   * thread/read and updated by item/usage/delta and system/event compacted
+   * notifications. Null when no token tracker data is available yet.
+   */
+  contextUsage: ContextUsage | null
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +165,35 @@ interface ConversationActions {
   }): void
   /** item/completed notification */
   onItemCompleted(params: Record<string, unknown>): void
-  /** item/usage/delta notification */
-  onUsageDelta(inputTokens: number, outputTokens: number): void
-  /** system/event notification */
-  onSystemEvent(kind: string): void
+  /**
+   * item/usage/delta notification.
+   *
+   * `totalInputTokens` (when provided) is the cumulative input snapshot from
+   * `TokenTracker.LastInputTokens` and drives the context-usage ring directly.
+   */
+  onUsageDelta(
+    inputTokens: number,
+    outputTokens: number,
+    totalInputTokens?: number | null,
+    totalOutputTokens?: number | null
+  ): void
+  /**
+   * system/event notification. Accepts the full params from the wire so we can
+   * forward `tokenCount` / `percentLeft` into the context-usage slice.
+   */
+  onSystemEvent(
+    kind: string,
+    params?: { tokenCount?: number | null; percentLeft?: number | null }
+  ): void
+  /** Replace contextUsage from thread/read / thread/started / thread/resumed. */
+  setContextUsage(snapshot: {
+    tokens: number
+    contextWindow: number
+    autoCompactThreshold: number
+    warningThreshold: number
+    errorThreshold: number
+    percentLeft: number
+  } | null): void
   setPendingMessage(msg: PendingComposerMessage | null): void
   setThreadMode(mode: ThreadMode): void
   /** Add an optimistic (locally-created) turn before server confirms */
@@ -218,7 +271,8 @@ const initialState: ConversationState = {
   streamingItemDiffs: new Map<string, FileDiff>(),
   streamingBaselines: new Map<string, StreamingFileBaseline>(),
   subAgentEntries: [],
-  plan: null
+  plan: null,
+  contextUsage: null
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +343,68 @@ const SYSTEM_LABELS: Record<string, string | null> = {
   compacted: null,
   compactSkipped: null,
   consolidated: null
+}
+
+function computeSeverity(tokens: number, snapshot: {
+  warningThreshold: number
+  errorThreshold: number
+}): ContextUsageSeverity {
+  if (snapshot.errorThreshold > 0 && tokens >= snapshot.errorThreshold) return 'error'
+  if (snapshot.warningThreshold > 0 && tokens >= snapshot.warningThreshold) return 'warning'
+  return 'normal'
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value < 0) return 0
+  if (value > 1) return 1
+  return value
+}
+
+function toContextUsage(snapshot: {
+  tokens: number
+  contextWindow: number
+  autoCompactThreshold: number
+  warningThreshold: number
+  errorThreshold: number
+  percentLeft: number
+}): ContextUsage {
+  const tokens = Math.max(0, Math.trunc(snapshot.tokens ?? 0))
+  return {
+    tokens,
+    contextWindow: Math.max(0, Math.trunc(snapshot.contextWindow ?? 0)),
+    autoCompactThreshold: Math.max(0, Math.trunc(snapshot.autoCompactThreshold ?? 0)),
+    warningThreshold: Math.max(0, Math.trunc(snapshot.warningThreshold ?? 0)),
+    errorThreshold: Math.max(0, Math.trunc(snapshot.errorThreshold ?? 0)),
+    percentLeft: clampPercent(snapshot.percentLeft ?? 0),
+    severity: computeSeverity(tokens, snapshot)
+  }
+}
+
+/**
+ * Override the current usage with a new absolute `tokens` snapshot. Recomputes
+ * severity + percentLeft when `percentLeftOverride` is not supplied. Returns
+ * the original slice unchanged when no usage has been seeded yet (usage/delta
+ * before thread/read won't conjure thresholds out of thin air).
+ */
+function applyTokensToContextUsage(
+  current: ContextUsage | null,
+  tokens: number | null,
+  percentLeftOverride: number | null = null
+): ContextUsage | null {
+  if (!current || tokens === null) return current
+  const nextTokens = Math.max(0, Math.trunc(tokens))
+  const percentLeft = percentLeftOverride !== null
+    ? clampPercent(percentLeftOverride)
+    : current.contextWindow > 0
+      ? clampPercent(1 - nextTokens / current.contextWindow)
+      : current.percentLeft
+  return {
+    ...current,
+    tokens: nextTokens,
+    percentLeft,
+    severity: computeSeverity(nextTokens, current)
+  }
 }
 
 function extractPartialJsonStringValue(json: string, key: string): string | null {
@@ -1016,6 +1132,33 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'systemNotice') {
+      const itemId = (item?.id as string) ?? ''
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      const notice = {
+        kind: (itemPayload.kind as string | undefined) ?? 'compacted',
+        trigger: itemPayload.trigger as string | undefined,
+        mode: itemPayload.mode as string | undefined,
+        tokensBefore: itemPayload.tokensBefore as number | undefined,
+        tokensAfter: itemPayload.tokensAfter as number | undefined,
+        percentLeftAfter: itemPayload.percentLeftAfter as number | undefined,
+        clearedToolResults: itemPayload.clearedToolResults as number | undefined
+      }
+      const newItem: ConversationItem = {
+        id: itemId,
+        type: 'systemNotice',
+        status: 'completed',
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString(),
+        completedAt: (item?.completedAt as string) ?? new Date().toISOString(),
+        systemNotice: notice
+      }
+      set((s) => ({
+        turns: s.turns.map((t) => {
+          if (t.id !== turnId) return t
+          if (t.items.some((i) => i.id === itemId)) return t
+          return { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) }
+        })
+      }))
     } else if (type === 'toolCall') {
       // Mark the tool call item itself as completed and merge finalized payload fields.
       const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
@@ -1230,19 +1373,50 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     }
   },
 
-  onUsageDelta(inputTokens, outputTokens) {
-    set((state) => ({
-      inputTokens: state.inputTokens + inputTokens,
-      outputTokens: state.outputTokens + outputTokens
-    }))
+  onUsageDelta(inputTokens, outputTokens, totalInputTokens, totalOutputTokens) {
+    set((state) => {
+      const nextInput = state.inputTokens + inputTokens
+      const nextOutput = state.outputTokens + outputTokens
+      const nextContextUsage = applyTokensToContextUsage(
+        state.contextUsage,
+        typeof totalInputTokens === 'number' ? totalInputTokens : null
+      )
+      void totalOutputTokens
+      return {
+        inputTokens: nextInput,
+        outputTokens: nextOutput,
+        contextUsage: nextContextUsage
+      }
+    })
   },
 
-  onSystemEvent(kind) {
+  onSystemEvent(kind, params) {
     const label = SYSTEM_LABELS[kind]
-    // undefined means unknown event, don't change label; null means clear it
     if (label !== undefined) {
       set({ systemLabel: label })
     }
+
+    if (kind === 'compacted') {
+      const tokens = typeof params?.tokenCount === 'number' ? params.tokenCount : null
+      set((state) => ({
+        contextUsage: applyTokensToContextUsage(
+          state.contextUsage,
+          tokens ?? 0,
+          typeof params?.percentLeft === 'number' ? params.percentLeft : null
+        )
+      }))
+    }
+    // compactWarning / compactError / compactSkipped / compactFailed only drive
+    // systemLabel; the ring color reacts to the next usage/delta or compacted
+    // snapshot.
+  },
+
+  setContextUsage(snapshot) {
+    if (!snapshot) {
+      set({ contextUsage: null })
+      return
+    }
+    set({ contextUsage: toContextUsage(snapshot) })
   },
 
   setPendingMessage(msg) {
@@ -1451,7 +1625,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       streamingBaselines: new Map<string, StreamingFileBaseline>(),
       subAgentEntries: [],
       pendingApproval: null,
-      plan: null
+      plan: null,
+      contextUsage: null
     }))
   }
 }))

@@ -36,6 +36,9 @@ internal sealed class TestableSessionService : ISessionService
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId) => null;
+
     public TestableSessionService(ThreadStore store) => _store = store;
 
     // -------------------------------------------------------------------------
