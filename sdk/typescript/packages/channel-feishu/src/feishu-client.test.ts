@@ -1260,3 +1260,96 @@ test("Feishu client reverse-looks-up wiki node from docx obj_token", async () =>
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Feishu client lists docx blocks", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [{ block_id: "blk_1", block_type: 2, parent_id: "doc_1", children: [] }],
+          has_more: false,
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const page = await client.listDocxBlocks({ documentId: "DocxPlaceholder000000000001", pageSize: 20 });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0]?.blockId, "blk_1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client updates docx blocks through batch_update", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/blocks\/batch_update$/);
+    const body = JSON.parse(String(init?.body ?? "{}")) as { requests?: unknown[] };
+    assert.equal(Array.isArray(body.requests), true);
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [{ block_id: "blk_1", block_type: 2 }],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const result = await client.updateDocxBlocks("DocxPlaceholder000000000001", [
+      { block_id: "blk_1", replace_text: { elements: [] } },
+    ]);
+    assert.equal(result.updatedBlocks.length, 1);
+    assert.equal(result.updatedBlocks[0]?.blockId, "blk_1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client deletes docx child range", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/children\/batch_delete$/);
+    assert.equal(init?.method, "DELETE");
+    return new Response(JSON.stringify({ code: 0, data: {} }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await client.deleteDocxBlockChildren("DocxPlaceholder000000000001", "DocxPlaceholder000000000001", 0, 1);
+    assert.equal(result.startIndex, 0);
+    assert.equal(result.endIndex, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

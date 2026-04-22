@@ -8,6 +8,7 @@ export const MOVE_WIKI_NODE_TOOL_NAME = "FeishuMoveWikiNode";
 export const LIST_WIKI_SPACES_TOOL_NAME = "FeishuListWikiSpaces";
 export const GET_WIKI_SPACE_TOOL_NAME = "FeishuGetWikiSpace";
 export const CREATE_WIKI_NODE_TOOL_NAME = "FeishuCreateWikiNode";
+export const RENAME_WIKI_NODE_TOOL_NAME = "FeishuRenameWikiNode";
 
 const WIKI_NODE_TOKEN_PATTERN = /^[A-Za-z0-9]{16,40}$/;
 const WIKI_SPACE_ID_PATTERN = /^\d{8,30}$/;
@@ -212,6 +213,28 @@ export function getFeishuWikiChannelTools(enabled: boolean): Record<string, unkn
         operation: "create",
       },
     },
+    {
+      name: RENAME_WIKI_NODE_TOOL_NAME,
+      description: "Rename an existing Feishu wiki node title.",
+      display: {
+        icon: "\u{1F3F7}\u{FE0F}",
+        title: "Rename Feishu wiki node",
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          spaceIdOrUrl: { type: "string" },
+          nodeTokenOrUrl: { type: "string" },
+          title: { type: "string" },
+        },
+        required: ["spaceIdOrUrl", "nodeTokenOrUrl", "title"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "nodeTokenOrUrl",
+        operation: "write",
+      },
+    },
   ];
 }
 
@@ -240,6 +263,9 @@ export async function maybeExecuteFeishuWikiToolCall(params: {
     }
     if (params.toolName === CREATE_WIKI_NODE_TOOL_NAME) {
       return await executeCreateWikiNodeTool(params);
+    }
+    if (params.toolName === RENAME_WIKI_NODE_TOOL_NAME) {
+      return await executeRenameWikiNodeTool(params);
     }
     return await executeMoveDocxToWikiTool(params);
   } catch (error) {
@@ -382,7 +408,8 @@ function isFeishuWikiToolName(toolName: string): boolean {
     toolName === MOVE_WIKI_NODE_TOOL_NAME ||
     toolName === LIST_WIKI_SPACES_TOOL_NAME ||
     toolName === GET_WIKI_SPACE_TOOL_NAME ||
-    toolName === CREATE_WIKI_NODE_TOOL_NAME
+    toolName === CREATE_WIKI_NODE_TOOL_NAME ||
+    toolName === RENAME_WIKI_NODE_TOOL_NAME
   );
 }
 
@@ -582,6 +609,28 @@ async function executeCreateWikiNodeTool(params: {
       ...(created.objType === "docx" || objType === "docx"
         ? { documentId: created.objToken }
         : {}),
+    },
+  };
+}
+
+async function executeRenameWikiNodeTool(params: {
+  args: Record<string, unknown>;
+  client: FeishuClient;
+}): Promise<Record<string, unknown>> {
+  const target = await resolveWikiSpaceTarget({
+    client: params.client,
+    spaceIdOrUrl: requiredText(params.args.spaceIdOrUrl, "spaceIdOrUrl"),
+  });
+  const nodeToken = extractWikiNodeToken(requiredText(params.args.nodeTokenOrUrl, "nodeTokenOrUrl"));
+  const title = requiredText(params.args.title, "title");
+  await params.client.updateWikiNodeTitle(target.spaceId, nodeToken, title);
+  return {
+    success: true,
+    contentItems: [{ type: "text", text: `Renamed wiki node ${nodeToken} in space ${target.spaceId}.` }],
+    structuredResult: {
+      spaceId: target.spaceId,
+      nodeToken,
+      title,
     },
   };
 }

@@ -118,12 +118,41 @@ export interface FeishuDocxRawContent {
 export interface FeishuDocxBlockInfo {
   blockId: string;
   blockType: number;
+  parentId?: string;
+  children?: string[];
+  textContent?: string;
 }
 
 export interface FeishuDocxBlockCreateResult {
   documentId: string;
   revisionId?: number;
   blocks: FeishuDocxBlockInfo[];
+}
+
+export interface FeishuDocxBlockListPage {
+  documentId: string;
+  items: FeishuDocxBlockInfo[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxBlockDeleteResult {
+  documentId: string;
+  parentBlockId: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface FeishuDocxBlockBatchUpdateResult {
+  documentId: string;
+  revisionId?: number;
+  updatedBlocks: FeishuDocxBlockInfo[];
+}
+
+export interface FeishuDriveMediaUploadResult {
+  fileToken: string;
+  fileName?: string;
+  size?: number;
 }
 
 export type FeishuWikiObjType =

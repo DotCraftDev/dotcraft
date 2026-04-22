@@ -15,6 +15,7 @@ import {
   maybeExecuteFeishuWikiToolCall,
   MOVE_DOCX_TO_WIKI_TOOL_NAME,
   MOVE_WIKI_NODE_TOOL_NAME,
+  RENAME_WIKI_NODE_TOOL_NAME,
   resolveWikiSpaceTarget,
 } from "./feishu-wiki-tools.js";
 
@@ -37,6 +38,7 @@ test("wiki channel tool registry only returns tools when enabled", () => {
       LIST_WIKI_SPACES_TOOL_NAME,
       GET_WIKI_SPACE_TOOL_NAME,
       CREATE_WIKI_NODE_TOOL_NAME,
+      RENAME_WIKI_NODE_TOOL_NAME,
     ],
   );
 });
@@ -67,6 +69,14 @@ test("wiki mutating tools declare remoteResource approval and read-only tools do
     kind: "remoteResource",
     targetArgument: "spaceIdOrUrl",
     operation: "create",
+  });
+
+  const renameNodeTool = byName.get(RENAME_WIKI_NODE_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(renameNodeTool);
+  assert.deepEqual(renameNodeTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "nodeTokenOrUrl",
+    operation: "write",
   });
 
   const readOnlyToolNames = [
@@ -308,6 +318,29 @@ test("FeishuMoveDocxToWiki returns ready=true after polling completes", async ()
   } finally {
     __setWikiMovePollOverrideForTesting(undefined);
   }
+});
+
+test("FeishuRenameWikiNode updates node title", async () => {
+  let called = 0;
+  const client = {
+    async updateWikiNodeTitle(spaceId: string, nodeToken: string, title: string) {
+      called += 1;
+      assert.equal(spaceId, WIKI_SPACE_ID);
+      assert.equal(nodeToken, WIKI_NODE_TOKEN);
+      assert.equal(title, "Renamed");
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuWikiToolCall({
+    toolName: RENAME_WIKI_NODE_TOOL_NAME,
+    args: {
+      spaceIdOrUrl: WIKI_SPACE_ID,
+      nodeTokenOrUrl: WIKI_NODE_TOKEN,
+      title: "Renamed",
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(called, 1);
 });
 
 test("FeishuMoveDocxToWiki returns timedOut when polling exhausts attempts", async () => {
