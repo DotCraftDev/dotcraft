@@ -1426,7 +1426,8 @@ public sealed class SessionService(
         var mm = GetOrCreateModeManager(threadId, mode);
         var baseCtx = agentFactory.ToolProviderContext;
         var threadChatClient = ResolveThreadChatClient(baseCtx, config);
-        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient);
+        var externalCliSessionStore = new ThreadExternalCliSessionStore(thread);
+        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient, externalCliSessionStore);
 
         ToolProviderContext? scopedContext = null;
         if (!string.IsNullOrEmpty(config.WorkspaceOverride))
@@ -1452,6 +1453,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 CronTools = baseCtx.CronTools,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
+                ExternalCliSessionStore = externalCliSessionStore,
                 AutomationTaskDirectory = config.AutomationTaskDirectory,
                 RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace
             };
@@ -1529,6 +1531,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
                 CronTools = scopedContext.CronTools,
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
+                ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
                 AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
                 RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace
             };
@@ -1599,7 +1602,8 @@ public sealed class SessionService(
 
     private static ToolProviderContext CloneContextWithChatClient(
         ToolProviderContext source,
-        OpenAI.Chat.ChatClient chatClient)
+        OpenAI.Chat.ChatClient chatClient,
+        IExternalCliSessionStore? externalCliSessionStore = null)
     {
         var cloned = new ToolProviderContext
         {
@@ -1616,6 +1620,7 @@ public sealed class SessionService(
             LspServerManager = source.LspServerManager,
             TraceCollector = source.TraceCollector,
             AcpExtensionProxy = source.AcpExtensionProxy,
+            ExternalCliSessionStore = externalCliSessionStore ?? source.ExternalCliSessionStore,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,
             RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,

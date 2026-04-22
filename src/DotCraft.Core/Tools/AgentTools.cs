@@ -31,7 +31,7 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
 
         ### Usage Notes
         1. Launch multiple subagents concurrently whenever possible: include multiple SpawnSubagent calls in a single response
-        2. Each subagent is stateless — provide a self-contained, highly detailed task prompt so it can work autonomously
+        2. Native subagents are stateless. External CLI profiles may continue a prior external session when the workspace enables that behavior and you reuse the same profile + label
         3. Specify exactly what information the subagent should return in its result
         4. The subagent's output is trusted; use it directly to inform your next actions
         5. Available subagent profiles are listed in the system prompt

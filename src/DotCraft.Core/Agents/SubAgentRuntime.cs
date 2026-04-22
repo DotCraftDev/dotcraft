@@ -29,6 +29,7 @@ public sealed record SubAgentLaunchContext(
     string WorkingDirectory,
     string? ProfileName = null,
     IReadOnlyList<string>? ExtraLaunchArgs = null,
+    string? ResumeSessionId = null,
     string? ApprovalMode = null,
     IApprovalService? ApprovalService = null,
     ApprovalContext? ApprovalContext = null);
@@ -56,6 +57,8 @@ public sealed record SubAgentRunResult
     public bool IsError { get; init; }
 
     public SubAgentTokenUsage? TokensUsed { get; init; }
+
+    public string? SessionId { get; init; }
 }
 
 public sealed record SubAgentTokenUsage(long InputTokens, long OutputTokens);
@@ -275,23 +278,24 @@ public sealed class SubAgentProfileRegistry
                 Bin = "codex",
                 Args =
                 [
-                    "exec",
-                    "--skip-git-repo-check"
+                    "exec"
                 ],
                 WorkingDirectoryMode = "workspace",
                 InputMode = "arg",
                 OutputFormat = "text",
-                OutputFileArgTemplate = "--output-last-message {path}",
+                OutputFileArgTemplate = "--skip-git-repo-check --json --output-last-message {path}",
                 ReadOutputFile = true,
                 DeleteOutputFileAfterRead = true,
                 SupportsStreaming = false,
-                SupportsResume = false,
+                SupportsResume = true,
+                ResumeArgTemplate = "resume {sessionId}",
+                ResumeSessionIdRegex = "\"thread_id\"\\s*:\\s*\"(?<sessionId>[^\"]+)\"",
                 Timeout = DefaultTimeoutSeconds,
                 MaxOutputBytes = DefaultMaxOutputBytes,
                 TrustLevel = "prompt",
                 PermissionModeMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    [SubAgentApprovalModeResolver.InteractiveMode] = "--sandbox read-only --ask-for-approval on-request",
+                    [SubAgentApprovalModeResolver.InteractiveMode] = "--sandbox read-only",
                     [SubAgentApprovalModeResolver.AutoApproveMode] = "--dangerously-bypass-approvals-and-sandbox",
                     [SubAgentApprovalModeResolver.RestrictedMode] = "--sandbox read-only"
                 }
@@ -303,7 +307,7 @@ public sealed class SubAgentProfileRegistry
                 Bin = "cursor-agent",
                 Args =
                 [
-                    "--print",
+                    "-p",
                     "--output-format",
                     "json"
                 ],
@@ -312,7 +316,9 @@ public sealed class SubAgentProfileRegistry
                 OutputFormat = "json",
                 OutputJsonPath = "result",
                 SupportsStreaming = false,
-                SupportsResume = false,
+                SupportsResume = true,
+                ResumeArgTemplate = "--resume {sessionId}",
+                ResumeSessionIdJsonPath = "session_id",
                 Timeout = DefaultTimeoutSeconds,
                 MaxOutputBytes = DefaultMaxOutputBytes,
                 TrustLevel = "prompt",
@@ -463,6 +469,22 @@ public sealed class SubAgentProfileRegistry
                 warnings.Add(
                     $"SubAgent profile '{profile.Name}' enables output file capture but does not define outputFileArgTemplate.");
             }
+
+            if (profile.SupportsResume == true)
+            {
+                if (string.IsNullOrWhiteSpace(profile.ResumeArgTemplate))
+                {
+                    warnings.Add(
+                        $"SubAgent profile '{profile.Name}' enables resume but does not define resumeArgTemplate.");
+                }
+
+                if (string.IsNullOrWhiteSpace(profile.ResumeSessionIdJsonPath)
+                    && string.IsNullOrWhiteSpace(profile.ResumeSessionIdRegex))
+                {
+                    warnings.Add(
+                        $"SubAgent profile '{profile.Name}' enables resume but does not define resumeSessionIdJsonPath or resumeSessionIdRegex.");
+                }
+            }
         }
 
         return warnings;
@@ -489,16 +511,22 @@ public sealed class SubAgentCoordinator
     private readonly SubAgentProfileRegistry _profileRegistry;
     private readonly IReadOnlyDictionary<string, ISubAgentRuntime> _runtimes;
     private readonly IApprovalService? _approvalService;
+    private readonly IExternalCliSessionStore? _externalCliSessionStore;
+    private readonly bool _enableExternalCliSessionResume;
 
     public SubAgentCoordinator(
         string workspaceRoot,
         IEnumerable<ISubAgentRuntime> runtimes,
         IEnumerable<SubAgentProfile>? configuredProfiles = null,
         IApprovalService? approvalService = null,
-        IEnumerable<string>? disabledProfiles = null)
+        IEnumerable<string>? disabledProfiles = null,
+        IExternalCliSessionStore? externalCliSessionStore = null,
+        bool enableExternalCliSessionResume = false)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
         _approvalService = approvalService;
+        _externalCliSessionStore = externalCliSessionStore;
+        _enableExternalCliSessionResume = enableExternalCliSessionResume;
         var runtimeMap = new Dictionary<string, ISubAgentRuntime>(StringComparer.OrdinalIgnoreCase);
         foreach (var runtime in runtimes)
             runtimeMap[runtime.RuntimeType] = runtime;
@@ -616,11 +644,20 @@ public sealed class SubAgentCoordinator
             return $"Error: {ex.Message}";
         }
 
+        string? resumeSessionId = null;
+        if (_enableExternalCliSessionResume
+            && profile.SupportsResume == true
+            && _externalCliSessionStore?.TryGetResumeSession(profile.Name, request.Label, workingDirectory, out var storedSession) == true)
+        {
+            resumeSessionId = storedSession.SessionId;
+        }
+
         var launchContext = new SubAgentLaunchContext(
             WorkspaceRoot: _workspaceRoot,
             WorkingDirectory: workingDirectory,
             ProfileName: profile.Name,
             ExtraLaunchArgs: ResolvePermissionModeArgs(profile, request.ApprovalContext ?? ApprovalContextScope.Current),
+            ResumeSessionId: resumeSessionId,
             ApprovalMode: SubAgentApprovalModeResolver.Resolve(_approvalService, request.ApprovalContext ?? ApprovalContextScope.Current),
             ApprovalService: _approvalService,
             ApprovalContext: request.ApprovalContext ?? ApprovalContextScope.Current);
@@ -635,6 +672,17 @@ public sealed class SubAgentCoordinator
                 ApprovalContext = request.ApprovalContext ?? launchContext.ApprovalContext
             };
             var result = await runtime.RunAsync(session, effectiveRequest, sink, cancellationToken);
+            if (!result.IsError
+                && _enableExternalCliSessionResume
+                && profile.SupportsResume == true
+                && !string.IsNullOrWhiteSpace(result.SessionId))
+            {
+                _externalCliSessionStore?.RecordSuccessfulRun(
+                    profile.Name,
+                    request.Label,
+                    workingDirectory,
+                    result.SessionId);
+            }
             return result.Text;
         }
         catch (OperationCanceledException)

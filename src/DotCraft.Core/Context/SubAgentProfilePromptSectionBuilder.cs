@@ -52,6 +52,7 @@ internal static class SubAgentProfilePromptSectionBuilder
 
         lines.Add("");
         lines.Add("External CLI profiles provide stage-level progress and a final result, not native tool-by-tool execution details.");
+        lines.Add("When the workspace enables external CLI session resume, reusing the same profile and label continues the prior external CLI session when the profile supports it.");
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -101,10 +102,10 @@ internal static class SubAgentProfilePromptSectionBuilder
                 var modes = string.Join(
                     ", ",
                     profile.PermissionModeMapping.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
-                return $"External CLI one-shot profile. Permission modes: {modes}.";
+                return $"External CLI profile launched as a short-lived subprocess per task. Permission modes: {modes}.";
             }
 
-            return "External CLI one-shot profile.";
+            return "External CLI profile launched as a short-lived subprocess per task.";
         }
 
         return $"Subagent profile using runtime `{profile.Runtime}`.";

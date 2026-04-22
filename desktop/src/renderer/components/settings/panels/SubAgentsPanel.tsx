@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { addToast } from '../../../stores/toastStore'
 import { useT } from '../../../contexts/LocaleContext'
+import { SettingsGroup, SettingsRow } from '../SettingsGroup'
+import { PillSwitch } from '../../ui/PillSwitch'
 import { NativeProfileDetail } from './subAgents/NativeProfileDetail'
 import { PresetProfileDetail } from './subAgents/PresetProfileDetail'
 import { CustomProfileEditor } from './subAgents/CustomProfileEditor'
@@ -37,10 +39,12 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
   const [view, setView] = useState<ViewState>({ kind: 'list' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [externalCliSessionResumeEnabled, setExternalCliSessionResumeEnabled] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [togglingName, setTogglingName] = useState<string | null>(null)
+  const [togglingWorkspaceSetting, setTogglingWorkspaceSetting] = useState(false)
   const viewRef = useRef<ViewState>(view)
 
   useEffect(() => {
@@ -63,6 +67,7 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
     async (preserveView?: ViewState) => {
     if (!enabled) {
       setProfiles([])
+        setExternalCliSessionResumeEnabled(false)
         setView({ kind: 'list' })
       return
     }
@@ -73,6 +78,7 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
         {}
         )) as SubAgentProfileListResult
         setProfiles(result.profiles)
+        setExternalCliSessionResumeEnabled(result.settings.externalCliSessionResumeEnabled)
         setError(null)
         const keepView = preserveView ?? viewRef.current
         if (keepView.kind === 'preset' || keepView.kind === 'custom') {
@@ -135,6 +141,29 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
     } finally {
       setTogglingName(null)
     }
+    },
+    [loadProfiles, t]
+  )
+
+  const handleToggleExternalCliSessionResume = useCallback(
+    async (nextEnabled: boolean) => {
+      setTogglingWorkspaceSetting(true)
+      try {
+        await window.api.appServer.sendRequest('subagent/settings/update', {
+          externalCliSessionResumeEnabled: nextEnabled
+        })
+        setExternalCliSessionResumeEnabled(nextEnabled)
+        await loadProfiles()
+      } catch (err) {
+        addToast(
+          t('settings.subAgents.actionFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      } finally {
+        setTogglingWorkspaceSetting(false)
+      }
     },
     [loadProfiles, t]
   )
@@ -249,6 +278,7 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
     return (
       <PresetProfileDetail
         profile={selectedProfile}
+        externalCliSessionResumeEnabled={externalCliSessionResumeEnabled}
         toggling={togglingName === selectedProfile.name}
         saving={saving}
         restoring={restoring}
@@ -265,6 +295,7 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
       <CustomProfileEditor
         mode="edit"
         profile={selectedProfile}
+        externalCliSessionResumeEnabled={externalCliSessionResumeEnabled}
         saving={saving}
         deleting={deleting}
         onBack={handleBack}
@@ -279,6 +310,7 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
       <CustomProfileEditor
         mode="create"
         profile={null}
+        externalCliSessionResumeEnabled={externalCliSessionResumeEnabled}
         saving={saving}
         deleting={false}
         onBack={handleBack}
@@ -293,6 +325,21 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
         <div style={pageHeadingStyle()}>{t('settings.subAgents.title')}</div>
         <div style={pageDescriptionStyle()}>{t('settings.subAgents.description')}</div>
       </div>
+
+      <SettingsGroup>
+        <SettingsRow
+          label={t('settings.subAgents.settings.resumeTitle')}
+          description={t('settings.subAgents.settings.resumeDescription')}
+          control={
+            <PillSwitch
+              aria-label={t('settings.subAgents.settings.resumeTitle')}
+              checked={externalCliSessionResumeEnabled}
+              onChange={handleToggleExternalCliSessionResume}
+              disabled={togglingWorkspaceSetting}
+            />
+          }
+        />
+      </SettingsGroup>
 
       {error && (
         <div style={noticeStyle('error')}>{t('settings.subAgents.loadFailed', { error })}</div>

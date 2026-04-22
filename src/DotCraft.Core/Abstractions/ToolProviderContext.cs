@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using DotCraft.Agents;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Tracing;
@@ -95,6 +96,11 @@ public sealed class ToolProviderContext
     /// Optional trace collector for debugging and monitoring.
     /// </summary>
     public TraceCollector? TraceCollector { get; init; }
+
+    /// <summary>
+    /// Optional thread-scoped store for external CLI session ids used by resumable subagents.
+    /// </summary>
+    public IExternalCliSessionStore? ExternalCliSessionStore { get; init; }
 
     /// <summary>
     /// Optional ACP extension proxy for extension method calls.

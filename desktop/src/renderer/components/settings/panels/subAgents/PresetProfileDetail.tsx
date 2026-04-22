@@ -32,6 +32,7 @@ import {
 
 interface PresetProfileDetailProps {
   profile: SubAgentProfileEntryWire
+  externalCliSessionResumeEnabled: boolean
   toggling: boolean
   saving: boolean
   restoring: boolean
@@ -43,6 +44,7 @@ interface PresetProfileDetailProps {
 
 export function PresetProfileDetail({
   profile,
+  externalCliSessionResumeEnabled,
   toggling,
   saving,
   restoring,
@@ -213,6 +215,29 @@ export function PresetProfileDetail({
               ))}
             </div>
           </SettingsRow>
+        )}
+        {profile.definition.runtime === 'cli-oneshot' && (
+          <SettingsRow
+            label={t('settings.subAgents.preset.resumeTitle')}
+            description={t('settings.subAgents.preset.resumeDescription')}
+            control={
+              <span
+                style={pillBadgeStyle(
+                  profile.definition.supportsResume && externalCliSessionResumeEnabled
+                    ? 'success'
+                    : profile.definition.supportsResume
+                      ? 'warning'
+                      : 'neutral'
+                )}
+              >
+                {profile.definition.supportsResume
+                  ? externalCliSessionResumeEnabled
+                    ? t('settings.subAgents.preset.resumeEnabled')
+                    : t('settings.subAgents.preset.resumeSupportedButOff')
+                  : t('settings.subAgents.preset.resumeUnsupported')}
+              </span>
+            }
+          />
         )}
       </SettingsGroup>
 

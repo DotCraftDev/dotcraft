@@ -18,6 +18,7 @@ public static class SubAgentProfilesPersistence
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
+            config.SubAgent.EnableExternalCliSessionResume,
             config.SubAgentProfiles
                 .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))
                 .Select(profile => profile.Clone())
@@ -27,6 +28,7 @@ public static class SubAgentProfilesPersistence
     public static void SaveWorkspaceState(
         string craftPath,
         IReadOnlyCollection<string> disabledProfiles,
+        bool enableExternalCliSessionResume,
         IReadOnlyCollection<SubAgentProfile> profiles)
     {
         var configPath = Path.Combine(craftPath, "config.json");
@@ -34,6 +36,7 @@ public static class SubAgentProfilesPersistence
         var root = LoadWorkspaceConfigObject(configPath);
 
         WriteDisabledProfiles(root, disabledProfiles);
+        WriteEnableExternalCliSessionResume(root, enableExternalCliSessionResume);
         WriteProfiles(root, profiles);
 
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -66,6 +69,24 @@ public static class SubAgentProfilesPersistence
             array.Add(profileName);
 
         section[disabledKey ?? "DisabledProfiles"] = array;
+    }
+
+    private static void WriteEnableExternalCliSessionResume(JsonObject root, bool enabled)
+    {
+        var section = GetOrCreateConfigSection(root, "SubAgent", createIfMissing: enabled);
+        if (section == null)
+            return;
+
+        var key = FindCaseInsensitiveKey(section, "EnableExternalCliSessionResume");
+        if (!enabled)
+        {
+            if (key != null)
+                section.Remove(key);
+            RemoveConfigSectionIfEmpty(root, "SubAgent");
+            return;
+        }
+
+        section[key ?? "EnableExternalCliSessionResume"] = enabled;
     }
 
     private static void WriteProfiles(JsonObject root, IReadOnlyCollection<SubAgentProfile> profiles)
@@ -157,4 +178,5 @@ public static class SubAgentProfilesPersistence
 
 public sealed record SubAgentWorkspaceState(
     IReadOnlyList<string> DisabledProfiles,
+    bool EnableExternalCliSessionResume,
     IReadOnlyList<SubAgentProfile> Profiles);

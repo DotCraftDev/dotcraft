@@ -17,7 +17,9 @@ const codexBuiltIn = {
   readOutputFile: true,
   deleteOutputFileAfterRead: true,
   supportsStreaming: false,
-  supportsResume: false,
+  supportsResume: true,
+  resumeArgTemplate: 'resume {sessionId}',
+  resumeSessionIdRegex: '"thread_id"\\s*:\\s*"(?<sessionId>[^"]+)"',
   timeout: 300,
   maxOutputBytes: 1048576,
   trustLevel: 'prompt',
@@ -35,9 +37,11 @@ const cursorBuiltIn = {
   workingDirectoryMode: 'workspace',
   inputMode: 'arg',
   outputFormat: 'json',
-  outputJsonPath: 'result.text',
+  outputJsonPath: 'result',
   supportsStreaming: false,
-  supportsResume: false,
+  supportsResume: true,
+  resumeArgTemplate: '--resume {sessionId}',
+  resumeSessionIdJsonPath: 'session_id',
   timeout: 300,
   maxOutputBytes: 1048576,
   trustLevel: 'prompt'
@@ -45,6 +49,9 @@ const cursorBuiltIn = {
 
 const baseList = {
   defaultName: 'native',
+  settings: {
+    externalCliSessionResumeEnabled: false
+  },
   profiles: [
     {
       name: 'native',
@@ -180,6 +187,9 @@ describe('SubAgentsPanel', () => {
       if (method === 'subagent/profiles/setEnabled') {
         return { profile: cloneList().profiles[1] }
       }
+      if (method === 'subagent/settings/update') {
+        return { settings: { externalCliSessionResumeEnabled: true } }
+      }
       return { removed: true }
     })
 
@@ -215,6 +225,19 @@ describe('SubAgentsPanel', () => {
 
     expect(screen.getByRole('switch', { name: 'Toggle sub-agent native' })).toBeDisabled()
     expect(screen.getByRole('switch', { name: 'Toggle sub-agent codex-cli' })).not.toBeDisabled()
+  })
+
+  it('updates the workspace resume switch', async () => {
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Resume external CLI sessions' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith(
+        'subagent/settings/update',
+        expect.objectContaining({ externalCliSessionResumeEnabled: true })
+      )
+    })
   })
 
   it('navigates from the codex card into the preset detail view and back', async () => {
