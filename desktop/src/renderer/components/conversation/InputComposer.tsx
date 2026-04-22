@@ -458,7 +458,7 @@ export function InputComposer({
           </div>
         }
         footerLeading={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
             <ComposerAttachmentMenu
               title={t('composer.attachFileTitle')}
               ariaLabel={t('composer.attachFileAria')}
@@ -484,7 +484,7 @@ export function InputComposer({
           </div>
         }
         footerAction={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ContextUsageRing />
             <ModelPicker
               modelName={modelName}

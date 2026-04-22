@@ -73,8 +73,8 @@ export function ContextUsageRing(): JSX.Element | null {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: size,
-        height: size,
+        width: 22,
+        height: 22,
         cursor: 'help',
         outline: 'none'
       }}
