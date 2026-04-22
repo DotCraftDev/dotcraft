@@ -3,198 +3,200 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/DotCraft)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**[中文](./README_ZH.md) | English**
+**中文 | [English](./README_EN.md)**
 
-A project-scoped agent harness for persistent AI workspaces.
+面向项目的 Agent Harness，打造持久的 AI 工作空间。
 
-*Craft a persistent AI workspace around your project.*
+*围绕你的项目，打造一个持久的 AI 工作空间。*
 
-Powered by .NET 10 and a Unified Session Core, DotCraft delivers unified, observable AI orchestration across terminals, desktop apps, IDEs, and instant messaging platforms.
+由 .NET 10 与 Unified Session Core 驱动，DotCraft 在终端、桌面应用、IDE 编辑器与即时社交软件之间提供统一且可观测的 AI 编排体验。
 
 ![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
 </div>
 
-## ✨ Highlights
+## ✨ 亮点
 
 <table>
 <tr>
-<td width="25%" align="center"><b>📁 Project-Scoped Workspace</b><br/>Agents can truly understand your project without being constrained by a specific client surface</td>
-<td width="25%" align="center"><b>⚡ Unified Session Model</b><br/>Span conversations across IM platforms, terminals, desktop apps, editors, and agent workflows</td>
-<td width="25%" align="center"><b>🛡️ Observability and Governance</b><br/>Keep agents safe and reliable, with issues easy to inspect and trace</td>
-<td width="25%" align="center"><b>🔗 Extensibility and Integration</b><br/>Highly extensible, with fast paths for integrating business workflows</td>
+<td width="25%" align="center"><b>📁 项目级工作空间</b><br/>Agent 可以不受具体应用形态限制真正了解你的项目</td>
+<td width="25%" align="center"><b>⚡ 统一会话模型</b><br/>跨越社交软件、终端、桌面应用、编辑器和 Agent 对话</td>
+<td width="25%" align="center"><b>🛡️ 可观测与治理</b><br/>Agent 安全可靠，出问题随时定位溯源</td>
+<td width="25%" align="center"><b>🔗 扩展与集成</b><br/>高度可拓展性，快速集成业务功能</td>
 </tr>
 </table>
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-Use DotCraft's most recommended Desktop application as the primary entry point.
+使用 DotCraft 最推荐的 Desktop 桌面应用最为第一入口。
 
 ![Desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png)
 
-### Installation
+### 安装部署
 
-#### Option 1: Download a release build
+#### 方式一：直接下载 Release 包
 
-Download the desktop app from [GitHub Releases](https://github.com/DotHarness/DotCraft/releases):
+前往 [GitHub Releases](https://github.com/DotHarness/DotCraft/releases) 下载桌面应用：
 
-| Platform | File |
-|----------|------|
-| Windows  | `DotCraft-Desktop-win-x64-Setup.exe` |
-| macOS    | `DotCraft-Desktop-macos-x64.dmg` |
+| 平台 | 文件 |
+|------|------|
+| Windows | `DotCraft-Desktop-win-x64-Setup.exe` |
+| macOS   | `DotCraft-Desktop-macos-x64.dmg` |
 
-#### Option 2: Build from source
+#### 方式二：从源码构建
 
-1. Install the [.NET 10 SDK](https://dotnet.microsoft.com/download)
-2. Install the Rust toolchain
-3. Install Node.js
-4. Run `build.bat`
-5. Run `build/release/DotCraft-Desktop-Setup.exe`
+1. 安装 [.NET 10 SDK](https://dotnet.microsoft.com/download)
 
-### Configure the workspace
+2. 安装 Rust 套件
+3. 安装 NodeJS
+4. 运行 `build.bat`
+5. 运行 `build/release/DotCraft-Desktop-Setup.exe`
 
-On first launch, choose a folder as your workspace and follow the setup wizard to initialize it.
+### 配置工作区
+
+首次进入需要选择文件夹作为工作区，请跟随配置向导完成初始化。
 
 ![setup](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
 
-### Configure an API key
+### 配置 API Key
 
-DotCraft currently supports two setup paths:
+DotCraft 支持以下两种配置方式：
 
-- An OpenAI-compatible API key, such as the official API or providers like OpenRouter
-- A Coding Agent CLI reverse proxy based on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+- OpenAI 兼容格式的 API Key （例如 官方 API， OpenRouter 等提供商）
+- Coding Agent CLI 反向代理 （基于 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)）
 
 ![apiproxy](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
 
-### Advanced configuration
+### 高级配置
 
-For the full configuration surface, see the [Configuration Guide](./docs/en/config_guide.md).
+如果你需要查看完整配置项，请阅读 [配置指南](./docs/config_guide.md)。
 
-For the recommended visual setup flow in the built-in Dashboard, see the [Dashboard Guide](./docs/en/dash_board_guide.md).
+推荐通过内置 Dashboard 完成可视化配置，详情请阅读 [Dashboard 指南](./docs/dash_board_guide.md)。
 
-## 🔌 Entry Points
+## 🔌 入口与工作流
 
-DotCraft organizes its entry points around the **Unified Session Core**: CLI, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
+DotCraft 围绕 **统一会话核心（Unified Session Core）** 组织不同入口：CLI、Desktop、IDE、机器人与自动化并不是各自维护一套 agent 流程，而是复用同一个执行引擎与会话模型。
 
-Here is how that differs from a traditional gateway-style architecture:
+先看它与传统 Gateway 风格架构的核心差异：
 
-| Dimension | Gateway | Unified Session Core |
-|-----------|-----------------------------------|----------|
-| Client customization | Hard to customize once everything is flattened into a message bus | Flexible, native client experiences |
-| Approval / HITL | Cannot express platform-native approval flows | Rendered with native platform UI |
-| Cross-channel resume | Not supported | Conversations can resume across channels |
-| Workspace persistence | Not supported | Designed around the workspace |
+| 维度 | Gateway| Unified Session Core |
+|------|-----------------------------------|----------|
+| 客户端定制 | 消息总线丢失难以定制 | 灵活自由的客户端 |
+| 审批 / HITL | 无法表达平台原生的审批交互 | 以平台原生 UI 呈现 |
+| 跨渠道恢复 | 不支持 | 会话可跨渠道恢复 |
+| 工作区持久化 | 不支持 | 围绕工作区设计 |
 
 ![entry](https://github.com/DotHarness/resources/raw/master/dotcraft/entry.png)
 
-<div align="center">DotCraft connects different entry points to the same project-scoped workspace, while the Unified Session Core handles execution, state, and orchestration.</div>
+<div align="center">dotcraft 将不同入口连接同一个项目级工作空间，由统一会话核心负责承接执行、状态与编排。</div>
 
-You can choose the entry point that best fits your workflow:
 
-| If you want to... | Start here |
+你可以按自己的使用场景选择最合适的入口：
+
+| 如果你想... | 从这里开始 |
 |---|---|
-| Work in a local terminal | [CLI](#cli) |
-| Use a rich terminal UI | [TUI](#tui) |
-| Run DotCraft as a headless server | [AppServer](#appserver) |
-| Use a graphical desktop client | [Desktop](#desktop) |
-| Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
-| Connect a chat bot | [Social Channels](#social-channels) |
-| Run automations (Local / GitHub) | [Automations](#automations) |
+| 在本地终端中使用 | [CLI](#cli) |
+| 使用终端富文本界面 | [TUI](#tui) |
+| 以无头服务器方式运行 | [AppServer](#appserver) |
+| 使用图形化桌面客户端 | [Desktop 桌面应用](#desktop-桌面应用) |
+| 在编辑器或 IDE 中使用 | [编辑器与 ACP](#编辑器与-acp) |
+| 接入聊天机器人 | [社交渠道](#社交渠道) |
+| 运行自动化任务（Local / GitHub） | [Automations](#automations) |
 
 ### CLI
 
-CLI is the most direct entry point for working with DotCraft in a local project directory. It is also the default starting point for understanding the overall workflow before expanding into AppServer, Desktop, or automation scenarios.
+CLI 是最直接的入口，适合在本地项目目录中与 DotCraft 协作。它也是理解整套工作流的默认起点：先在仓库里启动，再根据需要延伸到 AppServer、Desktop 或自动化场景。
 
 ### TUI
 
-TUI is for users who want a richer terminal experience. It is built on Ratatui, connects to AppServer over the Wire Protocol, and reuses the same session capabilities.
+TUI 适合希望在终端里获得更丰富交互体验的用户。它基于 Ratatui 构建，通过 Wire Protocol 连接 AppServer，并复用同一套会话能力。
 
 ### AppServer
 
-AppServer is DotCraft's unified backend boundary for exposing capabilities over a JSON-RPC Wire Protocol via stdio or WebSocket. It is the right entry point for remote CLI, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
+AppServer 是 DotCraft 对外暴露能力的统一后端边界，通过 stdio 或 WebSocket 提供基于 JSON-RPC 的 Wire Protocol。它适合远程 CLI、多客户端接入，以及任意语言的自定义集成。详见 [AppServer 模式指南](./docs/appserver_guide.md)。
 
-### Desktop
+### Desktop 桌面应用
 
-Desktop is for users who want a graphical workspace for conversations, diffs, plans, and automation review. It acts as a graphical AppServer client and consumes the same session, approval, and automation capabilities over the Wire Protocol. See the [Desktop Client README](./desktop/README.md) for details.
+Desktop 适合希望以图形化方式管理会话、Diff、计划与自动化审核的用户。它作为 AppServer 的图形化客户端工作，通过 Wire Protocol 消费同一套会话、审批与自动化能力。详见 [Desktop Client README](./desktop/README_ZH.md)。
 
-### Editors and ACP
+### 编辑器与 ACP
 
-Editors and ACP are for users who want DotCraft embedded directly into development tools, including Unity, Obsidian, and JetBrains IDEs. The key idea is not a separate editor-only agent, but an ACP bridge that connects the editor to the same AppServer runtime. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
+编辑器与 ACP 适合希望把 DotCraft 直接嵌入开发环境的用户，包括 Unity、Obsidian 与 JetBrains IDE。这里的关键不是另起一套编辑器 Agent，而是通过 ACP 桥接层把编辑器接入同一个 AppServer 会话运行时。先看 [ACP 模式指南](./docs/acp_guide.md)；如果主要在 Unity 中使用，再看 [Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
 
-### Social Channels
+### 社交渠道
 
-QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
+QQ / 企业微信是 DotCraft 的原生社交渠道，无需额外依赖，配置详情可查看 [QQ 机器人指南](./docs/qq_bot_guide.md) 和 [企业微信指南](./docs/wecom_guide.md)。
 
-For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](./sdk/python/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
+对于更多的社交渠道，DotCraft 使用 SDK 拓展的方式集成，详见 [Python SDK](./sdk/python/README_ZH.md) 和 [TypeScript SDK](./sdk/typescript/README_ZH.md)。
 
-DotCraft currently includes integrations for Telegram, WeChat, and Feishu/Lark.
+目前集成了 Telegram、微信、飞书社交渠道。
 
-| Telegram (Python SDK) | WeChat (TypeScript SDK) |
+| Telegram（Python SDK） | 微信（TypeScript SDK） |
 |:---:|:---:|
 | ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg) | ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg) |
 
 ### Automations
 
-Automations are for running local tasks and GitHub-driven workflows. See the [Automations Guide](./docs/en/automations_guide.md).
+Automations 适合运行本地任务与 GitHub 驱动的工作流，详见 [Automations 指南](./docs/automations_guide.md)。
 
-| Desktop Automations | GitHub tracker |
+| Desktop 自动化面板 | GitHub 追踪 |
 |:---:|:---:|
 | ![desktop-github](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png) | ![github-tracker](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png) |
-| View automated tasks in the desktop application. | Automatic PR reviews. |
+| 桌面应用查看自动化任务。 | PR 自动 Review。 |
 
-## 🛡️ Observability and Governance
+## 🛡️ 观测与治理
 
 ### Dashboard
 
-Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
+Dashboard 是 DotCraft 的可视化观察与配置入口，用于查看会话、追踪调用和编辑工作区设置，详见 [Dashboard 指南](./docs/dash_board_guide.md)。
 
-| Usage overview | Session trace |
+| 用量与会话概览 | 会话追踪 |
 |:---:|:---:|
 | ![dashboard](https://github.com/DotHarness/resources/raw/master/dotcraft/dashboard.png) | ![trace](https://github.com/DotHarness/resources/raw/master/dotcraft/trace.png) |
-| Usage and session statistics, aggregated by channel. | Complete record of tool calls and session history. |
+| 用量、会话统计，按渠道汇总。 | 完整记录工具调用、会话历史。 |
 
-### Sandbox Isolation
+### 沙箱隔离
 
-Sandbox Isolation is for scenarios where Shell and File tools should run inside a controlled execution boundary with stronger host isolation. Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
+沙箱隔离用于把 Shell 与文件工具放到受控环境中执行，适合对安全边界和宿主隔离有更高要求的场景。安装、配置和安全细节请参阅 [配置指南](./docs/config_guide.md)。
 
-## 📚 Documentation
+## 📚 文档导航
 
-**I want to use DotCraft directly in a repo**
+**我想直接在仓库里使用 DotCraft**
 
-- [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, startup modes, Gateway
-- [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
-- [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
-- [Rust TUI Guide](./tui/README.md): build, launch modes, key bindings, slash commands, and theme configuration
+- [配置指南](./docs/config_guide.md)：配置项、工具、安全、审批、MCP、沙箱、启动方式、Gateway
+- [Dashboard 指南](./docs/dash_board_guide.md)：Dashboard 页面、调试能力与可视化配置
+- [Automations 指南](./docs/automations_guide.md)：本地任务与 GitHub Issue/PR 编排、Agent 派发与人工审核流程
+- [Rust TUI 指南](./tui/README_ZH.md)：构建方式、启动模式、快捷键、斜杠命令和主题配置
 
-**I want to connect DotCraft to an editor or client**
+**我想把 DotCraft 接入编辑器或客户端**
 
-- [Desktop Client Guide](./desktop/README.md): Electron desktop application, build, launch, and feature overview
-- [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
-- [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
+- [Desktop Client 指南](./desktop/README_ZH.md)：Electron 桌面应用，构建、启动与功能概览
+- [ACP 模式指南](./docs/acp_guide.md)：编辑器/IDE 集成（JetBrains、Obsidian 等）
+- [Unity 集成指南](./docs/unity_guide.md)：Unity 编辑器扩展与 AI 驱动的场景和资源工具
 
-**I want to use DotCraft as a server or backend**
+**我想把 DotCraft 作为服务端或后端**
 
-- [AppServer Guide](./docs/en/appserver_guide.md): wire protocol server, WebSocket transport, remote CLI
+- [AppServer 模式指南](./docs/appserver_guide.md)：Wire Protocol 服务器、WebSocket 传输、远程 CLI 连接
 
-**I want to build bots, adapters, or extensions**
+**我想构建机器人、适配器或扩展**
 
-- [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals
-- [WeCom Guide](./docs/en/wecom_guide.md): WeCom push notifications and bot mode
-- [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
-- [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` for WeChat, Feishu, and similar channels
-- [Hooks Guide](./docs/en/hooks_guide.md): lifecycle hooks, shell extensions, and security guards
+- [QQ 机器人指南](./docs/qq_bot_guide.md)：NapCat、权限与审批
+- [企业微信指南](./docs/wecom_guide.md)：企业微信推送与机器人模式
+- [Python SDK](./sdk/python/README.md)：使用 `dotcraft-wire` 与 Telegram 参考示例构建外部适配器
+- [TypeScript SDK](./sdk/typescript/README_ZH.md)：使用 `dotcraft-wire` 构建微信、飞书等外部适配器
+- [Hooks 指南](./docs/hooks_guide.md)：生命周期事件钩子、Shell 命令扩展、安全防护
 
-**I want to continue into the full documentation set**
+**我想继续深入查阅完整文档**
 
-- [Documentation Index](./docs/en/index.md): full documentation navigation
+- [文档索引](./docs/index.md)：完整文档导航
 
-## 🤝 Contributing
+## 🤝 贡献指南
 
-We welcome code, documentation, and integration contributions. Start with [CONTRIBUTING.md](./CONTRIBUTING.md).
+欢迎提交代码、文档与集成相关贡献。开始前请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-## 🙏 Credits
+## 🙏 致谢
 
-Inspired by [nanobot](https://github.com/HKUDS/nanobot) and [codex](https://github.com/openai/codex), and built on [Agent Framework](https://github.com/microsoft/agent-framework).
+本项目受 [nanobot](https://github.com/HKUDS/nanobot) 与 [codex](https://github.com/openai/codex) 启发，并构建在 [Agent Framework](https://github.com/microsoft/agent-framework) 之上。
 
 - [HKUDS/nanobot](https://github.com/HKUDS/nanobot)
 - [openai/codex](https://github.com/openai/codex)
@@ -204,6 +206,6 @@ Inspired by [nanobot](https://github.com/HKUDS/nanobot) and [codex](https://gith
 - [openai/symphony](https://github.com/openai/symphony)
 - [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
-## 📄 License
+## 📄 许可证
 
 Apache License 2.0
