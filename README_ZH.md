@@ -28,6 +28,10 @@
 
 ## 🚀 快速开始
 
+使用 DotCraft 最推荐的 Desktop 桌面应用最为第一入口。
+
+![Desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png)
+
 ### 安装部署
 
 #### 方式一：直接下载 Release 包
@@ -98,12 +102,6 @@ DotCraft 围绕 **统一会话核心（Unified Session Core）** 组织不同入
 | 在编辑器或 IDE 中使用 | [编辑器与 ACP](#编辑器与-acp) |
 | 接入聊天机器人 | [社交渠道](#社交渠道) |
 | 运行自动化任务（Local / GitHub） | [Automations](#automations) |
-
-| **CLI** | **TUI** |
-|:---:|:---:|
-| ![repl](https://github.com/DotHarness/resources/raw/master/dotcraft/repl.gif) | ![tui](https://github.com/DotHarness/resources/raw/master/dotcraft/tui.gif) |
-| **Desktop** | **ACP** |
-| ![desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.gif) | ![unity](https://github.com/DotHarness/resources/raw/master/dotcraft/unity.gif) |
 
 ### CLI
 

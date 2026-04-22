@@ -28,6 +28,10 @@ Powered by .NET 10 and a Unified Session Core, DotCraft delivers unified, observ
 
 ## 🚀 Quick Start
 
+Use DotCraft's most recommended Desktop application as the primary entry point.
+
+![Desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png)
+
 ### Installation
 
 #### Option 1: Download a release build
@@ -96,12 +100,6 @@ You can choose the entry point that best fits your workflow:
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
 | Connect a chat bot | [Social Channels](#social-channels) |
 | Run automations (Local / GitHub) | [Automations](#automations) |
-
-| **CLI** | **TUI** |
-|:---:|:---:|
-| ![repl](https://github.com/DotHarness/resources/raw/master/dotcraft/repl.gif) | ![tui](https://github.com/DotHarness/resources/raw/master/dotcraft/tui.gif) |
-| **Desktop** | **ACP** |
-| ![desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.gif) | ![unity](https://github.com/DotHarness/resources/raw/master/dotcraft/unity.gif) |
 
 ### CLI
 
