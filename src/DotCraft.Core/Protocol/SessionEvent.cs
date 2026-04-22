@@ -205,7 +205,8 @@ public sealed record UsageDeltaPayload
 public sealed record SystemEventPayload
 {
     /// <summary>
-    /// System event kind. One of: "compacting", "compacted", "compactSkipped",
+    /// System event kind. One of: "compactWarning", "compactError",
+    /// "compacting", "compacted", "compactSkipped", "compactFailed",
     /// "consolidating", "consolidated".
     /// </summary>
     public required string Kind { get; init; }
@@ -214,4 +215,17 @@ public sealed record SystemEventPayload
     /// Optional human-readable message describing the operation.
     /// </summary>
     public string? Message { get; init; }
+
+    /// <summary>
+    /// Fraction of the effective context window still available (0.0 – 1.0).
+    /// Populated for compact threshold/warning/error/success events so UIs can
+    /// render a usage bar without recomputing thresholds.
+    /// </summary>
+    public double? PercentLeft { get; init; }
+
+    /// <summary>
+    /// Estimated input tokens at the time the event was emitted (after
+    /// compaction for <c>compacted</c> events, before for warnings).
+    /// </summary>
+    public long? TokenCount { get; init; }
 }

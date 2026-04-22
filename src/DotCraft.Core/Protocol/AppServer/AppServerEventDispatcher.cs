@@ -256,7 +256,9 @@ public sealed class AppServerEventDispatcher
             threadId = evt.ThreadId,
             turnId = evt.TurnId,
             kind = sysEvt.Kind,
-            message = sysEvt.Message
+            message = sysEvt.Message,
+            percentLeft = sysEvt.PercentLeft,
+            tokenCount = sysEvt.TokenCount
         },
 
         _ => null

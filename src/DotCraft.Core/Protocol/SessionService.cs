@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Context;
+using DotCraft.Context.Compaction;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -519,6 +520,8 @@ public sealed class SessionService(
 
             IDisposable? gateLock = null;
             IDisposable? approvalOverride = null;
+            AgentSession? session = null;
+            TokenTracker? tokenTracker = null;
             try
             {
                 // Step 5a: Acquire SessionGate
@@ -542,10 +545,9 @@ public sealed class SessionService(
                 traceCollector?.BindThreadMainSession(threadId);
                 TracingChatClient.CurrentSessionKey = threadId;
                 TracingChatClient.ResetCallState(threadId);
-                var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
+                tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
                 TokenTracker.Current = tokenTracker;
 
-                AgentSession session;
                 if (thread.HistoryMode == HistoryMode.Client && messages != null)
                 {
                     // Client-managed: construct from provided messages
@@ -1026,31 +1028,76 @@ public sealed class SessionService(
                     await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
                 }
 
-                // Step 5k: Compaction
-                if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                    (tokenTracker.LastInputTokens) >= agentFactory.MaxContextTokens)
+                // Step 5k: Layered compaction pipeline
+                //   - emit compactWarning / compactError as the usage nears the auto threshold
+                //   - run MicroCompactor + PartialCompactor when auto threshold is exceeded
+                //   - memory consolidation is driven by the pipeline itself so the prefix
+                //     summarized by the LLM is exactly what lands in MEMORY.md / HISTORY.md
                 {
-                    eventChannel.EmitSystemEvent("compacting");
-                    if (await agentFactory.Compactor.TryCompactAsync(session, CancellationToken.None))
+                    var compactionPipeline = agentFactory.CompactionPipeline;
+                    var threshold = compactionPipeline.EvaluateThreshold(tokenTracker.LastInputTokens);
+                    if (!threshold.AboveAuto)
                     {
-                        tokenTracker.Reset();
-                        traceCollector?.RecordContextCompaction(threadId);
-                        eventChannel.EmitSystemEvent("compacted");
+                        if (threshold.AboveError)
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactError",
+                                percentLeft: threshold.PercentLeft,
+                                tokenCount: threshold.Tokens);
+                        }
+                        else if (threshold.AboveWarning)
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactWarning",
+                                percentLeft: threshold.PercentLeft,
+                                tokenCount: threshold.Tokens);
+                        }
                     }
                     else
                     {
-                        eventChannel.EmitSystemEvent("compactSkipped");
-                    }
-                }
+                        eventChannel.EmitSystemEvent(
+                            "compacting",
+                            percentLeft: threshold.PercentLeft,
+                            tokenCount: threshold.Tokens);
 
-                // Step 5l: Memory consolidation (awaited for client notification)
-                {
-                    var consolidationTask = agentFactory.TryConsolidateMemory(session, threadId);
-                    if (consolidationTask != null)
-                    {
-                        eventChannel.EmitSystemEvent("consolidating");
-                        await consolidationTask;
-                        eventChannel.EmitSystemEvent("consolidated");
+                        var status = await compactionPipeline.TryAutoCompactAsync(
+                            session!,
+                            threadId,
+                            tokenTracker.LastInputTokens,
+                            thread.LastActiveAt,
+                            CancellationToken.None);
+
+                        switch (status.Outcome)
+                        {
+                            case CompactionOutcome.Micro:
+                            case CompactionOutcome.Partial:
+                                tokenTracker.Reset();
+                                traceCollector?.RecordContextCompaction(threadId);
+                                eventChannel.EmitSystemEvent(
+                                    "compacted",
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                ThreadRuntimeSignalForBroadcast?.Invoke(
+                                    threadId,
+                                    SessionThreadRuntimeSignal.ContextCompacted);
+                                break;
+
+                            case CompactionOutcome.Skipped:
+                                eventChannel.EmitSystemEvent(
+                                    "compactSkipped",
+                                    message: status.FailureReason,
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                break;
+
+                            case CompactionOutcome.Failed:
+                                eventChannel.EmitSystemEvent(
+                                    "compactFailed",
+                                    message: status.FailureReason,
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                break;
+                        }
                     }
                 }
 
@@ -1099,7 +1146,56 @@ public sealed class SessionService(
             catch (Exception ex)
             {
                 logger?.LogError(ex, "Turn execution failed for thread {ThreadId}", threadId);
-                FailTurn(turn, eventChannel, ex.Message);
+
+                // Step 5k-R: Reactive compaction on prompt_too_long / context_length_exceeded.
+                // On success we still fail this turn (the model's streaming response is
+                // already gone), but the compacted history lets the user re-send their
+                // prompt and succeed without any manual cleanup.
+                var reactiveMessage = ex.Message;
+                if (IsPromptTooLongError(ex) && session is not null)
+                {
+                    try
+                    {
+                        eventChannel.EmitSystemEvent("compacting");
+                        var status = await agentFactory.CompactionPipeline.TryReactiveCompactAsync(
+                            session,
+                            threadId,
+                            thread.LastActiveAt,
+                            CancellationToken.None);
+                        if (status.Success)
+                        {
+                            tokenTracker?.Reset();
+                            traceCollector?.RecordContextCompaction(threadId);
+                            eventChannel.EmitSystemEvent(
+                                "compacted",
+                                percentLeft: status.ThresholdAfter.PercentLeft,
+                                tokenCount: status.ThresholdAfter.Tokens);
+                            ThreadRuntimeSignalForBroadcast?.Invoke(
+                                threadId,
+                                SessionThreadRuntimeSignal.ContextCompacted);
+                            reactiveMessage =
+                                "The request exceeded the model's context window. "
+                                + "History has been compacted; please re-send the message.";
+                        }
+                        else
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactFailed",
+                                message: status.FailureReason,
+                                percentLeft: status.ThresholdAfter.PercentLeft,
+                                tokenCount: status.ThresholdAfter.Tokens);
+                        }
+                    }
+                    catch (Exception compactEx)
+                    {
+                        logger?.LogWarning(
+                            compactEx,
+                            "Reactive compaction failed for thread {ThreadId}",
+                            threadId);
+                    }
+                }
+
+                FailTurn(turn, eventChannel, reactiveMessage);
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
             }
@@ -1341,6 +1437,22 @@ public sealed class SessionService(
             Source = "host",
             Item = item
         });
+    }
+
+    private static bool IsPromptTooLongError(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            var msg = current.Message ?? string.Empty;
+            if (msg.Contains("prompt_too_long", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("context_length_exceeded", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("maximum context length", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("context window", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)

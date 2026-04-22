@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using DotCraft.Context.Compaction;
 using DotCraft.Localization;
 using DotCraft.Lsp;
 using DotCraft.Mcp;
@@ -57,22 +58,12 @@ public sealed class AppConfig
     public int MaxSessionQueueSize { get; set; } = 3;
 
     /// <summary>
-    /// Maximum cumulative input tokens before triggering context compaction.
-    /// When the total input tokens across all turns in a session exceed this value,
-    /// the conversation history will be summarized to reduce context size.
-    /// Set to 0 to disable automatic compaction (default: 160K => 80% * 200K context length for popular models).
+    /// Context compaction pipeline settings: layered microcompact +
+    /// partial-summary + reactive-retry configuration consumed by
+    /// <see cref="DotCraft.Context.Compaction.CompactionPipeline"/>.
     /// </summary>
-    [ConfigField(Min = 0, Hint = "0 = disable compaction")]
-    public int MaxContextTokens { get; set; } = 160000;
-
-    /// <summary>
-    /// Number of messages in a session before triggering background memory consolidation.
-    /// When exceeded, old messages are consolidated into MEMORY.md (long-term facts) and
-    /// HISTORY.md (grep-searchable event log) via an LLM call.
-    /// Set to 0 to disable message-count-based consolidation (default: 50).
-    /// </summary>
-    [ConfigField(Min = 0, Hint = "0 = disable consolidation")]
-    public int MemoryWindow { get; set; } = 50;
+    [ConfigField(Ignore = true)]
+    public CompactionConfig Compaction { get; set; } = new();
 
     /// <summary>
     /// Model used for memory consolidation. When empty, uses <see cref="Model"/> (same as main agent).

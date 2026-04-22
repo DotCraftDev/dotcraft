@@ -179,7 +179,7 @@ Each WorkspaceRuntime contains:
 - **Paths**: `DotCraftPaths` (workspace root + `.craft/` path).
 - **Configuration**: `AppConfig` loaded from the workspace's `.craft/config.json` merged with global `~/.craft/config.json`.
 - **Persistence**: `ThreadStore`, `MemoryStore`, `ApprovalStore`, `PlanStore` — all rooted at the workspace's `.craft/`.
-- **Agent stack**: `AgentFactory`, `AgentRunner`, `ContextCompactor`, `MemoryConsolidator`.
+- **Agent stack**: `AgentFactory`, `AgentRunner`, `Context.Compaction.CompactionPipeline`, `MemoryConsolidator`.
 - **Session**: `SessionService`, `SessionGate`.
 - **Scheduling**: `CronService`, `HeartbeatService`.
 - **Skills and tools**: `SkillsLoader`, `CustomCommandLoader`, tool providers collected per-workspace config and enabled modules.

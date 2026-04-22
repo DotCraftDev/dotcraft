@@ -1445,8 +1445,10 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 {
   "threadId": "thread_...",
   "turnId": "turn_001",
-  "kind": "compacting",
-  "message": "Context token limit reached, compacting conversation..."
+  "kind": "compactWarning",
+  "message": "Context nearing capacity",
+  "percentLeft": 0.12,
+  "tokenCount": 176000
 }
 ```
 
@@ -1454,24 +1456,31 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 |-------|------|-------------|
 | `threadId` | string | Parent thread. |
 | `turnId` | string | Active turn. |
-| `kind` | string | Event kind. One of: `"compacting"`, `"compacted"`, `"compactSkipped"`, `"consolidating"`, `"consolidated"`. |
-| `message` | string? | Human-readable description. May be null. |
+| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`. |
+| `message` | string? | Human-readable description (or machine-readable failure reason on `compactSkipped` / `compactFailed`). May be null. |
+| `percentLeft` | number? | Fraction of the effective context window still unused (`0.0`-`1.0`). Populated for compaction-related events. |
+| `tokenCount` | number? | Current estimated prompt token usage. Populated for compaction-related events. |
 
 **Defined `kind` values**:
 
 | Kind | Meaning |
 |------|---------|
-| `compacting` | Context compaction is starting. |
-| `compacted` | Context compaction completed successfully. |
-| `compactSkipped` | Context compaction was skipped (insufficient history). |
-| `consolidating` | Memory consolidation is starting. |
-| `consolidated` | Memory consolidation completed successfully. |
+| `compactWarning` | Token usage crossed the warning threshold but not the error threshold. Advisory only. |
+| `compactError` | Token usage crossed the error threshold; auto-compaction is imminent. Advisory only. |
+| `compacting` | A compaction attempt (auto or reactive) is starting. |
+| `compacted` | Compaction completed successfully. Token tracker has been reset. |
+| `compactSkipped` | Compaction was evaluated but not executed (below threshold, nothing new to summarize, or circuit breaker tripped). |
+| `compactFailed` | Compaction attempted but failed (LLM error, cancellation). Repeated failures trip the circuit breaker. |
+| `consolidating` | Memory consolidation is starting (fire-and-forget, driven by the compaction pipeline). |
+| `consolidated` | Memory consolidation completed successfully. MEMORY.md / HISTORY.md have been updated. |
 
 **Emission rules**:
 
 - System events are emitted during the Turn's post-processing phase, before `turn/completed`.
-- Compaction events are synchronous pairs: `compacting` → `compacted` or `compactSkipped`.
-- Consolidation events bracket an async operation: `consolidating` → (await) → `consolidated`.
+- Threshold advisory events (`compactWarning`, `compactError`) fire when token usage crosses a threshold but auto-compaction has not yet been triggered.
+- Auto-compaction is a synchronous pair: `compacting` → one of `compacted` / `compactSkipped` / `compactFailed`.
+- Reactive compaction fires on the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. The Turn still fails, but `compacting` and its terminal event are emitted first so UIs know the history was repaired before the user retries.
+- Consolidation is fire-and-forget after a successful compaction; the Turn completes without awaiting it. Clients see `consolidating` / `consolidated` events asynchronously.
 - Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
 
 **Example sequence**:
@@ -1480,23 +1489,26 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 Server                                          Client
   |                                               |
   | system/event (notification)                   |
+  |  kind: "compactWarning",                      |
+  |  percentLeft: 0.12, tokenCount: 176000        |
+  |<----------------------------------------------|
+  |                                               |
+  | system/event (notification)                   |
   |  kind: "compacting",                          |
-  |  message: "Context token limit reached..."    |
+  |  percentLeft: 0.03, tokenCount: 194000        |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
   |  kind: "compacted",                           |
-  |  message: "Context compacted successfully."   |
+  |  percentLeft: 0.78, tokenCount: 44000         |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
-  |  kind: "consolidating",                       |
-  |  message: "Consolidating memory..."           |
+  |  kind: "consolidating"                        |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
-  |  kind: "consolidated",                        |
-  |  message: "Memory consolidation complete."    |
+  |  kind: "consolidated"                         |
   |<----------------------------------------------|
   |                                               |
   | turn/completed (notification)                 |
