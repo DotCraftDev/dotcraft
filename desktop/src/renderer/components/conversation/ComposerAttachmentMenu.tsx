@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type JSX } from 'react'
-import { FileText, ImagePlus } from 'lucide-react'
+import { FileText, ImagePlus, Plus } from 'lucide-react'
 
 interface ComposerAttachmentMenuProps {
   title: string
@@ -80,22 +80,19 @@ export function ComposerAttachmentMenu({
           setOpen((current) => !current)
         }}
         style={{
-          width: '24px',
-          height: '24px',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
+          padding: '2px',
           borderRadius: '8px',
           border: 'none',
           background: 'transparent',
           color: disabled ? 'var(--text-dimmed)' : 'var(--text-secondary)',
           cursor: disabled ? 'default' : 'pointer',
-          fontSize: '22px',
-          lineHeight: 1,
-          padding: 0
+          lineHeight: 1
         }}
       >
-        <span aria-hidden>+</span>
+        <Plus size={16} strokeWidth={2} aria-hidden />
       </button>
 
       {open && !disabled && (

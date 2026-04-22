@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Context;
+using DotCraft.Context.Compaction;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -59,6 +60,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
+    private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -73,6 +75,30 @@ public sealed class SessionService(
 
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+
+    /// <inheritdoc />
+    public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+            return null;
+
+        var tracker = agentFactory.TryGetTokenTracker(threadId);
+        if (tracker is null)
+            return null;
+
+        var pipeline = agentFactory.CompactionPipeline;
+        var threshold = pipeline.EvaluateThreshold(tracker.LastInputTokens);
+
+        return new ContextUsageSnapshot
+        {
+            Tokens = threshold.Tokens,
+            ContextWindow = pipeline.EffectiveContextWindow,
+            AutoCompactThreshold = threshold.AutoThreshold,
+            WarningThreshold = threshold.WarningThreshold,
+            ErrorThreshold = threshold.ErrorThreshold,
+            PercentLeft = threshold.PercentLeft
+        };
+    }
 
     // =========================================================================
     // Thread lifecycle
@@ -107,6 +133,7 @@ public sealed class SessionService(
             thread.Metadata["channelContext"] = identity.ChannelContext;
         }
 
+        _threadsPendingPermanentDeletion.TryRemove(thread.Id, out _);
         _threads[thread.Id] = thread;
         var broker = GetOrCreateBroker(thread.Id);
 
@@ -234,31 +261,45 @@ public sealed class SessionService(
     /// <inheritdoc/>
     public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
     {
-        // Cancel any running or approval-pending turns for this thread
-        if (_threads.TryGetValue(threadId, out var thread))
+        var normalizedThreadId = threadId.Trim();
+        if (normalizedThreadId.Length == 0)
+            throw new ArgumentException("threadId is required.", nameof(threadId));
+
+        _threadsPendingPermanentDeletion[normalizedThreadId] = 0;
+
+        try
         {
-            foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            // Cancel any running or approval-pending turns for this thread
+            if (_threads.TryGetValue(normalizedThreadId, out var thread))
             {
-                var key = new TurnKey(threadId, turn.Id);
-                if (_runningTurns.TryRemove(key, out var turnCts))
-                    await turnCts.CancelAsync();
-                _pendingApprovals.TryRemove(key, out _);
+                foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+                {
+                    var key = new TurnKey(normalizedThreadId, turn.Id);
+                    if (_runningTurns.TryRemove(key, out var turnCts))
+                        await turnCts.CancelAsync();
+                    _pendingApprovals.TryRemove(key, out _);
+                }
             }
+
+            await persistence.DeleteThreadCascadeAsync(normalizedThreadId, ct);
+
+            // Remove all in-memory state only after persistence succeeds.
+            _threads.TryRemove(normalizedThreadId, out _);
+            _threadAgents.TryRemove(normalizedThreadId, out _);
+            _threadModeManagers.TryRemove(normalizedThreadId, out _);
+            _threadEventBrokers.TryRemove(normalizedThreadId, out _);
+            _materializedThreads.TryRemove(normalizedThreadId, out _);
+            _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
+            if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
+                await mcpManager.DisposeAsync();
+
+            ThreadDeletedForBroadcast?.Invoke(normalizedThreadId);
         }
-
-        await persistence.DeleteThreadCascadeAsync(threadId, ct);
-
-        // Remove all in-memory state only after persistence succeeds.
-        _threads.TryRemove(threadId, out _);
-        _threadAgents.TryRemove(threadId, out _);
-        _threadModeManagers.TryRemove(threadId, out _);
-        _threadEventBrokers.TryRemove(threadId, out _);
-        _materializedThreads.TryRemove(threadId, out _);
-        _threadExternalChannelToolNames.TryRemove(threadId, out _);
-        if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
-            await mcpManager.DisposeAsync();
-
-        ThreadDeletedForBroadcast?.Invoke(threadId);
+        catch
+        {
+            _threadsPendingPermanentDeletion.TryRemove(normalizedThreadId, out _);
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -503,6 +544,8 @@ public sealed class SessionService(
 
             IDisposable? gateLock = null;
             IDisposable? approvalOverride = null;
+            AgentSession? session = null;
+            TokenTracker? tokenTracker = null;
             try
             {
                 // Step 5a: Acquire SessionGate
@@ -526,10 +569,9 @@ public sealed class SessionService(
                 traceCollector?.BindThreadMainSession(threadId);
                 TracingChatClient.CurrentSessionKey = threadId;
                 TracingChatClient.ResetCallState(threadId);
-                var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
+                tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
                 TokenTracker.Current = tokenTracker;
 
-                AgentSession session;
                 if (thread.HistoryMode == HistoryMode.Client && messages != null)
                 {
                     // Client-managed: construct from provided messages
@@ -951,7 +993,11 @@ public sealed class SessionService(
                                             inputTokens += deltaIn;
                                             outputTokens += deltaOut;
                                             tokenTracker.UpdateWithStreamingDeltas(deltaIn, deltaOut, curIn);
-                                            eventChannel.EmitUsageDelta(deltaIn, deltaOut);
+                                            eventChannel.EmitUsageDelta(
+                                                deltaIn,
+                                                deltaOut,
+                                                totalInputTokens: tokenTracker.LastInputTokens,
+                                                totalOutputTokens: outputTokens);
                                         }
                                     }
 
@@ -1003,19 +1049,6 @@ public sealed class SessionService(
                     };
                 }
 
-                // Step 5i: Save AgentSession (server mode only)
-                if (thread.HistoryMode == HistoryMode.Server)
-                {
-                    try
-                    {
-                        await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
-                    }
-                }
-
                 // Step 5j: Run Stop hooks
                 if (hookRunner != null)
                 {
@@ -1023,31 +1056,86 @@ public sealed class SessionService(
                     await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
                 }
 
-                // Step 5k: Compaction
-                if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                    (tokenTracker.LastInputTokens) >= agentFactory.MaxContextTokens)
+                // Step 5k: Layered compaction pipeline
+                //   - emit compactWarning / compactError as the usage nears the auto threshold
+                //   - run MicroCompactor + PartialCompactor when auto threshold is exceeded
+                //   - memory consolidation is driven by the pipeline itself so the prefix
+                //     summarized by the LLM is exactly what lands in MEMORY.md / HISTORY.md
                 {
-                    eventChannel.EmitSystemEvent("compacting");
-                    if (await agentFactory.Compactor.TryCompactAsync(session, CancellationToken.None))
+                    var compactionPipeline = agentFactory.CompactionPipeline;
+                    var threshold = compactionPipeline.EvaluateThreshold(tokenTracker.LastInputTokens);
+                    if (!threshold.AboveAuto)
                     {
-                        tokenTracker.Reset();
-                        traceCollector?.RecordContextCompaction(threadId);
-                        eventChannel.EmitSystemEvent("compacted");
+                        if (threshold.AboveError)
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactError",
+                                percentLeft: threshold.PercentLeft,
+                                tokenCount: threshold.Tokens);
+                        }
+                        else if (threshold.AboveWarning)
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactWarning",
+                                percentLeft: threshold.PercentLeft,
+                                tokenCount: threshold.Tokens);
+                        }
                     }
                     else
                     {
-                        eventChannel.EmitSystemEvent("compactSkipped");
-                    }
-                }
+                        eventChannel.EmitSystemEvent(
+                            "compacting",
+                            percentLeft: threshold.PercentLeft,
+                            tokenCount: threshold.Tokens);
 
-                // Step 5l: Memory consolidation (awaited for client notification)
-                {
-                    var consolidationTask = agentFactory.TryConsolidateMemory(session, threadId);
-                    if (consolidationTask != null)
-                    {
-                        eventChannel.EmitSystemEvent("consolidating");
-                        await consolidationTask;
-                        eventChannel.EmitSystemEvent("consolidated");
+                        var status = await compactionPipeline.TryAutoCompactAsync(
+                            session!,
+                            threadId,
+                            tokenTracker.LastInputTokens,
+                            thread.LastActiveAt,
+                            CancellationToken.None);
+
+                        switch (status.Outcome)
+                        {
+                            case CompactionOutcome.Micro:
+                            case CompactionOutcome.Partial:
+                                tokenTracker.Reset();
+                                traceCollector?.RecordContextCompaction(threadId);
+                                eventChannel.EmitSystemEvent(
+                                    "compacted",
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                {
+                                    var noticeItem = CreateCompactionNoticeItem(
+                                        turn,
+                                        NextItemSeq(),
+                                        trigger: "auto",
+                                        status);
+                                    turn.Items.Add(noticeItem);
+                                    eventChannel.EmitItemStarted(noticeItem);
+                                    eventChannel.EmitItemCompleted(noticeItem);
+                                }
+                                ThreadRuntimeSignalForBroadcast?.Invoke(
+                                    threadId,
+                                    SessionThreadRuntimeSignal.ContextCompacted);
+                                break;
+
+                            case CompactionOutcome.Skipped:
+                                eventChannel.EmitSystemEvent(
+                                    "compactSkipped",
+                                    message: status.FailureReason,
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                break;
+
+                            case CompactionOutcome.Failed:
+                                eventChannel.EmitSystemEvent(
+                                    "compactFailed",
+                                    message: status.FailureReason,
+                                    percentLeft: status.ThresholdAfter.PercentLeft,
+                                    tokenCount: status.ThresholdAfter.Tokens);
+                                break;
+                        }
                     }
                 }
 
@@ -1069,6 +1157,7 @@ public sealed class SessionService(
                 try
                 {
                     await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                    await TrySaveSessionAsync(agent, session, threadId);
                 }
                 catch (Exception ex)
                 {
@@ -1095,9 +1184,70 @@ public sealed class SessionService(
             catch (Exception ex)
             {
                 logger?.LogError(ex, "Turn execution failed for thread {ThreadId}", threadId);
-                FailTurn(turn, eventChannel, ex.Message);
+
+                // Step 5k-R: Reactive compaction on prompt_too_long / context_length_exceeded.
+                // On success we still fail this turn (the model's streaming response is
+                // already gone), but the compacted history lets the user re-send their
+                // prompt and succeed without any manual cleanup.
+                var reactiveMessage = ex.Message;
+                if (IsPromptTooLongError(ex) && session is not null)
+                {
+                    try
+                    {
+                        eventChannel.EmitSystemEvent("compacting");
+                        var status = await agentFactory.CompactionPipeline.TryReactiveCompactAsync(
+                            session,
+                            threadId,
+                            thread.LastActiveAt,
+                            CancellationToken.None);
+                        if (status.Success)
+                        {
+                            tokenTracker?.Reset();
+                            traceCollector?.RecordContextCompaction(threadId);
+                            eventChannel.EmitSystemEvent(
+                                "compacted",
+                                percentLeft: status.ThresholdAfter.PercentLeft,
+                                tokenCount: status.ThresholdAfter.Tokens);
+                            {
+                                var noticeItem = CreateCompactionNoticeItem(
+                                    turn,
+                                    NextItemSeq(),
+                                    trigger: "reactive",
+                                    status);
+                                turn.Items.Add(noticeItem);
+                                eventChannel.EmitItemStarted(noticeItem);
+                                eventChannel.EmitItemCompleted(noticeItem);
+                            }
+                            ThreadRuntimeSignalForBroadcast?.Invoke(
+                                threadId,
+                                SessionThreadRuntimeSignal.ContextCompacted);
+                            reactiveMessage =
+                                "The request exceeded the model's context window. "
+                                + "History has been compacted; please re-send the message.";
+                        }
+                        else
+                        {
+                            eventChannel.EmitSystemEvent(
+                                "compactFailed",
+                                message: status.FailureReason,
+                                percentLeft: status.ThresholdAfter.PercentLeft,
+                                tokenCount: status.ThresholdAfter.Tokens);
+                        }
+                    }
+                    catch (Exception compactEx)
+                    {
+                        logger?.LogWarning(
+                            compactEx,
+                            "Reactive compaction failed for thread {ThreadId}",
+                            threadId);
+                    }
+                }
+
+                FailTurn(turn, eventChannel, reactiveMessage);
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
+                if (session is not null)
+                    await TrySaveSessionAsync(agent, session, threadId);
             }
             finally
             {
@@ -1339,6 +1489,22 @@ public sealed class SessionService(
         });
     }
 
+    private static bool IsPromptTooLongError(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            var msg = current.Message ?? string.Empty;
+            if (msg.Contains("prompt_too_long", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("context_length_exceeded", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("maximum context length", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("context window", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
     {
         turn.Status = TurnStatus.Failed;
@@ -1374,6 +1540,9 @@ public sealed class SessionService(
 
     private async Task TrySaveThreadAsync(SessionThread thread)
     {
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
+
         try
         {
             await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
@@ -1384,16 +1553,41 @@ public sealed class SessionService(
         }
     }
 
+    private async Task TrySaveSessionAsync(AIAgent agent, AgentSession session, string threadId)
+    {
+        if (IsPendingPermanentDeletion(threadId))
+            return;
+
+        if (!_threads.TryGetValue(threadId, out var thread) || thread.HistoryMode != HistoryMode.Server)
+            return;
+            
+        try
+        {
+            await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
+        }
+    }
+
     private bool IsMaterialized(string threadId) => _materializedThreads.ContainsKey(threadId);
+
+    private bool IsPendingPermanentDeletion(string threadId) => _threadsPendingPermanentDeletion.ContainsKey(threadId);
 
     private async Task PersistThreadWithMaterializationAsync(SessionThread thread, CancellationToken ct)
     {
-            await persistence.SaveThreadAsync(thread, ct);
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
+
+        await persistence.SaveThreadAsync(thread, ct);
         _materializedThreads[thread.Id] = 0;
     }
 
     private async Task PersistThreadIfMaterializedAsync(SessionThread thread, CancellationToken ct)
     {
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
         if (!IsMaterialized(thread.Id))
             return;
         await PersistThreadWithMaterializationAsync(thread, ct);
@@ -1414,6 +1608,34 @@ public sealed class SessionService(
         };
     }
 
+    private static SessionItem CreateCompactionNoticeItem(
+        SessionTurn turn,
+        int seq,
+        string trigger,
+        CompactionStatus status)
+    {
+        var mode = status.Outcome == CompactionOutcome.Micro ? "micro" : "partial";
+        return new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(seq),
+            TurnId = turn.Id,
+            Type = ItemType.SystemNotice,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new SystemNoticePayload
+            {
+                Kind = "compacted",
+                Trigger = trigger,
+                Mode = mode,
+                TokensBefore = status.ThresholdBefore.Tokens,
+                TokensAfter = status.ThresholdAfter.Tokens,
+                PercentLeftAfter = status.ThresholdAfter.PercentLeft,
+                ClearedToolResults = status.ClearedToolResults
+            }
+        };
+    }
+
     private async Task<AIAgent> BuildAgentForThreadAsync(
         SessionThread thread,
         CancellationToken ct)
@@ -1426,7 +1648,8 @@ public sealed class SessionService(
         var mm = GetOrCreateModeManager(threadId, mode);
         var baseCtx = agentFactory.ToolProviderContext;
         var threadChatClient = ResolveThreadChatClient(baseCtx, config);
-        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient);
+        var externalCliSessionStore = new ThreadExternalCliSessionStore(thread);
+        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient, externalCliSessionStore);
 
         ToolProviderContext? scopedContext = null;
         if (!string.IsNullOrEmpty(config.WorkspaceOverride))
@@ -1452,6 +1675,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 CronTools = baseCtx.CronTools,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
+                ExternalCliSessionStore = externalCliSessionStore,
                 AutomationTaskDirectory = config.AutomationTaskDirectory,
                 RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace
             };
@@ -1529,6 +1753,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
                 CronTools = scopedContext.CronTools,
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
+                ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
                 AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
                 RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace
             };
@@ -1599,7 +1824,8 @@ public sealed class SessionService(
 
     private static ToolProviderContext CloneContextWithChatClient(
         ToolProviderContext source,
-        OpenAI.Chat.ChatClient chatClient)
+        OpenAI.Chat.ChatClient chatClient,
+        IExternalCliSessionStore? externalCliSessionStore = null)
     {
         var cloned = new ToolProviderContext
         {
@@ -1616,6 +1842,7 @@ public sealed class SessionService(
             LspServerManager = source.LspServerManager,
             TraceCollector = source.TraceCollector,
             AcpExtensionProxy = source.AcpExtensionProxy,
+            ExternalCliSessionStore = externalCliSessionStore ?? source.ExternalCliSessionStore,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,
             RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,

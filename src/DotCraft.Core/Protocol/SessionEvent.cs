@@ -195,6 +195,20 @@ public sealed record UsageDeltaPayload
     /// Output tokens consumed in this LLM iteration (delta, not cumulative).
     /// </summary>
     public long OutputTokens { get; init; }
+
+    /// <summary>
+    /// Optional cumulative input-token snapshot for the thread at the time
+    /// of the delta (<c>TokenTracker.LastInputTokens</c>). Desktop clients use
+    /// this to drive the context-usage ring without waiting for turn completion.
+    /// </summary>
+    public long? TotalInputTokens { get; init; }
+
+    /// <summary>
+    /// Optional cumulative output-token total emitted so far in the current
+    /// turn. Mirrors <see cref="TotalInputTokens"/> and is populated when
+    /// possible; null otherwise.
+    /// </summary>
+    public long? TotalOutputTokens { get; init; }
 }
 
 /// <summary>
@@ -205,7 +219,8 @@ public sealed record UsageDeltaPayload
 public sealed record SystemEventPayload
 {
     /// <summary>
-    /// System event kind. One of: "compacting", "compacted", "compactSkipped",
+    /// System event kind. One of: "compactWarning", "compactError",
+    /// "compacting", "compacted", "compactSkipped", "compactFailed",
     /// "consolidating", "consolidated".
     /// </summary>
     public required string Kind { get; init; }
@@ -214,4 +229,17 @@ public sealed record SystemEventPayload
     /// Optional human-readable message describing the operation.
     /// </summary>
     public string? Message { get; init; }
+
+    /// <summary>
+    /// Fraction of the effective context window still available (0.0 – 1.0).
+    /// Populated for compact threshold/warning/error/success events so UIs can
+    /// render a usage bar without recomputing thresholds.
+    /// </summary>
+    public double? PercentLeft { get; init; }
+
+    /// <summary>
+    /// Estimated input tokens at the time the event was emitted (after
+    /// compaction for <c>compacted</c> events, before for warnings).
+    /// </summary>
+    public long? TokenCount { get; init; }
 }

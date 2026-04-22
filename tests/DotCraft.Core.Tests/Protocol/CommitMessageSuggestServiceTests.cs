@@ -95,6 +95,9 @@ public sealed class CommitMessageSuggestServiceTests : IDisposable
             .Select(c => c.Text));
         Assert.Contains("--- untracked: test-write-demo.txt ---", submittedPrompt, StringComparison.Ordinal);
         Assert.Contains("diff --git", submittedPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            await _threadStore.LoadIndexAsync(),
+            summary => string.Equals(summary.OriginChannel, CommitMessageSuggestConstants.ChannelName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void AddUserMessageTurn(SessionThread thread, string message)

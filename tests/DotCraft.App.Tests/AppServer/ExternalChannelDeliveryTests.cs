@@ -719,10 +719,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         });
 
         await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var persistence = new SessionPersistenceService(new ThreadStore(_tempDir));
         var service = new SessionService(
             agentFactory,
             scriptedAgent,
-            new ThreadStore(_tempDir),
+            persistence,
             new SessionGate());
         var thread = await service.CreateThreadAsync(new SessionIdentity
         {
@@ -824,10 +825,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         });
 
         await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var persistence = new SessionPersistenceService(new ThreadStore(_tempDir));
         var service = new SessionService(
             agentFactory,
             scriptedAgent,
-            new ThreadStore(_tempDir),
+            persistence,
             new SessionGate());
         var thread = await service.CreateThreadAsync(new SessionIdentity
         {
@@ -1966,5 +1968,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         public Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default) => throw new NotImplementedException();
+        public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId) => null;
     }
 }

@@ -4,6 +4,7 @@ using DotCraft.Abstractions;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Context;
+using DotCraft.Context.Compaction;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
@@ -27,8 +28,6 @@ public sealed class AgentFactory : IAsyncDisposable
     private readonly AppConfig _config;
     private readonly ChatClient _chatClient;
     private readonly ConcurrentDictionary<string, TokenTracker> _tokenTrackers = new();
-    private readonly ConcurrentDictionary<string, int> _lastConsolidated = new();
-    private readonly HashSet<string> _consolidating = [];
     private readonly TraceCollector? _traceCollector;
     private readonly HashSet<string> _globalEnabledToolNames;
     private readonly ToolProviderContext _toolProviderContext;
@@ -77,8 +76,10 @@ public sealed class AgentFactory : IAsyncDisposable
 
         Consolidator = new MemoryConsolidator(consolidationChatClient, memoryStore, onConsolidatorStatus);
 
-        if (config.MaxContextTokens > 0)
-            Compactor = new ContextCompactor(_chatClient, Consolidator);
+        CompactionPipeline = new CompactionPipeline(
+            config.Compaction,
+            _chatClient.AsIChatClient(),
+            Consolidator);
 
         // Build tool provider context
         _toolProviderContext = toolProviderContext ?? new ToolProviderContext
@@ -115,24 +116,17 @@ public sealed class AgentFactory : IAsyncDisposable
     public PlanStore? PlanStore => _planStore;
 
     /// <summary>
-    /// Gets the context compactor for large conversations.
+    /// Gets the layered context-compaction pipeline (auto / reactive / manual).
     /// </summary>
-    public ContextCompactor? Compactor { get; }
+    public CompactionPipeline CompactionPipeline { get; }
 
     /// <summary>
     /// Gets the memory consolidator for persisting conversation knowledge.
+    /// Memory consolidation is driven by the <see cref="CompactionPipeline"/>:
+    /// the prefix that was summarized is handed directly to the consolidator
+    /// so <c>MEMORY.md</c> / <c>HISTORY.md</c> see exactly what the LLM saw.
     /// </summary>
     public MemoryConsolidator? Consolidator { get; }
-
-    /// <summary>
-    /// Gets the maximum context tokens from configuration.
-    /// </summary>
-    public int MaxContextTokens => _config.MaxContextTokens;
-
-    /// <summary>
-    /// Gets the memory window (message count threshold for consolidation).
-    /// </summary>
-    public int MemoryWindow => _config.MemoryWindow;
 
     /// <summary>
     /// Gets or creates a token tracker for the specified session.
@@ -143,78 +137,20 @@ public sealed class AgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Returns the token tracker for the specified session when one already exists.
+    /// </summary>
+    public TokenTracker? TryGetTokenTracker(string sessionKey)
+    {
+        return _tokenTrackers.TryGetValue(sessionKey, out var tracker) ? tracker : null;
+    }
+
+    /// <summary>
     /// Removes the token tracker for the specified session.
     /// </summary>
     public void RemoveTokenTracker(string sessionKey)
     {
         _tokenTrackers.TryRemove(sessionKey, out _);
-    }
-
-    /// <summary>
-    /// Checks whether the session's message count exceeds <see cref="MemoryWindow"/> and, if so,
-    /// returns a Task that performs memory consolidation for the new messages since the last
-    /// consolidation. Returns null when conditions are not met (no-op).
-    /// The caller decides whether to await the task or fire-and-forget it.
-    /// </summary>
-    public Task? TryConsolidateMemory(AgentSession session, string sessionKey)
-    {
-        if (Consolidator == null || _config.MemoryWindow <= 0)
-            return null;
-
-        var chatHistory = session.GetService<ChatHistoryProvider>();
-        if (chatHistory is not InMemoryChatHistoryProvider memoryProvider)
-            return null;
-
-        int messageCount = memoryProvider.Count;
-        int lastConsolidated = _lastConsolidated.GetOrAdd(sessionKey, 0);
-
-        int newMessageCount = messageCount - lastConsolidated;
-        if (newMessageCount <= _config.MemoryWindow)
-            return null;
-
-        lock (_consolidating)
-        {
-            if (!_consolidating.Add(sessionKey))
-                return null;
-        }
-
-        // Determine the slice of messages to consolidate:
-        // keep the last MemoryWindow/2 messages for continuity.
-        int keepCount = _config.MemoryWindow / 2;
-        int consolidateEnd = messageCount - keepCount;
-        if (consolidateEnd <= lastConsolidated)
-        {
-            lock (_consolidating) { _consolidating.Remove(sessionKey); }
-            return null;
-        }
-
-        var toConsolidate = new List<AiChatMessage>();
-        for (int i = lastConsolidated; i < consolidateEnd; i++)
-            toConsolidate.Add(memoryProvider[i]);
-
-        _lastConsolidated[sessionKey] = consolidateEnd;
-
-        var consolidator = Consolidator;
-        return Task.Run(async () =>
-        {
-            try
-            {
-                await consolidator.ConsolidateAsync(toConsolidate);
-            }
-            finally
-            {
-                lock (_consolidating) { _consolidating.Remove(sessionKey); }
-            }
-        });
-    }
-
-    /// <summary>
-    /// Resets the consolidation tracking for the given session (e.g., when session is cleared).
-    /// </summary>
-    public void ResetConsolidationTracking(string sessionKey)
-    {
-        _lastConsolidated.TryRemove(sessionKey, out _);
-        lock (_consolidating) { _consolidating.Remove(sessionKey); }
+        CompactionPipeline.Forget(sessionKey);
     }
 
     /// <summary>

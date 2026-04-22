@@ -1620,6 +1620,15 @@ public sealed class SubAgentProfileWriteWire
     public string? InputEnvKey { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeArgTemplate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeSessionIdJsonPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeSessionIdRegex { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OutputJsonPath { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1697,6 +1706,23 @@ public sealed class SubAgentProfileListResult
     public List<SubAgentProfileEntryWire> Profiles { get; set; } = [];
 
     public string DefaultName { get; set; } = string.Empty;
+
+    public SubAgentSettingsWire Settings { get; set; } = new();
+}
+
+public sealed class SubAgentSettingsWire
+{
+    public bool ExternalCliSessionResumeEnabled { get; set; }
+}
+
+public sealed class SubAgentSettingsUpdateParams
+{
+    public bool? ExternalCliSessionResumeEnabled { get; set; }
+}
+
+public sealed class SubAgentSettingsUpdateResult
+{
+    public SubAgentSettingsWire Settings { get; set; } = new();
 }
 
 public sealed class SubAgentProfileSetEnabledParams
@@ -1782,6 +1808,7 @@ public static class AppServerMethods
     public const string ExternalChannelUpsert = "externalChannel/upsert";
     public const string ExternalChannelRemove = "externalChannel/remove";
     public const string SubAgentProfileList = "subagent/profiles/list";
+    public const string SubAgentSettingsUpdate = "subagent/settings/update";
     public const string SubAgentProfileSetEnabled = "subagent/profiles/setEnabled";
     public const string SubAgentProfileUpsert = "subagent/profiles/upsert";
     public const string SubAgentProfileRemove = "subagent/profiles/remove";

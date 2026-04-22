@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.8 |
+| **Version** | 0.2.9 |
 | **Status** | Living |
 | **Date** | 2026-04-21 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -348,7 +348,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
-| `capabilities.subAgentManagement` | boolean | Server supports SubAgent profile management methods (`subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
+| `capabilities.subAgentManagement` | boolean | Server supports SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
 | `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. Example: `capabilities.extensions.welcomeSuggestions = true` advertises support for `welcome/suggestions`. |
@@ -602,6 +602,21 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 **Result**: `{ "thread": Thread }` — the thread object, with `turns` populated if requested.
 
 **Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
+
+**`contextUsage` field**: When the server has a live token tracker for the thread (i.e. the thread has received at least one turn in the current process lifetime, or its rolled-out history was rehydrated), the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring:
+
+```
+"contextUsage": {
+  "tokens": number,                // Approximate input tokens currently consumed
+  "contextWindow": number,         // Configured effective context window (denominator)
+  "autoCompactThreshold": number,  // Token count at which auto-compact runs
+  "warningThreshold": number,      // Token count at which compactWarning starts firing
+  "errorThreshold": number,        // Token count at which compactError starts firing
+  "percentLeft": number            // Fraction of the context window still available (0.0 - 1.0)
+}
+```
+
+The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. The field is omitted when no token tracker exists yet (e.g. fresh thread before the first turn).
 
 ### 4.5 `thread/subscribe`
 
@@ -1393,7 +1408,9 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
   "threadId": "thread_...",
   "turnId": "turn_001",
   "inputTokens": 1200,
-  "outputTokens": 350
+  "outputTokens": 350,
+  "totalInputTokens": 14820,
+  "totalOutputTokens": 2610
 }
 ```
 
@@ -1403,6 +1420,8 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
 | `turnId` | string | Active turn. |
 | `inputTokens` | integer | Input tokens consumed in this LLM iteration (delta, not cumulative). |
 | `outputTokens` | integer | Output tokens consumed in this LLM iteration (delta, not cumulative). |
+| `totalInputTokens` | integer | Optional. Cumulative input-token snapshot from `TokenTracker.LastInputTokens`. Drives the desktop context-usage ring without waiting for turn completion. Absent when unavailable. |
+| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. Mirrors `totalInputTokens`; absent when unavailable. |
 
 **Emission rules**:
 
@@ -1445,8 +1464,10 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 {
   "threadId": "thread_...",
   "turnId": "turn_001",
-  "kind": "compacting",
-  "message": "Context token limit reached, compacting conversation..."
+  "kind": "compactWarning",
+  "message": "Context nearing capacity",
+  "percentLeft": 0.12,
+  "tokenCount": 176000
 }
 ```
 
@@ -1454,25 +1475,33 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 |-------|------|-------------|
 | `threadId` | string | Parent thread. |
 | `turnId` | string | Active turn. |
-| `kind` | string | Event kind. One of: `"compacting"`, `"compacted"`, `"compactSkipped"`, `"consolidating"`, `"consolidated"`. |
-| `message` | string? | Human-readable description. May be null. |
+| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`. |
+| `message` | string? | Human-readable description (or machine-readable failure reason on `compactSkipped` / `compactFailed`). May be null. |
+| `percentLeft` | number? | Fraction of the effective context window still unused (`0.0`-`1.0`). Populated for compaction-related events. |
+| `tokenCount` | number? | Current estimated prompt token usage. Populated for compaction-related events. |
 
 **Defined `kind` values**:
 
 | Kind | Meaning |
 |------|---------|
-| `compacting` | Context compaction is starting. |
-| `compacted` | Context compaction completed successfully. |
-| `compactSkipped` | Context compaction was skipped (insufficient history). |
-| `consolidating` | Memory consolidation is starting. |
-| `consolidated` | Memory consolidation completed successfully. |
+| `compactWarning` | Token usage crossed the warning threshold but not the error threshold. Advisory only. |
+| `compactError` | Token usage crossed the error threshold; auto-compaction is imminent. Advisory only. |
+| `compacting` | A compaction attempt (auto or reactive) is starting. |
+| `compacted` | Compaction completed successfully. Token tracker has been reset. |
+| `compactSkipped` | Compaction was evaluated but not executed (below threshold, nothing new to summarize, or circuit breaker tripped). |
+| `compactFailed` | Compaction attempted but failed (LLM error, cancellation). Repeated failures trip the circuit breaker. |
+| `consolidating` | Memory consolidation is starting (fire-and-forget, driven by the compaction pipeline). |
+| `consolidated` | Memory consolidation completed successfully. MEMORY.md / HISTORY.md have been updated. |
 
 **Emission rules**:
 
 - System events are emitted during the Turn's post-processing phase, before `turn/completed`.
-- Compaction events are synchronous pairs: `compacting` → `compacted` or `compactSkipped`.
-- Consolidation events bracket an async operation: `consolidating` → (await) → `consolidated`.
+- Threshold advisory events (`compactWarning`, `compactError`) fire when token usage crosses a threshold but auto-compaction has not yet been triggered.
+- Auto-compaction is a synchronous pair: `compacting` → one of `compacted` / `compactSkipped` / `compactFailed`.
+- Reactive compaction fires on the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. The Turn still fails, but `compacting` and its terminal event are emitted first so UIs know the history was repaired before the user retries.
+- Consolidation is fire-and-forget after a successful compaction; the Turn completes without awaiting it. Clients see `consolidating` / `consolidated` events asynchronously.
 - Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
+- On a successful `compacted` event (auto or reactive trigger), Session Core additionally persists a `SystemNotice` SessionItem (kind = `"compacted"`) into the current turn and emits the normal `item/started` + `item/completed` pair for it. This gives clients a persistent timeline marker that survives thread reload, alongside the transient `system/event` notification used to drive toast/status-line UX. See [Session Core](session-core.md#systemnotice) for the payload schema.
 
 **Example sequence**:
 
@@ -1480,23 +1509,26 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 Server                                          Client
   |                                               |
   | system/event (notification)                   |
+  |  kind: "compactWarning",                      |
+  |  percentLeft: 0.12, tokenCount: 176000        |
+  |<----------------------------------------------|
+  |                                               |
+  | system/event (notification)                   |
   |  kind: "compacting",                          |
-  |  message: "Context token limit reached..."    |
+  |  percentLeft: 0.03, tokenCount: 194000        |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
   |  kind: "compacted",                           |
-  |  message: "Context compacted successfully."   |
+  |  percentLeft: 0.78, tokenCount: 44000         |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
-  |  kind: "consolidating",                       |
-  |  message: "Consolidating memory..."           |
+  |  kind: "consolidating"                        |
   |<----------------------------------------------|
   |                                               |
   | system/event (notification)                   |
-  |  kind: "consolidated",                        |
-  |  message: "Memory consolidation complete."    |
+  |  kind: "consolidated"                         |
   |<----------------------------------------------|
   |                                               |
   | turn/completed (notification)                 |
@@ -3574,7 +3606,7 @@ On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-
 
 These methods provide a server-authoritative read/write path for workspace SubAgent profile configuration.
 
-Clients must check `capabilities.subAgentManagement` before calling `subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, or `subagent/profiles/remove`. If absent or `false`, the server returns `-32601` (Method not found).
+Clients must check `capabilities.subAgentManagement` before calling `subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, or `subagent/profiles/remove`. If absent or `false`, the server returns `-32601` (Method not found).
 
 ### 24.2 `SubAgentProfileWrite` Wire DTO
 
@@ -3596,6 +3628,9 @@ Supported fields mirror the effective `SubAgentProfile` contract, including:
 - `inputMode`
 - `inputArgTemplate`
 - `inputEnvKey`
+- `resumeArgTemplate`
+- `resumeSessionIdJsonPath`
+- `resumeSessionIdRegex`
 - `outputJsonPath`
 - `outputInputTokensJsonPath`
 - `outputOutputTokensJsonPath`
@@ -3666,11 +3701,35 @@ Returns all builtin profiles plus workspace-defined custom profiles for the curr
 ```json
 {
   "defaultName": "native",
+  "settings": {
+    "externalCliSessionResumeEnabled": false
+  },
   "profiles": []
 }
 ```
 
-### 24.5 `subagent/profiles/setEnabled`
+`settings.externalCliSessionResumeEnabled` is the workspace-scoped toggle that controls whether supported external CLI profiles may reuse saved external session ids.
+
+### 24.5 `subagent/settings/update`
+
+Update workspace-level SubAgent settings.
+
+**Params**:
+
+```json
+{
+  "externalCliSessionResumeEnabled": true
+}
+```
+
+**Semantics**:
+
+- updates `SubAgent.EnableExternalCliSessionResume`
+- affects only profiles whose effective definition has `supportsResume=true`
+- does not delete existing saved external session ids
+- on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/settings/update"` and `regions: ["subagent"]`
+
+### 24.6 `subagent/profiles/setEnabled`
 
 Enable or disable one profile for the current workspace.
 
@@ -3690,7 +3749,7 @@ Enable or disable one profile for the current workspace.
 - `native` is protected and cannot be disabled
 - on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/profiles/setEnabled"` and `regions: ["subagent"]`
 
-### 24.6 `subagent/profiles/upsert`
+### 24.7 `subagent/profiles/upsert`
 
 Create or replace one workspace profile definition.
 
@@ -3716,7 +3775,7 @@ Create or replace one workspace profile definition.
 - the workspace persists the full expanded definition
 - on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/profiles/upsert"` and `regions: ["subagent"]`
 
-### 24.7 `subagent/profiles/remove`
+### 24.8 `subagent/profiles/remove`
 
 Remove one workspace-managed SubAgent definition.
 
@@ -3739,7 +3798,7 @@ Remove one workspace-managed SubAgent definition.
 { "removed": true }
 ```
 
-### 24.8 Error Codes
+### 24.9 Error Codes
 
 | Code | Constant | When |
 |------|----------|------|
@@ -3860,7 +3919,7 @@ Server notification emitted after a successful workspace configuration write.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
@@ -3875,7 +3934,7 @@ Server notification emitted after a successful workspace configuration write.
 | `skills` | `skills/setEnabled` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
-| `subagent` | `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove` |
+| `subagent` | `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove` |
 
 Semantics:
 

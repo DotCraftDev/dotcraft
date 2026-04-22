@@ -63,13 +63,36 @@ In this case, DotCraft will use the `ApiKey` from global config, but the `Model`
 | `SubagentMaxToolCallRounds` | SubAgent max tool call rounds | `50` |
 | `SubagentMaxConcurrency` | Maximum concurrent SubAgents (excess requests are queued) | `3` |
 | `MaxSessionQueueSize` | Maximum queued requests per session. Oldest waiting request is evicted with a notification when exceeded. `0` = unlimited | `3` |
-| `MaxContextTokens` | Cumulative input token threshold for triggering automatic context compaction. `0` disables compaction | `160000` |
-| `MemoryWindow` | Message count threshold that triggers memory consolidation. `0` disables | `50` |
+| `Compaction` | Context compaction pipeline (thresholds, microcompact, partial summary, reactive retry). See below | see below |
 | `ConsolidationModel` | Dedicated model for memory consolidation. Uses the main `Model` when empty. If the main model doesn't support `tool_choice` in thinking mode, specify a non-thinking model here | empty |
 | `DebugMode` | Debug mode: tool call arguments are not truncated in console output | `false` |
 | `EnabledTools` | Global list of enabled tool names. Enables all tools when empty | `[]` |
 
 DotCraft's base identity is built in. If you want to customize the system prompt, prefer `.craft/AGENTS.md`, `.craft/SOUL.md`, and other bootstrap files instead of maintaining a separate field in `config.json`.
+
+### Compaction Configuration
+
+A layered context compaction pipeline: token estimation → microcompact (clears stale tool results) → partial summary (summarizes only the prefix, keeps the tail verbatim) → reactive retry (re-attempts compaction once when the model returns `prompt_too_long`).
+
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `Compaction.AutoCompactEnabled` | Enable threshold-driven automatic compaction | `true` |
+| `Compaction.ReactiveCompactEnabled` | Enable reactive compaction when the model returns `prompt_too_long` | `true` |
+| `Compaction.ContextWindow` | Model context window (tokens) | `200000` |
+| `Compaction.SummaryReserveTokens` | Tokens reserved for the summary output | `20000` |
+| `Compaction.AutoCompactBufferTokens` | Fire auto-compact this many tokens below `ContextWindow - SummaryReserve` | `13000` |
+| `Compaction.WarningBufferTokens` | Emit `compactWarning` this many tokens before the auto threshold | `20000` |
+| `Compaction.ErrorBufferTokens` | Emit `compactError` this many tokens before the auto threshold | `10000` |
+| `Compaction.ManualCompactBufferTokens` | Allow manual `/compact` down to this margin below the hard ceiling | `3000` |
+| `Compaction.KeepRecentMinTokens` | Minimum tokens kept verbatim after a partial summary | `10000` |
+| `Compaction.KeepRecentMinGroups` | Minimum API-round groups kept verbatim | `3` |
+| `Compaction.KeepRecentMaxTokens` | Hard cap on tokens kept verbatim | `40000` |
+| `Compaction.MicrocompactEnabled` | Enable microcompact (trim stale tool results) | `true` |
+| `Compaction.MicrocompactTriggerCount` | Trigger microcompact when compactable tool-result count reaches this value | `30` |
+| `Compaction.MicrocompactKeepRecent` | Number of most-recent tool results kept at full fidelity | `8` |
+| `Compaction.MicrocompactGapMinutes` | Idle-time trigger for microcompact, `0` disables | `20` |
+| `Compaction.MemoryConsolidationPrefixTokens` | Prefix-token threshold that also triggers `MEMORY.md` / `HISTORY.md` consolidation | `20000` |
+| `Compaction.MaxConsecutiveFailures` | Circuit breaker: skip future attempts after this many consecutive failures | `3` |
 
 ### Reasoning Configuration
 

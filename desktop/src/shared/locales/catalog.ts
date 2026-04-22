@@ -624,6 +624,16 @@ const MESSAGES_EN = {
   'composer.stopAria': 'Stop turn',
   'composer.sendTitleAlt': 'Send (Enter)',
   'composer.sendAriaAlt': 'Send message',
+  'contextRing.ariaLabel': 'Context usage: {{percent}}% used',
+  'contextRing.title': '{{percent}}% of context window used',
+  'contextRing.tooltip.title': 'Context window',
+  'contextRing.tooltip.used': '{{percent}}% used · {{used}} / {{total}} tokens',
+  'contextRing.tooltip.left': '{{percent}}% remaining',
+  'contextRing.tooltip.autoCompact': 'Auto-compact triggers at {{percent}}%',
+  'systemNotice.compacted.title': 'Context compacted',
+  'systemNotice.compacted.auto': 'Auto-compacted',
+  'systemNotice.compacted.reactive': 'Recovered from context overflow',
+  'systemNotice.compacted.detail': 'Freed {{freed}} tokens · {{percent}}% remaining',
   'threadEntry.turnRunning': 'Turn running',
   'threadEntry.archiveTitle': 'Archive conversation?',
   'threadEntry.archiveMessage':
@@ -1082,6 +1092,9 @@ const MESSAGES_EN = {
   'settings.subAgents.cancel': 'Cancel',
   'settings.subAgents.back': 'Back',
   'settings.subAgents.toggleAria': 'Toggle sub-agent {{name}}',
+  'settings.subAgents.settings.resumeTitle': 'Resume external CLI sessions',
+  'settings.subAgents.settings.resumeDescription':
+    'When supported profiles reuse the same label, DotCraft can continue the previous external CLI session for this workspace.',
 
   // List surface
   'settings.subAgents.list.presetSection': 'Built-in agents',
@@ -1129,6 +1142,12 @@ const MESSAGES_EN = {
   'settings.subAgents.preset.permissionMappingTitle': 'Approval mode flags',
   'settings.subAgents.preset.permissionMappingHint':
     'DotCraft appends these flags based on the current approval mode.',
+  'settings.subAgents.preset.resumeTitle': 'Session resume',
+  'settings.subAgents.preset.resumeDescription':
+    'Whether this profile can continue an earlier external CLI session.',
+  'settings.subAgents.preset.resumeEnabled': 'Supported and enabled',
+  'settings.subAgents.preset.resumeSupportedButOff': 'Supported, workspace switch is off',
+  'settings.subAgents.preset.resumeUnsupported': 'Not supported',
   'settings.subAgents.preset.customizeTitle': 'Overrides',
   'settings.subAgents.preset.customizeHint':
     'Only tweak these if the preset defaults do not fit your setup.',
@@ -1275,6 +1294,23 @@ const MESSAGES_EN = {
   'settings.subAgents.custom.permissionMappingAutoApprove': 'Auto approve',
   'settings.subAgents.custom.permissionMappingRestricted': 'Restricted',
   'settings.subAgents.custom.permissionMappingPlaceholder': '--mode ask --trust',
+  'settings.subAgents.custom.supportsResumeLabel': 'Support resumable external sessions',
+  'settings.subAgents.custom.supportsResumeHint':
+    'Enable this only when the CLI exposes a stable session id and a non-interactive resume command.',
+  'settings.subAgents.custom.resumeArgTemplateLabel': 'Resume argument template',
+  'settings.subAgents.custom.resumeArgTemplateHint':
+    'Arguments inserted before approval flags when DotCraft resumes a saved session. Use {sessionId}.',
+  'settings.subAgents.custom.resumeArgTemplatePlaceholder': '--resume {sessionId}',
+  'settings.subAgents.custom.resumeSessionIdJsonPathLabel': 'Session id JSON path',
+  'settings.subAgents.custom.resumeSessionIdJsonPathHint':
+    'Optional when stdout is JSON and the session id lives at a stable path.',
+  'settings.subAgents.custom.resumeSessionIdJsonPathPlaceholder': 'session_id',
+  'settings.subAgents.custom.resumeSessionIdRegexLabel': 'Session id regex',
+  'settings.subAgents.custom.resumeSessionIdRegexHint':
+    'Optional when stdout is not a single JSON object. Capture the id with a named group sessionId or the first group.',
+  'settings.subAgents.custom.resumeSessionIdRegexPlaceholder': '"thread_id"\\s*:\\s*"(?<sessionId>[^"]+)"',
+  'settings.subAgents.custom.resumeWorkspaceToggleOff':
+    'The workspace-wide resume switch is currently off, so DotCraft will still launch fresh sessions until you enable it above.',
   'settings.subAgents.custom.sanitizationRulesLabel': 'Sanitization rules (JSON)',
   'settings.subAgents.custom.sanitizationRulesHint':
     'Optional JSON object passed to the runtime for output sanitization.',
@@ -1289,6 +1325,10 @@ const MESSAGES_EN = {
     'An env variable name is required when the input mode is env.',
   'settings.subAgents.validation.outputJsonPathRequired':
     'A JSON path is required when the output format is JSON.',
+  'settings.subAgents.validation.resumeArgTemplateRequired':
+    'A resume argument template is required when resumable sessions are enabled.',
+  'settings.subAgents.validation.resumeSessionExtractorRequired':
+    'Provide either a session id JSON path or a session id regex when resumable sessions are enabled.',
   'settings.subAgents.validation.integerRequired': 'Numeric fields must be whole numbers.',
   'settings.subAgents.validation.sanitizationRulesObject':
     'Sanitization rules must be a JSON object.',
@@ -1865,6 +1905,16 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.stopAria': '停止当前回合',
   'composer.sendTitleAlt': '发送 (Enter)',
   'composer.sendAriaAlt': '发送消息',
+  'contextRing.ariaLabel': '上下文占用：{{percent}}%',
+  'contextRing.title': '上下文窗口已使用 {{percent}}%',
+  'contextRing.tooltip.title': '上下文窗口',
+  'contextRing.tooltip.used': '已用 {{percent}}% · {{used}} / {{total}} tokens',
+  'contextRing.tooltip.left': '剩余 {{percent}}%',
+  'contextRing.tooltip.autoCompact': '达到 {{percent}}% 时自动压缩',
+  'systemNotice.compacted.title': '上下文已压缩',
+  'systemNotice.compacted.auto': '自动压缩完成',
+  'systemNotice.compacted.reactive': '已在溢出后恢复',
+  'systemNotice.compacted.detail': '释放 {{freed}} tokens · 剩余 {{percent}}%',
   'threadEntry.turnRunning': '回合运行中',
   'threadEntry.archiveTitle': '归档会话？',
   'threadEntry.archiveMessage': '此会话将移至归档并从列表中移除。',
@@ -2326,6 +2376,9 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.subAgents.cancel': '取消',
   'settings.subAgents.back': '返回',
   'settings.subAgents.toggleAria': '切换子 Agent {{name}}',
+  'settings.subAgents.settings.resumeTitle': '复用外部 CLI 会话',
+  'settings.subAgents.settings.resumeDescription':
+    '开启后，支持 resume 的外部 CLI profile 在复用相同 label 时，会继续当前工作区之前保存的外部会话。',
 
   // List surface
   'settings.subAgents.list.presetSection': '内置助手',
@@ -2369,6 +2422,11 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.subAgents.preset.permissionMappingTitle': '审批模式对应参数',
   'settings.subAgents.preset.permissionMappingHint':
     'DotCraft 会根据当前审批模式附加这些参数。',
+  'settings.subAgents.preset.resumeTitle': '会话续接',
+  'settings.subAgents.preset.resumeDescription': '该 profile 是否能继续之前的外部 CLI 会话。',
+  'settings.subAgents.preset.resumeEnabled': '已支持且已启用',
+  'settings.subAgents.preset.resumeSupportedButOff': 'Profile 支持，但工作区开关未开启',
+  'settings.subAgents.preset.resumeUnsupported': '不支持',
   'settings.subAgents.preset.customizeTitle': '覆盖设置',
   'settings.subAgents.preset.customizeHint': '只在默认值无法满足你的环境时才需要调整。',
   'settings.subAgents.preset.customize': '自定义',
@@ -2492,6 +2550,23 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.subAgents.custom.permissionMappingAutoApprove': 'Auto approve',
   'settings.subAgents.custom.permissionMappingRestricted': 'Restricted',
   'settings.subAgents.custom.permissionMappingPlaceholder': '--mode ask --trust',
+  'settings.subAgents.custom.supportsResumeLabel': '支持可恢复的外部会话',
+  'settings.subAgents.custom.supportsResumeHint':
+    '仅当 CLI 提供稳定的 session id，并支持非交互式 resume 命令时再开启。',
+  'settings.subAgents.custom.resumeArgTemplateLabel': 'Resume 参数模板',
+  'settings.subAgents.custom.resumeArgTemplateHint':
+    '当 DotCraft 继续已保存会话时，会在审批参数之前插入这些参数。使用 {sessionId} 占位。',
+  'settings.subAgents.custom.resumeArgTemplatePlaceholder': '--resume {sessionId}',
+  'settings.subAgents.custom.resumeSessionIdJsonPathLabel': 'Session id JSON 路径',
+  'settings.subAgents.custom.resumeSessionIdJsonPathHint':
+    '当 stdout 是稳定 JSON 且 session id 位于固定路径时可填写。',
+  'settings.subAgents.custom.resumeSessionIdJsonPathPlaceholder': 'session_id',
+  'settings.subAgents.custom.resumeSessionIdRegexLabel': 'Session id 正则',
+  'settings.subAgents.custom.resumeSessionIdRegexHint':
+    '当 stdout 不是单个 JSON 对象时可填写。使用命名组 sessionId，或第一个捕获组。',
+  'settings.subAgents.custom.resumeSessionIdRegexPlaceholder': '"thread_id"\\s*:\\s*"(?<sessionId>[^"]+)"',
+  'settings.subAgents.custom.resumeWorkspaceToggleOff':
+    '当前工作区总开关仍处于关闭状态，所以在你上方开启前，DotCraft 依然会为每次任务新建外部会话。',
   'settings.subAgents.custom.sanitizationRulesLabel': '脱敏规则（JSON）',
   'settings.subAgents.custom.sanitizationRulesHint':
     '可选。传给运行时的 JSON 对象，用于对输出做脱敏。',
@@ -2506,6 +2581,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
     '当输入模式为环境变量时，必须填写环境变量名。',
   'settings.subAgents.validation.outputJsonPathRequired':
     '当输出格式为 JSON 时，必须填写 JSON 路径。',
+  'settings.subAgents.validation.resumeArgTemplateRequired':
+    '当启用可恢复会话时，必须填写 resume 参数模板。',
+  'settings.subAgents.validation.resumeSessionExtractorRequired':
+    '当启用可恢复会话时，必须填写 session id JSON 路径或 session id 正则之一。',
   'settings.subAgents.validation.integerRequired': '数字字段必须是整数。',
   'settings.subAgents.validation.sanitizationRulesObject': '脱敏规则必须是 JSON 对象。',
   'settings.subAgents.validation.sanitizationRulesJson': '脱敏规则必须是合法的 JSON。'

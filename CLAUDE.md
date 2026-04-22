@@ -118,8 +118,8 @@ Tool names vary by source — use exact names for whitelists (`EnabledTools`, `T
 ### Context & Memory
 
 - `PromptBuilder` — builds agent prompts with context
-- `ContextCompactor` — compacts conversation history
-- `MemoryConsolidator` — consolidates old messages into `MEMORY.md` / `HISTORY.md`
+- `Context.Compaction.CompactionPipeline` — layered pipeline (pre-flight estimation + microcompact + partial summary + reactive retry + circuit breaker) driven by `CompactionConfig`
+- `MemoryConsolidator` — consolidates old messages into `MEMORY.md` / `HISTORY.md`, invoked by the compaction pipeline with the exact prefix it just summarized
 - Skills loaded from `.craft/skills/` (markdown-based)
 
 ## Source Layout

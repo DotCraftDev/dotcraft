@@ -98,6 +98,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         _memoryStore.AppendHistory("Recent focus: thread history, welcome shortcuts, and workspace memory integration.");
 
         var initialThreadCount = (await _threadStore.LoadIndexAsync()).Count;
+        var initialActiveFileCount = Directory.EnumerateFiles(Path.Combine(_craftPath, "threads", "active"), "*.jsonl").Count();
 
         _sessionService.SubmitInputHandler = (threadId, _, _) =>
         {
@@ -182,6 +183,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         Assert.DoesNotContain(remainingThreads, summary =>
             string.Equals(summary.OriginChannel, WelcomeSuggestionConstants.ChannelName, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(remainingThreads, summary => summary.Id == thread.Id);
+        Assert.Equal(initialActiveFileCount, Directory.EnumerateFiles(Path.Combine(_craftPath, "threads", "active"), "*.jsonl").Count());
     }
 
     [Fact]

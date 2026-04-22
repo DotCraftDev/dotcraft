@@ -37,12 +37,28 @@ export interface ThreadConfigurationWire {
   [key: string]: unknown
 }
 
+/**
+ * Per-thread context usage snapshot piggy-backed on thread/read, thread/start,
+ * and thread/resume responses. Drives the desktop context-usage ring; optional
+ * because older hosts and freshly-created threads without a token tracker do
+ * not emit one. Fields mirror the backend `ContextUsageSnapshot` record.
+ */
+export interface ContextUsageSnapshotWire {
+  tokens: number
+  contextWindow: number
+  autoCompactThreshold: number
+  warningThreshold: number
+  errorThreshold: number
+  percentLeft: number
+}
+
 export interface Thread extends ThreadSummary {
   workspacePath: string
   userId: string
   metadata: Record<string, unknown>
   configuration?: ThreadConfigurationWire | null
   turns: Turn[]
+  contextUsage?: ContextUsageSnapshotWire | null
 }
 
 /**

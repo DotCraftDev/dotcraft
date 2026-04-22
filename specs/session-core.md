@@ -258,6 +258,7 @@ Fields:
   - `ApprovalRequest` — Agent requests user approval for a sensitive operation.
   - `ApprovalResponse` — User's approval decision (approved/rejected).
   - `Error` — An error occurred during the Turn.
+  - `SystemNotice` — Persistent system-level marker in the conversation timeline (e.g. context compaction point). Emits `item/started` + `item/completed` back-to-back; no streaming phase.
 - `Status` (enum: `Started`, `Streaming`, `Completed`)
   - `Started` — Item has been created, payload may be partial or empty.
   - `Streaming` — Item is receiving incremental updates (deltas). Valid for `AgentMessage`, `ReasoningContent`, runtime-projected `CommandExecution`, and AppServer-projected streamed `ToolCall` argument previews.
@@ -412,6 +413,25 @@ Delta payload (during streaming):
   "fatal": boolean        // Whether the error terminates the Turn
 }
 ```
+
+#### SystemNotice
+
+```
+{
+  "kind": string,              // Notice classifier. Currently "compacted"; future kinds are additive.
+  "trigger": string,           // For kind="compacted": "auto" | "reactive" | "manual"
+  "mode": string,              // For kind="compacted": "micro" | "partial"
+  "tokensBefore": number,      // Approximate input tokens right before compaction ran
+  "tokensAfter": number,       // Approximate input tokens after compaction ran
+  "percentLeftAfter": number,  // Fraction of EffectiveContextWindow still available (0.0 - 1.0)
+  "clearedToolResults": number // Count of tool results cleared by the micro-compact pass (0 for partial only)
+}
+```
+
+`SystemNotice` items are created by Session Core and persisted via the normal
+rollout/`turn.Items` pipeline, so they survive thread reload and round-trip
+through `thread/read`. Clients treat them as inline dividers in the timeline
+rather than part of the model conversation.
 
 ### 4.3 Stable Identifiers and Normalization Rules
 
@@ -712,9 +732,12 @@ SessionEvent
 
     ```
     {
-      "kind": string,          // One of: "compacting", "compacted", "compactSkipped",
+      "kind": string,          // One of: "compactWarning", "compactError",
+                                //         "compacting", "compacted", "compactSkipped", "compactFailed",
                                 //         "consolidating", "consolidated"
-      "message": string        // Human-readable description (nullable)
+      "message": string,       // Human-readable description (nullable)
+      "percentLeft": double,   // Fraction of the effective context window still unused (nullable; 0.0-1.0)
+      "tokenCount": long       // Current estimated prompt token usage (nullable)
     }
     ```
 
@@ -722,18 +745,23 @@ SessionEvent
 
     | Kind | Meaning | Timing |
     |------|---------|--------|
-    | `compacting` | Context compaction is starting (input tokens exceeded `MaxContextTokens`). | Synchronous, before compaction executes. |
-    | `compacted` | Context compaction completed successfully. Token tracker has been reset. | Synchronous, immediately after compaction succeeds. |
-    | `compactSkipped` | Context compaction was triggered but skipped (insufficient history to compact). | Synchronous, immediately after compaction returns false. |
-    | `consolidating` | Memory consolidation is starting (message count exceeded `MemoryWindow`). | Synchronous, before consolidation executes. |
-    | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | After consolidation completes (awaited within turn). |
+    | `compactWarning` | Token usage crossed `WarningThreshold` but not yet `ErrorThreshold`. Advisory only, no compaction is attempted. | Synchronous, post-turn (Step 5k), when threshold is above warning but below auto. |
+    | `compactError` | Token usage crossed `ErrorThreshold`. Strong advisory; auto-compaction may trigger on the next turn. | Synchronous, post-turn (Step 5k), when threshold is above error but below auto. |
+    | `compacting` | Auto-compaction is starting. `percentLeft`/`tokenCount` reflect the pre-compaction state. | Synchronous, before the `CompactionPipeline` runs. |
+    | `compacted` | Compaction finished successfully. Token tracker has been reset and `percentLeft`/`tokenCount` reflect the post-compaction state. | Synchronous, immediately after the pipeline returns `Micro` or `Partial`. |
+    | `compactSkipped` | Compaction was evaluated but not executed (e.g. below threshold, nothing new to summarize, circuit breaker tripped). | Synchronous, immediately after the pipeline returns `Skipped`. |
+    | `compactFailed` | Compaction attempted but failed (LLM error, cancellation). The circuit breaker may trip after several consecutive failures. | Synchronous, immediately after the pipeline returns `Failed`. |
+    | `consolidating` | Memory consolidation is starting. Now driven by the compaction pipeline: the prefix it just summarized is handed to the `MemoryConsolidator`. | Fire-and-forget, immediately after a successful compaction (no post-turn block). |
+    | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | After background consolidation completes. |
 
   - **Emission rules**:
-    - System events are emitted during the Turn's post-processing phase (after agent execution completes, before `turn/completed`).
-    - Compaction events (`compacting`, `compacted`, `compactSkipped`) are synchronous — they are emitted and the operation completes within the same execution flow.
-    - Consolidation events (`consolidating`, `consolidated`) bracket an awaited async operation. The Turn's completion is deferred until consolidation finishes.
+    - System events are emitted during the Turn's post-processing phase (after agent execution completes, before `turn/completed`), except when raised reactively (see below).
+    - The threshold advisory events (`compactWarning`, `compactError`) carry `percentLeft` and `tokenCount` so UIs can render a "context almost full" warning bar without needing a separate usage request.
+    - Auto-compaction events (`compacting`, `compacted`, `compactSkipped`, `compactFailed`) are synchronous within Step 5k and always fire in the order `compacting` → one terminal event (`compacted` / `compactSkipped` / `compactFailed`).
+    - The pipeline may also be invoked **reactively** from the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. In that case the Turn still fails, but `compacting` followed by `compacted` / `compactFailed` is emitted first so UIs know the history was repaired before the user retries.
+    - Consolidation events (`consolidating`, `consolidated`) bracket the fire-and-forget background task spawned by the pipeline after a successful compaction. The Turn's completion is **not** deferred for consolidation.
     - All system events are emitted through the turn-scoped `SessionEventChannel`, so they are guaranteed to arrive before `turn/completed`.
-    - The `message` field carries a localized human-readable description suitable for display. Adapters may use it directly or substitute their own text.
+    - The `message` field carries a localized human-readable description suitable for display (on `compactSkipped` / `compactFailed` it contains the machine-readable failure reason, e.g. `circuit_breaker_tripped`, `summary_unavailable`).
   - **Adapters**: Adapters that display session maintenance status (e.g., CLI spinner for consolidation, status text for compaction) should consume `system/event` notifications. Adapters that do not need maintenance status may ignore this event type or opt out via `optOutNotificationMethods`.
 
 #### Usage Events

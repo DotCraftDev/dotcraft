@@ -170,6 +170,14 @@ public interface ISessionService
     Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns an approximate context-usage snapshot for the thread, based on the
+    /// in-memory <c>TokenTracker</c> and the <c>CompactionPipeline</c> thresholds.
+    /// Returns null when no token tracker exists yet for this thread; otherwise a
+    /// valid snapshot (tokens may be zero).
+    /// </summary>
+    ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId);
+
+    /// <summary>
     /// Optional hook invoked after a thread is successfully created and persisted (any channel).
     /// Hosts use this to notify all wire clients (e.g. broadcast <c>thread/started</c> on AppServer).
     /// </summary>

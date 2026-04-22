@@ -63,13 +63,36 @@ DotCraft 支持两级配置：**全局配置**和**工作区配置**。
 | `SubagentMaxToolCallRounds` | 子 Agent 最大工具调用轮数 | `50` |
 | `SubagentMaxConcurrency` | 最大并发子 Agent 数量（超出时排队等待） | `3` |
 | `MaxSessionQueueSize` | 每个 Session 最大排队请求数，超出后最老的等待请求被驱逐并通知用户。`0` 表示无限制 | `3` |
-| `MaxContextTokens` | 触发自动上下文压缩的累积输入 Token 阈值。`0` 表示禁用压缩 | `160000` |
-| `MemoryWindow` | 触发记忆整合的消息数量阈值。`0` 表示禁用 | `50` |
+| `Compaction` | 上下文压缩流水线配置（阈值、微压缩、局部摘要、反应式重试）。详见下文 | 见下 |
 | `ConsolidationModel` | 记忆整合专用模型。为空时使用主 `Model`；如果主模型在思考模式下不支持 `tool_choice`，建议指定非思考模型 | 空 |
 | `DebugMode` | 调试模式：控制台不截断工具调用参数输出 | `false` |
 | `EnabledTools` | 全局启用的工具名称列表，为空时启用所有工具 | `[]` |
 
 DotCraft 的基础身份由系统内置；如果你想定制系统提示词，建议使用 `.craft/AGENTS.md`、`.craft/SOUL.md` 等 bootstrap 文件，而不是在 `config.json` 中维护单独字段。
+
+### Compaction（上下文压缩）配置
+
+分层的上下文压缩流水线：预估 Token → 微压缩（清理陈旧工具结果）→ 局部摘要（仅总结前缀，保留尾部原文）→ 反应式重试（遇到 `prompt_too_long` 时自动压缩并重试一次）。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `Compaction.AutoCompactEnabled` | 启用基于阈值的自动压缩 | `true` |
+| `Compaction.ReactiveCompactEnabled` | 启用对 `prompt_too_long` 错误的反应式压缩 | `true` |
+| `Compaction.ContextWindow` | 模型上下文窗口（Token） | `200000` |
+| `Compaction.SummaryReserveTokens` | 为摘要输出预留的 Token | `20000` |
+| `Compaction.AutoCompactBufferTokens` | 低于 `ContextWindow - SummaryReserve` 多少 Token 时触发自动压缩 | `13000` |
+| `Compaction.WarningBufferTokens` | 在到达自动阈值前多少 Token 开始发出 `compactWarning` 事件 | `20000` |
+| `Compaction.ErrorBufferTokens` | 在到达自动阈值前多少 Token 开始发出 `compactError` 事件 | `10000` |
+| `Compaction.ManualCompactBufferTokens` | 低于硬上限多少 Token 时仍允许手动 `/compact` | `3000` |
+| `Compaction.KeepRecentMinTokens` | 局部摘要后尾部至少保留的 Token 数 | `10000` |
+| `Compaction.KeepRecentMinGroups` | 局部摘要后尾部至少保留的 API 轮次数 | `3` |
+| `Compaction.KeepRecentMaxTokens` | 局部摘要后尾部最多保留的 Token 数 | `40000` |
+| `Compaction.MicrocompactEnabled` | 启用微压缩（清理陈旧工具结果） | `true` |
+| `Compaction.MicrocompactTriggerCount` | 可压缩工具结果数量达到该值时触发微压缩 | `30` |
+| `Compaction.MicrocompactKeepRecent` | 微压缩时保留的最近工具结果数 | `8` |
+| `Compaction.MicrocompactGapMinutes` | 距离上次助理消息超过该分钟数也触发微压缩，`0` 表示禁用 | `20` |
+| `Compaction.MemoryConsolidationPrefixTokens` | 当前缀超过此 Token 数时触发 `MEMORY.md` / `HISTORY.md` 记忆整合 | `20000` |
+| `Compaction.MaxConsecutiveFailures` | 连续失败次数达到该值时熔断（本会话剩余回合不再尝试） | `3` |
 
 ### Reasoning（推理）配置
 

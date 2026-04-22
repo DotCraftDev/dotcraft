@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotCraft.Configuration;
 
 namespace DotCraft.Agents;
@@ -72,7 +73,7 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         return Task.FromResult(new SubAgentSessionHandle(
             RuntimeType,
             profile.Name,
-            new CliOneshotSessionState(profile, context.ExtraLaunchArgs)));
+            new CliOneshotSessionState(profile, context.ExtraLaunchArgs, context.ResumeSessionId)));
     }
 
     public async Task<SubAgentRunResult> RunAsync(
@@ -119,7 +120,12 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         string? outputFilePath = null;
         try
         {
-            var invocation = BuildInvocation(profile, request.Task, state.ExtraLaunchArgs, ref outputFilePath);
+            var invocation = BuildInvocation(
+                profile,
+                request.Task,
+                state.ExtraLaunchArgs,
+                state.ResumeSessionId,
+                ref outputFilePath);
             sink.OnProgress(
                 "external-cli",
                 $"Launching {Path.GetFileName(resolvedBinary)} ({profile.Name}) in {workingDirectory} via {invocation.InputMode}.");
@@ -243,6 +249,7 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
             var result = await BuildSuccessfulResultAsync(
                 profile,
                 stdout,
+                state.ResumeSessionId,
                 outputFilePath,
                 cancellationToken,
                 sink);
@@ -253,7 +260,8 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
             {
                 Text = TruncateToMaxBytes(result.Text, profile.MaxOutputBytes ?? DefaultMaxOutputBytes),
                 IsError = false,
-                TokensUsed = result.TokensUsed
+                TokensUsed = result.TokensUsed,
+                SessionId = result.SessionId
             };
         }
         catch (OperationCanceledException)
@@ -357,10 +365,13 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
     private static async Task<SubAgentRunResult> BuildSuccessfulResultAsync(
         SubAgentProfile profile,
         string stdout,
+        string? resumeSessionId,
         string? outputFilePath,
         CancellationToken cancellationToken,
         ISubAgentEventSink sink)
     {
+        var resolvedSessionId = TryExtractSessionId(stdout, profile) ?? resumeSessionId;
+
         if (profile.ReadOutputFile == true)
         {
             sink.OnProgress("external-cli", "Reading output file.");
@@ -371,7 +382,8 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
                 {
                     Text = capturedOutput.DisplayText,
                     IsError = false,
-                    TokensUsed = TryExtractTokenUsage(capturedOutput.TokenSourceText, profile)
+                    TokensUsed = TryExtractTokenUsage(capturedOutput.TokenSourceText, profile),
+                    SessionId = resolvedSessionId
                 };
             }
         }
@@ -383,7 +395,8 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
             {
                 Text = ParseJsonOutputOrFallback(stdout, profile.OutputJsonPath),
                 IsError = false,
-                TokensUsed = TryExtractTokenUsage(stdout, profile)
+                TokensUsed = TryExtractTokenUsage(stdout, profile),
+                SessionId = resolvedSessionId
             };
         }
 
@@ -391,7 +404,8 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         {
             Text = string.IsNullOrWhiteSpace(stdout) ? "(no output)" : stdout.TrimEnd(),
             IsError = false,
-            TokensUsed = TryExtractTokenUsage(stdout, profile)
+            TokensUsed = TryExtractTokenUsage(stdout, profile),
+            SessionId = resolvedSessionId
         };
     }
 
@@ -554,11 +568,27 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         SubAgentProfile profile,
         string task,
         IReadOnlyList<string> extraLaunchArgs,
+        string? resumeSessionId,
         ref string? outputFilePath)
     {
         var arguments = new List<string>();
         if (profile.Args != null)
             arguments.AddRange(profile.Args);
+        if (!string.IsNullOrWhiteSpace(resumeSessionId))
+        {
+            if (string.IsNullOrWhiteSpace(profile.ResumeArgTemplate))
+            {
+                throw new InvalidOperationException(
+                    $"Subagent profile '{profile.Name}' requested resume but does not define resumeArgTemplate.");
+            }
+
+            arguments.AddRange(ExpandTemplateArguments(
+                profile.ResumeArgTemplate,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["sessionId"] = resumeSessionId.Trim()
+                }));
+        }
         if (extraLaunchArgs.Count > 0)
             arguments.AddRange(extraLaunchArgs);
 
@@ -619,6 +649,66 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         }
 
         return new InvocationPlan(arguments, writeTaskToStdin, inputMode);
+    }
+
+    private static string? TryExtractSessionId(string output, SubAgentProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var fromJsonPath = TryExtractSessionIdByJsonPath(output, profile.ResumeSessionIdJsonPath);
+        if (!string.IsNullOrWhiteSpace(fromJsonPath))
+            return fromJsonPath;
+
+        if (string.IsNullOrWhiteSpace(profile.ResumeSessionIdRegex))
+            return null;
+
+        try
+        {
+            var match = Regex.Match(output, profile.ResumeSessionIdRegex, RegexOptions.Multiline);
+            if (!match.Success)
+                return null;
+
+            if (match.Groups["sessionId"] is { Success: true } namedGroup)
+                return namedGroup.Value;
+
+            if (match.Groups.Count > 1)
+                return match.Groups[1].Value;
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractSessionIdByJsonPath(string output, string? jsonPath)
+    {
+        if (string.IsNullOrWhiteSpace(jsonPath))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            JsonElement current = doc.RootElement;
+            foreach (var segment in jsonPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
+                    return null;
+            }
+
+            return current.ValueKind switch
+            {
+                JsonValueKind.String => current.GetString(),
+                JsonValueKind.Number => current.GetRawText(),
+                _ => null
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static void ConfigureEnvironment(ProcessStartInfo psi, SubAgentProfile profile, string task)
@@ -884,7 +974,10 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
             IsError = true
         };
 
-    private sealed class CliOneshotSessionState(SubAgentProfile profile, IReadOnlyList<string>? extraLaunchArgs)
+    private sealed class CliOneshotSessionState(
+        SubAgentProfile profile,
+        IReadOnlyList<string>? extraLaunchArgs,
+        string? resumeSessionId)
     {
         private readonly Lock _lock = new();
         private Process? _process;
@@ -892,6 +985,7 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
 
         public SubAgentProfile Profile { get; } = profile;
         public IReadOnlyList<string> ExtraLaunchArgs { get; } = extraLaunchArgs ?? [];
+        public string? ResumeSessionId { get; } = string.IsNullOrWhiteSpace(resumeSessionId) ? null : resumeSessionId.Trim();
 
         public void Attach(Process process)
         {

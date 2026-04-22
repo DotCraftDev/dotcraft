@@ -67,6 +67,7 @@ internal sealed class SessionItemConverter : JsonConverter<SessionItem>
             ItemType.ApprovalRequest => payload.Deserialize<ApprovalRequestPayload>(options),
             ItemType.ApprovalResponse => payload.Deserialize<ApprovalResponsePayload>(options),
             ItemType.Error => payload.Deserialize<ErrorPayload>(options),
+            ItemType.SystemNotice => payload.Deserialize<SystemNoticePayload>(options),
             _ => null
         };
 

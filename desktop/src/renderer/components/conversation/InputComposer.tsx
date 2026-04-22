@@ -23,6 +23,7 @@ import { FileSearchPopover } from './FileSearchPopover'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { ModelPicker } from './ModelPicker'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
+import { ContextUsageRing } from './ContextUsageRing'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -457,7 +458,7 @@ export function InputComposer({
           </div>
         }
         footerLeading={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
             <ComposerAttachmentMenu
               title={t('composer.attachFileTitle')}
               ariaLabel={t('composer.attachFileAria')}
@@ -480,7 +481,11 @@ export function InputComposer({
                 mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
               })}
             />
-
+          </div>
+        }
+        footerAction={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ContextUsageRing />
             <ModelPicker
               modelName={modelName}
               modelOptions={modelOptions}
@@ -493,37 +498,33 @@ export function InputComposer({
                 modelDisabled || modelLoading
               )}
             />
+            {!isWaitingApproval ? (
+              isRunning ? (
+                <button
+                  type="button"
+                  onClick={stopTurn}
+                  title={t('composer.stopTitle')}
+                  aria-label={t('composer.stopAria')}
+                  style={composerSendButtonStyle('enabled')}
+                >
+                  <StopIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void sendMessage()
+                  }}
+                  disabled={!canSend}
+                  title={t('composer.sendTitleAlt')}
+                  aria-label={t('composer.sendAriaAlt')}
+                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                >
+                  <SendIcon />
+                </button>
+              )
+            ) : null}
           </div>
-        }
-        footerAction={
-          !isWaitingApproval ? (
-            isRunning ? (
-              <button
-                type="button"
-                onClick={stopTurn}
-                title={t('composer.stopTitle')}
-                aria-label={t('composer.stopAria')}
-                style={composerSendButtonStyle('enabled')}
-              >
-                <StopIcon />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  void sendMessage()
-                }}
-                disabled={!canSend}
-                title={t('composer.sendTitleAlt')}
-                aria-label={t('composer.sendAriaAlt')}
-                style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
-              >
-                <SendIcon />
-              </button>
-            )
-          ) : (
-            <div />
-          )
         }
       />
     </div>

@@ -150,7 +150,7 @@ export function ModelPicker({
           aria-label={t('composer.selectModelTitle')}
           style={{
             position: 'absolute',
-            left: 0,
+            right: 0,
             bottom: 'calc(100% + 8px)',
             minWidth: '220px',
             maxWidth: '280px',

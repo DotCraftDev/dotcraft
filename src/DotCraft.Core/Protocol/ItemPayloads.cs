@@ -328,6 +328,53 @@ public sealed record ApprovalResponsePayload
 }
 
 /// <summary>
+/// Payload for SystemNotice items. Currently used to mark points where the
+/// context was compacted so clients can render a persistent divider in the
+/// conversation timeline.
+/// </summary>
+public sealed record SystemNoticePayload
+{
+    /// <summary>
+    /// Notice classifier. Currently only <c>"compacted"</c> is emitted; leaving
+    /// this as a string keeps future kinds (e.g. <c>"memoryConsolidated"</c>)
+    /// additive without rev'ing the wire protocol.
+    /// </summary>
+    public string Kind { get; init; } = string.Empty;
+
+    /// <summary>
+    /// How compaction was triggered. One of: <c>"auto"</c>, <c>"reactive"</c>,
+    /// <c>"manual"</c>.
+    /// </summary>
+    public string Trigger { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Which compaction mode actually ran. One of: <c>"micro"</c>, <c>"partial"</c>.
+    /// </summary>
+    public string Mode { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Approximate input token count right before compaction ran.
+    /// </summary>
+    public long TokensBefore { get; init; }
+
+    /// <summary>
+    /// Approximate input token count after compaction ran.
+    /// </summary>
+    public long TokensAfter { get; init; }
+
+    /// <summary>
+    /// Percent of the effective context window still available after compaction (0.0 - 1.0).
+    /// </summary>
+    public double PercentLeftAfter { get; init; }
+
+    /// <summary>
+    /// Number of tool results cleared by the microcompact pass (0 when only
+    /// the partial summary ran).
+    /// </summary>
+    public int ClearedToolResults { get; init; }
+}
+
+/// <summary>
 /// Payload for Error items.
 /// </summary>
 public sealed record ErrorPayload

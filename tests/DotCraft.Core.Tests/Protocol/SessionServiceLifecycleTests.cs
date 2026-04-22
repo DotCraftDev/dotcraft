@@ -498,6 +498,9 @@ internal sealed class FakeSessionService : ISessionService
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId) => null;
+
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,

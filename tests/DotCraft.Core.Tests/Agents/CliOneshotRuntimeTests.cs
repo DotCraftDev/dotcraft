@@ -217,6 +217,90 @@ public sealed class CliOneshotRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ResumeInvocation_InsertsResumeArgsBeforePermissionArgs()
+    {
+        var profile = CreateProfile(CreateArgsDumpScript());
+        profile.InputMode = "arg";
+        profile.SupportsResume = true;
+        profile.ResumeArgTemplate = "--resume {sessionId}";
+        profile.ResumeSessionIdJsonPath = "session_id";
+
+        var result = await RunProfileAsync(
+            profile,
+            "hello-cli",
+            extraLaunchArgs: ["--sandbox", "read-only"],
+            resumeSessionId: "sess-123");
+
+        Assert.False(result.IsError, result.Text);
+        Assert.Contains("args=--resume|sess-123|--sandbox|read-only|hello-cli", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_CodexBuiltInStyleInvocation_UsesSandboxWithoutLegacyApprovalFlag()
+    {
+        var builtInCodex = SubAgentProfileRegistry.CreateBuiltInProfiles()
+            .Single(p => string.Equals(p.Name, "codex-cli", StringComparison.OrdinalIgnoreCase));
+        var profile = CreateProfile(CreateArgsDumpScript());
+        profile.Name = builtInCodex.Name;
+        if (builtInCodex.Args != null)
+        {
+            foreach (var argument in builtInCodex.Args)
+                profile.Args!.Add(argument);
+        }
+        profile.InputMode = builtInCodex.InputMode;
+        profile.SupportsResume = builtInCodex.SupportsResume;
+        profile.ResumeArgTemplate = builtInCodex.ResumeArgTemplate;
+        profile.PermissionModeMapping = new Dictionary<string, string>(
+            builtInCodex.PermissionModeMapping!,
+            StringComparer.OrdinalIgnoreCase);
+
+        var interactiveArgs = CliOneshotRuntime.SplitArguments(
+            profile.PermissionModeMapping![SubAgentApprovalModeResolver.InteractiveMode]);
+
+        var result = await RunProfileAsync(
+            profile,
+            "hello-cli",
+            extraLaunchArgs: interactiveArgs,
+            resumeSessionId: "sess-123");
+
+        Assert.False(result.IsError, result.Text);
+        Assert.Contains("args=exec|resume|sess-123|--sandbox|read-only|hello-cli", result.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("--ask-for-approval", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_JsonOutput_CapturesSessionIdFromJsonPath()
+    {
+        var profile = CreateProfile(CreateJsonOutputWithSessionScript());
+        profile.InputMode = "arg";
+        profile.OutputFormat = "json";
+        profile.OutputJsonPath = "result";
+        profile.SupportsResume = true;
+        profile.ResumeArgTemplate = "--resume {sessionId}";
+        profile.ResumeSessionIdJsonPath = "session_id";
+
+        var result = await RunProfileAsync(profile, "ignored");
+
+        Assert.False(result.IsError);
+        Assert.Equal("sess-json", result.SessionId);
+    }
+
+    [Fact]
+    public async Task RunAsync_TextOutput_CapturesSessionIdFromRegex_OrFallsBackToResumeId()
+    {
+        var profile = CreateProfile(CreateRegexSessionOutputScript());
+        profile.InputMode = "arg";
+        profile.SupportsResume = true;
+        profile.ResumeArgTemplate = "--resume {sessionId}";
+        profile.ResumeSessionIdRegex = "session=(?<sessionId>[^\\s]+)";
+
+        var result = await RunProfileAsync(profile, "ignored", resumeSessionId: "sess-prev");
+
+        Assert.False(result.IsError);
+        Assert.Equal("sess-regex", result.SessionId);
+    }
+
+    [Fact]
     public async Task RunAsync_NonZeroExit_ReturnsErrorWithStdoutAndStderr()
     {
         var profile = CreateProfile(CreateFailureScript());
@@ -339,6 +423,7 @@ public sealed class CliOneshotRuntimeTests : IDisposable
         string task,
         string? workingDirectory = null,
         IReadOnlyList<string>? extraLaunchArgs = null,
+        string? resumeSessionId = null,
         ISubAgentEventSink? sink = null)
     {
         var runtime = new CliOneshotRuntime();
@@ -347,7 +432,8 @@ public sealed class CliOneshotRuntimeTests : IDisposable
             _workspacePath,
             effectiveWorkingDirectory,
             profile.Name,
-            extraLaunchArgs);
+            extraLaunchArgs,
+            resumeSessionId);
         var session = await runtime.CreateSessionAsync(profile, launchContext, CancellationToken.None);
         try
         {
@@ -486,6 +572,24 @@ public sealed class CliOneshotRuntimeTests : IDisposable
             """,
             unix: """
             printf '%s\n' '{"result":"json-ok","usage":{"input":123,"output":45,"total":168}}'
+            """);
+
+    private string CreateJsonOutputWithSessionScript()
+        => CreateScript(
+            windows: """
+            Write-Output '{"result":"json-ok","session_id":"sess-json"}'
+            """,
+            unix: """
+            printf '%s\n' '{"result":"json-ok","session_id":"sess-json"}'
+            """);
+
+    private string CreateRegexSessionOutputScript()
+        => CreateScript(
+            windows: """
+            Write-Output 'session=sess-regex'
+            """,
+            unix: """
+            printf '%s\n' 'session=sess-regex'
             """);
 
     private string CreatePassthroughEchoScript()

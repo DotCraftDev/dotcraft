@@ -85,6 +85,18 @@ public sealed class SubAgentProfile
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? InputEnvKey { get; set; }
 
+    [ConfigField(Hint = "Template used when resuming an external CLI session. Supports {sessionId}.")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeArgTemplate { get; set; }
+
+    [ConfigField(Hint = "Dot-separated JSON path used to extract the external CLI session id from stdout.")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeSessionIdJsonPath { get; set; }
+
+    [ConfigField(Hint = "Regular expression used to extract the external CLI session id from stdout.")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResumeSessionIdRegex { get; set; }
+
     [ConfigField(Hint = "Dot-separated JSON path to the assistant response field.")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OutputJsonPath { get; set; }
@@ -149,6 +161,9 @@ public sealed class SubAgentProfile
             InputMode = InputMode,
             InputArgTemplate = InputArgTemplate,
             InputEnvKey = InputEnvKey,
+            ResumeArgTemplate = ResumeArgTemplate,
+            ResumeSessionIdJsonPath = ResumeSessionIdJsonPath,
+            ResumeSessionIdRegex = ResumeSessionIdRegex,
             OutputJsonPath = OutputJsonPath,
             OutputInputTokensJsonPath = OutputInputTokensJsonPath,
             OutputOutputTokensJsonPath = OutputOutputTokensJsonPath,

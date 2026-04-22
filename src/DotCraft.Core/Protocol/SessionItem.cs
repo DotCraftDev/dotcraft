@@ -74,4 +74,8 @@ public sealed class SessionItem
     [JsonIgnore]
     public ErrorPayload? AsError =>
         Payload as ErrorPayload;
+
+    [JsonIgnore]
+    public SystemNoticePayload? AsSystemNotice =>
+        Payload as SystemNoticePayload;
 }

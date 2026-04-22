@@ -132,11 +132,17 @@ internal sealed class SessionEventChannel(
     /// Emits an incremental token usage event. Called by <see cref="SessionService"/>
     /// when a streaming <c>UsageContent</c> snapshot yields a positive delta (see <see cref="UsageSnapshotDelta"/>).
     /// </summary>
-    public void EmitUsageDelta(long inputTokens, long outputTokens) =>
+    public void EmitUsageDelta(
+        long inputTokens,
+        long outputTokens,
+        long? totalInputTokens = null,
+        long? totalOutputTokens = null) =>
         Write(SessionEventType.UsageDelta, null, new UsageDeltaPayload
         {
             InputTokens = inputTokens,
-            OutputTokens = outputTokens
+            OutputTokens = outputTokens,
+            TotalInputTokens = totalInputTokens,
+            TotalOutputTokens = totalOutputTokens
         });
 
     // -------------------------------------------------------------------------
@@ -147,11 +153,17 @@ internal sealed class SessionEventChannel(
     /// Emits a system-level maintenance event (context compaction, memory consolidation).
     /// Called by <see cref="SessionService"/> during the Turn's post-processing phase.
     /// </summary>
-    public void EmitSystemEvent(string kind, string? message = null) =>
+    public void EmitSystemEvent(
+        string kind,
+        string? message = null,
+        double? percentLeft = null,
+        long? tokenCount = null) =>
         Write(SessionEventType.SystemEvent, null, new SystemEventPayload
         {
             Kind = kind,
-            Message = message
+            Message = message,
+            PercentLeft = percentLeft,
+            TokenCount = tokenCount
         });
 
     // -------------------------------------------------------------------------

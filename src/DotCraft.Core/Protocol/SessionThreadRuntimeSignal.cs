@@ -11,5 +11,10 @@ public enum SessionThreadRuntimeSignal
     TurnFailed,
     TurnCancelled,
     ApprovalRequested,
-    ApprovalResolved
+    ApprovalResolved,
+    /// <summary>
+    /// A successful context compaction just completed. UI layers use this to
+    /// clear any "context almost full" warning indicator.
+    /// </summary>
+    ContextCompacted,
 }

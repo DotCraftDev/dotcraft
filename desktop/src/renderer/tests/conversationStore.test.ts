@@ -424,10 +424,126 @@ describe('system events', () => {
     expect(s().systemLabel).toBeNull()
   })
 
+  it('clears label on "compactFailed" event', () => {
+    s().onTurnStarted(makeTurn())
+    s().onSystemEvent('compacting')
+    s().onSystemEvent('compactFailed')
+    expect(s().systemLabel).toBeNull()
+  })
+
   it('ignores unknown system event kinds', () => {
     s().onTurnStarted(makeTurn())
     s().onSystemEvent('unknown-event-xyz')
     expect(s().systemLabel).toBeNull()
+  })
+})
+
+describe('context usage (token ring)', () => {
+  const baseSnapshot = {
+    tokens: 40_000,
+    contextWindow: 200_000,
+    autoCompactThreshold: 180_000,
+    warningThreshold: 176_000,
+    errorThreshold: 194_000,
+    percentLeft: 0.8
+  }
+
+  it('seeds contextUsage from setContextUsage and classifies severity', () => {
+    s().setContextUsage(baseSnapshot)
+    const usage = s().contextUsage
+    expect(usage).not.toBeNull()
+    expect(usage!.tokens).toBe(40_000)
+    expect(usage!.severity).toBe('normal')
+  })
+
+  it('overrides tokens when onUsageDelta carries totalInputTokens', () => {
+    s().setContextUsage(baseSnapshot)
+    s().onUsageDelta(1000, 200, 180_500, 3000)
+    const usage = s().contextUsage
+    expect(usage!.tokens).toBe(180_500)
+    expect(usage!.severity).toBe('warning')
+    expect(usage!.percentLeft).toBeCloseTo(1 - 180_500 / 200_000, 3)
+  })
+
+  it('promotes severity to error past the error threshold', () => {
+    s().setContextUsage(baseSnapshot)
+    s().onUsageDelta(0, 0, 195_000)
+    expect(s().contextUsage!.severity).toBe('error')
+  })
+
+  it('applies compacted system event to reset tokens and severity', () => {
+    s().setContextUsage({ ...baseSnapshot, tokens: 195_000, percentLeft: 0.02 })
+    s().onSystemEvent('compacted', { tokenCount: 44_000, percentLeft: 0.78 })
+    const usage = s().contextUsage
+    expect(usage!.tokens).toBe(44_000)
+    expect(usage!.percentLeft).toBeCloseTo(0.78, 3)
+    expect(usage!.severity).toBe('normal')
+  })
+
+  it('ignores totals when no snapshot has been seeded yet', () => {
+    s().onUsageDelta(100, 50, 5000)
+    expect(s().contextUsage).toBeNull()
+  })
+
+  it('clears contextUsage when setContextUsage(null) is called', () => {
+    s().setContextUsage(baseSnapshot)
+    s().setContextUsage(null)
+    expect(s().contextUsage).toBeNull()
+  })
+
+  it('resets contextUsage on store reset', () => {
+    s().setContextUsage(baseSnapshot)
+    s().reset()
+    expect(s().contextUsage).toBeNull()
+  })
+})
+
+describe('systemNotice items', () => {
+  it('appends a compaction notice to turn.items on item/completed', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'notice-1',
+        type: 'systemNotice',
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        payload: {
+          kind: 'compacted',
+          trigger: 'auto',
+          mode: 'partial',
+          tokensBefore: 180_000,
+          tokensAfter: 44_000,
+          percentLeftAfter: 0.78,
+          clearedToolResults: 2
+        }
+      }
+    })
+
+    const items = s().turns[0].items
+    const notice = items.find((i) => i.type === 'systemNotice')
+    expect(notice).toBeTruthy()
+    expect(notice!.systemNotice?.kind).toBe('compacted')
+    expect(notice!.systemNotice?.trigger).toBe('auto')
+    expect(notice!.systemNotice?.tokensBefore).toBe(180_000)
+  })
+
+  it('dedupes systemNotice items when emitted twice with the same id', () => {
+    s().onTurnStarted(makeTurn())
+    const payload = {
+      turnId: 'turn-1',
+      item: {
+        id: 'notice-dup',
+        type: 'systemNotice',
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        payload: { kind: 'compacted', trigger: 'reactive', mode: 'micro' }
+      }
+    }
+    s().onItemCompleted(payload)
+    s().onItemCompleted(payload)
+    const count = s().turns[0].items.filter((i) => i.type === 'systemNotice').length
+    expect(count).toBe(1)
   })
 })
 
