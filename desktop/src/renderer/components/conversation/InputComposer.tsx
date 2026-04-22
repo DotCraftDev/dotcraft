@@ -481,7 +481,11 @@ export function InputComposer({
                 mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
               })}
             />
-
+          </div>
+        }
+        footerAction={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ContextUsageRing />
             <ModelPicker
               modelName={modelName}
               modelOptions={modelOptions}
@@ -494,11 +498,6 @@ export function InputComposer({
                 modelDisabled || modelLoading
               )}
             />
-          </div>
-        }
-        footerAction={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ContextUsageRing />
             {!isWaitingApproval ? (
               isRunning ? (
                 <button

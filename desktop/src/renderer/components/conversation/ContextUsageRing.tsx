@@ -5,13 +5,14 @@ import { useT } from '../../contexts/LocaleContext'
 /**
  * Small circular progress indicator showing how much of the model context
  * window is currently consumed by the active thread. Mirrors Codex's ring:
- * a 18px donut with a severity-colored sweep plus a hover tooltip that
- * exposes the raw numbers.
+ * a 18px donut with a theme-colored sweep plus a hover tooltip that exposes
+ * the raw numbers.
  *
  * Data model:
  * - `tokens / contextWindow` drives the sweep.
- * - Severity (normal | warning | error) is pre-computed in the store based on
- *   the backend-provided warning/error thresholds.
+ * - The ring deliberately does NOT change color by severity; warning/error
+ *   thresholds only surface in the tooltip text so the input chrome stays
+ *   visually calm. Severity lives on the store for downstream consumers.
  * - Renders nothing when no snapshot is available yet (freshly-created
  *   threads without a token tracker return null from the backend).
  */
@@ -47,13 +48,7 @@ export function ContextUsageRing(): JSX.Element | null {
   const circumference = 2 * Math.PI * radius
   const dash = circumference * ringData.filled
 
-  const color =
-    usage.severity === 'error'
-      ? 'var(--error-color, #ef4444)'
-      : usage.severity === 'warning'
-        ? 'var(--warning-color, #eab308)'
-        : 'var(--accent-color, #10b981)'
-
+  const color = 'var(--text-secondary, #a5a5a5)'
   const trackColor = 'var(--border-color, rgba(127,127,127,0.25))'
   const formattedTokens = formatTokens(usage.tokens)
   const formattedWindow = formatTokens(usage.contextWindow)
@@ -107,7 +102,7 @@ export function ContextUsageRing(): JSX.Element | null {
           strokeWidth={stroke}
           strokeDasharray={`${dash} ${circumference}`}
           strokeLinecap="round"
-          style={{ transition: 'stroke 200ms ease, stroke-dasharray 200ms ease' }}
+          style={{ transition: 'stroke-dasharray 200ms ease' }}
         />
       </svg>
 
