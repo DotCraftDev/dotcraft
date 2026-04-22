@@ -172,6 +172,7 @@ export interface FeishuDocxCommentReply {
   createTime?: string;
   updateTime?: string;
   isSolved?: boolean;
+  text?: string;
   content?: FeishuDocxCommentContent;
 }
 

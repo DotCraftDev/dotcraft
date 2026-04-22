@@ -1415,6 +1415,60 @@ test("Feishu client lists docx comments", async () => {
   }
 });
 
+test("Feishu client maps comment reply content with text_run / docs_link / person elements", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [
+            {
+              comment_id: "comment_1",
+              reply_list: {
+                replies: [
+                  {
+                    reply_id: "reply_1",
+                    content: {
+                      elements: [
+                        { type: "text_run", text_run: { text: "hello" } },
+                        { type: "docs_link", docs_link: { url: "https://a" } },
+                        { type: "person", person: { user_id: "ou_x" } },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const page = await client.listDocxComments({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+    });
+    assert.deepEqual(page.items[0]?.replyList.replies[0]?.content?.elements, [
+      { type: "text_run", text: "hello" },
+      { type: "docs_link", link: "https://a" },
+      { type: "person", mentionUser: "ou_x" },
+    ]);
+    assert.equal(page.items[0]?.replyList.replies[0]?.text, "hellohttps://aou_x");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Feishu client batch queries docx comments", async () => {
   const client = createClient();
   const originalFetch = globalThis.fetch;

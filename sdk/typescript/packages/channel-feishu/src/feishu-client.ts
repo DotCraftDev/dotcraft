@@ -1900,9 +1900,32 @@ function mapDocxCommentContentElement(input: unknown): FeishuDocxCommentContentE
   if (!record) return null;
   const type = String(record.type ?? "").trim();
   if (!type) return null;
-  const text = record.text ? String(record.text) : undefined;
-  const mentionUser = record.mention_user ? String(record.mention_user) : undefined;
-  const link = record.link ? String(record.link) : undefined;
+  let text = record.text ? String(record.text) : undefined;
+  let mentionUser = record.mention_user ? String(record.mention_user) : undefined;
+  let link = record.link ? String(record.link) : undefined;
+
+  if (type === "text_run") {
+    const textRun = record.text_run && typeof record.text_run === "object"
+      ? (record.text_run as Record<string, unknown>)
+      : undefined;
+    text = text ?? optionalString(textRun?.text) ?? optionalString(textRun?.content);
+    link = link ?? optionalString(textRun?.link) ?? optionalString(textRun?.url);
+  } else if (type === "docs_link") {
+    const docsLink = record.docs_link && typeof record.docs_link === "object"
+      ? (record.docs_link as Record<string, unknown>)
+      : undefined;
+    link = link ?? optionalString(docsLink?.url) ?? optionalString(docsLink?.link);
+  } else if (type === "person") {
+    const person = record.person && typeof record.person === "object"
+      ? (record.person as Record<string, unknown>)
+      : undefined;
+    mentionUser =
+      mentionUser ??
+      optionalString(person?.user_id) ??
+      optionalString(person?.open_id) ??
+      optionalString(person?.openid);
+  }
+
   return {
     type,
     ...(text ? { text } : {}),
@@ -1933,14 +1956,31 @@ function mapDocxCommentReply(input: unknown): FeishuDocxCommentReply | null {
   const contentRecord =
     (record.content && typeof record.content === "object" ? (record.content as Record<string, unknown>) : undefined) ?? record;
   const content = mapDocxCommentContent(contentRecord);
+  const text = pickDocxCommentReplyText(content);
   return {
     replyId,
     userId: record.user_id ? String(record.user_id) : undefined,
     createTime: record.create_time ? String(record.create_time) : undefined,
     updateTime: record.update_time ? String(record.update_time) : undefined,
     isSolved: record.is_solved == null ? undefined : Boolean(record.is_solved),
+    ...(text ? { text } : {}),
     ...(content ? { content } : {}),
   };
+}
+
+function pickDocxCommentReplyText(content: FeishuDocxCommentContent | undefined): string | undefined {
+  if (!content) return undefined;
+  const joined = content.elements
+    .map((element) => element.text ?? element.link ?? element.mentionUser ?? "")
+    .join("");
+  const normalized = joined.trim();
+  return normalized ? normalized : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const normalized = String(value).trim();
+  return normalized ? normalized : undefined;
 }
 
 function mapDocxComment(input: unknown): FeishuDocxComment | null {

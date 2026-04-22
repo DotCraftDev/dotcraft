@@ -1832,24 +1832,25 @@ async function locateSelectionRange(params: {
   selectionWithEllipsis?: string;
   selectionByTitle?: string;
 }): Promise<{ startIndex: number; endIndex: number; reason: string }> {
-  const blocksWithText: Array<{ id: string; text: string }> = [];
+  const blocksWithText: Array<{ id: string; text: string; blockType: number }> = [];
   for (const blockId of params.rootChildren) {
     const block = await params.client.getDocxBlock(params.documentId, blockId);
     blocksWithText.push({
       id: blockId,
       text: block.textContent ?? "",
+      blockType: block.blockType,
     });
   }
 
   if (params.selectionByTitle) {
     const plainTitle = params.selectionByTitle.trim().replace(/^#+\s*/, "");
-    const index = blocksWithText.findIndex((item) => item.text.trim() === plainTitle);
+    const index = blocksWithText.findIndex((item) => isHeadingBlockType(item.blockType) && item.text.trim() === plainTitle);
     if (index < 0) {
       throw new DocxToolError("SelectionNotFound", `Cannot find title '${plainTitle}' in top-level docx blocks.`);
     }
     let endIndex = blocksWithText.length;
     for (let i = index + 1; i < blocksWithText.length; i += 1) {
-      if (/^#{1,6}\s+/.test(blocksWithText[i]!.text.trim())) {
+      if (isHeadingBlockType(blocksWithText[i]!.blockType)) {
         endIndex = i;
         break;
       }
@@ -1906,6 +1907,10 @@ async function locateSelectionRange(params: {
     endIndex: matchedIndexes[0]! + 1,
     reason: "selectionWithEllipsisSingle",
   };
+}
+
+function isHeadingBlockType(blockType: number): boolean {
+  return blockType >= 3 && blockType <= 11;
 }
 
 async function locateCommentAnchorBlockId(params: {

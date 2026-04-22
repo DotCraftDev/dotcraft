@@ -739,6 +739,47 @@ test("FeishuUpdateDocxContent supports append mode", async () => {
   assert.equal(appendCalled, 1);
 });
 
+test("FeishuUpdateDocxContent selectionByTitle uses block_type to find heading boundary", async () => {
+  let deletedRange: [number, number] | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["h1", "p1", "p2", "h2", "p3"] };
+      }
+      if (blockId === "h1") {
+        return { blockId: "h1", blockType: 3, textContent: "Section A" };
+      }
+      if (blockId === "h2") {
+        return { blockId: "h2", blockType: 3, textContent: "Section B" };
+      }
+      return { blockId, blockType: 2, textContent: `${blockId} text` };
+    },
+    async deleteDocxBlockChildren(_documentId: string, _parentBlockId: string, startIndex: number, endIndex: number) {
+      deletedRange = [startIndex, endIndex];
+      return {
+        documentId: DOC_ID,
+        parentBlockId: DOC_ID,
+        startIndex,
+        endIndex,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: UPDATE_DOCX_CONTENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      mode: "deleteRange",
+      selectionByTitle: "Section A",
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.deepEqual(deletedRange, [0, 3]);
+});
+
 test("FeishuEmbedDocxMedia uploads and binds media", async () => {
   const temp = await import("node:fs/promises");
   const os = await import("node:os");
