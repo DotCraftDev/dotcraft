@@ -82,7 +82,10 @@ public sealed class SessionService(
         if (string.IsNullOrWhiteSpace(threadId))
             return null;
 
-        var tracker = agentFactory.GetOrCreateTokenTracker(threadId);
+        var tracker = agentFactory.TryGetTokenTracker(threadId);
+        if (tracker is null)
+            return null;
+
         var pipeline = agentFactory.CompactionPipeline;
         var threshold = pipeline.EvaluateThreshold(tracker.LastInputTokens);
 

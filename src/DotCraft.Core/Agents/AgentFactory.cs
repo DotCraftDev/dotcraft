@@ -137,6 +137,14 @@ public sealed class AgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Returns the token tracker for the specified session when one already exists.
+    /// </summary>
+    public TokenTracker? TryGetTokenTracker(string sessionKey)
+    {
+        return _tokenTrackers.TryGetValue(sessionKey, out var tracker) ? tracker : null;
+    }
+
+    /// <summary>
     /// Removes the token tracker for the specified session.
     /// </summary>
     public void RemoveTokenTracker(string sessionKey)

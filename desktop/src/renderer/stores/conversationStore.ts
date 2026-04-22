@@ -341,6 +341,7 @@ const SYSTEM_LABELS: Record<string, string | null> = {
   compacting: 'Compacting context...',
   consolidating: 'Consolidating memory...',
   compacted: null,
+  compactFailed: null,
   compactSkipped: null,
   consolidated: null
 }
