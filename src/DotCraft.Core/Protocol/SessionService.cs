@@ -46,9 +46,6 @@ public sealed class SessionService(
     SessionStreamDebugLogger? sessionStreamDebugLogger = null)
     : ISessionService
 {
-    private readonly IToolProfileRegistry? _toolProfileRegistry = toolProfileRegistry;
-    private readonly SessionStreamDebugLogger? _sessionStreamDebugLogger = sessionStreamDebugLogger;
-
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
     // In-memory state
@@ -503,14 +500,14 @@ public sealed class SessionService(
 
         void LogStreamDebugSessionEvent(SessionEvent evt)
         {
-            if (_sessionStreamDebugLogger == null || evt.EventType != SessionEventType.ItemDelta)
+            if (sessionStreamDebugLogger == null || evt.EventType != SessionEventType.ItemDelta)
                 return;
-            if (!_sessionStreamDebugLogger.ShouldCapture(evt.ThreadId, evt.TurnId))
+            if (!sessionStreamDebugLogger.ShouldCapture(evt.ThreadId, evt.TurnId))
                 return;
 
             if (evt.DeltaPayload is { } agentDelta)
             {
-                _sessionStreamDebugLogger.Log(
+                sessionStreamDebugLogger.Log(
                     "session_event_delta",
                     evt.ThreadId,
                     evt.TurnId,
@@ -519,7 +516,7 @@ public sealed class SessionService(
                         itemId = evt.ItemId,
                         deltaKind = agentDelta.DeltaKind,
                         deltaChars = agentDelta.TextDelta.Length,
-                        deltaText = _sessionStreamDebugLogger.IncludeFullText ? agentDelta.TextDelta : null
+                        deltaText = sessionStreamDebugLogger.IncludeFullText ? agentDelta.TextDelta : null
                     });
             }
         }
@@ -750,9 +747,9 @@ public sealed class SessionService(
                                     }
                                     agentText += chunk;
                                     agentDeltaIndex += 1;
-                                    if (_sessionStreamDebugLogger?.ShouldCapture(threadId, turn.Id) == true)
+                                    if (sessionStreamDebugLogger?.ShouldCapture(threadId, turn.Id) == true)
                                     {
-                                        _sessionStreamDebugLogger.Log(
+                                        sessionStreamDebugLogger.Log(
                                             "agent_delta_source",
                                             threadId,
                                             turn.Id,
@@ -761,9 +758,9 @@ public sealed class SessionService(
                                                 itemId = agentMessageItem.Id,
                                                 deltaIndex = agentDeltaIndex,
                                                 chunkChars = chunk.Length,
-                                                chunkText = _sessionStreamDebugLogger.IncludeFullText ? chunk : null,
+                                                chunkText = sessionStreamDebugLogger.IncludeFullText ? chunk : null,
                                                 cumulativeChars = agentText.Length,
-                                                cumulativeText = _sessionStreamDebugLogger.IncludeFullText ? agentText : null
+                                                cumulativeText = sessionStreamDebugLogger.IncludeFullText ? agentText : null
                                             });
                                     }
                                     eventChannel.EmitItemDelta(agentMessageItem, new AgentMessageDelta { TextDelta = chunk });
@@ -1247,7 +1244,7 @@ public sealed class SessionService(
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
                 if (session is not null)
-                    await TrySaveSessionAsync(agent, session, threadId);
+                    await TrySaveSessionAsync(defaultAgent, session, threadId);
             }
             finally
             {
@@ -1684,8 +1681,8 @@ public sealed class SessionService(
         List<AITool>? profileTools = null;
         if (!string.IsNullOrEmpty(config.ToolProfile))
         {
-            if (_toolProfileRegistry == null
-                || !_toolProfileRegistry.TryGet(config.ToolProfile, out var profileProviders)
+            if (toolProfileRegistry == null
+                || !toolProfileRegistry.TryGet(config.ToolProfile, out var profileProviders)
                 || profileProviders == null)
             {
                 throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
