@@ -1938,7 +1938,7 @@ export function SettingsView({
                         <button
                           type="button"
                           onClick={() => setActiveSettingsTab('proxy')}
-                          style={{ ...secondaryButtonStyle(false), padding: '2px 8px', flexShrink: 0 }}
+                          style={{ ...secondaryButtonStyle(false), flexShrink: 0 }}
                         >
                           {t('settings.llm.proxyLock.openProxyTab')}
                         </button>

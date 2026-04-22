@@ -44,18 +44,13 @@ export function WorkspaceSetupWizard({
   const t = useT()
   const locale = useLocale()
   const setUiLocale = useSetUiLocale()
-  const defaultLanguage: WorkspaceLanguage = locale === 'zh-Hans' ? 'Chinese' : 'English'
   const hasUserConfig = workspaceStatus.hasUserConfig
   const userConfigDefaults = workspaceStatus.userConfigDefaults
   const inheritedApiKeyPresent = userConfigDefaults?.apiKeyPresent === true
-  const hasInheritedLanguage = Boolean(userConfigDefaults?.language)
   const hasInheritedEndpoint = Boolean(userConfigDefaults?.endpoint?.trim())
   const hasInheritedModel = Boolean(userConfigDefaults?.model?.trim())
   const [step, setStep] = useState<WizardStep>(0)
   const [profile, setProfile] = useState<WorkspaceBootstrapProfile>('default')
-  const [language, setLanguage] = useState<WorkspaceLanguage>(
-    userConfigDefaults?.language ?? defaultLanguage
-  )
   const [apiKey, setApiKey] = useState('')
   const [endpoint, setEndpoint] = useState(
     userConfigDefaults?.endpoint?.trim() || 'https://api.openai.com/v1'
@@ -64,13 +59,17 @@ export function WorkspaceSetupWizard({
   const [saveToUserConfig, setSaveToUserConfig] = useState(!hasUserConfig)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [languageDirty, setLanguageDirty] = useState(false)
   const [endpointDirty, setEndpointDirty] = useState(false)
   const [modelDirty, setModelDirty] = useState(false)
   const [saveScopeDirty, setSaveScopeDirty] = useState(false)
   const [modelLoadState, setModelLoadState] = useState<'idle' | 'loading' | 'ready' | 'unsupported' | 'error'>('idle')
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [switchingDisplayLocale, setSwitchingDisplayLocale] = useState(false)
+  const setupLanguage: WorkspaceLanguage = locale === 'zh-Hans' ? 'Chinese' : 'English'
+  const localizedDisplayLanguage =
+    locale === 'zh-Hans'
+      ? t('setupWizard.language.chinese')
+      : t('setupWizard.language.english')
 
   const steps = useMemo(
     () => [
@@ -99,12 +98,6 @@ export function WorkspaceSetupWizard({
     modelLoadState === 'ready' &&
     effectiveModelOptions.length > 0
   const modelListLoading = modelLoadState === 'loading'
-
-  useEffect(() => {
-    if (!languageDirty) {
-      setLanguage(userConfigDefaults?.language ?? defaultLanguage)
-    }
-  }, [defaultLanguage, languageDirty, userConfigDefaults?.language])
 
   useEffect(() => {
     if (!endpointDirty) {
@@ -171,7 +164,7 @@ export function WorkspaceSetupWizard({
 
   async function handleSubmit(): Promise<void> {
     const request: WorkspaceSetupRequest = {
-      language,
+      language: setupLanguage,
       model: model.trim(),
       endpoint: endpoint.trim(),
       apiKey: apiKey.trim(),
@@ -196,8 +189,6 @@ export function WorkspaceSetupWizard({
     if (normalized === locale || switchingDisplayLocale) return
     setSwitchingDisplayLocale(true)
     setUiLocale(normalized)
-    setLanguageDirty(true)
-    setLanguage(normalized === 'zh-Hans' ? 'Chinese' : 'English')
     try {
       await window.api.settings.set({ locale: normalized })
     } catch {
@@ -352,8 +343,8 @@ export function WorkspaceSetupWizard({
                     opacity: switchingDisplayLocale ? 0.7 : 1
                   }}
                 >
-                  <option value="en">{t('setupWizard.language.english')}</option>
-                  <option value="zh-Hans">{t('setupWizard.language.chinese')}</option>
+                  <option value="en">{locale === 'zh-Hans' ? '英文' : t('setupWizard.language.english')}</option>
+                  <option value="zh-Hans">{locale === 'zh-Hans' ? '中文' : t('setupWizard.language.chinese')}</option>
                 </select>
               </div>
             </div>
@@ -435,37 +426,6 @@ export function WorkspaceSetupWizard({
               )}
 
               <div style={{ display: 'grid', gap: '14px' }}>
-                <div>
-                  <label htmlFor="setup-language" style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
-                    {t('setupWizard.field.language')}
-                  </label>
-                  <select
-                    id="setup-language"
-                    value={language}
-                    onChange={(e) => {
-                      setLanguageDirty(true)
-                      setLanguage(e.target.value as WorkspaceLanguage)
-                    }}
-                    style={{
-                      width: '220px',
-                      padding: '9px 10px',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-default)',
-                      background: 'var(--bg-primary)',
-                      color: 'var(--text-primary)',
-                      fontSize: '13px'
-                    }}
-                  >
-                    <option value="English">{t('setupWizard.language.english')}</option>
-                    <option value="Chinese">{t('setupWizard.language.chinese')}</option>
-                  </select>
-                  {hasInheritedLanguage && (
-                    <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                      {t('setupWizard.config.inheritedFieldHint')}
-                    </div>
-                  )}
-                </div>
-
                 <div>
                   <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
                     {t('setupWizard.field.apiKey')}
@@ -625,7 +585,7 @@ export function WorkspaceSetupWizard({
                 }}
               >
                 <SummaryRow label={t('setupWizard.summary.profile')} value={t(`setupWizard.profileSummary.${profile}`)} />
-                <SummaryRow label={t('setupWizard.summary.language')} value={language} />
+                <SummaryRow label={t('setupWizard.summary.displayLanguage')} value={localizedDisplayLanguage} />
                 <SummaryRow label={t('setupWizard.summary.endpoint')} value={endpoint.trim()} mono />
                 <SummaryRow label={t('setupWizard.summary.model')} value={model.trim()} mono />
                 <SummaryRow
