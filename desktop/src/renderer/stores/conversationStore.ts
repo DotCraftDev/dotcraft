@@ -1402,7 +1402,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       set((state) => ({
         contextUsage: applyTokensToContextUsage(
           state.contextUsage,
-          tokens ?? 0,
+          tokens,
           typeof params?.percentLeft === 'number' ? params.percentLeft : null
         )
       }))
