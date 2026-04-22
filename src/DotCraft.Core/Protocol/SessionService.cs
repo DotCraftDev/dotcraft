@@ -1396,6 +1396,9 @@ public sealed class SessionService(
         if (IsPendingPermanentDeletion(threadId))
             return;
 
+        if (!_threads.TryGetValue(threadId, out var thread) || thread.HistoryMode != HistoryMode.Server)
+            return;
+            
         try
         {
             await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
