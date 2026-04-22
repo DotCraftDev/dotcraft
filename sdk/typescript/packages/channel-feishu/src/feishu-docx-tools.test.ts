@@ -5,6 +5,9 @@ import { FeishuAdapter } from "./feishu-adapter.js";
 import type { FeishuClient } from "./feishu-client.js";
 import {
   APPEND_DOCX_TOOL_NAME,
+  ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+  ADD_DOCX_COMMENT_TOOL_NAME,
+  BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
   CREATE_DOCX_TOOL_NAME,
   DELETE_DOCX_BLOCKS_TOOL_NAME,
   EMBED_DOCX_MEDIA_TOOL_NAME,
@@ -13,8 +16,11 @@ import {
   getFeishuDocxChannelTools,
   INSERT_DOCX_BLOCKS_TOOL_NAME,
   LIST_DOCX_BLOCKS_TOOL_NAME,
+  LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+  LIST_DOCX_COMMENTS_TOOL_NAME,
   maybeExecuteFeishuDocxToolCall,
   READ_DOCX_TOOL_NAME,
+  RESOLVE_DOCX_COMMENT_TOOL_NAME,
   resolveDocxDocumentId,
   UPDATE_DOCX_BLOCKS_TOOL_NAME,
   UPDATE_DOCX_CONTENT_TOOL_NAME,
@@ -73,6 +79,12 @@ test("docx channel tool registry only returns tools when enabled", () => {
       UPDATE_DOCX_TITLE_TOOL_NAME,
       UPDATE_DOCX_CONTENT_TOOL_NAME,
       EMBED_DOCX_MEDIA_TOOL_NAME,
+      LIST_DOCX_COMMENTS_TOOL_NAME,
+      BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+      LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+      ADD_DOCX_COMMENT_TOOL_NAME,
+      ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+      RESOLVE_DOCX_COMMENT_TOOL_NAME,
     ],
   );
 });
@@ -142,6 +154,12 @@ test("FeishuAdapter only registers docx tools when docs config is enabled", () =
       UPDATE_DOCX_TITLE_TOOL_NAME,
       UPDATE_DOCX_CONTENT_TOOL_NAME,
       EMBED_DOCX_MEDIA_TOOL_NAME,
+      LIST_DOCX_COMMENTS_TOOL_NAME,
+      BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+      LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+      ADD_DOCX_COMMENT_TOOL_NAME,
+      ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+      RESOLVE_DOCX_COMMENT_TOOL_NAME,
       LIST_WIKI_NODES_TOOL_NAME,
       GET_WIKI_NODE_INFO_TOOL_NAME,
       MOVE_DOCX_TO_WIKI_TOOL_NAME,
@@ -760,4 +778,249 @@ test("FeishuEmbedDocxMedia uploads and binds media", async () => {
   } finally {
     await temp.unlink(filePath).catch(() => {});
   }
+});
+
+test("FeishuListDocxComments returns paged comment cards", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async listDocxComments() {
+      return {
+        fileToken: DOC_ID,
+        items: [{ commentId: "comment_1", replyList: { replies: [] } }],
+        nextPageToken: "next",
+        hasMore: true,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: LIST_DOCX_COMMENTS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, pageSize: 20 },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { items: unknown[] }).items.length, 1);
+});
+
+test("FeishuBatchQueryDocxComments queries by commentIds", async () => {
+  let captured: string[] = [];
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments(_options: { fileToken: string; commentIds: string[] }) {
+      captured = _options.commentIds;
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: BATCH_QUERY_DOCX_COMMENTS_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentIds: ["comment_1"] },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.deepEqual(captured, ["comment_1"]);
+});
+
+test("FeishuListDocxCommentReplies returns replies page", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async listDocxCommentReplies() {
+      return {
+        fileToken: DOC_ID,
+        commentId: "comment_1",
+        items: [{ replyId: "reply_1" }],
+        hasMore: false,
+      };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: LIST_DOCX_COMMENT_REPLIES_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentId: "comment_1" },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal((result?.structuredResult as { items: Array<{ replyId: string }> }).items[0]?.replyId, "reply_1");
+});
+
+test("FeishuAddDocxComment creates full comment when no locator is provided", async () => {
+  let capturedAnchor: string | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async createDocxComment(options: { anchorBlockId?: string }) {
+      capturedAnchor = options.anchorBlockId;
+      return { fileToken: DOC_ID, commentId: "comment_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      content: [{ type: "text", text: "hello" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(capturedAnchor, undefined);
+  assert.equal((result?.structuredResult as { commentMode: string }).commentMode, "full");
+});
+
+test("FeishuAddDocxComment resolves selectionWithEllipsis into anchor block id", async () => {
+  let capturedAnchor = "";
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["blk_1"] };
+      }
+      return { blockId: "blk_1", blockType: 2, textContent: "hello world" };
+    },
+    async createDocxComment(options: { anchorBlockId?: string }) {
+      capturedAnchor = String(options.anchorBlockId ?? "");
+      return { fileToken: DOC_ID, commentId: "comment_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      selectionWithEllipsis: "hello",
+      content: [{ type: "text", text: "local comment" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(capturedAnchor, "blk_1");
+  assert.equal((result?.structuredResult as { commentMode: string }).commentMode, "local");
+});
+
+test("FeishuAddDocxComment returns AmbiguousMatch when selection hits multiple blocks", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async getDocxBlock(_documentId: string, blockId: string) {
+      if (blockId === DOC_ID) {
+        return { blockId: DOC_ID, blockType: 1, children: ["blk_1", "blk_2"] };
+      }
+      return { blockId, blockType: 2, textContent: "same needle" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      selectionWithEllipsis: "needle",
+      content: [{ type: "text", text: "local comment" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "AmbiguousMatch",
+    errorMessage: "Selection 'needle' matched 2 blocks: blk_1, blk_2. Narrow selectionWithEllipsis.",
+  });
+});
+
+test("FeishuAddDocxCommentReply creates reply for replyable comment", async () => {
+  let created = false;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: false, isSolved: false, replyList: { replies: [] } }] };
+    },
+    async createDocxCommentReply() {
+      created = true;
+      return { fileToken: DOC_ID, commentId: "comment_1", replyId: "reply_1" };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(created, true);
+});
+
+test("FeishuAddDocxCommentReply rejects full comments", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: true, isSolved: false, replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "CommentNotReplyable",
+    errorMessage: "Full comments do not support replies.",
+  });
+});
+
+test("FeishuAddDocxCommentReply rejects solved comments", async () => {
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async batchQueryDocxComments() {
+      return { fileToken: DOC_ID, items: [{ commentId: "comment_1", isWhole: false, isSolved: true, replyList: { replies: [] } }] };
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: ADD_DOCX_COMMENT_REPLY_TOOL_NAME,
+    args: {
+      documentIdOrUrl: DOC_ID,
+      commentId: "comment_1",
+      content: [{ type: "text", text: "reply" }],
+    },
+    client,
+  });
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: "CommentNotReplyable",
+    errorMessage: "Resolved comments do not support replies.",
+  });
+});
+
+test("FeishuResolveDocxComment patches solved state", async () => {
+  let patched: boolean | undefined;
+  const client = {
+    async getWikiNode() {
+      throw new Error("should not call");
+    },
+    async patchDocxCommentSolved(options: { isSolved: boolean }) {
+      patched = options.isSolved;
+    },
+  } as unknown as FeishuClient;
+  const result = await maybeExecuteFeishuDocxToolCall({
+    toolName: RESOLVE_DOCX_COMMENT_TOOL_NAME,
+    args: { documentIdOrUrl: DOC_ID, commentId: "comment_1", isSolved: true },
+    client,
+  });
+  assert.equal(result?.success, true);
+  assert.equal(patched, true);
 });

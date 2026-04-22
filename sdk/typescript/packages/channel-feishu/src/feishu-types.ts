@@ -155,6 +155,80 @@ export interface FeishuDriveMediaUploadResult {
   size?: number;
 }
 
+export interface FeishuDocxCommentContentElement {
+  type: string;
+  text?: string;
+  mentionUser?: string;
+  link?: string;
+}
+
+export interface FeishuDocxCommentContent {
+  elements: FeishuDocxCommentContentElement[];
+}
+
+export interface FeishuDocxCommentReply {
+  replyId: string;
+  userId?: string;
+  createTime?: string;
+  updateTime?: string;
+  isSolved?: boolean;
+  content?: FeishuDocxCommentContent;
+}
+
+export interface FeishuDocxCommentReplyList {
+  replies: FeishuDocxCommentReply[];
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentQuote {
+  blockId?: string;
+  content?: FeishuDocxCommentContent;
+}
+
+export interface FeishuDocxComment {
+  commentId: string;
+  userId?: string;
+  createTime?: string;
+  updateTime?: string;
+  isSolved?: boolean;
+  isWhole?: boolean;
+  quote?: FeishuDocxCommentQuote;
+  replyList: FeishuDocxCommentReplyList;
+}
+
+export interface FeishuDocxCommentListPage {
+  fileToken: string;
+  items: FeishuDocxComment[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentBatchQueryResult {
+  fileToken: string;
+  items: FeishuDocxComment[];
+}
+
+export interface FeishuDocxCommentReplyListPage {
+  fileToken: string;
+  commentId: string;
+  items: FeishuDocxCommentReply[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuDocxCommentCreateResult {
+  fileToken: string;
+  commentId: string;
+  createTime?: string;
+}
+
+export interface FeishuDocxCommentReplyCreateResult {
+  fileToken: string;
+  commentId: string;
+  replyId: string;
+  createTime?: string;
+}
+
 export type FeishuWikiObjType =
   | "wiki"
   | "doc"

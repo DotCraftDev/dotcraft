@@ -1353,3 +1353,253 @@ test("Feishu client deletes docx child range", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Feishu client lists docx comments", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [
+            {
+              comment_id: "comment_1",
+              user_id: "ou_user_1",
+              create_time: "1710000000000",
+              is_solved: false,
+              is_whole: false,
+              reply_list: {
+                replies: [{ reply_id: "reply_1", user_id: "ou_user_1", create_time: "1710000000001" }],
+                has_more: false,
+              },
+            },
+          ],
+          has_more: true,
+          page_token: "next-page",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const page = await client.listDocxComments({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      pageSize: 20,
+      pageToken: "current-page",
+      isSolved: false,
+      isWhole: false,
+    });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0]?.commentId, "comment_1");
+    assert.equal(page.items[0]?.replyList.replies[0]?.replyId, "reply_1");
+    assert.equal(page.nextPageToken, "next-page");
+    assert.equal(page.hasMore, true);
+    assert.match(calls[1]!.url, /\/drive\/v1\/files\/doxABCDEFGHIJKLMNOPQRSTUVWX\/comments\?/);
+    assert.match(calls[1]!.url, /file_type=docx/);
+    assert.match(calls[1]!.url, /page_size=20/);
+    assert.match(calls[1]!.url, /page_token=current-page/);
+    assert.match(calls[1]!.url, /is_solved=false/);
+    assert.match(calls[1]!.url, /is_whole=false/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client batch queries docx comments", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/comments\/batch_query\?file_type=docx$/);
+    const body = JSON.parse(String(init?.body ?? "{}")) as { comment_ids?: string[] };
+    assert.deepEqual(body.comment_ids, ["comment_1", "comment_2"]);
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [{ comment_id: "comment_1", reply_list: { replies: [] } }],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const result = await client.batchQueryDocxComments({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentIds: ["comment_1", "comment_2"],
+    });
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0]?.commentId, "comment_1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client lists docx comment replies", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/comments\/comment_1\/replies\?/);
+    assert.match(url, /file_type=docx/);
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [{ reply_id: "reply_1", user_id: "ou_user_1", create_time: "1710000000001" }],
+          has_more: false,
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const page = await client.listDocxCommentReplies({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentId: "comment_1",
+      pageSize: 50,
+    });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0]?.replyId, "reply_1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client creates docx comment with optional anchor", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/new_comments$/);
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    assert.equal(body.file_type, "docx");
+    assert.deepEqual(body.reply_elements, [{ type: "text", text: "hello" }]);
+    assert.deepEqual(body.anchor, { block_id: "blk_anchor_1" });
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          comment_id: "comment_1",
+          created_at: "1710000000002",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const result = await client.createDocxComment({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      replyElements: [{ type: "text", text: "hello" }],
+      anchorBlockId: "blk_anchor_1",
+    });
+    assert.deepEqual(result, {
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentId: "comment_1",
+      createTime: "1710000000002",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client creates docx comment reply", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/comments\/comment_1\/replies\?file_type=docx$/);
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(body.reply_elements, [{ type: "text", text: "reply" }]);
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          reply_id: "reply_1",
+          create_time: "1710000000003",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const result = await client.createDocxCommentReply({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentId: "comment_1",
+      replyElements: [{ type: "text", text: "reply" }],
+    });
+    assert.deepEqual(result, {
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentId: "comment_1",
+      replyId: "reply_1",
+      createTime: "1710000000003",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client patches docx comment solved state", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({ code: 0, tenant_access_token: "tenant_token", expire: 7200 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    assert.match(url, /\/comments\/comment_1\?file_type=docx$/);
+    assert.equal(init?.method, "PATCH");
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(body, { is_solved: true });
+    return new Response(JSON.stringify({ code: 0, data: {} }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    await client.patchDocxCommentSolved({
+      fileToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      commentId: "comment_1",
+      isSolved: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
