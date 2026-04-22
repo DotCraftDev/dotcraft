@@ -79,12 +79,30 @@ public sealed class SessionService(
         if (string.IsNullOrWhiteSpace(threadId))
             return null;
 
-        var tracker = agentFactory.TryGetTokenTracker(threadId);
-        if (tracker is null)
-            return null;
-
         var pipeline = agentFactory.CompactionPipeline;
-        var threshold = pipeline.EvaluateThreshold(tracker.LastInputTokens);
+        long tokens = 0;
+
+        var tracker = agentFactory.TryGetTokenTracker(threadId);
+        if (tracker is not null)
+        {
+            tokens = tracker.LastInputTokens;
+        }
+        else if (_threads.TryGetValue(threadId, out var thread))
+        {
+            // Rehydrate from the latest completed turn so desktop can render
+            // context usage immediately after process restarts.
+            for (var i = thread.Turns.Count - 1; i >= 0; i--)
+            {
+                var turn = thread.Turns[i];
+                if (turn.Status == TurnStatus.Completed && turn.TokenUsage is not null)
+                {
+                    tokens = turn.TokenUsage.InputTokens;
+                    break;
+                }
+            }
+        }
+
+        var threshold = pipeline.EvaluateThreshold(tokens);
 
         return new ContextUsageSnapshot
         {

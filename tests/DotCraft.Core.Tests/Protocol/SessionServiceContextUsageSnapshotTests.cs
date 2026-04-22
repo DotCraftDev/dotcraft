@@ -36,7 +36,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_ReturnsNull_WhenTrackerDoesNotExist()
+    public async Task TryGetContextUsageSnapshot_ReturnsZeroSnapshot_WhenTrackerDoesNotExist()
     {
         const string threadId = "thread-missing";
 
@@ -45,7 +45,14 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
 
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
-        Assert.Null(snapshot);
+        Assert.NotNull(snapshot);
+        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(0);
+        Assert.Equal(threshold.Tokens, snapshot!.Tokens);
+        Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
+        Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);
+        Assert.Equal(threshold.WarningThreshold, snapshot.WarningThreshold);
+        Assert.Equal(threshold.ErrorThreshold, snapshot.ErrorThreshold);
+        Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
     }
 
@@ -57,8 +64,9 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
         await using var agentFactory = CreateAgentFactory();
         var service = CreateSessionService(agentFactory);
 
-        _ = service.TryGetContextUsageSnapshot(threadId);
+        var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
+        Assert.NotNull(snapshot);
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
     }
 
@@ -83,6 +91,65 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
         Assert.Equal(threshold.WarningThreshold, snapshot.WarningThreshold);
         Assert.Equal(threshold.ErrorThreshold, snapshot.ErrorThreshold);
         Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
+    }
+
+    [Fact]
+    public async Task TryGetContextUsageSnapshot_UsesLastCompletedTurnTokenUsage_WhenTrackerMissing()
+    {
+        const string threadId = "thread-history";
+
+        await using var agentFactory = CreateAgentFactory();
+        var service = CreateSessionService(agentFactory);
+
+        var identity = new SessionIdentity
+        {
+            WorkspacePath = _tempDir,
+            ChannelName = "desktop",
+            UserId = "user"
+        };
+        var thread = await service.CreateThreadAsync(identity, threadId: threadId);
+        thread.Turns.Add(new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = threadId,
+            Status = TurnStatus.Completed,
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            TokenUsage = new TokenUsageInfo
+            {
+                InputTokens = 12_000,
+                OutputTokens = 400,
+                TotalTokens = 12_400
+            }
+        });
+        thread.Turns.Add(new SessionTurn
+        {
+            Id = "turn_002",
+            ThreadId = threadId,
+            Status = TurnStatus.Completed,
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            TokenUsage = new TokenUsageInfo
+            {
+                InputTokens = 80_000,
+                OutputTokens = 800,
+                TotalTokens = 80_800
+            }
+        });
+
+        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
+
+        var snapshot = service.TryGetContextUsageSnapshot(threadId);
+
+        Assert.NotNull(snapshot);
+        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(80_000);
+        Assert.Equal(threshold.Tokens, snapshot!.Tokens);
+        Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
+        Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);
+        Assert.Equal(threshold.WarningThreshold, snapshot.WarningThreshold);
+        Assert.Equal(threshold.ErrorThreshold, snapshot.ErrorThreshold);
+        Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
+        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
     }
 
     private SessionService CreateSessionService(AgentFactory agentFactory)
