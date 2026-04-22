@@ -889,7 +889,7 @@ export function ConversationWelcome({
                 </div>
               }
               footerLeading={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
                   <ComposerAttachmentMenu
                     title={t('composer.attachFileTitle')}
                     ariaLabel={t('composer.attachFileAria')}
@@ -912,7 +912,10 @@ export function ConversationWelcome({
                       mode: welcomeMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
                     })}
                   />
-
+                </div>
+              }
+              footerAction={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <ModelPicker
                     modelName={modelName}
                     modelOptions={modelApiAvailable ? modelOptions : []}
@@ -927,19 +930,17 @@ export function ConversationWelcome({
                       modelApplying || starting || modelLoading
                     )}
                   />
+                  <button
+                    type="button"
+                    onClick={() => { void sendFromWelcome() }}
+                    disabled={!canSend}
+                    title={t('welcome.sendTitle')}
+                    aria-label={t('welcome.sendAria')}
+                    style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                  >
+                    <SendIcon />
+                  </button>
                 </div>
-              }
-              footerAction={
-                <button
-                  type="button"
-                  onClick={() => { void sendFromWelcome() }}
-                  disabled={!canSend}
-                  title={t('welcome.sendTitle')}
-                  aria-label={t('welcome.sendAria')}
-                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
-                >
-                  <SendIcon />
-                </button>
               }
             />
           </div>
