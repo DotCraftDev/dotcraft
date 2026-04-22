@@ -496,6 +496,13 @@ public sealed class AppServerServerCapabilities
     public bool ExternalChannelManagement { get; set; }
 
     /// <summary>
+    /// Server supports SubAgent profile management methods
+    /// (<c>subagent/profiles/list</c>, <c>subagent/profiles/setEnabled</c>, etc.).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SubAgentManagement { get; set; }
+
+    /// <summary>
     /// Compatibility field for GitHub tracker configuration management methods
     /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
     /// New clients should prefer <see cref="Extensions"/>.
@@ -1568,6 +1575,164 @@ public sealed class ExternalChannelRemoveResult
     public bool Removed { get; set; }
 }
 
+// ───── subagent/profiles/* (SubAgent profile management) ─────
+
+public sealed class SubAgentProfileWriteWire
+{
+    public string Runtime { get; set; } = "native";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Bin { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Args { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Env { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? EnvPassthrough { get; set; }
+
+    public string WorkingDirectoryMode { get; set; } = "workspace";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsStreaming { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsResume { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsModelSelection { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputFormat { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputFormat { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputMode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputArgTemplate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputEnvKey { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputJsonPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputInputTokensJsonPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputOutputTokensJsonPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputTotalTokensJsonPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputFileArgTemplate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ReadOutputFile { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeleteOutputFileAfterRead { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxOutputBytes { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Timeout { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TrustLevel { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? PermissionModeMapping { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonObject? SanitizationRules { get; set; }
+}
+
+public sealed class SubAgentProfileDiagnosticWire
+{
+    public bool Enabled { get; set; }
+
+    public bool BinaryResolved { get; set; }
+
+    public bool HiddenFromPrompt { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? HiddenReason { get; set; }
+
+    public List<string> Warnings { get; set; } = [];
+}
+
+public sealed class SubAgentProfileEntryWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool IsBuiltIn { get; set; }
+
+    public bool IsTemplate { get; set; }
+
+    public bool HasWorkspaceOverride { get; set; }
+
+    public bool IsDefault { get; set; }
+
+    public bool Enabled { get; set; }
+
+    public SubAgentProfileWriteWire Definition { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SubAgentProfileWriteWire? BuiltInDefaults { get; set; }
+
+    public SubAgentProfileDiagnosticWire Diagnostic { get; set; } = new();
+}
+
+public sealed class SubAgentProfileListResult
+{
+    public List<SubAgentProfileEntryWire> Profiles { get; set; } = [];
+
+    public string DefaultName { get; set; } = string.Empty;
+}
+
+public sealed class SubAgentProfileSetEnabledParams
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class SubAgentProfileSetEnabledResult
+{
+    public SubAgentProfileEntryWire Profile { get; set; } = new();
+}
+
+public sealed class SubAgentProfileUpsertParams
+{
+    public string Name { get; set; } = string.Empty;
+
+    public SubAgentProfileWriteWire Definition { get; set; } = new();
+}
+
+public sealed class SubAgentProfileUpsertResult
+{
+    public SubAgentProfileEntryWire Profile { get; set; } = new();
+}
+
+public sealed class SubAgentProfileRemoveParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SubAgentProfileRemoveResult
+{
+    public bool Removed { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -1616,6 +1781,10 @@ public static class AppServerMethods
     public const string ExternalChannelGet = "externalChannel/get";
     public const string ExternalChannelUpsert = "externalChannel/upsert";
     public const string ExternalChannelRemove = "externalChannel/remove";
+    public const string SubAgentProfileList = "subagent/profiles/list";
+    public const string SubAgentProfileSetEnabled = "subagent/profiles/setEnabled";
+    public const string SubAgentProfileUpsert = "subagent/profiles/upsert";
+    public const string SubAgentProfileRemove = "subagent/profiles/remove";
     public const string McpStatusList = "mcp/status/list";
     public const string McpTest = "mcp/test";
 

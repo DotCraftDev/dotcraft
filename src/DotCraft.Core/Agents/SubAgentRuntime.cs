@@ -70,9 +70,13 @@ public sealed record SubAgentProfileDiagnostic
 
     public bool IsBuiltIn { get; init; }
 
+    public bool Enabled { get; init; }
+
     public string? Bin { get; init; }
 
     public string? ResolvedBinary { get; init; }
+
+    public bool BinaryResolved { get; init; }
 
     public bool RuntimeRegistered { get; init; }
 
@@ -190,12 +194,14 @@ public sealed class SubAgentProfileRegistry
     private readonly IReadOnlyDictionary<string, SubAgentProfile> _profiles;
     private readonly IReadOnlySet<string> _builtInProfileNames;
     private readonly IReadOnlySet<string> _builtInTemplateProfileNames;
+    private readonly IReadOnlySet<string> _disabledProfileNames;
     private readonly IReadOnlyList<string> _validationWarnings;
 
     public SubAgentProfileRegistry(
         IEnumerable<SubAgentProfile>? configuredProfiles,
         IEnumerable<SubAgentProfile>? builtInProfiles,
-        IEnumerable<string>? knownRuntimeTypes = null)
+        IEnumerable<string>? knownRuntimeTypes = null,
+        IEnumerable<string>? disabledProfiles = null)
     {
         var map = new Dictionary<string, SubAgentProfile>(StringComparer.OrdinalIgnoreCase);
 
@@ -233,6 +239,10 @@ public sealed class SubAgentProfileRegistry
         _builtInProfileNames = builtInNames;
         _builtInTemplateProfileNames = builtInTemplateNames
             .Where(name => !configuredOverrideNames.Contains(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _disabledProfileNames = (disabledProfiles ?? [])
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Where(name => !string.Equals(name, SubAgentCoordinator.DefaultProfileName, StringComparison.OrdinalIgnoreCase))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         _validationWarnings = ValidateProfiles(_profiles.Values, knownRuntimeTypes, _builtInTemplateProfileNames);
     }
@@ -336,6 +346,14 @@ public sealed class SubAgentProfileRegistry
 
     public bool IsTemplateProfile(string name) => _builtInTemplateProfileNames.Contains(name);
 
+    public bool IsEnabled(string name)
+    {
+        if (string.Equals(name, SubAgentCoordinator.DefaultProfileName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !_disabledProfileNames.Contains(name);
+    }
+
     public IReadOnlyList<string> GetHiddenBuiltInReasons(Func<string, bool>? binaryAvailabilityProbe = null)
     {
         binaryAvailabilityProbe ??= bin => CliOneshotRuntime.TryResolveExecutablePath(bin, out _);
@@ -343,6 +361,9 @@ public sealed class SubAgentProfileRegistry
         foreach (var profile in _profiles.Values.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
             if (!_builtInProfileNames.Contains(profile.Name))
+                continue;
+
+            if (!IsEnabled(profile.Name))
                 continue;
 
             if (!string.Equals(profile.Runtime, CliOneshotRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
@@ -473,7 +494,8 @@ public sealed class SubAgentCoordinator
         string workspaceRoot,
         IEnumerable<ISubAgentRuntime> runtimes,
         IEnumerable<SubAgentProfile>? configuredProfiles = null,
-        IApprovalService? approvalService = null)
+        IApprovalService? approvalService = null,
+        IEnumerable<string>? disabledProfiles = null)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
         _approvalService = approvalService;
@@ -485,7 +507,8 @@ public sealed class SubAgentCoordinator
         _profileRegistry = new SubAgentProfileRegistry(
             configuredProfiles,
             SubAgentProfileRegistry.CreateBuiltInProfiles(),
-            _runtimes.Keys);
+            _runtimes.Keys,
+            disabledProfiles);
     }
 
     public IReadOnlyList<string> ValidationWarnings => _profileRegistry.ValidationWarnings;
@@ -497,9 +520,15 @@ public sealed class SubAgentCoordinator
         {
             var warnings = _profileRegistry.GetValidationWarningsForProfile(profile.Name);
             var runtimeRegistered = _runtimes.ContainsKey(profile.Runtime);
+            var enabled = _profileRegistry.IsEnabled(profile.Name);
 
             string? resolvedBinary = null;
             var hiddenReasons = new List<string>();
+            if (!enabled)
+            {
+                hiddenReasons.Add("disabled by workspace configuration");
+            }
+
             if (!runtimeRegistered)
             {
                 hiddenReasons.Add("runtime not registered");
@@ -545,8 +574,10 @@ public sealed class SubAgentCoordinator
                 Runtime = profile.Runtime,
                 WorkingDirectoryMode = profile.WorkingDirectoryMode,
                 IsBuiltIn = _profileRegistry.IsBuiltInProfile(profile.Name),
+                Enabled = enabled,
                 Bin = profile.Bin,
                 ResolvedBinary = resolvedBinary,
+                BinaryResolved = resolvedBinary != null,
                 RuntimeRegistered = runtimeRegistered,
                 HiddenFromPrompt = hiddenFromPrompt,
                 HiddenReason = hiddenReason,
@@ -568,6 +599,9 @@ public sealed class SubAgentCoordinator
 
         if (!_profileRegistry.TryGet(effectiveProfileName, out var profile))
             return $"Error: Unknown subagent profile '{effectiveProfileName}'.";
+
+        if (!_profileRegistry.IsEnabled(profile.Name))
+            return $"Error: Subagent profile '{profile.Name}' is disabled.";
 
         if (!_runtimes.TryGetValue(profile.Runtime, out var runtime))
             return $"Error: Subagent profile '{profile.Name}' references unknown runtime '{profile.Runtime}'.";

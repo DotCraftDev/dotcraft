@@ -110,6 +110,9 @@ public sealed class AppConfig
     public SkillsConfig Skills { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public SubAgentConfig SubAgent { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     public WelcomeSuggestionsConfig WelcomeSuggestions { get; set; } = new();
 
     [ConfigField(Ignore = true)]
@@ -657,6 +660,17 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "JSON array of skill names to disable for this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
         public List<string> DisabledSkills { get; set; } = [];
+    }
+
+    [ConfigSection("SubAgent", DisplayName = "SubAgent", Order = 58)]
+    public sealed class SubAgentConfig
+    {
+        /// <summary>
+        /// Workspace-scoped SubAgent profile names disabled for prompt exposure and execution.
+        /// The protected default profile remains enabled even if listed here.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of SubAgent profile names to disable for this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
+        public List<string> DisabledProfiles { get; set; } = [];
     }
 
     [ConfigSection("WelcomeSuggestions", DisplayName = "Welcome Suggestions", Order = 59)]

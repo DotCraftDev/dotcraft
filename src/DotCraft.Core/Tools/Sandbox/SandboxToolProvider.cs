@@ -68,7 +68,8 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             context.WorkspacePath,
             [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
             context.Config.SubAgentProfiles,
-            context.ApprovalService);
+            context.ApprovalService,
+            context.Config.SubAgent.DisabledProfiles);
         var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 

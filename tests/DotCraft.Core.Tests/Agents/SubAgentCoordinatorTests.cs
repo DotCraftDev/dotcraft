@@ -31,6 +31,7 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         SubAgentProgressBridge.Remove("diag");
         SubAgentProgressBridge.Remove("native run");
         SubAgentProgressBridge.Remove("external tokens");
+        SubAgentProgressBridge.Remove("disabled run");
     }
 
     [Fact]
@@ -171,6 +172,38 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         Assert.Equal(
             "Error: Subagent profile 'broken-profile' references unknown runtime 'unknown-runtime'.",
             result);
+        Assert.Equal(0, runtime.RunCalls);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithDisabledProfile_ReturnsClearError()
+    {
+        var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "unused");
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            [
+                new SubAgentProfile
+                {
+                    Name = "disabled-run",
+                    Runtime = CliOneshotRuntime.RuntimeTypeName,
+                    Bin = "codex",
+                    WorkingDirectoryMode = "workspace",
+                    InputMode = "arg",
+                    OutputFormat = "text"
+                }
+            ],
+            disabledProfiles: ["disabled-run"]);
+
+        var result = await coordinator.RunAsync(
+            new SubAgentTaskRequest
+            {
+                Task = "inspect code",
+                Label = "disabled run"
+            },
+            "disabled-run");
+
+        Assert.Equal("Error: Subagent profile 'disabled-run' is disabled.", result);
         Assert.Equal(0, runtime.RunCalls);
     }
 
@@ -392,13 +425,16 @@ public sealed class SubAgentCoordinatorTests : IDisposable
 
         var builtIn = Assert.Single(diagnostics, d => d.Name == SubAgentCoordinator.DefaultProfileName);
         Assert.True(builtIn.IsBuiltIn);
+        Assert.True(builtIn.Enabled);
         Assert.True(builtIn.RuntimeRegistered);
 
         var configured = Assert.Single(diagnostics, d => d.Name == "diag");
         Assert.False(configured.IsBuiltIn);
+        Assert.True(configured.Enabled);
         Assert.Contains(configured.Warnings, w => w.Contains("missing required field 'bin'", StringComparison.Ordinal));
         Assert.Contains(configured.Warnings, w => w.Contains("outputJsonPath", StringComparison.Ordinal));
         Assert.True(configured.HiddenFromPrompt);
+        Assert.False(configured.BinaryResolved);
         Assert.Contains("missing required field 'bin'", configured.HiddenReason, StringComparison.Ordinal);
     }
 
@@ -425,9 +461,27 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         var diagnostics = coordinator.GetProfileDiagnostics();
 
         var configured = Assert.Single(diagnostics, d => d.Name == profileName);
+        Assert.True(configured.Enabled);
         Assert.True(configured.HiddenFromPrompt);
         Assert.Contains("not found on PATH", configured.HiddenReason, StringComparison.Ordinal);
+        Assert.False(configured.BinaryResolved);
         Assert.Null(configured.ResolvedBinary);
+    }
+
+    [Fact]
+    public void GetProfileDiagnostics_ProtectedDefaultProfileStaysEnabled_WhenListedAsDisabled()
+    {
+        var runtime = new FakeRuntime(NativeSubAgentRuntime.RuntimeTypeName, "unused");
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            disabledProfiles: [SubAgentCoordinator.DefaultProfileName]);
+
+        var diagnostics = coordinator.GetProfileDiagnostics();
+
+        var builtIn = Assert.Single(diagnostics, d => d.Name == SubAgentCoordinator.DefaultProfileName);
+        Assert.True(builtIn.Enabled);
+        Assert.False(builtIn.HiddenFromPrompt);
     }
 
     [Fact]

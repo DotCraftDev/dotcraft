@@ -183,7 +183,8 @@ public static class ServiceRegistration
         var subAgentRegistry = new SubAgentProfileRegistry(
             config.SubAgentProfiles,
             SubAgentProfileRegistry.CreateBuiltInProfiles(),
-            SubAgentProfileRegistry.KnownRuntimeTypes);
+            SubAgentProfileRegistry.KnownRuntimeTypes,
+            config.SubAgent.DisabledProfiles);
         var hiddenBuiltInNotes = subAgentRegistry.GetHiddenBuiltInReasons();
         foreach (var note in hiddenBuiltInNotes)
             AnsiConsole.MarkupLine($"[grey][[Config]] Note: {Markup.Escape(note)}[/]");

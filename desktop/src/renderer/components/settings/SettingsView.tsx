@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type JSX, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { addToast } from '../../stores/toastStore'
 import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 import { normalizeLocale, type AppLocale } from '../../../shared/locales'
@@ -20,12 +20,24 @@ import { PillSwitch } from '../ui/PillSwitch'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
+import {
+  EditableKeyValueList,
+  EditableValueList,
+  normalizeKeyValueRows,
+  normalizeValueRows,
+  rowsToRecord,
+  rowsToValues,
+  type KeyValueRow,
+  type ValueRow
+} from './ui/EditableList'
 import { GeneralPanel } from './panels/GeneralPanel'
 import { ConnectionPanel } from './panels/ConnectionPanel'
 import { ProxyPanel } from './panels/ProxyPanel'
+import { ProxyProviderIcon } from './panels/ProxyProviderIcon'
 import { UsagePanel } from './panels/UsagePanel'
 import { ChannelsPanel } from './panels/ChannelsPanel'
 import { McpPanel } from './panels/McpPanel'
+import { SubAgentsPanel } from './panels/SubAgentsPanel'
 import {
   useMcpStore,
   type McpServerConfigWire,
@@ -47,17 +59,6 @@ interface SettingsViewProps {
   onThreadListRefreshRequested?: () => void
   workspaceConfigChange?: WorkspaceConfigChangedPayload | null
   workspaceConfigChangeSeq?: number
-}
-
-interface KeyValueRow {
-  id: string
-  key: string
-  value: string
-}
-
-interface ValueRow {
-  id: string
-  value: string
 }
 
 interface McpTestResultWire {
@@ -153,7 +154,7 @@ export async function readWorkspaceCoreStrictFromApi(
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
+type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp' | 'subAgents'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
 type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
@@ -173,10 +174,6 @@ const CATEGORY_LABEL_KEY: Record<string, MessageKey> = {
   builtin: 'settings.channelCategory.builtin',
   social: 'settings.channelCategory.social',
   system: 'settings.channelCategory.system'
-}
-
-function createRowId(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
@@ -231,39 +228,6 @@ function createEmptyMcpServer(): McpServerConfigWire {
     startupTimeoutSec: null,
     toolTimeoutSec: null
   }
-}
-
-function normalizeValueRows(values?: string[] | null): ValueRow[] {
-  if (!values || values.length === 0) return [{ id: createRowId('value'), value: '' }]
-  return values.map((value) => ({ id: createRowId('value'), value }))
-}
-
-function normalizeKeyValueRows(values?: Record<string, string> | null): KeyValueRow[] {
-  const entries = Object.entries(values ?? {})
-  if (entries.length === 0) {
-    return [{ id: createRowId('kv'), key: '', value: '' }]
-  }
-  return entries.map(([key, value]) => ({
-    id: createRowId('kv'),
-    key,
-    value
-  }))
-}
-
-function rowsToValues(rows: ValueRow[]): string[] {
-  return rows.map((row) => row.value.trim()).filter((value) => value.length > 0)
-}
-
-function rowsToRecord(rows: KeyValueRow[]): Record<string, string> {
-  const record: Record<string, string> = {}
-  for (const row of rows) {
-    const key = row.key.trim()
-    const value = row.value.trim()
-    if (key.length > 0 && value.length > 0) {
-      record[key] = value
-    }
-  }
-  return record
 }
 
 function getStatusTone(
@@ -454,109 +418,6 @@ function ProxyOAuthStatusPill({
   )
 }
 
-function EditableValueList({
-  rows,
-  setRows,
-  placeholder
-}: {
-  rows: ValueRow[]
-  setRows: Dispatch<SetStateAction<ValueRow[]>>
-  placeholder: string
-}): JSX.Element {
-  function updateRow(id: string, value: string): void {
-    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, value } : row)))
-  }
-
-  function addRow(): void {
-    setRows((prev) => [...prev, { id: createRowId('value'), value: '' }])
-  }
-
-  function removeRow(id: string): void {
-    setRows((prev) =>
-      prev.length <= 1 ? [{ id: createRowId('value'), value: '' }] : prev.filter((row) => row.id !== id)
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {rows.map((row) => (
-        <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
-          <input
-            type="text"
-            value={row.value}
-            onChange={(e) => updateRow(row.id, e.target.value)}
-            placeholder={placeholder}
-            style={inputStyle(true)}
-          />
-          <button type="button" onClick={() => removeRow(row.id)} style={secondaryButtonStyle(false)}>
-            Remove
-          </button>
-        </div>
-      ))}
-      <button type="button" onClick={addRow} style={secondaryButtonStyle(false)}>
-        + Add
-      </button>
-    </div>
-  )
-}
-
-function EditableKeyValueList({
-  rows,
-  setRows,
-  keyPlaceholder,
-  valuePlaceholder
-}: {
-  rows: KeyValueRow[]
-  setRows: Dispatch<SetStateAction<KeyValueRow[]>>
-  keyPlaceholder: string
-  valuePlaceholder: string
-}): JSX.Element {
-  function updateRow(id: string, nextKey: string, nextValue: string): void {
-    setRows((prev) =>
-      prev.map((row) => (row.id === id ? { ...row, key: nextKey, value: nextValue } : row))
-    )
-  }
-
-  function addRow(): void {
-    setRows((prev) => [...prev, { id: createRowId('kv'), key: '', value: '' }])
-  }
-
-  function removeRow(id: string): void {
-    setRows((prev) =>
-      prev.length <= 1 ? [{ id: createRowId('kv'), key: '', value: '' }] : prev.filter((row) => row.id !== id)
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {rows.map((row) => (
-        <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px' }}>
-          <input
-            type="text"
-            value={row.key}
-            onChange={(e) => updateRow(row.id, e.target.value, row.value)}
-            placeholder={keyPlaceholder}
-            style={inputStyle(true)}
-          />
-          <input
-            type="text"
-            value={row.value}
-            onChange={(e) => updateRow(row.id, row.key, e.target.value)}
-            placeholder={valuePlaceholder}
-            style={inputStyle(true)}
-          />
-          <button type="button" onClick={() => removeRow(row.id)} style={secondaryButtonStyle(false)}>
-            Remove
-          </button>
-        </div>
-      ))}
-      <button type="button" onClick={addRow} style={secondaryButtonStyle(false)}>
-        + Add
-      </button>
-    </div>
-  )
-}
-
 export function SettingsView({
   workspacePath,
   onThreadListRefreshRequested,
@@ -672,8 +533,10 @@ export function SettingsView({
   const [togglingServerName, setTogglingServerName] = useState<string | null>(null)
   const [mcpTestResult, setMcpTestResult] = useState<McpTestResultWire | null>(null)
   const [mcpSavedHint, setMcpSavedHint] = useState('')
+  const [subAgentRefreshTick, setSubAgentRefreshTick] = useState(0)
 
   const mcpEnabled = capabilities?.mcpManagement === true
+  const subAgentEnabled = capabilities?.subAgentManagement === true
   const canRestartManagedAppServer = savedConnectionMode !== 'remote'
   const proxyLockActive = proxyStatusText === 'running'
   const llmApiKeyTrimmed = llmApiKey.trim()
@@ -785,15 +648,28 @@ export function SettingsView({
     changeSeq: workspaceConfigChangeSeq,
     llmDirty,
     mcpEnabled,
+    subAgentEnabled,
     onExternalLlmChangeNotice: () => {
       addToast(t('settings.llm.externalChangeNotice'), 'info')
     },
     reloadWorkspaceCore,
     reloadMcpData: () => Promise.all([reloadMcpServers(), reloadMcpStatuses()]),
+    reloadSubAgentData: () => {
+      setSubAgentRefreshTick((current) => current + 1)
+    },
     clearServerChannels: () => {
       setServerChannels(null)
     }
   })
+
+  useEffect(() => {
+    if (activeSettingsTab === 'mcp' && !mcpEnabled) {
+      setActiveSettingsTab('general')
+    }
+    if (activeSettingsTab === 'subAgents' && !subAgentEnabled) {
+      setActiveSettingsTab('general')
+    }
+  }, [activeSettingsTab, mcpEnabled, subAgentEnabled])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -1882,8 +1758,7 @@ export function SettingsView({
     { id: 'connection', label: t('settings.tab.connection') },
     { id: 'proxy', label: t('settings.tab.proxy') },
     { id: 'usage', label: t('settings.tab.usage') },
-    { id: 'channels', label: t('settings.tab.channels') },
-    { id: 'archivedThreads', label: t('settings.tab.archivedThreads') }
+    { id: 'channels', label: t('settings.tab.channels') }
   ]
   if (workspaceCoreApiAvailable) {
     tabs.splice(1, 0, { id: 'personalization', label: t('settings.tab.personalization') })
@@ -1891,6 +1766,10 @@ export function SettingsView({
   if (mcpEnabled) {
     tabs.push({ id: 'mcp', label: 'MCP' })
   }
+  if (subAgentEnabled) {
+    tabs.push({ id: 'subAgents', label: t('settings.tab.subAgents') })
+  }
+  tabs.push({ id: 'archivedThreads', label: t('settings.tab.archivedThreads') })
 
   return (
     <div
@@ -1964,7 +1843,7 @@ export function SettingsView({
         </header>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
+          <div style={{ maxWidth: activeSettingsTab === 'mcp' || activeSettingsTab === 'subAgents' ? '760px' : '560px' }}>
             {(connectionDirty || llmDirty || proxyDirty) && (
               <div
                 style={{
@@ -2059,7 +1938,7 @@ export function SettingsView({
                         <button
                           type="button"
                           onClick={() => setActiveSettingsTab('proxy')}
-                          style={{ ...secondaryButtonStyle(false), padding: '2px 8px', flexShrink: 0 }}
+                          style={{ ...secondaryButtonStyle(false), flexShrink: 0 }}
                         >
                           {t('settings.llm.proxyLock.openProxyTab')}
                         </button>
@@ -2613,16 +2492,33 @@ export function SettingsView({
                     return (
                       <SettingsRow
                         key={provider}
-                        label={t(`settings.proxy.provider.${provider}` as MessageKey)}
-                        description={
-                          <>
-                            {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
-                            {proxyProviderError[provider] && (
-                              <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
-                                {proxyProviderError[provider]}
+                        label={(
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                            <ProxyProviderIcon provider={provider} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                {t(`settings.proxy.provider.${provider}` as MessageKey)}
                               </div>
-                            )}
-                          </>
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--text-dimmed)',
+                                  lineHeight: 1.5,
+                                  marginTop: '4px'
+                                }}
+                              >
+                                {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
+                                {proxyProviderError[provider] && (
+                                  <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                    {proxyProviderError[provider]}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        description={
+                          undefined
                         }
                         control={
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3241,6 +3137,13 @@ export function SettingsView({
               <ArchivedThreadsSettingsView
                 workspacePath={workspacePath}
                 onThreadListRefreshRequested={onThreadListRefreshRequested}
+              />
+            )}
+
+            {activeSettingsTab === 'subAgents' && (
+              <SubAgentsPanel
+                enabled={subAgentEnabled}
+                refreshTick={subAgentRefreshTick}
               />
             )}
           </div>

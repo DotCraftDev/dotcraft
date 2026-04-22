@@ -22,6 +22,8 @@ export function WelcomeScreen(): JSX.Element {
   const t = useT()
   const locale = useLocale()
   const setUiLocale = useSetUiLocale()
+  const isMac = window.api.platform === 'darwin'
+  const languageSwitcherTop = isMac ? 20 : window.api.titleBarOverlayHeight + 16
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [loading, setLoading] = useState(false)
   const [switchingLocale, setSwitchingLocale] = useState(false)
@@ -100,7 +102,7 @@ export function WelcomeScreen(): JSX.Element {
       <div
         style={{
           position: 'absolute',
-          top: '20px',
+          top: `${languageSwitcherTop}px`,
           right: '20px',
           display: 'flex',
           alignItems: 'center',

@@ -70,6 +70,9 @@ public static class AppServerErrors
     public const int ExternalChannelNotFoundCode = -32080;
     public const int ExternalChannelValidationFailedCode = -32081;
     public const int ExternalChannelNameConflictCode = -32082;
+    public const int SubAgentProfileNotFoundCode = -32083;
+    public const int SubAgentProfileValidationFailedCode = -32084;
+    public const int SubAgentProfileProtectedCode = -32085;
     public const int GitHubTrackerConfigValidationFailedCode = -32090;
 
     // ── Automation-specific codes (-32050 to -32059) ──
@@ -161,6 +164,15 @@ public static class AppServerErrors
 
     public static AppServerException ExternalChannelNameConflict(string detail) =>
         new(ExternalChannelNameConflictCode, "External channel name conflict", new { detail });
+
+    public static AppServerException SubAgentProfileNotFound(string name) =>
+        new(SubAgentProfileNotFoundCode, $"SubAgent profile not found: {name}");
+
+    public static AppServerException SubAgentProfileValidationFailed(string detail) =>
+        new(SubAgentProfileValidationFailedCode, "SubAgent profile validation failed", new { detail });
+
+    public static AppServerException SubAgentProfileProtected(string detail) =>
+        new(SubAgentProfileProtectedCode, "SubAgent profile is protected", new { detail });
 
     public static AppServerException GitHubTrackerConfigValidationFailed(string detail) =>
         new(GitHubTrackerConfigValidationFailedCode, "GitHub tracker config validation failed", new { detail });
