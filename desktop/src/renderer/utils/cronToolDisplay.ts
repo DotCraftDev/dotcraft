@@ -196,3 +196,125 @@ export function formatCronResultLines(result: string | undefined, locale: AppLoc
 
   return null
 }
+
+/**
+ * Structured view of a successful `Cron(action: "add")` result, as returned by
+ * DotCraft.Core.Cron.CronTools (enriched payload). Returns null when the result
+ * is absent, malformed, or not a `status: "created"` payload.
+ */
+export interface CronCreatedDisplay {
+  jobId: string | undefined
+  jobName: string | undefined
+  nextRunAtMs: number | undefined
+  schedulePhrase: string
+  scheduleKind: string | undefined
+  message: string | undefined
+  deleteAfterRun: boolean | undefined
+  channel: string | undefined
+  toUser: string | undefined
+}
+
+export function parseCronCreatedResult(
+  result: string | undefined,
+  locale: AppLocale
+): CronCreatedDisplay | null {
+  if (result == null || result.trim() === '') return null
+  let root: unknown
+  try {
+    root = JSON.parse(result) as unknown
+  } catch {
+    return null
+  }
+  if (root === null || typeof root !== 'object' || Array.isArray(root)) return null
+  const o = root as Record<string, unknown>
+
+  const status = getJsonStr(o, 'status')
+  if (status !== 'created') return null
+
+  const jobId = getJsonStr(o, 'id', 'Id')
+  const jobName = getJsonStr(o, 'name', 'Name')
+  const nextRunAtMs = getJsonNumber(o, 'nextRun', 'NextRun')
+  const deleteAfterRun =
+    typeof o['deleteAfterRun'] === 'boolean' ? (o['deleteAfterRun'] as boolean) : undefined
+  const message = getJsonStr(o, 'message')
+  const channel = getJsonStr(o, 'channel')
+  const toUser = getJsonStr(o, 'toUser')
+
+  const scheduleRaw = o['schedule']
+  const schedule =
+    scheduleRaw !== null && typeof scheduleRaw === 'object' && !Array.isArray(scheduleRaw)
+      ? (scheduleRaw as Record<string, unknown>)
+      : undefined
+  const scheduleKind = schedule ? getJsonStr(schedule, 'kind') : undefined
+
+  const schedulePhrase = formatSchedulePhrase(schedule, locale)
+
+  return {
+    jobId,
+    jobName,
+    nextRunAtMs,
+    schedulePhrase,
+    scheduleKind,
+    message,
+    deleteAfterRun,
+    channel,
+    toUser
+  }
+}
+
+function formatSchedulePhrase(
+  schedule: Record<string, unknown> | undefined,
+  locale: AppLocale
+): string {
+  if (!schedule) return tr(locale, 'cron.schedule.unknown')
+  const kind = (getJsonStr(schedule, 'kind') ?? '').toLowerCase()
+
+  if (kind === 'every') {
+    const everyMs = getJsonNumber(schedule, 'everyMs')
+    const initialDelayMs = getJsonNumber(schedule, 'initialDelayMs')
+    const every = everyMs != null ? formatDuration(Math.max(0, Math.floor(everyMs / 1000))) : '?'
+    if (initialDelayMs != null && initialDelayMs > 0) {
+      const delay = formatDuration(Math.max(0, Math.floor(initialDelayMs / 1000)))
+      return tr(locale, 'cron.schedule.everyIn', { delay, every })
+    }
+    return tr(locale, 'cron.schedule.every', { every })
+  }
+
+  if (kind === 'daily') {
+    const h = getJsonNumber(schedule, 'dailyHour') ?? 0
+    const m = getJsonNumber(schedule, 'dailyMinute') ?? 0
+    const tz = getJsonStr(schedule, 'tz') ?? 'UTC'
+    const hh = String(Math.max(0, Math.floor(h))).padStart(2, '0')
+    const mm = String(Math.max(0, Math.floor(m))).padStart(2, '0')
+    return tr(locale, 'cron.schedule.dailyAt', { time: `${hh}:${mm}`, tz })
+  }
+
+  if (kind === 'at') {
+    const atMs = getJsonNumber(schedule, 'atMs')
+    if (atMs != null && Number.isFinite(atMs)) {
+      const diffSec = Math.floor((atMs - Date.now()) / 1000)
+      if (diffSec > 0) {
+        return tr(locale, 'cron.schedule.onceIn', { delay: formatDuration(diffSec) })
+      }
+      const d = new Date(atMs)
+      const time = d.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      })
+      return tr(locale, 'cron.schedule.onceAt', { time })
+    }
+    return tr(locale, 'cron.schedule.unknown')
+  }
+
+  return tr(locale, 'cron.schedule.unknown')
+}
+
+export function hasCronCreatedDisplayData(
+  result: string | undefined,
+  locale: AppLocale
+): boolean {
+  return parseCronCreatedResult(result, locale) != null
+}

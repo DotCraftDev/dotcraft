@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
-import { FileText, Sparkle, Terminal } from 'lucide-react'
-import { useT } from '../../contexts/LocaleContext'
+import { Bot, FileText, Sparkle, Terminal } from 'lucide-react'
+import { useLocale, useT } from '../../contexts/LocaleContext'
+import { translate } from '../../../shared/locales'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
+import { useCronStore } from '../../stores/cronStore'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageCopyButton } from './MessageCopyButton'
 import { parseUserMessageSegments, segmentsFromNativeInputParts } from './parseUserMessageSegments'
-import type { InputPart, UserMessageImageRef } from '../../types/conversation'
+import type { ConversationItem, InputPart, UserMessageImageRef } from '../../types/conversation'
 import { openImagePathInViewer } from '../../utils/conversationDeepLink'
 
 const imageDataUrlCache = new Map<string, string>()
@@ -16,6 +19,9 @@ interface UserMessageBlockProps {
   nativeInputParts?: InputPart[]
   imageDataUrls?: string[]
   images?: UserMessageImageRef[]
+  triggerKind?: ConversationItem['triggerKind']
+  triggerLabel?: string
+  triggerRefId?: string
 }
 
 /**
@@ -23,7 +29,15 @@ interface UserMessageBlockProps {
  * Plain text only — no Markdown. Spec §10.3.2
  * `@relative/path` tokens (from RichInputArea) render as compact file chips.
  */
-export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images }: UserMessageBlockProps): JSX.Element {
+export function UserMessageBlock({
+  text,
+  nativeInputParts,
+  imageDataUrls,
+  images,
+  triggerKind,
+  triggerLabel,
+  triggerRefId
+}: UserMessageBlockProps): JSX.Element {
   const t = useT()
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
@@ -210,6 +224,13 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
             )}
           </span>
         )}
+        {triggerKind && (
+          <AutomationTriggerPill
+            kind={triggerKind}
+            label={triggerLabel}
+            refId={triggerRefId}
+          />
+        )}
         <MessageCopyButton
           getText={() => text}
           visible={hovered && text.length > 0}
@@ -317,6 +338,88 @@ function FileRefChip({
       >
       <FileText size={12} strokeWidth={2.1} aria-hidden />
       <span>{fileName}</span>
+    </span>
+  )
+}
+
+function AutomationTriggerPill({
+  kind,
+  label,
+  refId
+}: {
+  kind: NonNullable<ConversationItem['triggerKind']>
+  label?: string
+  refId?: string
+}): JSX.Element {
+  const locale = useLocale()
+  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
+  const setAutomationsTab = useUIStore((s) => s.setAutomationsTab)
+  const selectCronJob = useCronStore((s) => s.selectCronJob)
+
+  const canNavigate =
+    (kind === 'cron' && !!refId) || (kind === 'automation' && !!refId)
+  const badgeText = translate(locale, 'automation.triggeredBy.badge')
+  const detailText = label
+    ? translate(
+        locale,
+        kind === 'heartbeat'
+          ? 'automation.triggeredBy.heartbeat'
+          : kind === 'cron'
+            ? 'automation.triggeredBy.cron'
+            : 'automation.triggeredBy.task',
+        { label }
+      )
+    : translate(locale, 'automation.triggeredBy.generic')
+
+  const onClick = canNavigate
+    ? () => {
+        setActiveMainView('automations')
+        if (kind === 'cron') {
+          setAutomationsTab('cron')
+          if (refId) selectCronJob(refId)
+        } else {
+          setAutomationsTab('tasks')
+        }
+      }
+    : undefined
+
+  const commonStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px 8px',
+    borderRadius: '999px',
+    border: '1px solid color-mix(in srgb, var(--border-active) 36%, transparent)',
+    background: 'color-mix(in srgb, var(--bg-tertiary) 80%, transparent)',
+    color: 'var(--text-dimmed)',
+    fontSize: '11px',
+    lineHeight: 1.25,
+    fontWeight: 500,
+    alignSelf: 'flex-start',
+    userSelect: 'none' as const
+  }
+
+  const title = `${badgeText} · ${detailText}`
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        style={{ ...commonStyle, cursor: 'pointer', border: commonStyle.border }}
+      >
+        <Bot size={11} strokeWidth={2.1} aria-hidden />
+        <span>{badgeText}</span>
+      </button>
+    )
+  }
+
+  return (
+    <span title={title} style={commonStyle}>
+      <Bot size={11} strokeWidth={2.1} aria-hidden />
+      <span>{badgeText}</span>
     </span>
   )
 }

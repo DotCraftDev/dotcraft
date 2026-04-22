@@ -101,6 +101,16 @@ export interface ConversationItem {
   approvalTarget?: string
   approvalReason?: string
   approvalState?: ApprovalState
+  /**
+   * When set on a userMessage item, indicates the message was synthesized by an
+   * automation mechanism (heartbeat, cron, automation) rather than typed by a
+   * human. Mirrors UserMessagePayload.TriggerKind on the server.
+   */
+  triggerKind?: 'heartbeat' | 'cron' | 'automation'
+  /** Optional human-readable label for the automation source (e.g. cron job name). */
+  triggerLabel?: string
+  /** Optional routing id for client-side click-through (e.g. cron job id, task id). */
+  triggerRefId?: string
 }
 
 export interface ConversationTurn {
@@ -285,9 +295,27 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     success: (raw.success as boolean | undefined)
       ?? (payload.success as boolean | undefined),
     images: payloadImages,
+    triggerKind: normalizeTriggerKind(
+      (raw.triggerKind as unknown) ?? (payload.triggerKind as unknown)
+    ),
+    triggerLabel: (raw.triggerLabel as string | undefined)
+      ?? (payload.triggerLabel as string | undefined),
+    triggerRefId: (raw.triggerRefId as string | undefined)
+      ?? (payload.triggerRefId as string | undefined),
     createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
     completedAt: (raw.completedAt as string | undefined)
   }
+}
+
+function normalizeTriggerKind(
+  value: unknown
+): 'heartbeat' | 'cron' | 'automation' | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'heartbeat' || normalized === 'cron' || normalized === 'automation') {
+    return normalized
+  }
+  return undefined
 }
 
 /** Convert a raw wire Turn into a ConversationTurn */

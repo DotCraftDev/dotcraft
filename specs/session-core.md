@@ -313,11 +313,16 @@ Each Item type has a specific payload structure:
       "mimeType": string,  // Optional MIME hint
       "fileName": string   // Optional original filename
     }
-  ]
+  ],
+  "triggerKind": string,   // Optional automation trigger marker: "heartbeat" | "cron" | "automation"
+  "triggerLabel": string,  // Optional human-readable source label (e.g. cron job name, task title)
+  "triggerRefId": string   // Optional routing id for click-through (e.g. cron job id, task id)
 }
 ```
 
 `nativeInputParts` is authoritative for history rendering and editor rehydration when present. `materializedInputParts` captures the exact prompt/image snapshot that Session Core received after transport-side input materialization. `text` remains for compatibility and preview generation but is no longer the sole source of truth for user-message reconstruction.
+
+The optional `triggerKind` trio is populated by Session Core when a turn is submitted inside a `TurnTriggerScope` (see `DotCraft.Protocol.TurnTriggerScope`). The automation-side runners set the scope so that heartbeat / cron (`AgentRunner`) and Automations (`AutomationSessionClient.SubmitTurnAsync`) synthesized messages carry a stable marker that clients can use to render an "automation-sourced" affordance and route click-through to the originating job/task. Fields are absent when the turn originates from a real user input.
 
 #### AgentMessage
 
