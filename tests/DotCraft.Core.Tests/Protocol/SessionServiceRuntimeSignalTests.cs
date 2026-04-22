@@ -7,6 +7,7 @@ using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
 using Microsoft.Agents.AI;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;
@@ -117,6 +118,67 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_tempDir, "threads", "archived", $"{thread.Id}.jsonl")));
     }
 
+    [Fact]
+    public async Task SubmitInputAsync_FirstCompletedTurn_PersistsThreadBeforeSessionRow()
+    {
+        var firstChatClient = new RecordingChatClient("first answer");
+        await using var firstFactory = CreateAgentFactory(firstChatClient);
+        var firstService = CreateService(firstFactory, firstChatClient);
+        var thread = await firstService.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(firstService.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var store = new ThreadStore(_tempDir);
+        Assert.NotNull(await store.LoadThreadAsync(thread.Id));
+        Assert.True(store.SessionFileExists(thread.Id));
+        Assert.True(ThreadRowExists(thread.Id));
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_AcrossFreshServiceInstance_RestoresPriorConversation()
+    {
+        var firstChatClient = new RecordingChatClient("first answer");
+        await using var firstFactory = CreateAgentFactory(firstChatClient);
+        var firstService = CreateService(firstFactory, firstChatClient);
+        var thread = await firstService.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(firstService.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var secondChatClient = new RecordingChatClient("second answer");
+        await using var secondFactory = CreateAgentFactory(secondChatClient);
+        var secondService = CreateService(secondFactory, secondChatClient);
+        await secondService.ResumeThreadAsync(thread.Id);
+
+        await DrainAsync(secondService.SubmitInputAsync(thread.Id, [new TextContent("follow up")]));
+
+        Assert.Equal(
+            ["user:hello", "assistant:first answer", "user:follow up"],
+            secondChatClient.LastMessages.Select(FormatMessage).ToList());
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_WhenLegacyThreadSessionRowIsMissing_RebuildsHistoryFromRollout()
+    {
+        var firstChatClient = new RecordingChatClient("first answer");
+        await using var firstFactory = CreateAgentFactory(firstChatClient);
+        var firstService = CreateService(firstFactory, firstChatClient);
+        var thread = await firstService.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(firstService.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+        DeleteSessionRow(thread.Id);
+
+        var secondChatClient = new RecordingChatClient("second answer");
+        await using var secondFactory = CreateAgentFactory(secondChatClient);
+        var secondService = CreateService(secondFactory, secondChatClient);
+        await secondService.ResumeThreadAsync(thread.Id);
+
+        await DrainAsync(secondService.SubmitInputAsync(thread.Id, [new TextContent("follow up")]));
+
+        Assert.Equal(
+            ["user:hello", "assistant:first answer", "user:follow up"],
+            secondChatClient.LastMessages.Select(FormatMessage).ToList());
+    }
+
     private SessionService CreateService(AgentFactory agentFactory, IChatClient chatClient)
     {
         var defaultAgent = chatClient.AsAIAgent(new ChatClientAgentOptions());
@@ -159,6 +221,45 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
         await foreach (var _ in events)
         {
         }
+    }
+
+    private static string FormatMessage(ChatMessage message)
+    {
+        var text = string.Concat(message.Contents.OfType<TextContent>().Select(content => content.Text));
+        var runtimeContextIndex = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
+        if (runtimeContextIndex >= 0)
+            text = text[..runtimeContextIndex];
+        return $"{message.Role}:{text.Trim()}";
+    }
+
+    private bool ThreadRowExists(string threadId)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM threads WHERE thread_id = $thread_id LIMIT 1";
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        return command.ExecuteScalar() != null;
+    }
+
+    private void DeleteSessionRow(string threadId)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM thread_sessions WHERE thread_id = $thread_id";
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.ExecuteNonQuery();
+    }
+
+    private SqliteConnection OpenStateConnection()
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_tempDir, "state.db"),
+                Mode = SqliteOpenMode.ReadWrite
+            }.ToString());
+        connection.Open();
+        return connection;
     }
 
     private sealed class FakeChatClient(ChatResponseUpdate[] streamUpdates) : IChatClient
@@ -227,6 +328,36 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
         {
             await Task.Delay(Timeout.Infinite, cancellationToken);
             yield break;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class RecordingChatClient(string responseText) : IChatClient
+    {
+        public IReadOnlyList<ChatMessage> LastMessages { get; private set; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastMessages = chatMessages.ToList();
+            return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent(responseText)])]));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            LastMessages = chatMessages.ToList();
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent(responseText)]);
+            await Task.CompletedTask;
         }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;

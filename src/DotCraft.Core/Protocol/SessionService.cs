@@ -1019,19 +1019,6 @@ public sealed class SessionService(
                     };
                 }
 
-                // Step 5i: Save AgentSession (server mode only)
-                if (thread.HistoryMode == HistoryMode.Server)
-                {
-                    try
-                    {
-                        await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
-                    }
-                }
-
                 // Step 5j: Run Stop hooks
                 if (hookRunner != null)
                 {
@@ -1085,6 +1072,7 @@ public sealed class SessionService(
                 try
                 {
                     await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                    await TrySaveSessionAsync(agent, session, threadId);
                 }
                 catch (Exception ex)
                 {
@@ -1400,6 +1388,21 @@ public sealed class SessionService(
         catch (Exception ex)
         {
             logger?.LogError(ex, "Failed to persist thread state for thread {ThreadId}", thread.Id);
+        }
+    }
+
+    private async Task TrySaveSessionAsync(AIAgent agent, AgentSession session, string threadId)
+    {
+        if (IsPendingPermanentDeletion(threadId))
+            return;
+
+        try
+        {
+            await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
         }
     }
 
