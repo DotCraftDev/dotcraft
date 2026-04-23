@@ -21,6 +21,23 @@ config.json
 
 ---
 
+## Cron vs Automation Task
+
+Both Cron and Automation Task fire an agent on a schedule, but their positioning is fundamentally different — don't conflate them:
+
+| Aspect | Cron | Automation Task |
+|--------|------|------------------|
+| Entry point | Agent tool call `Cron add/list/remove` during a conversation | Desktop `Automations` panel / template gallery / drag-and-drop |
+| Granularity | A single message + schedule, fire-and-forget | A full editable `workflow.md` (multi-step prompt / `max_rounds` / hooks) |
+| Thread | Each job owns its own `cron:<id>` thread automatically | Isolated thread by default; **can be bound to any existing thread** and run inside it on schedule |
+| Lifecycle | Runs once, posts one message | `pending → running → (awaiting_review → approved/rejected) → pending` (auto-rearmed by schedule), with optional human review |
+| Visibility | Automations panel · Cron tab, disable/delete only | Automations panel · Tasks tab, full CRUD + review |
+| Typical use | "Remind me to check email every day at 9 AM", "Send todo digest every hour" | "Scan recent commits for bugs daily", "Bind a Feishu thread so the agent auto-responds when a new reply lands" |
+
+**How to choose**: reach for Cron for one-liner reminders/notifications. Use an Automation Task when you need a multi-turn agent workflow, periodic deliverables, a human-review gate, or to keep an agent "on call" inside an existing conversation (Feishu / WeCom / QQ / desktop thread).
+
+---
+
 ## Quick Start: Local Tasks
 
 ### Step 1: Configure Automations

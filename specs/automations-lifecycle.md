@@ -942,12 +942,71 @@ When a task starts running, the Desktop can subscribe via `thread/subscribe` usi
 | Method | Direction | Parameters | Returns |
 |--------|-----------|------------|---------|
 | `automation/task/list` | Client → Server | `{ source?: string, states?: string[] }` | `{ tasks: AutomationTaskWire[] }` |
-| `automation/task/create` | Client → Server | `{ title, description?, workflowTemplate?, approvalPolicy?, workspaceMode?: "project" \| "isolated" }` | `{ task: AutomationTaskWire }` |
+| `automation/task/create` | Client → Server | `{ title, description?, workflowTemplate?, approvalPolicy?, workspaceMode?: "project" \| "isolated", schedule?: AutomationScheduleWire, threadBinding?: AutomationThreadBindingWire, requireApproval?: boolean, templateId?: string }` | `{ task: AutomationTaskWire }` |
 | `automation/task/read` | Client → Server | `{ taskId }` | `{ task: AutomationTaskWire, threadId?: string }` |
 | `automation/task/update` | Client → Server | `{ taskId, title?, description?, priority?, labels? }` | `{ task: AutomationTaskWire }` |
+| `automation/task/updateBinding` | Client → Server | `{ sourceName, taskId, threadBinding?: AutomationThreadBindingWire \| null }` | `{ task: AutomationTaskWire }` |
 | `automation/task/cancel` | Client → Server | `{ taskId }` | `{}` |
 | `automation/task/review` | Client → Server | `{ taskId, decision, feedback? }` | `{ task: AutomationTaskWire }` |
+| `automation/template/list` | Client → Server | `{}` | `{ templates: AutomationTemplateWire[] }` |
 | `automation/snapshot` | Client → Server | `{}` | `{ snapshot: OrchestratorSnapshotWire }` |
+
+`automation/task/create` accepts either `workflowTemplate` (raw markdown body) or `templateId` (id of a built-in template from `automation/template/list`). When `templateId` is given, the server resolves the workflow body from the built-in registry. Any of the schedule / thread binding / approval / workspace fields supplied explicitly override template defaults.
+
+`automation/task/updateBinding` rewrites only the `thread_binding` block in `task.md` without touching the workflow body; pass `threadBinding: null` (or omit it) to clear an existing binding. The returned `AutomationTaskWire` carries the post-update state. When binding a task that is currently `agent_running`, clients should confirm with the user first: the in-flight run continues against the previous thread but the next tick will land in the newly bound thread.
+
+### 14.1.1 AutomationScheduleWire DTO
+
+Mirrors `CronSchedule` so a single runtime helper computes next-run timestamps for both Cron jobs and Automation tasks.
+
+```json
+{
+  "kind": "daily",          // "every" | "at" | "daily"
+  "atMs": 1714041600000,     // optional; required for kind="at"
+  "everyMs": 3600000,        // optional; required for kind="every"
+  "initialDelayMs": 0,       // optional
+  "dailyHour": 9,            // required for kind="daily"
+  "dailyMinute": 0,          // required for kind="daily"
+  "tz": "Asia/Shanghai"      // optional IANA zone; defaults to server TZ
+}
+```
+
+Absence of `schedule` (or `schedule.kind == "once"` treated by desktop as the sentinel for "no schedule") means the task is one-shot — after `awaiting_review` resolves, it settles into `approved`/`rejected` and does not re-arm.
+
+### 14.1.2 AutomationThreadBindingWire DTO
+
+```json
+{
+  "threadId": "thr_abc123",
+  "mode": "run-in-thread"
+}
+```
+
+When present on a task, dispatch bypasses the `task-<source>-<id>` isolated thread and submits turns directly into `threadId` with `triggerKind="automation"`. The target thread's existing `ThreadConfiguration` (workspace, approval policy, tool profile) is preserved — the orchestrator does not override it. If the target thread has been deleted or archived, the task transitions to `failed` and a `automation/task/stateChanged` event is emitted so the client can surface a "rebind" affordance.
+
+Only `"run-in-thread"` is defined in v1. Future modes may include `"poll-separate"` (task owns its own thread but pulls context from the target).
+
+### 14.1.3 AutomationTemplateWire DTO
+
+```json
+{
+  "id": "scan-commits-for-bugs",
+  "title": "Scan recent commits for bugs",
+  "description": "Daily sweep of commits since last run …",
+  "icon": "🐛",
+  "category": "review",
+  "workflowMarkdown": "---\n…\n---\n…",
+  "defaultSchedule": { "kind": "daily", "dailyHour": 9, "dailyMinute": 0 },
+  "defaultWorkspaceMode": "project",
+  "defaultApprovalPolicy": "workspaceScope",
+  "defaultRequireApproval": false,
+  "needsThreadBinding": false,
+  "defaultTitle": "Scan recent commits for bugs",
+  "defaultDescription": "…"
+}
+```
+
+Templates are presentation-only presets served by the built-in `LocalTaskTemplates` registry. Clients display them in the Automations view (and the "Use template" picker inside the New Task dialog) and forward the selected `id` plus any user edits back through `automation/task/create`.
 
 ### 14.2 Updated thread/list Filter
 
@@ -990,11 +1049,19 @@ The `threadId` in `automation/task/stateChanged` and `automation/review/requeste
   "agentSummary": "Replaced session tokens with JWT...",
   "threadId": "thr_abc123",
   "approvalPolicy": "workspaceScope",
+  "schedule": { "kind": "daily", "dailyHour": 9, "dailyMinute": 0, "tz": "Asia/Shanghai" },
+  "threadBinding": { "threadId": "thr_xyz789", "mode": "run-in-thread" },
+  "requireApproval": false,
+  "nextRunAt": "2026-04-24T01:00:00Z",
   "url": null,
   "createdAt": "2026-03-22T10:00:00Z",
   "updatedAt": "2026-03-22T12:30:00Z"
 }
 ```
+
+- `schedule` / `threadBinding` / `requireApproval` are all optional and mirror the `task.md` front matter fields.
+- `nextRunAt` is an ISO-8601 UTC timestamp surfaced so clients can render "Next run" badges without re-deriving the schedule. It is `null` when the task is one-shot or ready to dispatch immediately.
+- When `threadBinding` is set, `threadId` reflects the bound target (reused across runs); otherwise each round still occupies an isolated `task-<source>-<id>` thread.
 
 ### 14.5 ThreadConfiguration Wire Extensions
 

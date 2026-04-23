@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
+using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Protocol;
 using DotCraft.Automations.Workspace;
+using DotCraft.Cron;
 using DotCraft.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -22,6 +24,7 @@ public sealed class AutomationOrchestrator
     private readonly AutomationWorkspaceManager _workspaceManager;
     private readonly LocalWorkflowLoader _workflowLoader;
     private readonly IToolProfileRegistry _toolProfileRegistry;
+    private readonly IChannelRuntimeRegistry? _channelRuntimeRegistry;
     private readonly ILogger<AutomationOrchestrator> _logger;
     private readonly ConcurrentDictionary<string, IAutomationSource> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly OrchestratorState _state = new();
@@ -41,12 +44,14 @@ public sealed class AutomationOrchestrator
         LocalWorkflowLoader workflowLoader,
         IToolProfileRegistry toolProfileRegistry,
         ILogger<AutomationOrchestrator> logger,
-        IEnumerable<IAutomationSource> sources)
+        IEnumerable<IAutomationSource> sources,
+        IChannelRuntimeRegistry? channelRuntimeRegistry = null)
     {
         _config = config;
         _workspaceManager = workspaceManager;
         _workflowLoader = workflowLoader;
         _toolProfileRegistry = toolProfileRegistry;
+        _channelRuntimeRegistry = channelRuntimeRegistry;
         _logger = logger;
         foreach (var s in sources)
             _sources[s.Name] = s;
@@ -114,33 +119,27 @@ public sealed class AutomationOrchestrator
         PollOnceAsync(cancellationToken);
 
     /// <summary>
-    /// Approves a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Approved"/>.
+    /// Approves a task via its source.
+    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
+    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Approved"/>.
     /// </summary>
     public async Task ApproveTaskAsync(string sourceName, string taskId, CancellationToken ct)
     {
         var source = ResolveSource(sourceName);
         await source.ApproveTaskAsync(taskId, ct);
-
-        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
-        {
-            cached.Status = AutomationTaskStatus.Approved;
-            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Approved);
-        }
+        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Approved, ct);
     }
 
     /// <summary>
-    /// Rejects a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Rejected"/>.
+    /// Rejects a task via its source.
+    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
+    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Rejected"/>.
     /// </summary>
     public async Task RejectTaskAsync(string sourceName, string taskId, string? reason, CancellationToken ct)
     {
         var source = ResolveSource(sourceName);
         await source.RejectTaskAsync(taskId, reason, ct);
-
-        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
-        {
-            cached.Status = AutomationTaskStatus.Rejected;
-            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Rejected);
-        }
+        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Rejected, ct);
     }
 
     /// <summary>
@@ -285,6 +284,8 @@ public sealed class AutomationOrchestrator
                     continue;
                 }
 
+                EnsureNextRunAtInitialized(pending);
+
                 var pendingOnly = pending
                     .Where(t => t.Status == AutomationTaskStatus.Pending)
                     .ToList();
@@ -310,6 +311,29 @@ public sealed class AutomationOrchestrator
 
                     if (task.Status != AutomationTaskStatus.Pending)
                         continue;
+
+                    // Schedule-aware gate: skip scheduled tasks whose next run is still in the future.
+                    // Tasks without a schedule fall through immediately (legacy one-shot semantics).
+                    if (task.Schedule != null && task.NextRunAt is { } next && next > DateTimeOffset.UtcNow)
+                    {
+                        _logger.LogDebug(
+                            "Task {TaskId} not due yet (next: {Next}, source: {Source})",
+                            task.Id, next, source.Name);
+                        continue;
+                    }
+
+                    // Channel readiness gate: for tasks bound to an existing thread whose origin channel is
+                    // external (adapter-backed), defer this tick if the adapter has not finished its
+                    // initialize/initialized handshake. Dispatching before that would construct an agent
+                    // without the channel's declared tools (see ExternalChannelToolProvider). Native channels
+                    // and unbound tasks return true from IsBoundChannelReadyAsync and fall through.
+                    if (task.ThreadBinding != null && !await IsBoundChannelReadyAsync(task.ThreadBinding, ct))
+                    {
+                        _logger.LogDebug(
+                            "Task {TaskId} bound thread's channel not ready yet; deferring (source: {Source})",
+                            task.Id, source.Name);
+                        continue;
+                    }
 
                     var taskKey = TaskKey(task);
 
@@ -368,6 +392,40 @@ public sealed class AutomationOrchestrator
             "Poll completed in {ElapsedMs}ms. {PollDetails}",
             elapsedMs,
             sb.ToString());
+    }
+
+    /// <summary>
+    /// Gate used by <see cref="PollOnceAsync"/> before dispatching a bound task: returns true when the target
+    /// thread's origin channel runtime is ready to accept a turn (i.e. its declared tools are settled).
+    /// </summary>
+    /// <remarks>
+    /// Conservative defaults to preserve legacy behavior:
+    /// <list type="bullet">
+    ///   <item>No <see cref="IChannelRuntimeRegistry"/> wired (e.g. unit-test hosts): returns true.</item>
+    ///   <item>Session client not set, or binding points to a missing thread: returns true — the subsequent
+    ///     dispatch path will surface a clearer "missing thread" failure instead of silently deferring forever.</item>
+    ///   <item>Thread has no <c>OriginChannel</c> (legacy data): returns true.</item>
+    ///   <item>Runtime not yet registered for the origin channel: returns false (defer; likely still loading).</item>
+    ///   <item>Runtime found: returns <see cref="IChannelRuntime.IsReady"/>.</item>
+    /// </list>
+    /// </remarks>
+    internal async Task<bool> IsBoundChannelReadyAsync(AutomationThreadBinding binding, CancellationToken ct)
+    {
+        if (_channelRuntimeRegistry == null || _sessionClient == null)
+            return true;
+
+        var thread = await _sessionClient.TryGetThreadAsync(binding.ThreadId, ct);
+        if (thread == null)
+            return true;
+
+        var originChannel = thread.OriginChannel;
+        if (string.IsNullOrWhiteSpace(originChannel))
+            return true;
+
+        if (!_channelRuntimeRegistry.TryGet(originChannel, out var runtime) || runtime == null)
+            return false;
+
+        return runtime.IsReady;
     }
 
     /// <summary>Truncates task ids for log lines (max 64 chars).</summary>
@@ -462,9 +520,10 @@ public sealed class AutomationOrchestrator
             throw new InvalidOperationException("Session client is not set.");
 
         _logger.LogInformation(
-            "Dispatch starting for task {TaskId} (source: {SourceName})",
+            "Dispatch starting for task {TaskId} (source: {SourceName}, bound: {Bound})",
             task.Id,
-            source.Name);
+            source.Name,
+            task.ThreadBinding != null);
 
         task.Status = AutomationTaskStatus.Dispatched;
         TrackTask(task);
@@ -476,9 +535,39 @@ public sealed class AutomationOrchestrator
             source.Name);
 
         string workspacePath;
+        string threadId;
         string? automationTaskDirectory = null;
+        var boundThreadMode = task.ThreadBinding != null;
 
-        if (task is LocalAutomationTask localTask)
+        if (boundThreadMode)
+        {
+            // Bound mode: do NOT create or mutate the target thread's configuration. We rely on the thread's
+            // existing workspace/tool-profile/approval policy as configured by the user. The orchestrator only
+            // submits turns annotated with automation trigger metadata. If the thread no longer exists we mark
+            // the task as failed so the UI can prompt the user to re-bind.
+            var targetId = task.ThreadBinding!.ThreadId;
+            var thread = await client.TryGetThreadAsync(targetId, ct);
+            if (thread == null)
+            {
+                _logger.LogWarning(
+                    "Task {TaskId} bound thread {ThreadId} is missing; marking as failed",
+                    task.Id, targetId);
+                task.Status = AutomationTaskStatus.Failed;
+                TrackTask(task);
+                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+                await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
+                return;
+            }
+
+            threadId = targetId;
+            workspacePath = thread.WorkspacePath;
+            if (task is LocalAutomationTask localBound)
+            {
+                localBound.AgentWorkspacePath = workspacePath;
+                automationTaskDirectory = localBound.TaskDirectory;
+            }
+        }
+        else if (task is LocalAutomationTask localTask)
         {
             var workspaceMode = await _workflowLoader.GetWorkspaceModeAsync(localTask, ct);
             if (workspaceMode == AutomationWorkspaceMode.Isolated)
@@ -494,28 +583,44 @@ public sealed class AutomationOrchestrator
 
             localTask.AgentWorkspacePath = workspacePath;
             automationTaskDirectory = localTask.TaskDirectory;
+
+            var threadConfig = new ThreadConfiguration
+            {
+                WorkspaceOverride = workspacePath,
+                ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
+                ApprovalPolicy = ApprovalPolicy.AutoApprove,
+                AutomationTaskDirectory = automationTaskDirectory,
+                RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
+            };
+
+            threadId = await client.CreateOrResumeThreadAsync(
+                AutomationsChannelName,
+                $"task-{task.SourceName}-{task.Id}",
+                threadConfig,
+                ct,
+                displayName: task.Title);
         }
         else
         {
             workspacePath = await source.ProvisionWorkspaceAsync(task, ct)
                             ?? await _workspaceManager.ProvisionAsync(task, ct);
+
+            var threadConfig = new ThreadConfiguration
+            {
+                WorkspaceOverride = workspacePath,
+                ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
+                ApprovalPolicy = ApprovalPolicy.AutoApprove,
+                AutomationTaskDirectory = automationTaskDirectory,
+                RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
+            };
+
+            threadId = await client.CreateOrResumeThreadAsync(
+                AutomationsChannelName,
+                $"task-{task.SourceName}-{task.Id}",
+                threadConfig,
+                ct,
+                displayName: task.Title);
         }
-
-        var threadConfig = new ThreadConfiguration
-        {
-            WorkspaceOverride = workspacePath,
-            ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
-            ApprovalPolicy = ApprovalPolicy.AutoApprove,
-            AutomationTaskDirectory = automationTaskDirectory,
-            RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
-        };
-
-        var threadId = await client.CreateOrResumeThreadAsync(
-            AutomationsChannelName,
-            $"task-{task.SourceName}-{task.Id}",
-            threadConfig,
-            ct,
-            displayName: task.Title);
 
         _logger.LogInformation(
             "Thread ready for task {TaskId} (source: {SourceName}, threadId: {ThreadId})",
@@ -668,15 +773,46 @@ public sealed class AutomationOrchestrator
             source.Name,
             summary?.Length ?? 0);
 
-        task.Status = AutomationTaskStatus.AwaitingReview;
-        TrackTask(task);
-        await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, ct);
-        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview);
-        _logger.LogInformation(
-            "Task {TaskId} status: AwaitingReview (source: {SourceName}, threadId: {ThreadId})",
-            task.Id,
-            source.Name,
-            threadId);
+        if (task.RequireApproval)
+        {
+            task.Status = AutomationTaskStatus.AwaitingReview;
+            TrackTask(task);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview);
+            _logger.LogInformation(
+                "Task {TaskId} status: AwaitingReview (source: {SourceName}, threadId: {ThreadId})",
+                task.Id,
+                source.Name,
+                threadId);
+            return;
+        }
+
+        // Review skipped (require_approval=false): if a schedule is present, rearm and loop back to Pending;
+        // otherwise settle into Approved (treating silent completion as an implicit approval for one-shot tasks).
+        if (task.Schedule != null)
+        {
+            RearmSchedule(task);
+            task.Status = AutomationTaskStatus.Pending;
+            TrackTask(task);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
+            _logger.LogInformation(
+                "Task {TaskId} rearmed for next run at {NextRunAt} (source: {SourceName})",
+                task.Id,
+                task.NextRunAt,
+                source.Name);
+        }
+        else
+        {
+            task.Status = AutomationTaskStatus.Approved;
+            TrackTask(task);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Approved, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Approved);
+            _logger.LogInformation(
+                "Task {TaskId} auto-completed (no approval required, no schedule) — source: {SourceName}",
+                task.Id,
+                source.Name);
+        }
     }
 
     /// <summary>
@@ -747,6 +883,104 @@ public sealed class AutomationOrchestrator
         return source;
     }
 
+    private async Task FinalizeReviewedTaskAsync(
+        IAutomationSource source,
+        string taskId,
+        AutomationTaskStatus terminalStatus,
+        CancellationToken ct)
+    {
+        var task = await ReloadTaskAfterReviewAsync(source, taskId, ct);
+        if (task.Schedule != null)
+        {
+            RearmSchedule(task);
+            task.Status = AutomationTaskStatus.Pending;
+            TrackTask(task);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
+            return;
+        }
+
+        task.Status = terminalStatus;
+        TrackTask(task);
+        await RaiseStatusChangedAsync(task, terminalStatus);
+    }
+
+    private async Task<AutomationTask> ReloadTaskAfterReviewAsync(
+        IAutomationSource source,
+        string taskId,
+        CancellationToken ct)
+    {
+        var sourceTask = (await source.GetAllTasksAsync(ct))
+            .FirstOrDefault(t => string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        if (sourceTask != null)
+            return sourceTask;
+
+        if (_allTasks.TryGetValue(TaskKey(source.Name, taskId), out var cached))
+            return cached;
+
+        throw new KeyNotFoundException($"Task '{taskId}' was not found in source '{source.Name}' after review.");
+    }
+
     private static string TaskKey(AutomationTask task) => TaskKey(task.SourceName, task.Id);
     private static string TaskKey(string sourceName, string taskId) => $"{sourceName}::{taskId}";
+
+    /// <summary>
+    /// Ensures each scheduled task has a <see cref="AutomationTask.NextRunAt"/> computed.
+    /// Called once per poll cycle so that schedules loaded from disk are honored without requiring task edits.
+    /// </summary>
+    /// <remarks>
+    /// First-tick semantics for <c>kind: every</c>: when <see cref="AutomationTask.NextRunAt"/> is null
+    /// (e.g. a brand-new task whose <c>next_run_at</c> has never been persisted), treat it as immediately due
+    /// (<see cref="AutomationTask.CreatedAt"/> or now). This differs from <see cref="DotCraft.Cron.CronService"/>,
+    /// which treats the first tick as "one interval from registration"; automation tasks are user-visible and should
+    /// fire on the very first poll after creation. Once the task runs, <see cref="RearmSchedule"/> advances
+    /// NextRunAt to now+ev and the file store persists it, so subsequent polls follow the true cadence.
+    /// </remarks>
+    internal static void EnsureNextRunAtInitialized(IEnumerable<AutomationTask> tasks)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nowMs = now.ToUnixTimeMilliseconds();
+        foreach (var task in tasks)
+        {
+            if (task.Schedule == null)
+            {
+                task.NextRunAt = null;
+                continue;
+            }
+            if (task.NextRunAt != null)
+                continue;
+
+            if (string.Equals(task.Schedule.Kind, "every", StringComparison.OrdinalIgnoreCase))
+            {
+                if (task.Schedule.InitialDelayMs is { } initialDelay && initialDelay > 0)
+                    task.NextRunAt = now.AddMilliseconds(initialDelay);
+                else
+                    task.NextRunAt = task.CreatedAt ?? now;
+                continue;
+            }
+
+            var ms = CronScheduleHelpers.ComputeNextRunMs(task.Schedule, lastRunAtMs: null, nowUtcMs: nowMs);
+            task.NextRunAt = ms.HasValue
+                ? DateTimeOffset.FromUnixTimeMilliseconds(ms.Value)
+                : null;
+        }
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="AutomationTask.NextRunAt"/> after a run completed, using the just-finished run time
+    /// as <c>lastRunAtMs</c>.
+    /// </summary>
+    private static void RearmSchedule(AutomationTask task)
+    {
+        if (task.Schedule == null)
+        {
+            task.NextRunAt = null;
+            return;
+        }
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var ms = CronScheduleHelpers.ComputeNextRunMs(task.Schedule, lastRunAtMs: nowMs, nowUtcMs: nowMs);
+        task.NextRunAt = ms.HasValue
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ms.Value)
+            : null;
+    }
 }

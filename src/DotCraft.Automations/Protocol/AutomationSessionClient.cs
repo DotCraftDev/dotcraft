@@ -86,6 +86,22 @@ public sealed class AutomationSessionClient(ISessionService sessionService, DotC
     }
 
     /// <summary>
+    /// Attempts to load a thread by id. Returns null when the thread does not exist or has been deleted,
+    /// so the orchestrator can mark tasks whose binding target is gone as failed without throwing.
+    /// </summary>
+    public async Task<SessionThread?> TryGetThreadAsync(string threadId, CancellationToken ct)
+    {
+        try
+        {
+            return await sessionService.GetThreadAsync(threadId, ct);
+        }
+        catch (KeyNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Cancels the active turn on the thread, if any.
     /// </summary>
     public async Task InterruptAsync(string threadId, CancellationToken ct)

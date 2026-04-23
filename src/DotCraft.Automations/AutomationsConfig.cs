@@ -32,6 +32,14 @@ public sealed class AutomationsConfig
     public string LocalTasksRoot { get; set; } = "";
 
     /// <summary>
+    /// Root directory for user-authored automation templates. When empty, uses
+    /// <c>{CraftPath}/automations/templates/</c>. Each template is a subdirectory containing
+    /// a <c>template.md</c> file.
+    /// </summary>
+    [ConfigField(Hint = "Root directory for user-authored templates. Leave blank for {CraftPath}/automations/templates/.")]
+    public string UserTemplatesRoot { get; set; } = "";
+
+    /// <summary>
     /// Maximum time a single agent turn may run before being cancelled.
     /// Default: 30 minutes. Set to zero or negative to disable.
     /// </summary>

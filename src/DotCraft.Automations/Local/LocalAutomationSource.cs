@@ -124,6 +124,7 @@ public sealed class LocalAutomationSource(
             var workspace = local.AgentWorkspacePath ?? Path.Combine(local.TaskDirectory, "workspace");
             await RunShellHookAsync(workspace, workflow.OnApprove, ct);
         }
+
     }
 
     /// <summary>
@@ -150,6 +151,7 @@ public sealed class LocalAutomationSource(
             var workspace = local.AgentWorkspacePath ?? Path.Combine(local.TaskDirectory, "workspace");
             await RunShellHookAsync(workspace, workflow.OnReject, ct);
         }
+
     }
 
     /// <summary>

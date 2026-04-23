@@ -190,6 +190,14 @@ public sealed class ExternalChannelHost : IChannelService
             : [];
 
     /// <summary>
+    /// External channels are "ready" only after the adapter has connected and completed
+    /// the <c>initialize</c> / <c>initialized</c> handshake (so <see cref="AppServerConnection.IsClientReady"/>
+    /// is true and declared tools are settled). Before that, turn execution against this
+    /// channel would miss channel-native tools.
+    /// </summary>
+    public bool IsReady => IsAdapterConnected;
+
+    /// <summary>
     /// Starts the external channel adapter.
     /// For subprocess mode, spawns the process and enters the message loop.
     /// For WebSocket mode, waits for the adapter to connect and then enters the message loop.

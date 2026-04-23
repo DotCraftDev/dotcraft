@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
+  type AutomationTemplate,
   type SourceFilter
 } from '../../stores/automationsStore'
 import { useCronStore } from '../../stores/cronStore'
@@ -83,7 +84,14 @@ export function AutomationsView(): JSX.Element {
   const selectedCronJobId = useCronStore((s) => s.selectedCronJobId)
 
   const [showNewTask, setShowNewTask] = useState(false)
+  const [newTaskTemplate, setNewTaskTemplate] = useState<AutomationTemplate | undefined>(undefined)
+  const [newDialogTab, setNewDialogTab] = useState<'task' | 'template'>('task')
+  const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
+  const templates = useAutomationsStore((s) => s.templates)
+  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
+  const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
+  const [templatesCollapsed, setTemplatesCollapsed] = useState(false)
 
   const filterTabs: { key: SourceFilter; label: string }[] = useMemo(
     () => [
@@ -121,6 +129,12 @@ export function AutomationsView(): JSX.Element {
       stopPolling()
     }
   }, [hasTasks, startPolling, stopPolling])
+
+  useEffect(() => {
+    if (hasTasks && filterSource !== 'github' && !templatesLoaded) {
+      void fetchTemplates()
+    }
+  }, [hasTasks, filterSource, templatesLoaded, fetchTemplates])
 
   useEffect(() => {
     return () => {
@@ -267,7 +281,12 @@ export function AutomationsView(): JSX.Element {
                 <button
                   type="button"
                   aria-label={t('auto.createTask')}
-                  onClick={() => setShowNewTask(true)}
+                  onClick={() => {
+                    setNewTaskTemplate(undefined)
+                    setEditingTemplate(undefined)
+                    setNewDialogTab('task')
+                    setShowNewTask(true)
+                  }}
                   style={{
                     padding: '5px 14px',
                     borderRadius: '6px',
@@ -396,6 +415,232 @@ export function AutomationsView(): JSX.Element {
             role="tabpanel"
             style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
           >
+            {filterSource !== 'github' && (
+              <div style={{ padding: '6px 10px 10px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '8px'
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--text-secondary)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em'
+                    }}
+                  >
+                    {t('auto.templates.title')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTemplatesCollapsed((v) => !v)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-tertiary)',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {templatesCollapsed ? t('auto.templates.show') : t('auto.templates.hide')}
+                  </button>
+                </div>
+                {!templatesCollapsed && (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '8px',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))'
+                    }}
+                  >
+                    {templates.map((tpl) => (
+                      <div
+                        key={tpl.id}
+                        style={{ position: 'relative' }}
+                        onMouseEnter={(e) => {
+                          const card = e.currentTarget.querySelector(
+                            '[data-card]'
+                          ) as HTMLElement | null
+                          if (card) card.style.borderColor = 'var(--accent)'
+                          const actions = e.currentTarget.querySelector(
+                            '[data-actions]'
+                          ) as HTMLElement | null
+                          if (actions) actions.style.opacity = '1'
+                        }}
+                        onMouseLeave={(e) => {
+                          const card = e.currentTarget.querySelector(
+                            '[data-card]'
+                          ) as HTMLElement | null
+                          if (card) card.style.borderColor = 'var(--border-default)'
+                          const actions = e.currentTarget.querySelector(
+                            '[data-actions]'
+                          ) as HTMLElement | null
+                          if (actions) actions.style.opacity = '0'
+                        }}
+                      >
+                        <button
+                          type="button"
+                          data-card
+                          onClick={() => {
+                            setNewTaskTemplate(tpl)
+                            setEditingTemplate(undefined)
+                            setNewDialogTab('task')
+                            setShowNewTask(true)
+                          }}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            gap: '4px',
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-default)',
+                            backgroundColor: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            minHeight: '80px',
+                            transition: 'border-color 0.15s'
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              width: '100%'
+                            }}
+                          >
+                            <span style={{ fontSize: '18px' }}>{tpl.icon ?? '✦'}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>
+                              {tpl.title}
+                            </span>
+                            {tpl.isUser && (
+                              <span
+                                style={{
+                                  padding: '1px 5px',
+                                  borderRadius: '999px',
+                                  fontSize: '9px',
+                                  fontWeight: 500,
+                                  color: 'var(--accent)',
+                                  backgroundColor:
+                                    'color-mix(in srgb, var(--accent) 12%, transparent)',
+                                  border:
+                                    '1px solid color-mix(in srgb, var(--accent) 30%, transparent)'
+                                }}
+                              >
+                                {t('auto.gallery.my.badge')}
+                              </span>
+                            )}
+                          </div>
+                          {tpl.description && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-secondary)',
+                                lineHeight: 1.4,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              {tpl.description}
+                            </span>
+                          )}
+                        </button>
+                        {tpl.isUser && (
+                          <div
+                            data-actions
+                            style={{
+                              position: 'absolute',
+                              top: '6px',
+                              right: '6px',
+                              display: 'flex',
+                              gap: '4px',
+                              opacity: 0,
+                              transition: 'opacity 0.15s'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditingTemplate(tpl)
+                                setNewTaskTemplate(undefined)
+                                setNewDialogTab('template')
+                                setShowNewTask(true)
+                              }}
+                              title={t('auto.gallery.my.edit')}
+                              aria-label={t('auto.gallery.my.edit')}
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-default)',
+                                backgroundColor: 'var(--bg-primary)',
+                                color: 'var(--text-secondary)',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                                padding: 0
+                              }}
+                            >
+                              ✎
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTemplate(undefined)
+                        setNewTaskTemplate(undefined)
+                        setNewDialogTab('template')
+                        setShowNewTask(true)
+                      }}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: '1px dashed var(--border-default)',
+                        backgroundColor: 'transparent',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        minHeight: '80px',
+                        fontSize: '12px',
+                        fontWeight: 500
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--accent)'
+                        e.currentTarget.style.color = 'var(--accent)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--border-default)'
+                        e.currentTarget.style.color = 'var(--text-secondary)'
+                      }}
+                    >
+                      <span style={{ fontSize: '18px', lineHeight: 1 }}>＋</span>
+                      <span>{t('auto.gallery.my.create')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             {loading && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <SkeletonCard />
@@ -534,7 +779,19 @@ export function AutomationsView(): JSX.Element {
         )}
       </div>
 
-      {showNewTask && <NewTaskDialog onClose={() => setShowNewTask(false)} />}
+      {showNewTask && (
+        <NewTaskDialog
+          onClose={() => {
+            setShowNewTask(false)
+            setNewTaskTemplate(undefined)
+            setEditingTemplate(undefined)
+            setNewDialogTab('task')
+          }}
+          initialTemplate={newTaskTemplate}
+          initialTab={newDialogTab}
+          editingTemplate={editingTemplate}
+        />
+      )}
 
       {selectedTaskId && <TaskReviewPanel />}
       {selectedCronJobId && <CronReviewPanel />}
