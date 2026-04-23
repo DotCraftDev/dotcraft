@@ -8,6 +8,7 @@ import type {
 } from '../../stores/automationsStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { useCronStore } from '../../stores/cronStore'
+import { useDragDropStore } from '../../stores/dragDropStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { StatusBadge } from './StatusBadge'
@@ -102,11 +103,26 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
 
   const scheduleText = useMemo(() => formatSchedule(task.schedule, t), [task.schedule, t])
 
+  const isDragging = useDragDropStore(
+    (s) => s.active?.kind === 'automation-task' && s.active.taskId === task.id
+  )
+
   function handleDragStart(e: React.DragEvent): void {
     e.dataTransfer.setData(AUTOMATION_TASK_DRAG_MIME, `${task.sourceName}::${task.id}`)
     // Provide a human-readable label for targets that surface it via effectAllowed.
     e.dataTransfer.setData('text/plain', task.title)
     e.dataTransfer.effectAllowed = 'link'
+    useDragDropStore.getState().start({
+      kind: 'automation-task',
+      taskId: task.id,
+      sourceName: task.sourceName,
+      title: task.title,
+      alreadyBoundThreadId: task.threadBinding?.threadId ?? null
+    })
+  }
+
+  function handleDragEnd(): void {
+    useDragDropStore.getState().end()
   }
 
   function focusThisTask(): void {
@@ -191,6 +207,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
       tabIndex={0}
       draggable={draggable}
       onDragStart={draggable ? handleDragStart : undefined}
+      onDragEnd={draggable ? handleDragEnd : undefined}
       onClick={() => focusThisTask()}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') focusThisTask()
@@ -204,8 +221,10 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
         padding: '10px 14px',
         borderRadius: '8px',
         backgroundColor: hovered ? 'var(--bg-secondary)' : 'transparent',
-        cursor: 'pointer',
-        transition: 'background-color 0.15s'
+        cursor: draggable ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+        opacity: isDragging ? 0.55 : 1,
+        transform: isDragging ? 'scale(0.98) rotate(-0.8deg)' : 'none',
+        transition: 'background-color 0.15s, opacity 120ms ease, transform 120ms ease'
       }}
     >
       <div style={{ flexShrink: 0 }}>

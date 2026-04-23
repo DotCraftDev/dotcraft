@@ -1,5 +1,6 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useT } from '../../contexts/LocaleContext'
+import { useDragDropStore } from '../../stores/dragDropStore'
 import { useThreadStore, selectFilteredThreads } from '../../stores/threadStore'
 import { groupThreads } from '../../utils/threadGrouping'
 import { ThreadGroup } from './ThreadGroup'
@@ -18,6 +19,9 @@ export function ThreadList(): JSX.Element {
   // array on every call (via .filter), so without shallow equality Zustand's
   // useSyncExternalStore sees a changed snapshot every render and loops.
   const filteredThreads = useThreadStore(useShallow(selectFilteredThreads))
+  const dragActive = useDragDropStore((s) => s.active)
+  const dragHintTitle =
+    dragActive?.kind === 'automation-task' ? dragActive.title : null
 
   if (loading) {
     return (
@@ -59,9 +63,36 @@ export function ThreadList(): JSX.Element {
         overflowX: 'hidden',
         paddingBottom: '8px',
         scrollbarWidth: 'thin',
-        scrollbarColor: 'var(--border-default) transparent'
+        scrollbarColor: 'var(--border-default) transparent',
+        position: 'relative'
       }}
     >
+      {dragHintTitle !== null && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            margin: '4px 10px 6px',
+            padding: '6px 10px',
+            borderRadius: '999px',
+            fontSize: '11px',
+            fontWeight: 500,
+            color: 'var(--accent)',
+            backgroundColor: 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))',
+            border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
+            boxShadow: '0 2px 8px color-mix(in srgb, var(--accent) 12%, transparent)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pointerEvents: 'none',
+            animation: 'fadeSlideDown 160ms ease'
+          }}
+        >
+          {t('auto.dnd.hintBar', { title: dragHintTitle })}
+        </div>
+      )}
       {(THREAD_GROUP_ORDER as ThreadGroupType[])
         .filter((g) => groups.has(g))
         .map((group) => (

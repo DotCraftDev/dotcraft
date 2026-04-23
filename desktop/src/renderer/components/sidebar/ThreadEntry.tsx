@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import type { ThreadSummary } from '../../types/thread'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -12,6 +12,7 @@ import { ChannelIconBadge } from '../ui/channelMeta'
 import { Archive } from 'lucide-react'
 import { AUTOMATION_TASK_DRAG_MIME } from '../automations/TaskCard'
 import { useAutomationsStore } from '../../stores/automationsStore'
+import { useDragDropStore } from '../../stores/dragDropStore'
 import { addToast } from '../../stores/toastStore'
 
 interface ThreadEntryProps {
@@ -50,15 +51,39 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const [archiveButtonFocused, setArchiveButtonFocused] = useState(false)
   const [archiveConfirming, setArchiveConfirming] = useState(false)
   const [dropActive, setDropActive] = useState(false)
+  // `anim` drives the two transient post-drop animations. `success` plays
+  // `dropSuccessPulse` on the row + `slideInBadge` on the inline bound icon;
+  // `fail` plays `shake` on the row. Clears itself after the animation window.
+  const [anim, setAnim] = useState<'success' | 'fail' | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const actionSlotRef = useRef<HTMLDivElement>(null)
+
+  // Subscribe to the global drag session so we can dim archived threads and
+  // mark the thread that's already the bound target of the dragged task.
+  const dragActive = useDragDropStore((s) => s.active)
+  const dragKind = dragActive?.kind ?? null
+  const alreadyBound =
+    dragKind === 'automation-task' &&
+    dragActive!.alreadyBoundThreadId === thread.id
+  const dimmedTarget =
+    dragKind === 'automation-task' && thread.status !== 'active'
+
+  useEffect(() => {
+    if (!anim) return
+    const timeout = anim === 'success' ? 700 : 360
+    const t = setTimeout(() => setAnim(null), timeout)
+    return () => clearTimeout(t)
+  }, [anim])
 
   const displayName = thread.displayName ?? t('sidebar.newConversation')
   const relativeTime = formatRelativeTime(thread.lastActiveAt, new Date(), locale)
   const showOriginBadge =
     thread.originChannel.length > 0 &&
     thread.originChannel.toLowerCase() !== 'dotcraft-desktop'
-  const showArchiveAction = !renaming && (hovered || archiveButtonFocused)
+  // Hide the archive action during a drag session so the right side stays
+  // clean while the drop-hint / already-bound pill is shown.
+  const showArchiveAction =
+    !renaming && !dragKind && (hovered || archiveButtonFocused)
   const showArchiveConfirm = showArchiveAction && archiveConfirming
   const confirm = useConfirmDialog()
   const showPendingApprovalBadge = !isActive && hasPendingApproval
@@ -154,6 +179,14 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
 
   function handleDragOver(e: React.DragEvent): void {
     if (!isAutomationDrag(e)) return
+    // Reject drops onto the already-bound thread (no-op) and onto threads that
+    // can't host a bound automation run (archived, paused). This keeps the
+    // drop ring from lighting up on non-actionable targets.
+    if (alreadyBound || dimmedTarget) {
+      e.dataTransfer.dropEffect = 'none'
+      if (dropActive) setDropActive(false)
+      return
+    }
     e.preventDefault()
     e.dataTransfer.dropEffect = 'link'
     if (!dropActive) setDropActive(true)
@@ -171,6 +204,12 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     if (!isAutomationDrag(e)) return
     e.preventDefault()
     setDropActive(false)
+    // Safety net: onDragEnd on the source fires slightly after drop in some
+    // browsers. Clear the session eagerly so other rows stop dimming.
+    useDragDropStore.getState().end()
+
+    if (alreadyBound || dimmedTarget) return
+
     const raw = e.dataTransfer.getData(AUTOMATION_TASK_DRAG_MIME)
     const title = e.dataTransfer.getData('text/plain')
     const [sourceName, taskId] = raw.split('::')
@@ -179,6 +218,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     const task = state.tasks.find((t) => t.sourceName === sourceName && t.id === taskId)
     if (!task) {
       addToast(t('auto.dnd.bindFailed', { error: taskId }), 'error')
+      setAnim('fail')
       return
     }
     try {
@@ -187,11 +227,13 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         t('auto.dnd.bindSuccess', { task: title || task.title, thread: displayName }),
         'success'
       )
+      setAnim('success')
     } catch (err: unknown) {
       addToast(
         t('auto.dnd.bindFailed', { error: err instanceof Error ? err.message : String(err) }),
         'error'
       )
+      setAnim('fail')
     }
   }
 
@@ -203,38 +245,61 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(e) => void handleDrop(e)}
-        title={thread.displayName ?? undefined}
+        title={
+          dimmedTarget
+            ? t('auto.dnd.archivedCannotBind')
+            : thread.displayName ?? undefined
+        }
         data-testid={`thread-entry-${thread.id}`}
         style={{
           display: 'flex',
           alignItems: 'center',
+          position: 'relative',
           padding: '6px 12px 6px 14px',
-          cursor: 'pointer',
-          borderLeft: dropActive
-            ? '2px solid var(--accent)'
-            : isActive
+          cursor: dimmedTarget ? 'not-allowed' : 'pointer',
+          borderLeft:
+            !dragKind && isActive
               ? '2px solid var(--accent)'
               : '2px solid transparent',
           backgroundColor: dropActive
-            ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
+            ? 'color-mix(in srgb, var(--accent) 14%, transparent)'
             : isActive
               ? 'var(--bg-active)'
               : 'transparent',
-          outline: dropActive ? '1px dashed var(--accent)' : 'none',
+          // Single-effect drop/target ring replaces the older 3-effect combo
+          // (left-border + tinted-bg + dashed-outline). dropActive = hovered
+          // valid target; alreadyBound = inset outline marking the existing
+          // binding; otherwise we defer to the success pulse keyframe.
+          boxShadow: dropActive
+            ? '0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent)'
+            : alreadyBound
+              ? 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent)'
+              : 'none',
+          transform: dropActive ? 'scale(1.01)' : 'none',
+          opacity: dimmedTarget ? 0.42 : 1,
+          filter: dimmedTarget ? 'saturate(0.7)' : 'none',
+          pointerEvents: dimmedTarget ? 'none' : 'auto',
           gap: '6px',
           userSelect: 'none',
-          transition: 'background-color 100ms ease'
+          transition:
+            'background-color 100ms ease, box-shadow 140ms ease, transform 140ms ease, opacity 140ms ease',
+          animation:
+            anim === 'success'
+              ? 'dropSuccessPulse 700ms ease-out'
+              : anim === 'fail'
+                ? 'shake 320ms cubic-bezier(0.3, 0.7, 0.4, 1)'
+                : undefined
         }}
         onMouseEnter={(e) => {
           setHovered(true)
-          if (!isActive && !dropActive) {
+          if (!isActive && !dropActive && !alreadyBound && !dragKind) {
             ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--bg-tertiary)'
           }
         }}
         onMouseLeave={(e) => {
           setHovered(false)
           setArchiveConfirming(false)
-          if (!isActive && !dropActive) {
+          if (!isActive && !dropActive && !alreadyBound && !dragKind) {
             ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
           }
         }}
@@ -331,6 +396,55 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {displayName}
             </span>
+            {anim === 'success' && (
+              <span
+                aria-hidden="true"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '4px',
+                  fontSize: '13px',
+                  color: 'var(--accent)',
+                  flexShrink: 0,
+                  animation: 'slideInBadge 450ms ease-out'
+                }}
+              >
+                💬
+              </span>
+            )}
+            {(dropActive || alreadyBound) && (
+              <span
+                data-testid={
+                  dropActive
+                    ? `thread-drop-hint-${thread.id}`
+                    : `thread-already-bound-${thread.id}`
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '18px',
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                  border:
+                    '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+                  backgroundColor: dropActive
+                    ? 'color-mix(in srgb, var(--accent) 22%, transparent)'
+                    : 'color-mix(in srgb, var(--accent) 10%, transparent)',
+                  color: 'var(--accent)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  marginLeft: '4px'
+                }}
+              >
+                {dropActive
+                  ? t('auto.dnd.dropHere')
+                  : t('auto.dnd.alreadyBoundBadge')}
+              </span>
+            )}
             {(showPendingApprovalBadge || showPendingPlanBadge) && (
               <span
                 data-testid={
