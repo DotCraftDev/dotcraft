@@ -1,3 +1,4 @@
+using DotCraft.Cron;
 using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Automations.Abstractions;
@@ -68,4 +69,30 @@ public abstract class AutomationTask : IAutomationTaskEventPayload
 
     /// <summary>UTC last update time.</summary>
     public DateTimeOffset? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Optional schedule for recurring dispatch. When null, the task runs once on <see cref="AutomationTaskStatus.Pending"/>
+    /// (legacy one-shot behavior). When set, the orchestrator only dispatches the task when the schedule is due,
+    /// and automatically re-enters <see cref="AutomationTaskStatus.Pending"/> after completion to await the next tick.
+    /// </summary>
+    public CronSchedule? Schedule { get; set; }
+
+    /// <summary>
+    /// Optional binding to a pre-existing thread. When set, the orchestrator submits workflow turns directly into
+    /// <see cref="AutomationThreadBinding.ThreadId"/> rather than creating a synthesized automation thread.
+    /// </summary>
+    public AutomationThreadBinding? ThreadBinding { get; set; }
+
+    /// <summary>
+    /// Whether the task requires explicit Approve/Reject after the agent completes.
+    /// Defaults depend on <see cref="ThreadBinding"/>: bound tasks default to <c>false</c> (skip review to form a
+    /// natural loop on schedule), unbound tasks default to <c>true</c> (legacy behavior).
+    /// </summary>
+    public bool RequireApproval { get; set; } = true;
+
+    /// <summary>
+    /// Next scheduled run time (UTC). Computed at load / after each tick from <see cref="Schedule"/>.
+    /// Null means "ready to dispatch now" (one-shot pending tasks) or "no schedule configured".
+    /// </summary>
+    public DateTimeOffset? NextRunAt { get; set; }
 }

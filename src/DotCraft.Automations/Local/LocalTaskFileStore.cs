@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using DotCraft.Automations.Abstractions;
+using DotCraft.Cron;
 using DotCraft.Hosting;
 using Microsoft.Extensions.Logging;
 using YamlDotNet.Serialization;
@@ -86,7 +88,10 @@ public sealed partial class LocalTaskFileStore(
         var fm = deserializer.Deserialize<TaskFileFrontMatter>(yamlText);
         var status = LocalTaskStatusMapping.FromYaml(fm.Status);
 
-        return new LocalAutomationTask
+        var binding = ParseBinding(fm.ThreadBinding);
+        var requireApproval = fm.RequireApproval ?? (binding == null);
+
+        var task = new LocalAutomationTask
         {
             TaskDirectory = taskDirectory,
             Id = fm.Id ?? Path.GetFileName(taskDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
@@ -98,7 +103,72 @@ public sealed partial class LocalTaskFileStore(
             AgentSummary = fm.AgentSummary,
             CreatedAt = fm.CreatedAt,
             UpdatedAt = fm.UpdatedAt,
-            ApprovalPolicy = fm.ApprovalPolicy
+            ApprovalPolicy = fm.ApprovalPolicy,
+            Schedule = ParseSchedule(fm.Schedule),
+            ThreadBinding = binding,
+            RequireApproval = requireApproval
+        };
+        task.NextRunAt = fm.NextRunAt;
+
+        return task;
+    }
+
+    private static CronSchedule? ParseSchedule(ScheduleYaml? yaml)
+    {
+        if (yaml == null || string.IsNullOrWhiteSpace(yaml.Kind))
+            return null;
+        var kind = yaml.Kind.Trim().ToLowerInvariant();
+        if (kind == "once")
+            return null;
+        return new CronSchedule
+        {
+            Kind = kind,
+            AtMs = yaml.AtMs,
+            EveryMs = yaml.EveryMs,
+            InitialDelayMs = yaml.InitialDelayMs,
+            DailyHour = yaml.DailyHour ?? yaml.Hour,
+            DailyMinute = yaml.DailyMinute ?? yaml.Minute,
+            Expr = yaml.Expr,
+            Tz = yaml.Tz
+        };
+    }
+
+    private static ScheduleYaml? ToYaml(CronSchedule? schedule)
+    {
+        if (schedule == null)
+            return null;
+        return new ScheduleYaml
+        {
+            Kind = schedule.Kind,
+            AtMs = schedule.AtMs,
+            EveryMs = schedule.EveryMs,
+            InitialDelayMs = schedule.InitialDelayMs,
+            DailyHour = schedule.DailyHour,
+            DailyMinute = schedule.DailyMinute,
+            Expr = schedule.Expr,
+            Tz = schedule.Tz
+        };
+    }
+
+    private static AutomationThreadBinding? ParseBinding(ThreadBindingYaml? yaml)
+    {
+        if (yaml == null || string.IsNullOrWhiteSpace(yaml.ThreadId))
+            return null;
+        return new AutomationThreadBinding
+        {
+            ThreadId = yaml.ThreadId!,
+            Mode = string.IsNullOrWhiteSpace(yaml.Mode) ? "run-in-thread" : yaml.Mode!.Trim()
+        };
+    }
+
+    private static ThreadBindingYaml? ToYaml(AutomationThreadBinding? binding)
+    {
+        if (binding == null || string.IsNullOrWhiteSpace(binding.ThreadId))
+            return null;
+        return new ThreadBindingYaml
+        {
+            ThreadId = binding.ThreadId,
+            Mode = binding.Mode
         };
     }
 
@@ -134,7 +204,11 @@ public sealed partial class LocalTaskFileStore(
             UpdatedAt = task.UpdatedAt,
             ThreadId = task.ThreadId,
             AgentSummary = task.AgentSummary,
-            ApprovalPolicy = task.ApprovalPolicy
+            ApprovalPolicy = task.ApprovalPolicy,
+            Schedule = ToYaml(task.Schedule),
+            ThreadBinding = ToYaml(task.ThreadBinding),
+            RequireApproval = task.RequireApproval,
+            NextRunAt = task.NextRunAt
         };
 
         var serializer = new SerializerBuilder()
@@ -206,8 +280,56 @@ public sealed partial class LocalTaskFileStore(
         public string? ThreadId { get; set; }
         public string? AgentSummary { get; set; }
 
-        /// <summary><c>autoApprove</c> or <c>default</c>.</summary>
+        /// <summary><c>workspaceScope</c> (default) or <c>fullAuto</c>.</summary>
         public string? ApprovalPolicy { get; set; }
+
+        /// <summary>Optional recurring schedule; absent = one-shot (run once when pending).</summary>
+        public ScheduleYaml? Schedule { get; set; }
+
+        /// <summary>Optional binding to a pre-existing thread to submit workflow turns into.</summary>
+        public ThreadBindingYaml? ThreadBinding { get; set; }
+
+        /// <summary>
+        /// When true, the agent requires explicit user review after completing. When false, completes silently and
+        /// immediately re-enters the schedule loop (or ends when schedule is absent).
+        /// Default when missing: true if no <see cref="ThreadBinding"/>, otherwise false.
+        /// </summary>
+        public bool? RequireApproval { get; set; }
+
+        /// <summary>
+        /// Next scheduled run (UTC). Persisted so that orchestrator poll cycles do not drift the cadence
+        /// by recomputing from scratch each time. Null means "no cadence decided yet" (e.g. a brand-new
+        /// scheduled task) — in that case the orchestrator's initialization decides first-tick behavior.
+        /// </summary>
+        public DateTimeOffset? NextRunAt { get; set; }
+    }
+
+    /// <summary>
+    /// YAML mirror of <see cref="DotCraft.Cron.CronSchedule"/> used for <c>task.md</c> front matter.
+    /// Kind is one of <c>once</c> (sentinel, maps to null schedule) | <c>every</c> | <c>at</c> | <c>daily</c> | <c>weekly</c>.
+    /// </summary>
+    private sealed class ScheduleYaml
+    {
+        public string? Kind { get; set; }
+        public long? AtMs { get; set; }
+        public long? EveryMs { get; set; }
+        public long? InitialDelayMs { get; set; }
+        /// <summary>When kind=daily, local hour 0-23 (alias: hour).</summary>
+        public int? DailyHour { get; set; }
+        /// <summary>When kind=daily, local minute 0-59 (alias: minute).</summary>
+        public int? DailyMinute { get; set; }
+        public int? Hour { get; set; }
+        public int? Minute { get; set; }
+        public string? Expr { get; set; }
+        public string? Tz { get; set; }
+    }
+
+    private sealed class ThreadBindingYaml
+    {
+        public string? ThreadId { get; set; }
+
+        /// <summary><c>run-in-thread</c> (default).</summary>
+        public string? Mode { get; set; }
     }
 
     [GeneratedRegex(@"^---\s*\r?\n(.*?)---\s*\r?\n(.*)$", RegexOptions.Compiled | RegexOptions.Singleline)]

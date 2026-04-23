@@ -1753,6 +1753,15 @@ Errors follow the standard JSON-RPC 2.0 error response format:
 | `-32052` | Task invalid status | `automation/*`: the operation is not valid for the task’s current status. |
 | `-32053` | Source not found | `automation/*`: the named automation source is not registered. |
 | `-32054` | Task already exists | `automation/task/create`: a task with the same ID already exists. |
+| `-32055` | Thread binding invalid | `automation/task/updateBinding` / `automation/task/create`: the target `threadId` does not exist or is archived. |
+
+Automation task methods are defined in full in [automations-lifecycle.md §14](automations-lifecycle.md). Summary of the v1 wire surface:
+
+- `automation/task/list`, `automation/task/read`, `automation/task/create`, `automation/task/update`, `automation/task/cancel`, `automation/task/review` — CRUD and review flow.
+- `automation/task/updateBinding` `{ sourceName, taskId, threadBinding?: { threadId, mode } | null }` → `{ task }` — rewrites only the `thread_binding` block on disk; pass `null` to unbind.
+- `automation/template/list` `{}` → `{ templates: AutomationTemplateWire[] }` — returns the built-in local task templates (title, description, workflow markdown, default schedule/binding/approval) so desktop clients can render the "Use template" picker without bundling a copy.
+- `AutomationTaskWire` carries the optional fields `schedule` (mirrors `CronSchedule`), `threadBinding` (`{ threadId, mode: "run-in-thread" }`), `requireApproval` (default `true` for unbound, `false` for bound tasks) and `nextRunAt` (ISO-8601 UTC).
+- `automation/task/create` accepts `schedule`, `threadBinding`, `requireApproval`, and `templateId` in addition to the existing fields. When both `templateId` and explicit fields are supplied, the explicit fields win.
 
 ### 8.4 Turn-Level Errors
 

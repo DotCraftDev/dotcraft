@@ -24,6 +24,19 @@ public interface IChannelRuntime
     IReadOnlyList<ChannelToolDescriptor> GetChannelTools() => [];
 
     /// <summary>
+    /// Whether this runtime has completed the handshake required to expose its tools and
+    /// accept turn execution. Native in-proc channels are always ready once registered;
+    /// external (adapter-backed) channels return <c>true</c> only after the wire handshake
+    /// finished (i.e. <c>AppServerConnection.IsClientReady</c>).
+    /// </summary>
+    /// <remarks>
+    /// Consumers (e.g. the automations orchestrator) use this signal to defer triggering
+    /// bound turns on a thread whose channel is not yet ready — otherwise the agent would
+    /// build its turn without channel-specific tools.
+    /// </remarks>
+    bool IsReady => true;
+
+    /// <summary>
     /// Resolves the execution context for a channel tool call against the current thread/turn.
     /// </summary>
     ExtChannelToolCallContext ResolveExecutionContext(SessionThread thread, SessionTurn turn)

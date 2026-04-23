@@ -1,8 +1,11 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Orchestrator;
+using DotCraft.Automations.Templates;
+using DotCraft.Cron;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 
@@ -86,22 +89,34 @@ public sealed partial class AutomationsRequestHandler(
         var approvalPolicy = string.IsNullOrWhiteSpace(p.ApprovalPolicy)
             ? "workspaceScope"
             : p.ApprovalPolicy.Trim();
-        var taskMd = $"""
-            ---
-            id: "{taskId}"
-            title: "{EscapeYamlString(p.Title)}"
-            status: pending
-            created_at: "{now}"
-            updated_at: "{now}"
-            thread_id: null
-            agent_summary: null
-            approval_policy: "{EscapeYamlString(approvalPolicy)}"
-            ---
 
-            {description}
-            """;
+        var bound = p.ThreadBinding != null && !string.IsNullOrWhiteSpace(p.ThreadBinding.ThreadId);
+        // Default require_approval: false when bound (silent schedule loop), true otherwise.
+        var requireApproval = p.RequireApproval ?? !bound;
 
-        File.WriteAllText(Path.Combine(taskDir, "task.md"), taskMd.TrimStart());
+        var fm = new StringBuilder();
+        fm.AppendLine("---");
+        fm.AppendLine($"id: \"{taskId}\"");
+        fm.AppendLine($"title: \"{EscapeYamlString(p.Title)}\"");
+        fm.AppendLine("status: pending");
+        fm.AppendLine($"created_at: \"{now}\"");
+        fm.AppendLine($"updated_at: \"{now}\"");
+        fm.AppendLine("thread_id: null");
+        fm.AppendLine("agent_summary: null");
+        fm.AppendLine($"approval_policy: \"{EscapeYamlString(approvalPolicy)}\"");
+        fm.AppendLine($"require_approval: {(requireApproval ? "true" : "false")}");
+
+        if (!string.IsNullOrWhiteSpace(p.TemplateId))
+            fm.AppendLine($"template_id: \"{EscapeYamlString(p.TemplateId)}\"");
+
+        AppendScheduleYaml(fm, p.Schedule);
+        AppendThreadBindingYaml(fm, p.ThreadBinding);
+
+        fm.AppendLine("---");
+        fm.AppendLine();
+        fm.Append(description);
+
+        File.WriteAllText(Path.Combine(taskDir, "task.md"), fm.ToString());
 
         var workflowContent = string.IsNullOrWhiteSpace(p.WorkflowTemplate)
             ? BuildDefaultWorkflowContent(NormalizeWorkspaceMode(p.WorkspaceMode))
@@ -113,6 +128,93 @@ public sealed partial class AutomationsRequestHandler(
             TaskId = taskId,
             TaskDirectory = taskDir
         });
+    }
+
+    public async Task<object?> HandleTaskUpdateBindingAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<AutomationTaskUpdateBindingParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.TaskId))
+            throw AppServerErrors.InvalidParams("'taskId' is required.");
+        if (!string.Equals(p.SourceName, "local", StringComparison.OrdinalIgnoreCase))
+            throw AppServerErrors.InvalidParams("Binding updates are only supported for local tasks.");
+
+        var tasks = await orchestrator.GetAllTasksAsync(ct);
+        var task = tasks.FirstOrDefault(t =>
+            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal)
+            && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase))
+            as LocalAutomationTask;
+
+        if (task == null)
+            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+
+        // Safety: don't rebind a task that is currently running; the frontend should confirm first.
+        if (task.Status is AutomationTaskStatus.Dispatched or AutomationTaskStatus.AgentRunning)
+            throw AppServerErrors.TaskInvalidStatus(
+                "Cannot change binding while the task is running. Cancel the run first.");
+
+        task.ThreadBinding = p.ThreadBinding == null || string.IsNullOrWhiteSpace(p.ThreadBinding.ThreadId)
+            ? null
+            : new AutomationThreadBinding
+            {
+                ThreadId = p.ThreadBinding.ThreadId,
+                Mode = string.IsNullOrWhiteSpace(p.ThreadBinding.Mode) ? "run-in-thread" : p.ThreadBinding.Mode!
+            };
+
+        await fileStore.SaveAsync(task, ct);
+
+        return new AutomationTaskUpdateBindingResult { Task = ToWireDetailed(task) };
+    }
+
+    public Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = GetParams<AutomationTemplateListParams>(msg);
+        var templates = LocalTaskTemplates.All.Select(ToWire).ToList();
+        return Task.FromResult<object?>(new AutomationTemplateListResult { Templates = templates });
+    }
+
+    private static AutomationTemplateWire ToWire(LocalTaskTemplate t) => new()
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Description = t.Description,
+        Icon = t.Icon,
+        Category = t.Category,
+        WorkflowMarkdown = t.WorkflowMarkdown,
+        DefaultSchedule = ToWire(t.DefaultSchedule),
+        DefaultWorkspaceMode = t.DefaultWorkspaceMode,
+        DefaultApprovalPolicy = t.DefaultApprovalPolicy,
+        DefaultRequireApproval = t.DefaultRequireApproval,
+        NeedsThreadBinding = t.NeedsThreadBinding,
+        DefaultTitle = t.DefaultTitle,
+        DefaultDescription = t.DefaultDescription
+    };
+
+    private static void AppendScheduleYaml(StringBuilder sb, AutomationScheduleWire? schedule)
+    {
+        if (schedule == null || string.IsNullOrWhiteSpace(schedule.Kind))
+            return;
+        var kind = schedule.Kind.Trim().ToLowerInvariant();
+        if (kind == "once")
+            return;
+        sb.AppendLine("schedule:");
+        sb.AppendLine($"  kind: {kind}");
+        if (schedule.AtMs.HasValue) sb.AppendLine($"  at_ms: {schedule.AtMs.Value}");
+        if (schedule.EveryMs.HasValue) sb.AppendLine($"  every_ms: {schedule.EveryMs.Value}");
+        if (schedule.InitialDelayMs.HasValue) sb.AppendLine($"  initial_delay_ms: {schedule.InitialDelayMs.Value}");
+        if (schedule.DailyHour.HasValue) sb.AppendLine($"  daily_hour: {schedule.DailyHour.Value}");
+        if (schedule.DailyMinute.HasValue) sb.AppendLine($"  daily_minute: {schedule.DailyMinute.Value}");
+        if (!string.IsNullOrWhiteSpace(schedule.Expr)) sb.AppendLine($"  expr: \"{EscapeYamlString(schedule.Expr!)}\"");
+        if (!string.IsNullOrWhiteSpace(schedule.Tz)) sb.AppendLine($"  tz: \"{EscapeYamlString(schedule.Tz!)}\"");
+    }
+
+    private static void AppendThreadBindingYaml(StringBuilder sb, AutomationThreadBindingWire? binding)
+    {
+        if (binding == null || string.IsNullOrWhiteSpace(binding.ThreadId))
+            return;
+        sb.AppendLine("thread_binding:");
+        sb.AppendLine($"  thread_id: \"{EscapeYamlString(binding.ThreadId)}\"");
+        var mode = string.IsNullOrWhiteSpace(binding.Mode) ? "run-in-thread" : binding.Mode!.Trim();
+        sb.AppendLine($"  mode: \"{EscapeYamlString(mode)}\"");
     }
 
     public async Task<object?> HandleTaskApproveAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -194,7 +296,11 @@ public sealed partial class AutomationsRequestHandler(
             SourceName = task.SourceName,
             ThreadId = task.ThreadId,
             CreatedAt = task.CreatedAt,
-            UpdatedAt = task.UpdatedAt
+            UpdatedAt = task.UpdatedAt,
+            Schedule = ToWire(task.Schedule),
+            ThreadBinding = ToWire(task.ThreadBinding),
+            RequireApproval = task.RequireApproval,
+            NextRunAt = task.NextRunAt
         };
         if (task is LocalAutomationTask local)
             w.ApprovalPolicy = local.ApprovalPolicy;
@@ -213,11 +319,43 @@ public sealed partial class AutomationsRequestHandler(
             Description = task.Description,
             AgentSummary = task.AgentSummary,
             CreatedAt = task.CreatedAt,
-            UpdatedAt = task.UpdatedAt
+            UpdatedAt = task.UpdatedAt,
+            Schedule = ToWire(task.Schedule),
+            ThreadBinding = ToWire(task.ThreadBinding),
+            RequireApproval = task.RequireApproval,
+            NextRunAt = task.NextRunAt
         };
         if (task is LocalAutomationTask local)
             w.ApprovalPolicy = local.ApprovalPolicy;
         return w;
+    }
+
+    private static AutomationScheduleWire? ToWire(CronSchedule? schedule)
+    {
+        if (schedule == null)
+            return null;
+        return new AutomationScheduleWire
+        {
+            Kind = schedule.Kind,
+            AtMs = schedule.AtMs,
+            EveryMs = schedule.EveryMs,
+            InitialDelayMs = schedule.InitialDelayMs,
+            DailyHour = schedule.DailyHour,
+            DailyMinute = schedule.DailyMinute,
+            Expr = schedule.Expr,
+            Tz = schedule.Tz
+        };
+    }
+
+    private static AutomationThreadBindingWire? ToWire(AutomationThreadBinding? binding)
+    {
+        if (binding == null || string.IsNullOrWhiteSpace(binding.ThreadId))
+            return null;
+        return new AutomationThreadBindingWire
+        {
+            ThreadId = binding.ThreadId,
+            Mode = binding.Mode
+        };
     }
 
     /// <summary>

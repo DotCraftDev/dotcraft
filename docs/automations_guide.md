@@ -21,6 +21,23 @@ config.json
 
 ---
 
+## Cron vs Automation Task
+
+Cron 和 Automation Task 都是 DotCraft 里定时派发 Agent 的机制，但定位完全不同，不要混用：
+
+| 维度 | Cron | Automation Task |
+|------|------|------------------|
+| 入口 | Agent 在对话里调用 `Cron add/list/remove` 快速生成 | Desktop `Automations` 面板 / 模板 / 拖拽 |
+| 粒度 | 单条消息 + 时间表，fire-and-forget | 可编辑的 `workflow.md`（多步 prompt / `max_rounds` / hooks） |
+| Thread | 每个 Job 自动独占一个 `cron:<id>` 线程 | 默认独立线程；**支持绑定到任意已有 thread**，在该 thread 中按时执行 |
+| 生命周期 | 跑一次发一条消息 | `pending → running → (awaiting_review → approved/rejected) → pending`（按时间表自动续） / 可选审批 |
+| 可见性 | `Automations` 面板 Cron Tab，仅可停用/删除 | `Automations` 面板 Tasks Tab，完整 CRUD + 审核 |
+| 典型场景 | "每天 9 点提醒我查看邮件"、"每小时发送一次待办统计" | "每天 9 点扫描最近提交找 bug"、"绑定某个飞书线程，收到新回复后让 Agent 自动响应" |
+
+**选择建议**：一次性的提醒/通知交给 Cron；需要多轮 Agent 工作流、周期性产出、人工审批、或者把 Agent 挂载到现有对话（飞书/企微/QQ/Desktop 线程）里持续响应的场景用 Automation Task。
+
+---
+
 ## 快速开始：本地任务
 
 ### 第一步：配置 Automations

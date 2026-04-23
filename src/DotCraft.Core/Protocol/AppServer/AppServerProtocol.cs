@@ -1066,6 +1066,70 @@ public sealed class AutomationTaskWire
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ApprovalPolicy { get; set; }
+
+    /// <summary>
+    /// Optional recurring schedule. When omitted, the task is one-shot (runs once from <c>pending</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationScheduleWire? Schedule { get; set; }
+
+    /// <summary>
+    /// Optional binding to a pre-existing thread; the orchestrator submits workflow turns directly into that thread.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationThreadBindingWire? ThreadBinding { get; set; }
+
+    /// <summary>
+    /// Whether the task requires manual Approve/Reject after the agent completes.
+    /// Defaults to false when <see cref="ThreadBinding"/> is set, true otherwise.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireApproval { get; set; }
+
+    /// <summary>
+    /// Scheduled next-run time (UTC). Null when the task has no <see cref="Schedule"/> or is ready to dispatch immediately.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? NextRunAt { get; set; }
+}
+
+/// <summary>
+/// Wire-level projection of <c>CronSchedule</c> reused by automation tasks for serialization.
+/// Kind: <c>once</c> | <c>every</c> | <c>at</c> | <c>daily</c> (weekly reserved).
+/// </summary>
+public sealed class AutomationScheduleWire
+{
+    public string Kind { get; set; } = "once";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? AtMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EveryMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? InitialDelayMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DailyHour { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DailyMinute { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Expr { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Tz { get; set; }
+}
+
+public sealed class AutomationThreadBindingWire
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    /// <summary><c>run-in-thread</c> (default).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Mode { get; set; }
 }
 
 public sealed class AutomationTaskListParams
@@ -1111,6 +1175,26 @@ public sealed class AutomationTaskCreateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? WorkspaceMode { get; set; }
+
+    /// <summary>Optional recurring schedule. Null/absent = one-shot task.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationScheduleWire? Schedule { get; set; }
+
+    /// <summary>Optional existing thread to bind this task to.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationThreadBindingWire? ThreadBinding { get; set; }
+
+    /// <summary>
+    /// Optional explicit override. When omitted: defaults to false if <see cref="ThreadBinding"/> is set, true otherwise.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireApproval { get; set; }
+
+    /// <summary>
+    /// Optional template id the dialog selected; persisted in front-matter for telemetry / re-apply.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TemplateId { get; set; }
 }
 
 public sealed class AutomationTaskCreateResult
@@ -1141,6 +1225,86 @@ public sealed class AutomationTaskDeleteParams
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
     public string SourceName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.AutomationTaskUpdateBinding"/>.
+/// When <see cref="ThreadBinding"/> is null the task is unbound (reverts to isolated automation thread).
+/// </summary>
+public sealed class AutomationTaskUpdateBindingParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationThreadBindingWire? ThreadBinding { get; set; }
+}
+
+public sealed class AutomationTaskUpdateBindingResult
+{
+    public AutomationTaskWire Task { get; set; } = new();
+}
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.AutomationTemplateList"/>. Currently takes no fields;
+/// reserved for future locale / capability filters.
+/// </summary>
+public sealed class AutomationTemplateListParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Locale { get; set; }
+}
+
+public sealed class AutomationTemplateWire
+{
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Category { get; set; }
+
+    /// <summary>Complete <c>workflow.md</c> contents (includes front matter).</summary>
+    public string WorkflowMarkdown { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationScheduleWire? DefaultSchedule { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultWorkspaceMode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultApprovalPolicy { get; set; }
+
+    /// <summary>Default for the <c>require_approval</c> toggle in the dialog.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DefaultRequireApproval { get; set; }
+
+    /// <summary>
+    /// Suggests to the UI that this template benefits from being bound to an existing thread
+    /// (e.g. feishu-reply watchers). The dialog may surface the thread picker up-front.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? NeedsThreadBinding { get; set; }
+
+    /// <summary>Seed text for the new task description / prompt body.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultDescription { get; set; }
+
+    /// <summary>Seed title for the New Task dialog.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultTitle { get; set; }
+}
+
+public sealed class AutomationTemplateListResult
+{
+    public List<AutomationTemplateWire> Templates { get; set; } = [];
 }
 
 /// <summary>
@@ -1899,6 +2063,12 @@ public static class AppServerMethods
     public const string AutomationTaskApprove = "automation/task/approve";
     public const string AutomationTaskReject = "automation/task/reject";
     public const string AutomationTaskDelete = "automation/task/delete";
+
+    /// <summary>Replaces or clears a task's thread binding without rewriting other fields.</summary>
+    public const string AutomationTaskUpdateBinding = "automation/task/updateBinding";
+
+    /// <summary>Returns the catalog of built-in local task templates (gallery + create-dialog preset source).</summary>
+    public const string AutomationTemplateList = "automation/template/list";
 
     // Server → Client notification (automations, M6)
     public const string AutomationTaskUpdated = "automation/task/updated";

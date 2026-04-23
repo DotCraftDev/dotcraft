@@ -10,6 +10,9 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { RunningSpinner } from '../ui/RunningSpinner'
 import { ChannelIconBadge } from '../ui/channelMeta'
 import { Archive } from 'lucide-react'
+import { AUTOMATION_TASK_DRAG_MIME } from '../automations/TaskCard'
+import { useAutomationsStore } from '../../stores/automationsStore'
+import { addToast } from '../../stores/toastStore'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -46,6 +49,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const [hovered, setHovered] = useState(false)
   const [archiveButtonFocused, setArchiveButtonFocused] = useState(false)
   const [archiveConfirming, setArchiveConfirming] = useState(false)
+  const [dropActive, setDropActive] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const actionSlotRef = useRef<HTMLDivElement>(null)
 
@@ -138,11 +142,67 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
 
   const showStatusIcon = !isActive && thread.status !== 'active'
 
+  function isAutomationDrag(e: React.DragEvent): boolean {
+    const types = e.dataTransfer?.types
+    if (!types) return false
+    // DataTransferItemList doesn't implement Array.includes
+    for (let i = 0; i < types.length; i++) {
+      if (types[i] === AUTOMATION_TASK_DRAG_MIME) return true
+    }
+    return false
+  }
+
+  function handleDragOver(e: React.DragEvent): void {
+    if (!isAutomationDrag(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'link'
+    if (!dropActive) setDropActive(true)
+  }
+
+  function handleDragLeave(e: React.DragEvent): void {
+    if (!isAutomationDrag(e)) return
+    // Only clear when leaving the row, not when crossing child boundaries.
+    const related = e.relatedTarget as Node | null
+    if (related && (e.currentTarget as Node).contains(related)) return
+    setDropActive(false)
+  }
+
+  async function handleDrop(e: React.DragEvent): Promise<void> {
+    if (!isAutomationDrag(e)) return
+    e.preventDefault()
+    setDropActive(false)
+    const raw = e.dataTransfer.getData(AUTOMATION_TASK_DRAG_MIME)
+    const title = e.dataTransfer.getData('text/plain')
+    const [sourceName, taskId] = raw.split('::')
+    if (!sourceName || !taskId) return
+    const state = useAutomationsStore.getState()
+    const task = state.tasks.find((t) => t.sourceName === sourceName && t.id === taskId)
+    if (!task) {
+      addToast(t('auto.dnd.bindFailed', { error: taskId }), 'error')
+      return
+    }
+    try {
+      await state.updateBinding(task, { threadId: thread.id, mode: 'run-in-thread' })
+      addToast(
+        t('auto.dnd.bindSuccess', { task: title || task.title, thread: displayName }),
+        'success'
+      )
+    } catch (err: unknown) {
+      addToast(
+        t('auto.dnd.bindFailed', { error: err instanceof Error ? err.message : String(err) }),
+        'error'
+      )
+    }
+  }
+
   return (
     <>
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => void handleDrop(e)}
         title={thread.displayName ?? undefined}
         data-testid={`thread-entry-${thread.id}`}
         style={{
@@ -150,22 +210,31 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           alignItems: 'center',
           padding: '6px 12px 6px 14px',
           cursor: 'pointer',
-          borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-          backgroundColor: isActive ? 'var(--bg-active)' : 'transparent',
+          borderLeft: dropActive
+            ? '2px solid var(--accent)'
+            : isActive
+              ? '2px solid var(--accent)'
+              : '2px solid transparent',
+          backgroundColor: dropActive
+            ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
+            : isActive
+              ? 'var(--bg-active)'
+              : 'transparent',
+          outline: dropActive ? '1px dashed var(--accent)' : 'none',
           gap: '6px',
           userSelect: 'none',
           transition: 'background-color 100ms ease'
         }}
         onMouseEnter={(e) => {
           setHovered(true)
-          if (!isActive) {
+          if (!isActive && !dropActive) {
             ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--bg-tertiary)'
           }
         }}
         onMouseLeave={(e) => {
           setHovered(false)
           setArchiveConfirming(false)
-          if (!isActive) {
+          if (!isActive && !dropActive) {
             ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
           }
         }}
