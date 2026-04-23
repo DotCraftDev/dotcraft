@@ -295,7 +295,7 @@ export function ConversationPanel({
       )}
 
       {/* Turn running indicator */}
-      <TurnStatusIndicator threadId={activeThread.id} />
+      <TurnStatusIndicator />
 
       {/* Input composer */}
       {showPlanApproval && latestCreatePlanTurnId ? (

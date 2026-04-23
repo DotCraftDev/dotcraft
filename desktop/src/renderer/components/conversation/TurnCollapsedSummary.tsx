@@ -28,13 +28,7 @@ export function TurnCollapsedSummary({
   const label = t('conversation.turnCollapsed.processed', { duration })
 
   return (
-    <div
-      style={{
-        borderRadius: '4px',
-        border: expanded ? '1px solid var(--border-default)' : 'none',
-        overflow: 'hidden'
-      }}
-    >
+    <div>
       <button
         onClick={() => setExpanded((value) => !value)}
         style={{
@@ -43,14 +37,15 @@ export function TurnCollapsedSummary({
           gap: '6px',
           width: '100%',
           padding: '3px 6px',
-          background: expanded ? 'var(--bg-tertiary)' : 'transparent',
+          background: 'transparent',
           border: 'none',
-          borderBottom: expanded ? '1px solid var(--border-default)' : 'none',
+          borderBottom: expanded
+            ? '1px solid var(--border-subtle, rgba(127,127,127,0.18))'
+            : '1px solid transparent',
           color: 'var(--text-secondary)',
           fontSize: '12px',
           textAlign: 'left',
-          cursor: 'pointer',
-          borderRadius: expanded ? '4px 4px 0 0' : '4px'
+          cursor: 'pointer'
         }}
       >
         <span style={{ flex: 1 }}>{label}</span>
@@ -61,7 +56,7 @@ export function TurnCollapsedSummary({
         renderExpanded={renderExpanded}
         setRenderExpanded={setRenderExpanded}
       >
-        <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
+        <div style={{ paddingTop: '6px' }}>
           {children}
         </div>
       </CollapsibleContent>
