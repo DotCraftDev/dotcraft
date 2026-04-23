@@ -16,6 +16,7 @@ export function TurnCollapsedSummary({
 }: TurnCollapsedSummaryProps): JSX.Element {
   const t = useT()
   const [expanded, setExpanded] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const [renderExpanded, setRenderExpanded] = useState(false)
 
   useEffect(() => {
@@ -31,6 +32,10 @@ export function TurnCollapsedSummary({
     <div>
       <button
         onClick={() => setExpanded((value) => !value)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -49,7 +54,7 @@ export function TurnCollapsedSummary({
         }}
       >
         <span style={{ flex: 1 }}>{label}</span>
-        <ToolCollapseChevron expanded={expanded} visible />
+        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
       </button>
       <CollapsibleContent
         expanded={expanded}
