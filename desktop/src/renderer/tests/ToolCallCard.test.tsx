@@ -315,6 +315,35 @@ describe('ToolCallCard shell rendering', () => {
     vi.useRealTimers()
   })
 
+  it('hides success glyph and duration for completed rows, and only shows chevron on hover', () => {
+    const item: ConversationItem = {
+      id: 'tool-style-completed',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'ReadFile',
+      toolCallId: 'call-style-1',
+      arguments: { path: 'src/main.ts' },
+      result: 'ok',
+      success: true,
+      duration: 350,
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+    expect(screen.queryByText('✓')).toBeNull()
+    expect(screen.queryByText('350ms')).toBeNull()
+
+    const button = screen.getByRole('button')
+    const wrapper = button.parentElement as HTMLElement
+    const chevron = screen.getByText('▼')
+    expect(chevron).toHaveStyle({ opacity: '0' })
+
+    fireEvent.mouseEnter(wrapper)
+    expect(chevron).toHaveStyle({ opacity: '1' })
+  })
+
 })
 
 describe('ToolCallCard todo rendering safety', () => {

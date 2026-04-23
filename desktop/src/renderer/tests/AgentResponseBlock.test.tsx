@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AgentResponseBlock } from '../components/conversation/AgentResponseBlock'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
@@ -189,5 +189,69 @@ describe('AgentResponseBlock tail tool aggregation timing', () => {
     )
 
     expect(screen.getByText('Explored 2 files')).toBeInTheDocument()
+  })
+})
+
+describe('AgentResponseBlock completed turn folding', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('collapses intermediate items into processed summary and keeps final message visible', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-folded',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T11:20:00.000Z',
+      completedAt: '2026-04-18T11:20:10.000Z',
+      items: [
+        {
+          id: 'reasoning-1',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'intermediate reasoning',
+          elapsedSeconds: 2,
+          createdAt: '2026-04-18T11:20:01.000Z'
+        },
+        {
+          id: 'tool-1',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-1',
+          toolName: 'ReadFile',
+          arguments: { path: 'src/main.ts' },
+          success: true,
+          createdAt: '2026-04-18T11:20:02.000Z'
+        },
+        {
+          id: 'assistant-final',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final response',
+          createdAt: '2026-04-18T11:20:05.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Processed in 5s')).toBeInTheDocument()
+    expect(screen.getByText('final response')).toBeInTheDocument()
+    expect(screen.queryByText('Read main.ts')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Processed in 5s/ }))
+
+    expect(screen.getByText('Read main.ts')).toBeInTheDocument()
   })
 })
