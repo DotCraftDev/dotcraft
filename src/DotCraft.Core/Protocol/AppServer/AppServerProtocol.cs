@@ -1300,11 +1300,89 @@ public sealed class AutomationTemplateWire
     /// <summary>Seed title for the New Task dialog.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DefaultTitle { get; set; }
+
+    /// <summary>
+    /// True when this template is user-authored (editable / deletable). Absent or false for
+    /// built-in templates shipped by the server. Surfaced to the desktop gallery so it can
+    /// render edit / delete controls on the right cards only.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsUser { get; set; }
+
+    /// <summary>ISO-8601 UTC, only populated for user templates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? CreatedAt { get; set; }
+
+    /// <summary>ISO-8601 UTC, only populated for user templates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class AutomationTemplateListResult
 {
     public List<AutomationTemplateWire> Templates { get; set; } = [];
+}
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.AutomationTemplateSave"/>.
+/// Upsert semantics: when <see cref="Id"/> is supplied and matches an existing user template,
+/// the save overwrites that template; otherwise the server assigns a fresh id.
+/// </summary>
+public sealed class AutomationTemplateSaveParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; set; }
+
+    public string Title { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Category { get; set; }
+
+    /// <summary>Complete <c>workflow.md</c> contents (with front matter).</summary>
+    public string WorkflowMarkdown { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AutomationScheduleWire? DefaultSchedule { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultWorkspaceMode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultApprovalPolicy { get; set; }
+
+    public bool DefaultRequireApproval { get; set; }
+
+    public bool NeedsThreadBinding { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultTitle { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultDescription { get; set; }
+}
+
+/// <summary>Result of <see cref="AppServerMethods.AutomationTemplateSave"/>.</summary>
+public sealed class AutomationTemplateSaveResult
+{
+    public AutomationTemplateWire Template { get; set; } = new();
+}
+
+/// <summary>Params for <see cref="AppServerMethods.AutomationTemplateDelete"/>.</summary>
+public sealed class AutomationTemplateDeleteParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+/// <summary>Result of <see cref="AppServerMethods.AutomationTemplateDelete"/>.</summary>
+public sealed class AutomationTemplateDeleteResult
+{
+    public bool Ok { get; set; } = true;
 }
 
 /// <summary>
@@ -2067,8 +2145,14 @@ public static class AppServerMethods
     /// <summary>Replaces or clears a task's thread binding without rewriting other fields.</summary>
     public const string AutomationTaskUpdateBinding = "automation/task/updateBinding";
 
-    /// <summary>Returns the catalog of built-in local task templates (gallery + create-dialog preset source).</summary>
+    /// <summary>Returns the catalog of built-in and user local task templates (gallery + create-dialog preset source).</summary>
     public const string AutomationTemplateList = "automation/template/list";
+
+    /// <summary>Creates or updates a user-authored automation template (upsert by id).</summary>
+    public const string AutomationTemplateSave = "automation/template/save";
+
+    /// <summary>Deletes a user-authored automation template. Built-in ids are rejected.</summary>
+    public const string AutomationTemplateDelete = "automation/template/delete";
 
     // Server → Client notification (automations, M6)
     public const string AutomationTaskUpdated = "automation/task/updated";

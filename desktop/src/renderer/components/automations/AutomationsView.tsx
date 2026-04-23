@@ -85,6 +85,8 @@ export function AutomationsView(): JSX.Element {
 
   const [showNewTask, setShowNewTask] = useState(false)
   const [newTaskTemplate, setNewTaskTemplate] = useState<AutomationTemplate | undefined>(undefined)
+  const [newDialogTab, setNewDialogTab] = useState<'task' | 'template'>('task')
+  const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
   const templates = useAutomationsStore((s) => s.templates)
   const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
@@ -281,6 +283,8 @@ export function AutomationsView(): JSX.Element {
                   aria-label={t('auto.createTask')}
                   onClick={() => {
                     setNewTaskTemplate(undefined)
+                    setEditingTemplate(undefined)
+                    setNewDialogTab('task')
                     setShowNewTask(true)
                   }}
                   style={{
@@ -411,7 +415,7 @@ export function AutomationsView(): JSX.Element {
             role="tabpanel"
             style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
           >
-            {filterSource !== 'github' && templates.length > 0 && (
+            {filterSource !== 'github' && (
               <div style={{ padding: '6px 10px 10px' }}>
                 <div
                   style={{
@@ -455,55 +459,184 @@ export function AutomationsView(): JSX.Element {
                     }}
                   >
                     {templates.map((tpl) => (
-                      <button
+                      <div
                         key={tpl.id}
-                        type="button"
-                        onClick={() => {
-                          setNewTaskTemplate(tpl)
-                          setShowNewTask(true)
+                        style={{ position: 'relative' }}
+                        onMouseEnter={(e) => {
+                          const card = e.currentTarget.querySelector(
+                            '[data-card]'
+                          ) as HTMLElement | null
+                          if (card) card.style.borderColor = 'var(--accent)'
+                          const actions = e.currentTarget.querySelector(
+                            '[data-actions]'
+                          ) as HTMLElement | null
+                          if (actions) actions.style.opacity = '1'
                         }}
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-start',
-                          gap: '4px',
-                          padding: '10px 12px',
-                          borderRadius: '10px',
-                          border: '1px solid var(--border-default)',
-                          backgroundColor: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          minHeight: '80px'
+                        onMouseLeave={(e) => {
+                          const card = e.currentTarget.querySelector(
+                            '[data-card]'
+                          ) as HTMLElement | null
+                          if (card) card.style.borderColor = 'var(--border-default)'
+                          const actions = e.currentTarget.querySelector(
+                            '[data-actions]'
+                          ) as HTMLElement | null
+                          if (actions) actions.style.opacity = '0'
                         }}
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.borderColor = 'var(--accent)')
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.borderColor = 'var(--border-default)')
-                        }
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontSize: '18px' }}>{tpl.icon ?? '✦'}</span>
-                          <span style={{ fontSize: '12px', fontWeight: 600 }}>{tpl.title}</span>
-                        </div>
-                        {tpl.description && (
-                          <span
+                        <button
+                          type="button"
+                          data-card
+                          onClick={() => {
+                            setNewTaskTemplate(tpl)
+                            setEditingTemplate(undefined)
+                            setNewDialogTab('task')
+                            setShowNewTask(true)
+                          }}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            gap: '4px',
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-default)',
+                            backgroundColor: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            minHeight: '80px',
+                            transition: 'border-color 0.15s'
+                          }}
+                        >
+                          <div
                             style={{
-                              fontSize: '11px',
-                              color: 'var(--text-secondary)',
-                              lineHeight: 1.4,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden'
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              width: '100%'
                             }}
                           >
-                            {tpl.description}
-                          </span>
+                            <span style={{ fontSize: '18px' }}>{tpl.icon ?? '✦'}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>
+                              {tpl.title}
+                            </span>
+                            {tpl.isUser && (
+                              <span
+                                style={{
+                                  padding: '1px 5px',
+                                  borderRadius: '999px',
+                                  fontSize: '9px',
+                                  fontWeight: 500,
+                                  color: 'var(--accent)',
+                                  backgroundColor:
+                                    'color-mix(in srgb, var(--accent) 12%, transparent)',
+                                  border:
+                                    '1px solid color-mix(in srgb, var(--accent) 30%, transparent)'
+                                }}
+                              >
+                                {t('auto.gallery.my.badge')}
+                              </span>
+                            )}
+                          </div>
+                          {tpl.description && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-secondary)',
+                                lineHeight: 1.4,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              {tpl.description}
+                            </span>
+                          )}
+                        </button>
+                        {tpl.isUser && (
+                          <div
+                            data-actions
+                            style={{
+                              position: 'absolute',
+                              top: '6px',
+                              right: '6px',
+                              display: 'flex',
+                              gap: '4px',
+                              opacity: 0,
+                              transition: 'opacity 0.15s'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditingTemplate(tpl)
+                                setNewTaskTemplate(undefined)
+                                setNewDialogTab('template')
+                                setShowNewTask(true)
+                              }}
+                              title={t('auto.gallery.my.edit')}
+                              aria-label={t('auto.gallery.my.edit')}
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-default)',
+                                backgroundColor: 'var(--bg-primary)',
+                                color: 'var(--text-secondary)',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                                padding: 0
+                              }}
+                            >
+                              ✎
+                            </button>
+                          </div>
                         )}
-                      </button>
+                      </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTemplate(undefined)
+                        setNewTaskTemplate(undefined)
+                        setNewDialogTab('template')
+                        setShowNewTask(true)
+                      }}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: '1px dashed var(--border-default)',
+                        backgroundColor: 'transparent',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        minHeight: '80px',
+                        fontSize: '12px',
+                        fontWeight: 500
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--accent)'
+                        e.currentTarget.style.color = 'var(--accent)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--border-default)'
+                        e.currentTarget.style.color = 'var(--text-secondary)'
+                      }}
+                    >
+                      <span style={{ fontSize: '18px', lineHeight: 1 }}>＋</span>
+                      <span>{t('auto.gallery.my.create')}</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -651,8 +784,12 @@ export function AutomationsView(): JSX.Element {
           onClose={() => {
             setShowNewTask(false)
             setNewTaskTemplate(undefined)
+            setEditingTemplate(undefined)
+            setNewDialogTab('task')
           }}
           initialTemplate={newTaskTemplate}
+          initialTab={newDialogTab}
+          editingTemplate={editingTemplate}
         />
       )}
 

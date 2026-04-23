@@ -75,6 +75,30 @@ export interface AutomationTemplate {
   needsThreadBinding?: boolean | null
   defaultTitle?: string | null
   defaultDescription?: string | null
+  /** True for user-authored templates (editable + deletable); false/absent for built-ins. */
+  isUser?: boolean
+  /** ISO-8601 UTC, only present for user templates. */
+  createdAt?: string | null
+  /** ISO-8601 UTC, only present for user templates. */
+  updatedAt?: string | null
+}
+
+/** Authoring payload for creating / updating a user template. */
+export interface SaveTemplateInput {
+  /** Absent for new templates; present to update an existing user template in place. */
+  id?: string
+  title: string
+  description?: string | null
+  icon?: string | null
+  category?: string | null
+  workflowMarkdown: string
+  defaultSchedule?: AutomationSchedule | null
+  defaultWorkspaceMode?: 'project' | 'isolated' | null
+  defaultApprovalPolicy?: 'workspaceScope' | 'fullAuto' | null
+  defaultRequireApproval?: boolean
+  needsThreadBinding?: boolean
+  defaultTitle?: string | null
+  defaultDescription?: string | null
 }
 
 export interface CreateTaskInput {
@@ -116,8 +140,12 @@ interface AutomationsState {
     task: AutomationTask,
     binding: AutomationThreadBinding | null
   ): Promise<AutomationTask>
-  /** Fetches and caches the built-in local templates. No-op if already loaded. */
+  /** Fetches and caches the built-in + user local templates. No-op if already loaded. */
   fetchTemplates(force?: boolean): Promise<void>
+  /** Creates or updates a user-authored template. Refreshes the cached templates list. */
+  saveTemplate(input: SaveTemplateInput): Promise<AutomationTemplate>
+  /** Deletes a user-authored template. Built-in ids are rejected by the server. */
+  deleteTemplate(id: string): Promise<void>
   selectTask(taskId: string | null): void
   setFilterSource(filter: SourceFilter): void
   upsertTask(task: AutomationTask): void
@@ -221,6 +249,51 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     } catch {
       set({ templates: [], templatesLoaded: true })
     }
+  },
+
+  async saveTemplate(input: SaveTemplateInput) {
+    const params: Record<string, unknown> = {
+      title: input.title,
+      workflowMarkdown: input.workflowMarkdown,
+      defaultRequireApproval: input.defaultRequireApproval ?? false,
+      needsThreadBinding: input.needsThreadBinding ?? false
+    }
+    if (input.id) params.id = input.id
+    if (input.description != null && input.description !== '')
+      params.description = input.description
+    if (input.icon != null && input.icon !== '') params.icon = input.icon
+    if (input.category != null && input.category !== '') params.category = input.category
+    if (input.defaultSchedule && input.defaultSchedule.kind !== 'once')
+      params.defaultSchedule = input.defaultSchedule
+    if (input.defaultWorkspaceMode) params.defaultWorkspaceMode = input.defaultWorkspaceMode
+    if (input.defaultApprovalPolicy) params.defaultApprovalPolicy = input.defaultApprovalPolicy
+    if (input.defaultTitle != null && input.defaultTitle !== '')
+      params.defaultTitle = input.defaultTitle
+    if (input.defaultDescription != null && input.defaultDescription !== '')
+      params.defaultDescription = input.defaultDescription
+
+    const result = (await window.api.appServer.sendRequest(
+      'automation/template/save',
+      params
+    )) as { template?: AutomationTemplate }
+    const saved = result.template
+    if (!saved) throw new Error('Server did not return the saved template')
+
+    set((state) => {
+      const idx = state.templates.findIndex((t) => t.id === saved.id)
+      if (idx >= 0) {
+        const updated = [...state.templates]
+        updated[idx] = saved
+        return { templates: updated }
+      }
+      return { templates: [...state.templates, saved] }
+    })
+    return saved
+  },
+
+  async deleteTemplate(id: string) {
+    await window.api.appServer.sendRequest('automation/template/delete', { id })
+    set((state) => ({ templates: state.templates.filter((t) => t.id !== id) }))
   },
 
   async deleteTask(task: AutomationTask) {

@@ -4,6 +4,7 @@ using DotCraft.Automations.DashBoard;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Protocol;
+using DotCraft.Automations.Templates;
 using DotCraft.Automations.Workspace;
 using DotCraft.Configuration;
 using DotCraft.DashBoard;
@@ -38,6 +39,7 @@ public sealed partial class AutomationsModule : ModuleBase
         services.AddSingleton(cfg);
         services.AddSingleton<AutomationWorkspaceManager>();
         services.AddSingleton<LocalTaskFileStore>();
+        services.AddSingleton<UserTemplateFileStore>();
         services.AddSingleton<LocalWorkflowLoader>();
         services.AddSingleton<LocalAutomationSource>();
         services.AddSingleton<IAutomationSource>(sp => sp.GetRequiredService<LocalAutomationSource>());

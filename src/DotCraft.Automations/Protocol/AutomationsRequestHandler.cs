@@ -17,7 +17,8 @@ namespace DotCraft.Automations.Protocol;
 /// </summary>
 public sealed partial class AutomationsRequestHandler(
     AutomationOrchestrator orchestrator,
-    LocalTaskFileStore fileStore) : IAutomationsRequestHandler
+    LocalTaskFileStore fileStore,
+    UserTemplateFileStore userTemplateStore) : IAutomationsRequestHandler
 {
     // Automation-specific error codes are now in AppServerErrors (-32051 to -32054)
 
@@ -165,20 +166,97 @@ public sealed partial class AutomationsRequestHandler(
         return new AutomationTaskUpdateBindingResult { Task = ToWireDetailed(task) };
     }
 
-    public Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    public async Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = GetParams<AutomationTemplateListParams>(msg);
-        var templates = LocalTaskTemplates.All.Select(ToWire).ToList();
-        return Task.FromResult<object?>(new AutomationTemplateListResult { Templates = templates });
+
+        var templates = new List<AutomationTemplateWire>();
+        // Built-ins first so the UI can keep its existing ordering; user templates follow with IsUser=true.
+        foreach (var t in LocalTaskTemplates.All)
+            templates.Add(ToWire(t));
+
+        var user = await userTemplateStore.LoadAllAsync(ct);
+        foreach (var t in user)
+            templates.Add(ToWire(t));
+
+        return new AutomationTemplateListResult { Templates = templates };
+    }
+
+    public async Task<object?> HandleTemplateSaveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<AutomationTemplateSaveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Title))
+            throw AppServerErrors.InvalidParams("'title' is required.");
+        if (p.Title.Length > 200)
+            throw AppServerErrors.InvalidParams("'title' must be 200 characters or less.");
+        if (string.IsNullOrWhiteSpace(p.WorkflowMarkdown))
+            throw AppServerErrors.InvalidParams("'workflowMarkdown' is required.");
+
+        var id = string.IsNullOrWhiteSpace(p.Id) ? GenerateUserTemplateId() : p.Id!.Trim();
+        if (!UserTemplateFileStore.IsValidId(id))
+            throw AppServerErrors.InvalidParams(
+                "'id' must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$.");
+        if (LocalTaskTemplates.FindById(id) != null)
+            throw AppServerErrors.InvalidParams(
+                $"Template id '{id}' is reserved by a built-in template.");
+
+        LocalTaskTemplate saved;
+        try
+        {
+            saved = await userTemplateStore.SaveAsync(
+                id: id,
+                title: p.Title,
+                description: p.Description,
+                icon: p.Icon,
+                category: p.Category,
+                workflowMarkdown: p.WorkflowMarkdown,
+                defaultSchedule: FromWire(p.DefaultSchedule),
+                defaultWorkspaceMode: p.DefaultWorkspaceMode,
+                defaultApprovalPolicy: p.DefaultApprovalPolicy,
+                defaultRequireApproval: p.DefaultRequireApproval,
+                needsThreadBinding: p.NeedsThreadBinding,
+                defaultTitle: p.DefaultTitle,
+                defaultDescription: p.DefaultDescription,
+                ct: ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw AppServerErrors.InvalidParams(ex.Message);
+        }
+
+        return new AutomationTemplateSaveResult { Template = ToWire(saved) };
+    }
+
+    public async Task<object?> HandleTemplateDeleteAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<AutomationTemplateDeleteParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+        if (LocalTaskTemplates.FindById(p.Id) != null)
+            throw AppServerErrors.InvalidParams(
+                $"Template id '{p.Id}' is a built-in template and cannot be deleted.");
+        if (!UserTemplateFileStore.IsValidId(p.Id))
+            throw AppServerErrors.InvalidParams("'id' has an invalid shape.");
+
+        try
+        {
+            await userTemplateStore.DeleteAsync(p.Id, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw AppServerErrors.InvalidParams(ex.Message);
+        }
+
+        return new AutomationTemplateDeleteResult { Ok = true };
     }
 
     private static AutomationTemplateWire ToWire(LocalTaskTemplate t) => new()
     {
         Id = t.Id,
         Title = t.Title,
-        Description = t.Description,
-        Icon = t.Icon,
-        Category = t.Category,
+        Description = string.IsNullOrWhiteSpace(t.Description) ? null : t.Description,
+        Icon = string.IsNullOrWhiteSpace(t.Icon) ? null : t.Icon,
+        Category = string.IsNullOrWhiteSpace(t.Category) ? null : t.Category,
         WorkflowMarkdown = t.WorkflowMarkdown,
         DefaultSchedule = ToWire(t.DefaultSchedule),
         DefaultWorkspaceMode = t.DefaultWorkspaceMode,
@@ -186,8 +264,34 @@ public sealed partial class AutomationsRequestHandler(
         DefaultRequireApproval = t.DefaultRequireApproval,
         NeedsThreadBinding = t.NeedsThreadBinding,
         DefaultTitle = t.DefaultTitle,
-        DefaultDescription = t.DefaultDescription
+        DefaultDescription = t.DefaultDescription,
+        IsUser = t.IsUser,
+        CreatedAt = t.CreatedAt,
+        UpdatedAt = t.UpdatedAt
     };
+
+    private static CronSchedule? FromWire(AutomationScheduleWire? wire)
+    {
+        if (wire == null || string.IsNullOrWhiteSpace(wire.Kind))
+            return null;
+        var kind = wire.Kind.Trim().ToLowerInvariant();
+        if (kind == "once")
+            return null;
+        return new CronSchedule
+        {
+            Kind = kind,
+            AtMs = wire.AtMs,
+            EveryMs = wire.EveryMs,
+            InitialDelayMs = wire.InitialDelayMs,
+            DailyHour = wire.DailyHour,
+            DailyMinute = wire.DailyMinute,
+            Expr = wire.Expr,
+            Tz = wire.Tz
+        };
+    }
+
+    private static string GenerateUserTemplateId() =>
+        "user-" + Guid.NewGuid().ToString("N")[..10];
 
     private static void AppendScheduleYaml(StringBuilder sb, AutomationScheduleWire? schedule)
     {
