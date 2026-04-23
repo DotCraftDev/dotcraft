@@ -12,7 +12,6 @@ using DotCraft.Memory;
 using DotCraft.CLI;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
-using DotCraft.Tracing;
 using Spectre.Console;
 
 namespace DotCraft.Acp;
@@ -25,7 +24,6 @@ public sealed class AcpBridgeHandler(
     AppServerWireClient wire,
     string workspacePath,
     CustomCommandLoader? customCommandLoader = null,
-    TokenUsageStore? tokenUsageStore = null,
     HookRunner? hookRunner = null,
     PlanStore? planStore = null,
     AcpLogger? logger = null,
@@ -899,24 +897,6 @@ public sealed class AcpBridgeHandler(
             }
             case AppServerMethods.TurnCompleted:
             {
-                if (tokenUsageStore == null || !@params.TryGetProperty("turn", out var turnEl))
-                    break;
-                if (!turnEl.TryGetProperty("tokenUsage", out var tu) || tu.ValueKind != JsonValueKind.Object)
-                    break;
-                var inputTokens = tu.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L;
-                var outputTokens = tu.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L;
-                if (inputTokens > 0 || outputTokens > 0)
-                {
-                    tokenUsageStore.Record(new TokenUsageRecord
-                    {
-                        Channel = "acp",
-                        UserId = sessionId,
-                        DisplayName = sessionId,
-                        InputTokens = inputTokens,
-                        OutputTokens = outputTokens
-                    });
-                }
-
                 break;
             }
             case AppServerMethods.PlanUpdated:

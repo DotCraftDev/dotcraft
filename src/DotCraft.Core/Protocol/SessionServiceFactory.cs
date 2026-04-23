@@ -38,6 +38,7 @@ public static class SessionServiceFactory
             sp.GetService<IChannelRuntimeToolProvider>(),
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
+            sp.GetService<TokenUsageStore>(),
             approvalTimeout,
             logger: loggerFactory?.CreateLogger<SessionService>(),
             approvalStore: sp.GetService<ApprovalStore>(),

@@ -1,111 +1,76 @@
-using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotCraft.State;
 
 namespace DotCraft.Tracing;
 
+public static class TokenUsageSourceModes
+{
+    public const string ServerManaged = "server-managed";
+    public const string ClientManaged = "client-managed";
+    public const string Mixed = "mixed";
+}
+
+public static class TokenUsageSubjectKinds
+{
+    public const string User = "user";
+    public const string Thread = "thread";
+    public const string Session = "session";
+    public const string Mixed = "mixed";
+}
+
+public static class TokenUsageContextKinds
+{
+    public const string Group = "group";
+    public const string Mixed = "mixed";
+}
+
 public sealed class TokenUsageRecord
 {
-    /// <summary>
-    /// The channel that produced this record, e.g. "qq", "wecom", "api", "cli".
-    /// </summary>
-    public string Channel { get; init; } = string.Empty;
+    public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 
-    public string UserId { get; init; } = string.Empty;
+    public string SourceId { get; init; } = string.Empty;
 
-    public string DisplayName { get; set; } = string.Empty;
+    public string SourceMode { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Non-null when the message originated from a group context.
-    /// </summary>
-    public long? GroupId { get; init; }
+    public string SubjectKind { get; init; } = string.Empty;
 
-    public string? GroupName { get; set; }
+    public string SubjectId { get; init; } = string.Empty;
+
+    public string SubjectLabel { get; init; } = string.Empty;
+
+    public string? ContextKind { get; init; }
+
+    public string? ContextId { get; init; }
+
+    public string? ContextLabel { get; init; }
+
+    public string? ThreadId { get; init; }
+
+    public string? SessionKey { get; init; }
 
     public long InputTokens { get; init; }
 
     public long OutputTokens { get; init; }
 
-    public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
+    public long TotalTokens => InputTokens + OutputTokens;
 }
 
-public sealed class UserTokenUsage
+public sealed class UsageSourceSummary
 {
-    public string UserId { get; init; } = string.Empty;
+    public string SourceId { get; init; } = string.Empty;
 
-    public string DisplayName { get; set; } = string.Empty;
+    public string SourceMode { get; init; } = string.Empty;
 
-    private long _totalInputTokens;
-    private long _totalOutputTokens;
-    private int _requestCount;
+    public string SubjectKind { get; init; } = string.Empty;
 
-    public long TotalInputTokens => Interlocked.Read(ref _totalInputTokens);
+    public string? ContextKind { get; init; }
 
-    public long TotalOutputTokens => Interlocked.Read(ref _totalOutputTokens);
+    public int SubjectCount { get; init; }
 
-    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
+    public int ContextCount { get; init; }
 
-    public int RequestCount => Interlocked.CompareExchange(ref _requestCount, 0, 0);
-
-    public DateTimeOffset LastActiveAt { get; set; } = DateTimeOffset.UtcNow;
-
-    public void Add(long inputTokens, long outputTokens)
-    {
-        Interlocked.Add(ref _totalInputTokens, inputTokens);
-        Interlocked.Add(ref _totalOutputTokens, outputTokens);
-        Interlocked.Increment(ref _requestCount);
-        LastActiveAt = DateTimeOffset.UtcNow;
-    }
-
-    public void Load(long inputTokens, long outputTokens, int requestCount, DateTimeOffset lastActiveAt)
-    {
-        Interlocked.Add(ref _totalInputTokens, inputTokens);
-        Interlocked.Add(ref _totalOutputTokens, outputTokens);
-        Interlocked.Add(ref _requestCount, requestCount);
-        if (lastActiveAt > LastActiveAt)
-            LastActiveAt = lastActiveAt;
-    }
-}
-
-public sealed class GroupTokenUsage
-{
-    public long GroupId { get; init; }
-
-    public string GroupName { get; set; } = string.Empty;
-
-    public ConcurrentDictionary<string, UserTokenUsage> Users { get; } = new();
-
-    public long TotalInputTokens => Users.Values.Sum(u => u.TotalInputTokens);
-
-    public long TotalOutputTokens => Users.Values.Sum(u => u.TotalOutputTokens);
-
-    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
-
-    public int TotalRequestCount => Users.Values.Sum(u => u.RequestCount);
-
-    public DateTimeOffset LastActiveAt => Users.Values.Count > 0
-        ? Users.Values.Max(u => u.LastActiveAt)
-        : DateTimeOffset.MinValue;
-}
-
-/// <summary>
-/// Aggregates token usage for a single channel (e.g. "qq", "wecom", "api").
-/// Direct/private messages are stored in <see cref="Users"/>;
-/// group messages are stored in <see cref="Groups"/>.
-/// </summary>
-public sealed class ChannelTokenUsage
-{
-    public string Channel { get; init; } = string.Empty;
-
-    public ConcurrentDictionary<string, UserTokenUsage> Users { get; } = new();
-
-    public ConcurrentDictionary<long, GroupTokenUsage> Groups { get; } = new();
-}
-
-public sealed class ChannelSummary
-{
-    public string Channel { get; init; } = string.Empty;
+    public int RequestCount { get; init; }
 
     public long TotalInputTokens { get; init; }
 
@@ -113,18 +78,36 @@ public sealed class ChannelSummary
 
     public long TotalTokens => TotalInputTokens + TotalOutputTokens;
 
-    public int TotalRequests { get; init; }
+    public DateTimeOffset LastActiveAt { get; init; }
+}
 
-    public int UserCount { get; init; }
+public sealed class UsageBreakdownEntry
+{
+    public string Kind { get; init; } = string.Empty;
 
-    public int GroupCount { get; init; }
+    public string Id { get; init; } = string.Empty;
+
+    public string Label { get; init; } = string.Empty;
+
+    public int RequestCount { get; init; }
+
+    public int? RelatedSubjectCount { get; init; }
+
+    public long TotalInputTokens { get; init; }
+
+    public long TotalOutputTokens { get; init; }
+
+    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
+
+    public DateTimeOffset LastActiveAt { get; init; }
 }
 
 public sealed class TokenUsageStore
 {
     private readonly string? _storagePath;
     private readonly StateRuntime? _stateRuntime;
-    private readonly ConcurrentDictionary<string, ChannelTokenUsage> _channels = new();
+    private readonly Dictionary<string, FallbackSourceAggregate> _fallbackSources = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _aggregateLock = new();
     private readonly object _fileLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -146,112 +129,53 @@ public sealed class TokenUsageStore
 
     public void Record(TokenUsageRecord record)
     {
-        if (string.IsNullOrEmpty(record.Channel))
+        if (!IsValidRecord(record))
+        {
             return;
-
-        ApplyRecord(record);
+        }
 
         if (_stateRuntime != null)
             PersistRecordToDb(record);
-        else if (_storagePath != null)
-            PersistRecordToFile(record);
+        else
+        {
+            ApplyFallbackRecord(record);
+            if (_storagePath != null)
+                PersistRecordToFile(record);
+        }
     }
 
-    public IReadOnlyList<ChannelTokenUsage> GetChannels()
+    public IReadOnlyList<UsageSourceSummary> GetSourceSummaries()
     {
-        return _channels.Values
-            .OrderBy(c => c.Channel)
-            .ToList();
+        return _stateRuntime != null
+            ? GetSourceSummariesFromDb()
+            : GetSourceSummariesFromFallback();
     }
 
-    public IReadOnlyList<UserTokenUsage> GetUsers(string channel)
+    public IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdown(string sourceId)
     {
-        if (!_channels.TryGetValue(channel, out var ch))
-            return [];
-        return ch.Users.Values
-            .OrderByDescending(u => u.TotalTokens)
-            .ToList();
+        return _stateRuntime != null
+            ? GetSubjectBreakdownFromDb(sourceId)
+            : GetSubjectBreakdownFromFallback(sourceId);
     }
 
-    public IReadOnlyList<GroupTokenUsage> GetGroups(string channel)
+    public IReadOnlyList<UsageBreakdownEntry> GetContextBreakdown(string sourceId)
     {
-        if (!_channels.TryGetValue(channel, out var ch))
-            return [];
-        return ch.Groups.Values
-            .OrderByDescending(g => g.TotalTokens)
-            .ToList();
-    }
-
-    public IReadOnlyList<ChannelSummary> GetSummary()
-    {
-        return _channels.Values
-            .OrderBy(c => c.Channel)
-            .Select(c =>
-            {
-                long input = 0, output = 0;
-                int requests = 0;
-
-                foreach (var u in c.Users.Values)
-                {
-                    input += u.TotalInputTokens;
-                    output += u.TotalOutputTokens;
-                    requests += u.RequestCount;
-                }
-
-                foreach (var g in c.Groups.Values)
-                {
-                    input += g.TotalInputTokens;
-                    output += g.TotalOutputTokens;
-                    requests += g.TotalRequestCount;
-                }
-
-                return new ChannelSummary
-                {
-                    Channel = c.Channel,
-                    TotalInputTokens = input,
-                    TotalOutputTokens = output,
-                    TotalRequests = requests,
-                    UserCount = c.Users.Count,
-                    GroupCount = c.Groups.Count
-                };
-            })
-            .ToList();
+        return _stateRuntime != null
+            ? GetContextBreakdownFromDb(sourceId)
+            : GetContextBreakdownFromFallback(sourceId);
     }
 
     public void LoadFromDisk()
     {
         if (_stateRuntime != null)
-        {
-            _channels.Clear();
-            using var connection = _stateRuntime.OpenConnection();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                SELECT timestamp, channel, user_id, display_name, group_id, group_name, input_tokens, output_tokens
-                FROM token_usage_records
-                ORDER BY timestamp, id
-                """;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                ApplyRecord(new TokenUsageRecord
-                {
-                    Timestamp = DateTimeOffset.Parse(reader.GetString(0)),
-                    Channel = reader.GetString(1),
-                    UserId = reader.GetString(2),
-                    DisplayName = reader.GetString(3),
-                    GroupId = reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                    GroupName = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    InputTokens = reader.GetInt64(6),
-                    OutputTokens = reader.GetInt64(7)
-                });
-            }
             return;
-        }
+
+        ClearFallbackAggregates();
 
         if (_storagePath == null)
             return;
 
-        var filePath = Path.Combine(_storagePath, "token_usage.jsonl");
+        var filePath = Path.Combine(_storagePath, "usage_records.jsonl");
         if (!File.Exists(filePath))
             return;
 
@@ -266,8 +190,8 @@ public sealed class TokenUsageStore
                 try
                 {
                     var record = JsonSerializer.Deserialize<TokenUsageRecord>(line, JsonOptions);
-                    if (record != null)
-                        ApplyRecord(record);
+                    if (record != null && IsValidRecord(record))
+                        ApplyFallbackRecord(record);
                 }
                 catch
                 {
@@ -281,26 +205,157 @@ public sealed class TokenUsageStore
         }
     }
 
-    private void ApplyRecord(TokenUsageRecord record)
+    #region Database Queries
+
+    private IReadOnlyList<UsageSourceSummary> GetSourceSummariesFromDb()
     {
-        var channel = _channels.GetOrAdd(record.Channel, ch => new ChannelTokenUsage { Channel = ch });
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                MIN(source_id) AS source_id,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(source_mode)) = 0 THEN ''
+                    WHEN COUNT(DISTINCT LOWER(source_mode)) = 1 THEN MIN(source_mode)
+                    ELSE $mixed_source_mode
+                END AS source_mode,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(subject_kind)) = 0 THEN ''
+                    WHEN COUNT(DISTINCT LOWER(subject_kind)) = 1 THEN MIN(subject_kind)
+                    ELSE $mixed_subject_kind
+                END AS subject_kind,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(NULLIF(TRIM(context_kind), ''))) = 0 THEN NULL
+                    WHEN COUNT(DISTINCT LOWER(NULLIF(TRIM(context_kind), ''))) = 1 THEN MIN(NULLIF(TRIM(context_kind), ''))
+                    ELSE $mixed_context_kind
+                END AS context_kind,
+                COUNT(DISTINCT subject_id) AS subject_count,
+                COUNT(DISTINCT NULLIF(TRIM(context_id), '')) AS context_count,
+                COUNT(*) AS request_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            GROUP BY LOWER(source_id)
+            ORDER BY total_tokens DESC, source_id COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$mixed_source_mode", TokenUsageSourceModes.Mixed);
+        command.Parameters.AddWithValue("$mixed_subject_kind", TokenUsageSubjectKinds.Mixed);
+        command.Parameters.AddWithValue("$mixed_context_kind", TokenUsageContextKinds.Mixed);
 
-        if (record.GroupId.HasValue)
+        using var reader = command.ExecuteReader();
+        var summaries = new List<UsageSourceSummary>();
+        while (reader.Read())
         {
-            var group = channel.Groups.GetOrAdd(record.GroupId.Value, id => new GroupTokenUsage { GroupId = id });
-            if (!string.IsNullOrEmpty(record.GroupName))
-                group.GroupName = record.GroupName;
-
-            var groupUser = group.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-            groupUser.DisplayName = record.DisplayName;
-            groupUser.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
-            return;
+            summaries.Add(new UsageSourceSummary
+            {
+                SourceId = reader.GetString(0),
+                SourceMode = reader.GetString(1),
+                SubjectKind = reader.GetString(2),
+                ContextKind = reader.IsDBNull(3) ? null : reader.GetString(3),
+                SubjectCount = reader.GetInt32(4),
+                ContextCount = reader.GetInt32(5),
+                RequestCount = reader.GetInt32(6),
+                TotalInputTokens = reader.GetInt64(7),
+                TotalOutputTokens = reader.GetInt64(8),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(9))
+            });
         }
 
-        var user = channel.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-        user.DisplayName = record.DisplayName;
-        user.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
+        return summaries;
     }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdownFromDb(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                subject_kind,
+                subject_id,
+                COALESCE(MAX(NULLIF(TRIM(subject_label), '')), subject_id) AS label,
+                COUNT(*) AS request_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            WHERE source_id = $source_id COLLATE NOCASE
+            GROUP BY subject_kind, subject_id
+            ORDER BY total_tokens DESC, label COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$source_id", sourceId);
+
+        using var reader = command.ExecuteReader();
+        var entries = new List<UsageBreakdownEntry>();
+        while (reader.Read())
+        {
+            entries.Add(new UsageBreakdownEntry
+            {
+                Kind = reader.GetString(0),
+                Id = reader.GetString(1),
+                Label = reader.GetString(2),
+                RequestCount = reader.GetInt32(3),
+                TotalInputTokens = reader.GetInt64(4),
+                TotalOutputTokens = reader.GetInt64(5),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(6))
+            });
+        }
+
+        return entries;
+    }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetContextBreakdownFromDb(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                context_kind,
+                context_id,
+                COALESCE(MAX(NULLIF(TRIM(context_label), '')), context_id) AS label,
+                COUNT(*) AS request_count,
+                COUNT(DISTINCT subject_id) AS related_subject_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            WHERE source_id = $source_id COLLATE NOCASE
+              AND NULLIF(TRIM(context_id), '') IS NOT NULL
+            GROUP BY context_kind, context_id
+            ORDER BY total_tokens DESC, label COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$source_id", sourceId);
+
+        using var reader = command.ExecuteReader();
+        var entries = new List<UsageBreakdownEntry>();
+        while (reader.Read())
+        {
+            entries.Add(new UsageBreakdownEntry
+            {
+                Kind = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
+                Id = reader.GetString(1),
+                Label = reader.GetString(2),
+                RequestCount = reader.GetInt32(3),
+                RelatedSubjectCount = reader.GetInt32(4),
+                TotalInputTokens = reader.GetInt64(5),
+                TotalOutputTokens = reader.GetInt64(6),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(7))
+            });
+        }
+
+        return entries;
+    }
+
+    #endregion
 
     private void PersistRecordToDb(TokenUsageRecord record)
     {
@@ -309,32 +364,47 @@ public sealed class TokenUsageStore
             using var connection = _stateRuntime!.OpenConnection();
             using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO token_usage_records (
+                INSERT INTO dashboard_usage_records (
                     timestamp,
-                    channel,
-                    user_id,
-                    display_name,
-                    group_id,
-                    group_name,
+                    source_id,
+                    source_mode,
+                    subject_kind,
+                    subject_id,
+                    subject_label,
+                    context_kind,
+                    context_id,
+                    context_label,
+                    thread_id,
+                    session_key,
                     input_tokens,
                     output_tokens
                 ) VALUES (
                     $timestamp,
-                    $channel,
-                    $user_id,
-                    $display_name,
-                    $group_id,
-                    $group_name,
+                    $source_id,
+                    $source_mode,
+                    $subject_kind,
+                    $subject_id,
+                    $subject_label,
+                    $context_kind,
+                    $context_id,
+                    $context_label,
+                    $thread_id,
+                    $session_key,
                     $input_tokens,
                     $output_tokens
                 )
                 """;
             command.Parameters.AddWithValue("$timestamp", record.Timestamp.UtcDateTime.ToString("O"));
-            command.Parameters.AddWithValue("$channel", record.Channel);
-            command.Parameters.AddWithValue("$user_id", record.UserId);
-            command.Parameters.AddWithValue("$display_name", record.DisplayName);
-            command.Parameters.AddWithValue("$group_id", record.GroupId ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("$group_name", (object?)record.GroupName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$source_id", record.SourceId);
+            command.Parameters.AddWithValue("$source_mode", record.SourceMode);
+            command.Parameters.AddWithValue("$subject_kind", record.SubjectKind);
+            command.Parameters.AddWithValue("$subject_id", record.SubjectId);
+            command.Parameters.AddWithValue("$subject_label", record.SubjectLabel);
+            command.Parameters.AddWithValue("$context_kind", (object?)record.ContextKind ?? DBNull.Value);
+            command.Parameters.AddWithValue("$context_id", (object?)record.ContextId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$context_label", (object?)record.ContextLabel ?? DBNull.Value);
+            command.Parameters.AddWithValue("$thread_id", (object?)record.ThreadId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$session_key", (object?)record.SessionKey ?? DBNull.Value);
             command.Parameters.AddWithValue("$input_tokens", record.InputTokens);
             command.Parameters.AddWithValue("$output_tokens", record.OutputTokens);
             command.ExecuteNonQuery();
@@ -345,6 +415,147 @@ public sealed class TokenUsageStore
         }
     }
 
+    #region File Fallback Aggregation
+
+    private IReadOnlyList<UsageSourceSummary> GetSourceSummariesFromFallback()
+    {
+        lock (_aggregateLock)
+        {
+            return _fallbackSources.Values
+                .Select(source => new UsageSourceSummary
+                {
+                    SourceId = source.SourceId,
+                    SourceMode = CollapseKinds(source.SourceModes, TokenUsageSourceModes.Mixed),
+                    SubjectKind = CollapseKinds(source.SubjectKinds, TokenUsageSubjectKinds.Mixed),
+                    ContextKind = CollapseOptionalKinds(source.ContextKinds, TokenUsageContextKinds.Mixed),
+                    SubjectCount = source.SubjectIds.Count,
+                    ContextCount = source.ContextIds.Count,
+                    RequestCount = source.RequestCount,
+                    TotalInputTokens = source.TotalInputTokens,
+                    TotalOutputTokens = source.TotalOutputTokens,
+                    LastActiveAt = source.LastActiveAt
+                })
+                .OrderByDescending(summary => summary.TotalTokens)
+                .ThenBy(summary => summary.SourceId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdownFromFallback(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        lock (_aggregateLock)
+        {
+            if (!_fallbackSources.TryGetValue(sourceId, out var source))
+                return [];
+
+            return source.Subjects.Values
+                .Select(entry => new UsageBreakdownEntry
+                {
+                    Kind = entry.Kind,
+                    Id = entry.Id,
+                    Label = string.IsNullOrWhiteSpace(entry.Label) ? entry.Id : entry.Label,
+                    RequestCount = entry.RequestCount,
+                    TotalInputTokens = entry.TotalInputTokens,
+                    TotalOutputTokens = entry.TotalOutputTokens,
+                    LastActiveAt = entry.LastActiveAt
+                })
+                .OrderByDescending(entry => entry.TotalTokens)
+                .ThenBy(entry => entry.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetContextBreakdownFromFallback(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        lock (_aggregateLock)
+        {
+            if (!_fallbackSources.TryGetValue(sourceId, out var source))
+                return [];
+
+            return source.Contexts.Values
+                .Select(entry => new UsageBreakdownEntry
+                {
+                    Kind = entry.Kind,
+                    Id = entry.Id,
+                    Label = string.IsNullOrWhiteSpace(entry.Label) ? entry.Id : entry.Label,
+                    RequestCount = entry.RequestCount,
+                    RelatedSubjectCount = entry.RelatedSubjectIds.Count,
+                    TotalInputTokens = entry.TotalInputTokens,
+                    TotalOutputTokens = entry.TotalOutputTokens,
+                    LastActiveAt = entry.LastActiveAt
+                })
+                .OrderByDescending(entry => entry.TotalTokens)
+                .ThenBy(entry => entry.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private void ApplyFallbackRecord(TokenUsageRecord record)
+    {
+        lock (_aggregateLock)
+        {
+            var source = _fallbackSources.GetValueOrDefault(record.SourceId);
+            if (source == null)
+            {
+                source = new FallbackSourceAggregate(record.SourceId);
+                _fallbackSources[record.SourceId] = source;
+            }
+
+            source.SourceModes.Add(record.SourceMode);
+            source.SubjectKinds.Add(record.SubjectKind);
+            source.SubjectIds.Add(record.SubjectId);
+            source.RequestCount++;
+            source.TotalInputTokens += record.InputTokens;
+            source.TotalOutputTokens += record.OutputTokens;
+            if (record.Timestamp > source.LastActiveAt)
+                source.LastActiveAt = record.Timestamp;
+
+            var subjectKey = (record.SubjectKind, record.SubjectId);
+            var subject = source.Subjects.GetValueOrDefault(subjectKey);
+            if (subject == null)
+            {
+                subject = new FallbackBreakdownAggregate(record.SubjectKind, record.SubjectId);
+                source.Subjects[subjectKey] = subject;
+            }
+
+            subject.Add(record.SubjectLabel, record.Timestamp, record.InputTokens, record.OutputTokens);
+
+            if (string.IsNullOrWhiteSpace(record.ContextId))
+                return;
+
+            source.ContextIds.Add(record.ContextId);
+            if (!string.IsNullOrWhiteSpace(record.ContextKind))
+                source.ContextKinds.Add(record.ContextKind!);
+
+            var contextKind = record.ContextKind ?? string.Empty;
+            var contextKey = (contextKind, record.ContextId);
+            var context = source.Contexts.GetValueOrDefault(contextKey);
+            if (context == null)
+            {
+                context = new FallbackContextAggregate(contextKind, record.ContextId);
+                source.Contexts[contextKey] = context;
+            }
+
+            context.Add(record.ContextLabel, record.SubjectId, record.Timestamp, record.InputTokens, record.OutputTokens);
+        }
+    }
+
+    private void ClearFallbackAggregates()
+    {
+        lock (_aggregateLock)
+        {
+            _fallbackSources.Clear();
+        }
+    }
+
+    #endregion
+
     private void PersistRecordToFile(TokenUsageRecord record)
     {
         _ = Task.Run(() =>
@@ -352,7 +563,7 @@ public sealed class TokenUsageStore
             try
             {
                 Directory.CreateDirectory(_storagePath!);
-                var filePath = Path.Combine(_storagePath!, "token_usage.jsonl");
+                var filePath = Path.Combine(_storagePath!, "usage_records.jsonl");
                 var json = JsonSerializer.Serialize(record, JsonOptions);
                 lock (_fileLock)
                 {
@@ -364,5 +575,112 @@ public sealed class TokenUsageStore
                 // Silently ignore persistence errors
             }
         });
+    }
+
+    private static bool IsValidRecord(TokenUsageRecord record)
+    {
+        return !string.IsNullOrWhiteSpace(record.SourceId)
+            && !string.IsNullOrWhiteSpace(record.SourceMode)
+            && !string.IsNullOrWhiteSpace(record.SubjectKind)
+            && !string.IsNullOrWhiteSpace(record.SubjectId);
+    }
+
+    private static string CollapseKinds(IEnumerable<string> values, string mixedValue)
+    {
+        var distinct = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return distinct.Length switch
+        {
+            0 => string.Empty,
+            1 => distinct[0],
+            _ => mixedValue
+        };
+    }
+
+    private static string? CollapseOptionalKinds(IEnumerable<string?> values, string mixedValue)
+    {
+        var distinct = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return distinct.Length switch
+        {
+            0 => null,
+            1 => distinct[0],
+            _ => mixedValue
+        };
+    }
+
+    private sealed class FallbackSourceAggregate(string sourceId)
+    {
+        public string SourceId { get; } = sourceId;
+
+        public HashSet<string> SourceModes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> SubjectKinds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> ContextKinds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> SubjectIds { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> ContextIds { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<(string Kind, string Id), FallbackBreakdownAggregate> Subjects { get; } = [];
+
+        public Dictionary<(string Kind, string Id), FallbackContextAggregate> Contexts { get; } = [];
+
+        public int RequestCount { get; set; }
+
+        public long TotalInputTokens { get; set; }
+
+        public long TotalOutputTokens { get; set; }
+
+        public DateTimeOffset LastActiveAt { get; set; } = DateTimeOffset.MinValue;
+    }
+
+    private class FallbackBreakdownAggregate(string kind, string id)
+    {
+        public string Kind { get; } = kind;
+
+        public string Id { get; } = id;
+
+        public string Label { get; private set; } = string.Empty;
+
+        public int RequestCount { get; private set; }
+
+        public long TotalInputTokens { get; private set; }
+
+        public long TotalOutputTokens { get; private set; }
+
+        public DateTimeOffset LastActiveAt { get; private set; } = DateTimeOffset.MinValue;
+
+        public void Add(string? label, DateTimeOffset timestamp, long inputTokens, long outputTokens)
+        {
+            if (string.IsNullOrWhiteSpace(Label) && !string.IsNullOrWhiteSpace(label))
+                Label = label;
+
+            RequestCount++;
+            TotalInputTokens += inputTokens;
+            TotalOutputTokens += outputTokens;
+            if (timestamp > LastActiveAt)
+                LastActiveAt = timestamp;
+        }
+    }
+
+    private sealed class FallbackContextAggregate(string kind, string id)
+        : FallbackBreakdownAggregate(kind, id)
+    {
+        public HashSet<string> RelatedSubjectIds { get; } = new(StringComparer.Ordinal);
+
+        public void Add(string? label, string subjectId, DateTimeOffset timestamp, long inputTokens, long outputTokens)
+        {
+            base.Add(label, timestamp, inputTokens, outputTokens);
+            RelatedSubjectIds.Add(subjectId);
+        }
     }
 }

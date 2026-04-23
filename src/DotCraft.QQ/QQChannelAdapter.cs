@@ -384,15 +384,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                     {
                         if (usage != null)
                         {
-                            _tokenUsageStore?.Record(new TokenUsageRecord
-                            {
-                                Channel = "qq",
-                                UserId = evt.UserId.ToString(),
-                                DisplayName = evt.Sender.DisplayName,
-                                GroupId = evt.IsGroupMessage ? evt.GroupId : null,
-                                InputTokens = usage.InputTokens,
-                                OutputTokens = usage.OutputTokens
-                            });
                             if (DebugModeService.IsEnabled())
                                 textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
                         }

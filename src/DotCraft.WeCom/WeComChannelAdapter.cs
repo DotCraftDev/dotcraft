@@ -377,14 +377,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                     {
                         if (usage != null)
                         {
-                            _tokenUsageStore?.Record(new TokenUsageRecord
-                            {
-                                Channel = "wecom",
-                                UserId = from.UserId,
-                                DisplayName = from.Name,
-                                InputTokens = usage.InputTokens,
-                                OutputTokens = usage.OutputTokens
-                            });
                             if (DebugModeService.IsEnabled())
                                 textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
                         }

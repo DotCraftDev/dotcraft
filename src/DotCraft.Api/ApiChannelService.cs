@@ -160,9 +160,12 @@ public sealed class ApiChannelService(
                             {
                                 capturedTokenUsageStore.Record(new TokenUsageRecord
                                 {
-                                    Channel = "api",
-                                    UserId = sessionKey,
-                                    DisplayName = sessionKey,
+                                    SourceId = "api",
+                                    SourceMode = TokenUsageSourceModes.ClientManaged,
+                                    SubjectKind = TokenUsageSubjectKinds.Session,
+                                    SubjectId = sessionKey,
+                                    SubjectLabel = sessionKey,
+                                    SessionKey = sessionKey,
                                     InputTokens = inputDelta,
                                     OutputTokens = outputDelta
                                 });

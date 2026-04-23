@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotCraft.State;
 using DotCraft.Protocol;
 using DotCraft.Tracing;
@@ -160,35 +161,200 @@ public sealed class StateBackedStoreTests : IDisposable
         var writer = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
         writer.Record(new TokenUsageRecord
         {
-            Channel = "qq",
-            UserId = "u1",
-            DisplayName = "Alice",
+            SourceId = "qq",
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = TokenUsageSubjectKinds.User,
+            SubjectId = "u1",
+            SubjectLabel = "Alice",
+            SessionKey = "thread-1",
+            ThreadId = "thread-1",
             InputTokens = 3,
             OutputTokens = 5
         });
         writer.Record(new TokenUsageRecord
         {
-            Channel = "qq",
-            UserId = "u2",
-            DisplayName = "Bob",
-            GroupId = 42,
-            GroupName = "Team",
+            SourceId = "qq",
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = TokenUsageSubjectKinds.User,
+            SubjectId = "u2",
+            SubjectLabel = "Bob",
+            ContextKind = TokenUsageContextKinds.Group,
+            ContextId = "42",
+            ContextLabel = "Team",
+            SessionKey = "thread-2",
+            ThreadId = "thread-2",
             InputTokens = 7,
             OutputTokens = 11
         });
 
         var reader = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
-        reader.LoadFromDisk();
 
-        var summary = Assert.Single(reader.GetSummary());
-        Assert.Equal("qq", summary.Channel);
+        var summary = Assert.Single(reader.GetSourceSummaries());
+        Assert.Equal("qq", summary.SourceId);
         Assert.Equal(26, summary.TotalTokens);
-        Assert.Equal(2, summary.TotalRequests);
-        Assert.Equal(1, summary.UserCount);
-        Assert.Equal(1, summary.GroupCount);
+        Assert.Equal(2, summary.RequestCount);
+        Assert.Equal(2, summary.SubjectCount);
+        Assert.Equal(1, summary.ContextCount);
+        Assert.Equal(TokenUsageSubjectKinds.User, summary.SubjectKind);
+        Assert.Equal(TokenUsageContextKinds.Group, summary.ContextKind);
 
-        Assert.Single(reader.GetUsers("qq"));
-        Assert.Single(reader.GetGroups("qq"));
+        Assert.Equal(2, reader.GetSubjectBreakdown("qq").Count);
+        var context = Assert.Single(reader.GetContextBreakdown("qq"));
+        Assert.Equal("42", context.Id);
+        Assert.Equal("Team", context.Label);
+        Assert.Equal(1, context.RelatedSubjectCount);
+    }
+
+    [Fact]
+    public void TokenUsageStore_StateDb_Aggregates_MixedKinds_And_Sorts_Breakdowns()
+    {
+        var writer = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        writer.Record(new TokenUsageRecord
+        {
+            Timestamp = new DateTimeOffset(2026, 4, 24, 8, 0, 0, TimeSpan.Zero),
+            SourceId = "mixed",
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = TokenUsageSubjectKinds.User,
+            SubjectId = "user-2",
+            SubjectLabel = "Zulu",
+            ContextKind = TokenUsageContextKinds.Group,
+            ContextId = "group-1",
+            ContextLabel = "Team",
+            InputTokens = 2,
+            OutputTokens = 3
+        });
+        writer.Record(new TokenUsageRecord
+        {
+            Timestamp = new DateTimeOffset(2026, 4, 24, 8, 5, 0, TimeSpan.Zero),
+            SourceId = "mixed",
+            SourceMode = TokenUsageSourceModes.ClientManaged,
+            SubjectKind = TokenUsageSubjectKinds.Session,
+            SubjectId = "session-1",
+            SubjectLabel = "Alpha",
+            ContextKind = "room",
+            ContextId = "room-1",
+            ContextLabel = "Room",
+            InputTokens = 4,
+            OutputTokens = 1
+        });
+        writer.Record(new TokenUsageRecord
+        {
+            Timestamp = new DateTimeOffset(2026, 4, 24, 8, 10, 0, TimeSpan.Zero),
+            SourceId = "apple",
+            SourceMode = TokenUsageSourceModes.ClientManaged,
+            SubjectKind = TokenUsageSubjectKinds.Session,
+            SubjectId = "session-2",
+            SubjectLabel = "Apple Session",
+            InputTokens = 5,
+            OutputTokens = 5
+        });
+
+        var reader = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+
+        var summaries = reader.GetSourceSummaries();
+        Assert.Equal(["apple", "mixed"], summaries.Select(summary => summary.SourceId).ToArray());
+        Assert.Null(summaries[0].ContextKind);
+
+        var mixed = summaries[1];
+        Assert.Equal(TokenUsageSourceModes.Mixed, mixed.SourceMode);
+        Assert.Equal(TokenUsageSubjectKinds.Mixed, mixed.SubjectKind);
+        Assert.Equal(TokenUsageContextKinds.Mixed, mixed.ContextKind);
+        Assert.Equal(2, mixed.SubjectCount);
+        Assert.Equal(2, mixed.ContextCount);
+        Assert.Equal(2, mixed.RequestCount);
+        Assert.Equal(10, mixed.TotalTokens);
+
+        var subjects = reader.GetSubjectBreakdown("MIXED");
+        Assert.Collection(
+            subjects,
+            first =>
+            {
+                Assert.Equal(TokenUsageSubjectKinds.Session, first.Kind);
+                Assert.Equal("session-1", first.Id);
+                Assert.Equal("Alpha", first.Label);
+                Assert.Equal(5, first.TotalTokens);
+            },
+            second =>
+            {
+                Assert.Equal(TokenUsageSubjectKinds.User, second.Kind);
+                Assert.Equal("user-2", second.Id);
+                Assert.Equal("Zulu", second.Label);
+                Assert.Equal(5, second.TotalTokens);
+            });
+
+        var contexts = reader.GetContextBreakdown("mixed");
+        Assert.Collection(
+            contexts,
+            first =>
+            {
+                Assert.Equal("room", first.Kind);
+                Assert.Equal("room-1", first.Id);
+                Assert.Equal("Room", first.Label);
+                Assert.Equal(1, first.RelatedSubjectCount);
+                Assert.Equal(5, first.TotalTokens);
+            },
+            second =>
+            {
+                Assert.Equal(TokenUsageContextKinds.Group, second.Kind);
+                Assert.Equal("group-1", second.Id);
+                Assert.Equal("Team", second.Label);
+                Assert.Equal(1, second.RelatedSubjectCount);
+                Assert.Equal(5, second.TotalTokens);
+            });
+    }
+
+    [Fact]
+    public void TokenUsageStore_FileFallback_LoadFromDisk_Rebuilds_Aggregates()
+    {
+        var filePath = Path.Combine(_tracingPath, "usage_records.jsonl");
+        File.WriteAllLines(filePath,
+        [
+            JsonSerializer.Serialize(new TokenUsageRecord
+            {
+                Timestamp = new DateTimeOffset(2026, 4, 24, 9, 0, 0, TimeSpan.Zero),
+                SourceId = "qq",
+                SourceMode = TokenUsageSourceModes.ServerManaged,
+                SubjectKind = TokenUsageSubjectKinds.User,
+                SubjectId = "u1",
+                SubjectLabel = "Alice",
+                InputTokens = 3,
+                OutputTokens = 5
+            }),
+            JsonSerializer.Serialize(new TokenUsageRecord
+            {
+                Timestamp = new DateTimeOffset(2026, 4, 24, 9, 5, 0, TimeSpan.Zero),
+                SourceId = "qq",
+                SourceMode = TokenUsageSourceModes.ServerManaged,
+                SubjectKind = TokenUsageSubjectKinds.User,
+                SubjectId = "u2",
+                SubjectLabel = "Bob",
+                ContextKind = TokenUsageContextKinds.Group,
+                ContextId = "g1",
+                ContextLabel = "Team",
+                InputTokens = 7,
+                OutputTokens = 11
+            })
+        ]);
+
+        var store = new TokenUsageStore(_tracingPath);
+        store.LoadFromDisk();
+
+        var summary = Assert.Single(store.GetSourceSummaries());
+        Assert.Equal("qq", summary.SourceId);
+        Assert.Equal(TokenUsageSourceModes.ServerManaged, summary.SourceMode);
+        Assert.Equal(TokenUsageSubjectKinds.User, summary.SubjectKind);
+        Assert.Equal(TokenUsageContextKinds.Group, summary.ContextKind);
+        Assert.Equal(2, summary.SubjectCount);
+        Assert.Equal(1, summary.ContextCount);
+        Assert.Equal(26, summary.TotalTokens);
+
+        var subjectIds = store.GetSubjectBreakdown("qq").Select(entry => entry.Id).OrderBy(id => id).ToArray();
+        Assert.Equal(["u1", "u2"], subjectIds);
+
+        var context = Assert.Single(store.GetContextBreakdown("qq"));
+        Assert.Equal("g1", context.Id);
+        Assert.Equal("Team", context.Label);
+        Assert.Equal(1, context.RelatedSubjectCount);
     }
 
     [Fact]

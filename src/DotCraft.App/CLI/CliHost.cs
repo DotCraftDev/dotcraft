@@ -4,7 +4,6 @@ using DotCraft.Commands.Custom;
 using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
 using DotCraft.Mcp;
@@ -30,7 +29,6 @@ public sealed class CliHost(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var hookRunner = sp.GetService<HookRunner>();
         var cliConfig = config.GetSection<CliConfig>("CLI");
 
@@ -61,7 +59,7 @@ public sealed class CliHost(
                 streamingSupport: true);
 
             wire = _wsConnection.Wire;
-            cliSession = new WireCliSession(wire, tokenUsageStore);
+            cliSession = new WireCliSession(wire);
             dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
             backendInfo = new CliBackendInfo
             {
@@ -88,7 +86,7 @@ public sealed class CliHost(
                 AnsiConsole.MarkupLine("[red][[CLI]][/] AppServer subprocess exited unexpectedly.");
 
             wire = _appServerProcess.Wire;
-            cliSession = new WireCliSession(wire, tokenUsageStore);
+            cliSession = new WireCliSession(wire);
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = _appServerProcess.ServerVersion,
