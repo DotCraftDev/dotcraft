@@ -5,107 +5,73 @@ using DotCraft.State;
 
 namespace DotCraft.Tracing;
 
+public static class TokenUsageSourceModes
+{
+    public const string ServerManaged = "server-managed";
+    public const string ClientManaged = "client-managed";
+    public const string Mixed = "mixed";
+}
+
+public static class TokenUsageSubjectKinds
+{
+    public const string User = "user";
+    public const string Thread = "thread";
+    public const string Session = "session";
+    public const string Mixed = "mixed";
+}
+
+public static class TokenUsageContextKinds
+{
+    public const string Group = "group";
+    public const string Mixed = "mixed";
+}
+
 public sealed class TokenUsageRecord
 {
-    /// <summary>
-    /// The channel that produced this record, e.g. "qq", "wecom", "api", "cli".
-    /// </summary>
-    public string Channel { get; init; } = string.Empty;
+    public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 
-    public string UserId { get; init; } = string.Empty;
+    public string SourceId { get; init; } = string.Empty;
 
-    public string DisplayName { get; set; } = string.Empty;
+    public string SourceMode { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Non-null when the message originated from a group context.
-    /// </summary>
-    public long? GroupId { get; init; }
+    public string SubjectKind { get; init; } = string.Empty;
 
-    public string? GroupName { get; set; }
+    public string SubjectId { get; init; } = string.Empty;
+
+    public string SubjectLabel { get; init; } = string.Empty;
+
+    public string? ContextKind { get; init; }
+
+    public string? ContextId { get; init; }
+
+    public string? ContextLabel { get; init; }
+
+    public string? ThreadId { get; init; }
+
+    public string? SessionKey { get; init; }
 
     public long InputTokens { get; init; }
 
     public long OutputTokens { get; init; }
 
-    public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
+    public long TotalTokens => InputTokens + OutputTokens;
 }
 
-public sealed class UserTokenUsage
+public sealed class UsageSourceSummary
 {
-    public string UserId { get; init; } = string.Empty;
+    public string SourceId { get; init; } = string.Empty;
 
-    public string DisplayName { get; set; } = string.Empty;
+    public string SourceMode { get; init; } = string.Empty;
 
-    private long _totalInputTokens;
-    private long _totalOutputTokens;
-    private int _requestCount;
+    public string SubjectKind { get; init; } = string.Empty;
 
-    public long TotalInputTokens => Interlocked.Read(ref _totalInputTokens);
+    public string? ContextKind { get; init; }
 
-    public long TotalOutputTokens => Interlocked.Read(ref _totalOutputTokens);
+    public int SubjectCount { get; init; }
 
-    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
+    public int ContextCount { get; init; }
 
-    public int RequestCount => Interlocked.CompareExchange(ref _requestCount, 0, 0);
-
-    public DateTimeOffset LastActiveAt { get; set; } = DateTimeOffset.UtcNow;
-
-    public void Add(long inputTokens, long outputTokens)
-    {
-        Interlocked.Add(ref _totalInputTokens, inputTokens);
-        Interlocked.Add(ref _totalOutputTokens, outputTokens);
-        Interlocked.Increment(ref _requestCount);
-        LastActiveAt = DateTimeOffset.UtcNow;
-    }
-
-    public void Load(long inputTokens, long outputTokens, int requestCount, DateTimeOffset lastActiveAt)
-    {
-        Interlocked.Add(ref _totalInputTokens, inputTokens);
-        Interlocked.Add(ref _totalOutputTokens, outputTokens);
-        Interlocked.Add(ref _requestCount, requestCount);
-        if (lastActiveAt > LastActiveAt)
-            LastActiveAt = lastActiveAt;
-    }
-}
-
-public sealed class GroupTokenUsage
-{
-    public long GroupId { get; init; }
-
-    public string GroupName { get; set; } = string.Empty;
-
-    public ConcurrentDictionary<string, UserTokenUsage> Users { get; } = new();
-
-    public long TotalInputTokens => Users.Values.Sum(u => u.TotalInputTokens);
-
-    public long TotalOutputTokens => Users.Values.Sum(u => u.TotalOutputTokens);
-
-    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
-
-    public int TotalRequestCount => Users.Values.Sum(u => u.RequestCount);
-
-    public DateTimeOffset LastActiveAt => Users.Values.Count > 0
-        ? Users.Values.Max(u => u.LastActiveAt)
-        : DateTimeOffset.MinValue;
-}
-
-/// <summary>
-/// Aggregates token usage for a single channel (e.g. "qq", "wecom", "api").
-/// Direct/private messages are stored in <see cref="Users"/>;
-/// group messages are stored in <see cref="Groups"/>.
-/// </summary>
-public sealed class ChannelTokenUsage
-{
-    public string Channel { get; init; } = string.Empty;
-
-    public ConcurrentDictionary<string, UserTokenUsage> Users { get; } = new();
-
-    public ConcurrentDictionary<long, GroupTokenUsage> Groups { get; } = new();
-}
-
-public sealed class ChannelSummary
-{
-    public string Channel { get; init; } = string.Empty;
+    public int RequestCount { get; init; }
 
     public long TotalInputTokens { get; init; }
 
@@ -113,18 +79,35 @@ public sealed class ChannelSummary
 
     public long TotalTokens => TotalInputTokens + TotalOutputTokens;
 
-    public int TotalRequests { get; init; }
+    public DateTimeOffset LastActiveAt { get; init; }
+}
 
-    public int UserCount { get; init; }
+public sealed class UsageBreakdownEntry
+{
+    public string Kind { get; init; } = string.Empty;
 
-    public int GroupCount { get; init; }
+    public string Id { get; init; } = string.Empty;
+
+    public string Label { get; init; } = string.Empty;
+
+    public int RequestCount { get; init; }
+
+    public int? RelatedSubjectCount { get; init; }
+
+    public long TotalInputTokens { get; init; }
+
+    public long TotalOutputTokens { get; init; }
+
+    public long TotalTokens => TotalInputTokens + TotalOutputTokens;
+
+    public DateTimeOffset LastActiveAt { get; init; }
 }
 
 public sealed class TokenUsageStore
 {
     private readonly string? _storagePath;
     private readonly StateRuntime? _stateRuntime;
-    private readonly ConcurrentDictionary<string, ChannelTokenUsage> _channels = new();
+    private readonly ConcurrentQueue<TokenUsageRecord> _records = new();
     private readonly object _fileLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -146,8 +129,13 @@ public sealed class TokenUsageStore
 
     public void Record(TokenUsageRecord record)
     {
-        if (string.IsNullOrEmpty(record.Channel))
+        if (string.IsNullOrWhiteSpace(record.SourceId)
+            || string.IsNullOrWhiteSpace(record.SourceMode)
+            || string.IsNullOrWhiteSpace(record.SubjectKind)
+            || string.IsNullOrWhiteSpace(record.SubjectId))
+        {
             return;
+        }
 
         ApplyRecord(record);
 
@@ -157,77 +145,110 @@ public sealed class TokenUsageStore
             PersistRecordToFile(record);
     }
 
-    public IReadOnlyList<ChannelTokenUsage> GetChannels()
+    public IReadOnlyList<UsageSourceSummary> GetSourceSummaries()
     {
-        return _channels.Values
-            .OrderBy(c => c.Channel)
-            .ToList();
-    }
-
-    public IReadOnlyList<UserTokenUsage> GetUsers(string channel)
-    {
-        if (!_channels.TryGetValue(channel, out var ch))
-            return [];
-        return ch.Users.Values
-            .OrderByDescending(u => u.TotalTokens)
-            .ToList();
-    }
-
-    public IReadOnlyList<GroupTokenUsage> GetGroups(string channel)
-    {
-        if (!_channels.TryGetValue(channel, out var ch))
-            return [];
-        return ch.Groups.Values
-            .OrderByDescending(g => g.TotalTokens)
-            .ToList();
-    }
-
-    public IReadOnlyList<ChannelSummary> GetSummary()
-    {
-        return _channels.Values
-            .OrderBy(c => c.Channel)
-            .Select(c =>
+        return SnapshotRecords()
+            .GroupBy(r => r.SourceId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new UsageSourceSummary
             {
-                long input = 0, output = 0;
-                int requests = 0;
-
-                foreach (var u in c.Users.Values)
-                {
-                    input += u.TotalInputTokens;
-                    output += u.TotalOutputTokens;
-                    requests += u.RequestCount;
-                }
-
-                foreach (var g in c.Groups.Values)
-                {
-                    input += g.TotalInputTokens;
-                    output += g.TotalOutputTokens;
-                    requests += g.TotalRequestCount;
-                }
-
-                return new ChannelSummary
-                {
-                    Channel = c.Channel,
-                    TotalInputTokens = input,
-                    TotalOutputTokens = output,
-                    TotalRequests = requests,
-                    UserCount = c.Users.Count,
-                    GroupCount = c.Groups.Count
-                };
+                SourceId = group.Key,
+                SourceMode = CollapseKinds(group.Select(r => r.SourceMode), TokenUsageSourceModes.Mixed),
+                SubjectKind = CollapseKinds(group.Select(r => r.SubjectKind), TokenUsageSubjectKinds.Mixed),
+                ContextKind = CollapseOptionalKinds(group.Select(r => r.ContextKind), TokenUsageContextKinds.Mixed),
+                SubjectCount = group
+                    .Select(r => r.SubjectId)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count(),
+                ContextCount = group
+                    .Where(r => !string.IsNullOrWhiteSpace(r.ContextId))
+                    .Select(r => r.ContextId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count(),
+                RequestCount = group.Count(),
+                TotalInputTokens = group.Sum(r => r.InputTokens),
+                TotalOutputTokens = group.Sum(r => r.OutputTokens),
+                LastActiveAt = group.Max(r => r.Timestamp)
             })
+            .OrderByDescending(s => s.TotalTokens)
+            .ThenBy(s => s.SourceId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdown(string sourceId)
+    {
+        return SnapshotRecords()
+            .Where(r => string.Equals(r.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(r => new { r.SubjectKind, r.SubjectId })
+            .Select(group => new UsageBreakdownEntry
+            {
+                Kind = CollapseKinds(group.Select(r => r.SubjectKind), TokenUsageSubjectKinds.Mixed),
+                Id = group.Key.SubjectId,
+                Label = group
+                    .Select(r => string.IsNullOrWhiteSpace(r.SubjectLabel) ? r.SubjectId : r.SubjectLabel)
+                    .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))
+                    ?? group.Key.SubjectId,
+                RequestCount = group.Count(),
+                TotalInputTokens = group.Sum(r => r.InputTokens),
+                TotalOutputTokens = group.Sum(r => r.OutputTokens),
+                LastActiveAt = group.Max(r => r.Timestamp)
+            })
+            .OrderByDescending(e => e.TotalTokens)
+            .ThenBy(e => e.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public IReadOnlyList<UsageBreakdownEntry> GetContextBreakdown(string sourceId)
+    {
+        return SnapshotRecords()
+            .Where(r => string.Equals(r.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
+            .Where(r => !string.IsNullOrWhiteSpace(r.ContextId))
+            .GroupBy(r => new { Kind = r.ContextKind ?? string.Empty, Id = r.ContextId! })
+            .Select(group => new UsageBreakdownEntry
+            {
+                Kind = CollapseKinds(group.Select(r => r.ContextKind ?? string.Empty), TokenUsageContextKinds.Mixed),
+                Id = group.Key.Id,
+                Label = group
+                    .Select(r => string.IsNullOrWhiteSpace(r.ContextLabel) ? group.Key.Id : r.ContextLabel!)
+                    .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))
+                    ?? group.Key.Id,
+                RequestCount = group.Count(),
+                RelatedSubjectCount = group
+                    .Select(r => r.SubjectId)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count(),
+                TotalInputTokens = group.Sum(r => r.InputTokens),
+                TotalOutputTokens = group.Sum(r => r.OutputTokens),
+                LastActiveAt = group.Max(r => r.Timestamp)
+            })
+            .OrderByDescending(e => e.TotalTokens)
+            .ThenBy(e => e.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
     public void LoadFromDisk()
     {
+        ClearRecords();
+
         if (_stateRuntime != null)
         {
-            _channels.Clear();
             using var connection = _stateRuntime.OpenConnection();
             using var command = connection.CreateCommand();
             command.CommandText = """
-                SELECT timestamp, channel, user_id, display_name, group_id, group_name, input_tokens, output_tokens
-                FROM token_usage_records
+                SELECT
+                    timestamp,
+                    source_id,
+                    source_mode,
+                    subject_kind,
+                    subject_id,
+                    subject_label,
+                    context_kind,
+                    context_id,
+                    context_label,
+                    thread_id,
+                    session_key,
+                    input_tokens,
+                    output_tokens
+                FROM dashboard_usage_records
                 ORDER BY timestamp, id
                 """;
             using var reader = command.ExecuteReader();
@@ -236,13 +257,18 @@ public sealed class TokenUsageStore
                 ApplyRecord(new TokenUsageRecord
                 {
                     Timestamp = DateTimeOffset.Parse(reader.GetString(0)),
-                    Channel = reader.GetString(1),
-                    UserId = reader.GetString(2),
-                    DisplayName = reader.GetString(3),
-                    GroupId = reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                    GroupName = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    InputTokens = reader.GetInt64(6),
-                    OutputTokens = reader.GetInt64(7)
+                    SourceId = reader.GetString(1),
+                    SourceMode = reader.GetString(2),
+                    SubjectKind = reader.GetString(3),
+                    SubjectId = reader.GetString(4),
+                    SubjectLabel = reader.GetString(5),
+                    ContextKind = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    ContextId = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    ContextLabel = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    ThreadId = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    SessionKey = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    InputTokens = reader.GetInt64(11),
+                    OutputTokens = reader.GetInt64(12)
                 });
             }
             return;
@@ -251,7 +277,7 @@ public sealed class TokenUsageStore
         if (_storagePath == null)
             return;
 
-        var filePath = Path.Combine(_storagePath, "token_usage.jsonl");
+        var filePath = Path.Combine(_storagePath, "usage_records.jsonl");
         if (!File.Exists(filePath))
             return;
 
@@ -283,23 +309,19 @@ public sealed class TokenUsageStore
 
     private void ApplyRecord(TokenUsageRecord record)
     {
-        var channel = _channels.GetOrAdd(record.Channel, ch => new ChannelTokenUsage { Channel = ch });
+        _records.Enqueue(record);
+    }
 
-        if (record.GroupId.HasValue)
+    private void ClearRecords()
+    {
+        while (_records.TryDequeue(out _))
         {
-            var group = channel.Groups.GetOrAdd(record.GroupId.Value, id => new GroupTokenUsage { GroupId = id });
-            if (!string.IsNullOrEmpty(record.GroupName))
-                group.GroupName = record.GroupName;
-
-            var groupUser = group.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-            groupUser.DisplayName = record.DisplayName;
-            groupUser.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
-            return;
         }
+    }
 
-        var user = channel.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-        user.DisplayName = record.DisplayName;
-        user.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
+    private TokenUsageRecord[] SnapshotRecords()
+    {
+        return _records.ToArray();
     }
 
     private void PersistRecordToDb(TokenUsageRecord record)
@@ -309,32 +331,47 @@ public sealed class TokenUsageStore
             using var connection = _stateRuntime!.OpenConnection();
             using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO token_usage_records (
+                INSERT INTO dashboard_usage_records (
                     timestamp,
-                    channel,
-                    user_id,
-                    display_name,
-                    group_id,
-                    group_name,
+                    source_id,
+                    source_mode,
+                    subject_kind,
+                    subject_id,
+                    subject_label,
+                    context_kind,
+                    context_id,
+                    context_label,
+                    thread_id,
+                    session_key,
                     input_tokens,
                     output_tokens
                 ) VALUES (
                     $timestamp,
-                    $channel,
-                    $user_id,
-                    $display_name,
-                    $group_id,
-                    $group_name,
+                    $source_id,
+                    $source_mode,
+                    $subject_kind,
+                    $subject_id,
+                    $subject_label,
+                    $context_kind,
+                    $context_id,
+                    $context_label,
+                    $thread_id,
+                    $session_key,
                     $input_tokens,
                     $output_tokens
                 )
                 """;
             command.Parameters.AddWithValue("$timestamp", record.Timestamp.UtcDateTime.ToString("O"));
-            command.Parameters.AddWithValue("$channel", record.Channel);
-            command.Parameters.AddWithValue("$user_id", record.UserId);
-            command.Parameters.AddWithValue("$display_name", record.DisplayName);
-            command.Parameters.AddWithValue("$group_id", record.GroupId ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("$group_name", (object?)record.GroupName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$source_id", record.SourceId);
+            command.Parameters.AddWithValue("$source_mode", record.SourceMode);
+            command.Parameters.AddWithValue("$subject_kind", record.SubjectKind);
+            command.Parameters.AddWithValue("$subject_id", record.SubjectId);
+            command.Parameters.AddWithValue("$subject_label", record.SubjectLabel);
+            command.Parameters.AddWithValue("$context_kind", (object?)record.ContextKind ?? DBNull.Value);
+            command.Parameters.AddWithValue("$context_id", (object?)record.ContextId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$context_label", (object?)record.ContextLabel ?? DBNull.Value);
+            command.Parameters.AddWithValue("$thread_id", (object?)record.ThreadId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$session_key", (object?)record.SessionKey ?? DBNull.Value);
             command.Parameters.AddWithValue("$input_tokens", record.InputTokens);
             command.Parameters.AddWithValue("$output_tokens", record.OutputTokens);
             command.ExecuteNonQuery();
@@ -352,7 +389,7 @@ public sealed class TokenUsageStore
             try
             {
                 Directory.CreateDirectory(_storagePath!);
-                var filePath = Path.Combine(_storagePath!, "token_usage.jsonl");
+                var filePath = Path.Combine(_storagePath!, "usage_records.jsonl");
                 var json = JsonSerializer.Serialize(record, JsonOptions);
                 lock (_fileLock)
                 {
@@ -364,5 +401,36 @@ public sealed class TokenUsageStore
                 // Silently ignore persistence errors
             }
         });
+    }
+
+    private static string CollapseKinds(IEnumerable<string> values, string mixedValue)
+    {
+        var distinct = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return distinct.Length switch
+        {
+            0 => string.Empty,
+            1 => distinct[0],
+            _ => mixedValue
+        };
+    }
+
+    private static string? CollapseOptionalKinds(IEnumerable<string?> values, string mixedValue)
+    {
+        var distinct = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return distinct.Length switch
+        {
+            0 => null,
+            1 => distinct[0],
+            _ => mixedValue
+        };
     }
 }

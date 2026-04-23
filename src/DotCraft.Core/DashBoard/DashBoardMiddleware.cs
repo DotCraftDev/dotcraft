@@ -293,54 +293,57 @@ public static class DashBoardMiddleware
 
         if (tokenUsageStore != null)
         {
-            endpoints.MapGet("/dashboard/api/token-usage", () =>
+            endpoints.MapGet("/dashboard/api/usage/sources", () =>
             {
-                var summary = tokenUsageStore.GetSummary();
-                return Results.Json(summary, JsonOptions);
+                var summaries = tokenUsageStore.GetSourceSummaries().Select(summary => new
+                {
+                    sourceId = summary.SourceId,
+                    sourceMode = summary.SourceMode,
+                    subjectKind = summary.SubjectKind,
+                    contextKind = summary.ContextKind,
+                    subjectCount = summary.SubjectCount,
+                    contextCount = summary.ContextCount,
+                    requestCount = summary.RequestCount,
+                    totalInputTokens = summary.TotalInputTokens,
+                    totalOutputTokens = summary.TotalOutputTokens,
+                    totalTokens = summary.TotalTokens,
+                    lastActiveAt = summary.LastActiveAt.ToString("o")
+                });
+                return Results.Json(summaries, JsonOptions);
             });
 
-            endpoints.MapGet("/dashboard/api/token-usage/{channel}/users", (string channel) =>
+            endpoints.MapGet("/dashboard/api/usage/sources/{sourceId}/subjects", (string sourceId) =>
             {
-                var users = tokenUsageStore.GetUsers(channel);
-                var result = users.Select(u => new
+                var entries = tokenUsageStore.GetSubjectBreakdown(sourceId).Select(entry => new
                 {
-                    userId = u.UserId,
-                    displayName = u.DisplayName,
-                    totalInputTokens = u.TotalInputTokens,
-                    totalOutputTokens = u.TotalOutputTokens,
-                    totalTokens = u.TotalTokens,
-                    requestCount = u.RequestCount,
-                    lastActiveAt = u.LastActiveAt.ToString("o")
+                    kind = entry.Kind,
+                    id = entry.Id,
+                    label = entry.Label,
+                    requestCount = entry.RequestCount,
+                    relatedSubjectCount = entry.RelatedSubjectCount,
+                    totalInputTokens = entry.TotalInputTokens,
+                    totalOutputTokens = entry.TotalOutputTokens,
+                    totalTokens = entry.TotalTokens,
+                    lastActiveAt = entry.LastActiveAt.ToString("o")
                 });
-                return Results.Json(result, JsonOptions);
+                return Results.Json(entries, JsonOptions);
             });
 
-            endpoints.MapGet("/dashboard/api/token-usage/{channel}/groups", (string channel) =>
+            endpoints.MapGet("/dashboard/api/usage/sources/{sourceId}/contexts", (string sourceId) =>
             {
-                var groups = tokenUsageStore.GetGroups(channel);
-                var result = groups.Select(g => new
+                var entries = tokenUsageStore.GetContextBreakdown(sourceId).Select(entry => new
                 {
-                    groupId = g.GroupId,
-                    groupName = g.GroupName,
-                    totalInputTokens = g.TotalInputTokens,
-                    totalOutputTokens = g.TotalOutputTokens,
-                    totalTokens = g.TotalTokens,
-                    totalRequestCount = g.TotalRequestCount,
-                    lastActiveAt = g.LastActiveAt.ToString("o"),
-                    users = g.Users.Values
-                        .OrderByDescending(u => u.TotalTokens)
-                        .Select(u => new
-                        {
-                            userId = u.UserId,
-                            displayName = u.DisplayName,
-                            totalInputTokens = u.TotalInputTokens,
-                            totalOutputTokens = u.TotalOutputTokens,
-                            totalTokens = u.TotalTokens,
-                            requestCount = u.RequestCount,
-                            lastActiveAt = u.LastActiveAt.ToString("o")
-                        })
+                    kind = entry.Kind,
+                    id = entry.Id,
+                    label = entry.Label,
+                    requestCount = entry.RequestCount,
+                    relatedSubjectCount = entry.RelatedSubjectCount,
+                    totalInputTokens = entry.TotalInputTokens,
+                    totalOutputTokens = entry.TotalOutputTokens,
+                    totalTokens = entry.TotalTokens,
+                    lastActiveAt = entry.LastActiveAt.ToString("o")
                 });
-                return Results.Json(result, JsonOptions);
+                return Results.Json(entries, JsonOptions);
             });
         }
 

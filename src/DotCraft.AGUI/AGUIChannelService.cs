@@ -208,9 +208,13 @@ public sealed class AGUIChannelService(
                     var threadLabel = sessionKeyUsed.StartsWith("ag-ui:") ? sessionKeyUsed["ag-ui:".Length..] : sessionKeyUsed;
                     tokenUsageStore?.Record(new TokenUsageRecord
                     {
-                        Channel = "agui",
-                        UserId = threadLabel,
-                        DisplayName = threadLabel,
+                        SourceId = "agui",
+                        SourceMode = TokenUsageSourceModes.ClientManaged,
+                        SubjectKind = TokenUsageSubjectKinds.Thread,
+                        SubjectId = threadLabel,
+                        SubjectLabel = threadLabel,
+                        ThreadId = threadLabel,
+                        SessionKey = sessionKeyUsed,
                         InputTokens = inputDelta,
                         OutputTokens = outputDelta
                     });

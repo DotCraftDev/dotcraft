@@ -6,6 +6,7 @@ using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
+using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
@@ -71,6 +72,58 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
         Assert.Equal(
             [SessionThreadRuntimeSignal.TurnStarted, SessionThreadRuntimeSignal.TurnFailed],
             seen);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_RecordsServerManagedUsage_InTokenUsageStore()
+    {
+        IChatClient chatClient = new FakeChatClient(
+        [
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")]),
+            new ChatResponseUpdate
+            {
+                Role = ChatRole.Assistant,
+                Contents =
+                [
+                    new UsageContent(new UsageDetails
+                    {
+                        InputTokenCount = 12,
+                        OutputTokenCount = 8
+                    })
+                ]
+            }
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var tokenUsageStore = new TokenUsageStore(_tempDir);
+        var svc = CreateService(agentFactory, chatClient, tokenUsageStore);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(
+            thread.Id,
+            [new TextContent("hello")],
+            new SenderContext
+            {
+                SenderId = "user-42",
+                SenderName = "Alice",
+                GroupId = "group-9"
+            }));
+
+        var summary = Assert.Single(tokenUsageStore.GetSourceSummaries());
+        Assert.Equal("test", summary.SourceId);
+        Assert.Equal(TokenUsageSourceModes.ServerManaged, summary.SourceMode);
+        Assert.Equal(TokenUsageSubjectKinds.User, summary.SubjectKind);
+        Assert.Equal(TokenUsageContextKinds.Group, summary.ContextKind);
+        Assert.Equal(20, summary.TotalTokens);
+
+        var subject = Assert.Single(tokenUsageStore.GetSubjectBreakdown("test"));
+        Assert.Equal("user-42", subject.Id);
+        Assert.Equal("Alice", subject.Label);
+        Assert.Equal(20, subject.TotalTokens);
+
+        var context = Assert.Single(tokenUsageStore.GetContextBreakdown("test"));
+        Assert.Equal("group-9", context.Id);
+        Assert.Equal("group-9", context.Label);
+        Assert.Equal(1, context.RelatedSubjectCount);
     }
 
     [Fact]
@@ -179,14 +232,18 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
             secondChatClient.LastMessages.Select(FormatMessage).ToList());
     }
 
-    private SessionService CreateService(AgentFactory agentFactory, IChatClient chatClient)
+    private SessionService CreateService(
+        AgentFactory agentFactory,
+        IChatClient chatClient,
+        TokenUsageStore? tokenUsageStore = null)
     {
         var defaultAgent = chatClient.AsAIAgent(new ChatClientAgentOptions());
         return new SessionService(
             agentFactory,
             defaultAgent,
             new SessionPersistenceService(new ThreadStore(_tempDir)),
-            new SessionGate());
+            new SessionGate(),
+            tokenUsageStore: tokenUsageStore);
     }
 
     private AgentFactory CreateAgentFactory(IChatClient chatClientFactory)

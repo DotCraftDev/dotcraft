@@ -3,7 +3,6 @@ using DotCraft.CLI.Rendering;
 using DotCraft.Context;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
-using DotCraft.Tracing;
 
 namespace DotCraft.CLI;
 
@@ -17,8 +16,7 @@ namespace DotCraft.CLI;
 /// Approval requests are handled interactively via <see cref="WireApprovalHandler"/>.
 /// </summary>
 public sealed class WireCliSession(
-    AppServerWireClient wire,
-    TokenUsageStore? tokenUsageStore = null) : ICliSession
+    AppServerWireClient wire) : ICliSession
 {
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -203,25 +201,6 @@ public sealed class WireCliSession(
                     var deltaOutput = subOutput - tokenTracker.SubAgentOutputTokens;
                     if (deltaInput > 0 || deltaOutput > 0)
                         tokenTracker.AddSubAgentTokens(deltaInput, deltaOutput);
-                }
-
-                // Record token usage when the turn completes (content is "inputTokens,outputTokens,totalTokens")
-                if (evt.Type == RenderEventType.Usage && tokenUsageStore != null)
-                {
-                    var parts = evt.Content.Split(',');
-                    if (parts.Length >= 2 &&
-                        long.TryParse(parts[0], out var inputTokens) &&
-                        long.TryParse(parts[1], out var outputTokens))
-                    {
-                        tokenUsageStore.Record(new TokenUsageRecord
-                        {
-                            Channel = "cli",
-                            UserId = "local",
-                            DisplayName = "CLI",
-                            InputTokens = inputTokens,
-                            OutputTokens = outputTokens
-                        });
-                    }
                 }
 
                 await renderer.SendEventAsync(evt, ct);

@@ -160,19 +160,28 @@ public sealed class StateBackedStoreTests : IDisposable
         var writer = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
         writer.Record(new TokenUsageRecord
         {
-            Channel = "qq",
-            UserId = "u1",
-            DisplayName = "Alice",
+            SourceId = "qq",
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = TokenUsageSubjectKinds.User,
+            SubjectId = "u1",
+            SubjectLabel = "Alice",
+            SessionKey = "thread-1",
+            ThreadId = "thread-1",
             InputTokens = 3,
             OutputTokens = 5
         });
         writer.Record(new TokenUsageRecord
         {
-            Channel = "qq",
-            UserId = "u2",
-            DisplayName = "Bob",
-            GroupId = 42,
-            GroupName = "Team",
+            SourceId = "qq",
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = TokenUsageSubjectKinds.User,
+            SubjectId = "u2",
+            SubjectLabel = "Bob",
+            ContextKind = TokenUsageContextKinds.Group,
+            ContextId = "42",
+            ContextLabel = "Team",
+            SessionKey = "thread-2",
+            ThreadId = "thread-2",
             InputTokens = 7,
             OutputTokens = 11
         });
@@ -180,15 +189,20 @@ public sealed class StateBackedStoreTests : IDisposable
         var reader = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
         reader.LoadFromDisk();
 
-        var summary = Assert.Single(reader.GetSummary());
-        Assert.Equal("qq", summary.Channel);
+        var summary = Assert.Single(reader.GetSourceSummaries());
+        Assert.Equal("qq", summary.SourceId);
         Assert.Equal(26, summary.TotalTokens);
-        Assert.Equal(2, summary.TotalRequests);
-        Assert.Equal(1, summary.UserCount);
-        Assert.Equal(1, summary.GroupCount);
+        Assert.Equal(2, summary.RequestCount);
+        Assert.Equal(2, summary.SubjectCount);
+        Assert.Equal(1, summary.ContextCount);
+        Assert.Equal(TokenUsageSubjectKinds.User, summary.SubjectKind);
+        Assert.Equal(TokenUsageContextKinds.Group, summary.ContextKind);
 
-        Assert.Single(reader.GetUsers("qq"));
-        Assert.Single(reader.GetGroups("qq"));
+        Assert.Equal(2, reader.GetSubjectBreakdown("qq").Count);
+        var context = Assert.Single(reader.GetContextBreakdown("qq"));
+        Assert.Equal("42", context.Id);
+        Assert.Equal("Team", context.Label);
+        Assert.Equal(1, context.RelatedSubjectCount);
     }
 
     [Fact]

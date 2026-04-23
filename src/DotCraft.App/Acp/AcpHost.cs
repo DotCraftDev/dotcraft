@@ -5,7 +5,6 @@ using DotCraft.Hooks;
 using DotCraft.Hosting;
 using DotCraft.Memory;
 using DotCraft.Protocol.AppServer;
-using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
@@ -25,7 +24,6 @@ public sealed class AcpHost(
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         var acpConfig = config.GetSection<AcpConfig>("Acp");
-        var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var hookRunner = sp.GetService<HookRunner>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
 
@@ -87,7 +85,6 @@ public sealed class AcpHost(
             wire,
             paths.WorkspacePath,
             customCommandLoader,
-            tokenUsageStore,
             hookRunner,
             planStore,
             acpLogger,

@@ -183,6 +183,30 @@ public sealed class StateRuntime
 
                 CREATE INDEX IF NOT EXISTS idx_token_usage_channel_ts
                     ON token_usage_records(channel, timestamp DESC, id DESC);
+
+                CREATE TABLE IF NOT EXISTS dashboard_usage_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    source_mode TEXT NOT NULL,
+                    subject_kind TEXT NOT NULL,
+                    subject_id TEXT NOT NULL,
+                    subject_label TEXT NOT NULL,
+                    context_kind TEXT,
+                    context_id TEXT,
+                    context_label TEXT,
+                    thread_id TEXT,
+                    session_key TEXT,
+                    input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_dashboard_usage_source_ts
+                    ON dashboard_usage_records(source_id, timestamp DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_dashboard_usage_thread
+                    ON dashboard_usage_records(thread_id, timestamp DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_dashboard_usage_session
+                    ON dashboard_usage_records(session_key, timestamp DESC, id DESC);
                 """;
             command.ExecuteNonQuery();
 

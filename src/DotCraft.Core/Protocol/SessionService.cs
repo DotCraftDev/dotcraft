@@ -39,6 +39,7 @@ public sealed class SessionService(
     IChannelRuntimeToolProvider? channelRuntimeToolProvider = null,
     HookRunner? hookRunner = null,
     TraceCollector? traceCollector = null,
+    TokenUsageStore? tokenUsageStore = null,
     TimeSpan? approvalTimeout = null,
     ILogger<SessionService>? logger = null,
     ApprovalStore? approvalStore = null,
@@ -1163,6 +1164,7 @@ public sealed class SessionService(
                 turn.Status = TurnStatus.Completed;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 thread.LastActiveAt = DateTimeOffset.UtcNow;
+                RecordTurnTokenUsage(thread, turn);
                 eventChannel.EmitTurnCompleted(turn);
                 ThreadRuntimeSignalForBroadcast?.Invoke(
                     threadId,
@@ -1359,6 +1361,40 @@ public sealed class SessionService(
         _materializedThreads[thread.Id] = 0;
         _ = GetOrCreateBroker(thread.Id);
         return thread;
+    }
+
+    private void RecordTurnTokenUsage(SessionThread thread, SessionTurn turn)
+    {
+        if (tokenUsageStore == null || turn.TokenUsage == null || string.IsNullOrWhiteSpace(turn.OriginChannel))
+            return;
+
+        var initiator = turn.Initiator;
+        var hasSubjectUser = !string.IsNullOrWhiteSpace(initiator?.UserId);
+        var subjectKind = hasSubjectUser ? TokenUsageSubjectKinds.User : TokenUsageSubjectKinds.Thread;
+        var subjectId = hasSubjectUser
+            ? initiator!.UserId!
+            : thread.Id;
+        var subjectLabel = hasSubjectUser
+            ? initiator!.UserName ?? initiator.UserId!
+            : thread.DisplayName ?? thread.Id;
+        var hasGroupContext = !string.IsNullOrWhiteSpace(initiator?.GroupId);
+
+        tokenUsageStore.Record(new TokenUsageRecord
+        {
+            Timestamp = turn.CompletedAt ?? DateTimeOffset.UtcNow,
+            SourceId = turn.OriginChannel!,
+            SourceMode = TokenUsageSourceModes.ServerManaged,
+            SubjectKind = subjectKind,
+            SubjectId = subjectId,
+            SubjectLabel = subjectLabel,
+            ContextKind = hasGroupContext ? TokenUsageContextKinds.Group : null,
+            ContextId = hasGroupContext ? initiator!.GroupId : null,
+            ContextLabel = hasGroupContext ? initiator!.GroupId : null,
+            ThreadId = thread.Id,
+            SessionKey = thread.Id,
+            InputTokens = turn.TokenUsage.InputTokens,
+            OutputTokens = turn.TokenUsage.OutputTokens
+        });
     }
 
     private async Task EnsurePerThreadAgentIfMissingAsync(
