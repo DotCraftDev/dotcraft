@@ -18,6 +18,7 @@ import type { SubAgentEntry } from '../../types/toolCall'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
+import { TurnCollapsedSummary } from './TurnCollapsedSummary'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -90,91 +91,124 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       && i.type !== 'commandExecution'
   )
 
-  // Build the ordered render list by walking items in sequence.
-  // Consecutive toolCall items are grouped so the aggregation utility can merge
-  // "Explored N files" runs, while respecting the chronological position.
-  const renderNodes: React.ReactNode[] = []
+  // Build render nodes in item order with shared insertion state so subagent
+  // summary only appears once even when a completed turn is split into slices.
   let subAgentBlockInserted = false
-  let i = 0
+  const renderItemSequence = (itemsToRender: ConversationItem[]): React.ReactNode[] => {
+    const nodes: React.ReactNode[] = []
+    let i = 0
 
-  while (i < renderableItems.length) {
-    const item = renderableItems[i]
+    while (i < itemsToRender.length) {
+      const item = itemsToRender[i]
 
-    if (item.type === 'toolCall' || item.type === 'externalChannelToolCall') {
-      // Collect a consecutive run of tool-like items starting at this position
-      const toolRun: ConversationItem[] = [item]
-      while (
-        i + 1 < renderableItems.length &&
-        (renderableItems[i + 1].type === 'toolCall' || renderableItems[i + 1].type === 'externalChannelToolCall')
-      ) {
-        i++
-        toolRun.push(renderableItems[i])
-      }
-      const isTrailingRun = i + 1 >= renderableItems.length
-      const { entries } = planToolRunRender(toolRun, { isRunning, isTrailingRun })
-      const runNodes: React.ReactNode[] = []
-      let lastSpawnSubagentIndex = -1
-
-      for (const entry of entries) {
-        runNodes.push(
-          renderAggregatedEntry(entry, turn.id, renderNodes.length + runNodes.length)
-        )
-        if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
-          lastSpawnSubagentIndex = runNodes.length - 1
+      if (item.type === 'toolCall' || item.type === 'externalChannelToolCall') {
+        const toolRun: ConversationItem[] = [item]
+        while (
+          i + 1 < itemsToRender.length
+          && (itemsToRender[i + 1].type === 'toolCall' || itemsToRender[i + 1].type === 'externalChannelToolCall')
+        ) {
+          i++
+          toolRun.push(itemsToRender[i])
         }
-      }
+        const isTrailingRun = i + 1 >= itemsToRender.length
+        const { entries } = planToolRunRender(toolRun, { isRunning, isTrailingRun })
+        const runNodes: React.ReactNode[] = []
+        let lastSpawnSubagentIndex = -1
 
-      if (!subAgentBlockInserted && lastSpawnSubagentIndex >= 0) {
-        runNodes.splice(
-          lastSpawnSubagentIndex + 1,
-          0,
-          <SubAgentProgressBlock
-            key={`subagent-progress-${turn.id}`}
-            entries={resolvedSubAgentEntries}
+        for (const entry of entries) {
+          runNodes.push(
+            renderAggregatedEntry(entry, turn.id, nodes.length + runNodes.length)
+          )
+          if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
+            lastSpawnSubagentIndex = runNodes.length - 1
+          }
+        }
+
+        if (!subAgentBlockInserted && lastSpawnSubagentIndex >= 0) {
+          runNodes.splice(
+            lastSpawnSubagentIndex + 1,
+            0,
+            <SubAgentProgressBlock
+              key={`subagent-progress-${turn.id}`}
+              entries={resolvedSubAgentEntries}
+            />
+          )
+          subAgentBlockInserted = true
+        }
+
+        nodes.push(...runNodes)
+      } else if (item.type === 'reasoningContent') {
+        const isLiveStreaming =
+          isRunning && item.status === 'streaming' && item.id === activeItemId
+        const displayReasoning = isLiveStreaming ? streamingReasoning : (item.reasoning ?? '')
+        nodes.push(
+          <ThinkingIndicator
+            key={item.id}
+            elapsedSeconds={item.elapsedSeconds}
+            reasoning={displayReasoning}
+            streaming={isLiveStreaming}
           />
         )
-        subAgentBlockInserted = true
+      } else if (item.type === 'agentMessage') {
+        const isLiveStreaming =
+          isRunning && item.status === 'streaming' && item.id === activeItemId
+        const displayText = isLiveStreaming ? streamingMessage : (item.text ?? '')
+        nodes.push(
+          <AgentMessage key={item.id} text={displayText} streaming={isLiveStreaming} />
+        )
+      } else if (item.type === 'error') {
+        nodes.push(
+          <ErrorBlock key={item.id} message={item.text ?? 'Unknown error'} />
+        )
+      } else if (item.type === 'approvalCard') {
+        const isActiveApproval = isActiveTurn && pendingApproval?.itemId === item.id
+        nodes.push(
+          <ApprovalCard
+            key={item.id}
+            item={item}
+            isActive={isActiveApproval}
+          />
+        )
+      } else if (item.type === 'systemNotice') {
+        nodes.push(<SystemNoticeBlock key={item.id} item={item} />)
       }
 
-      renderNodes.push(...runNodes)
-    } else if (item.type === 'reasoningContent') {
-      const isLiveStreaming =
-        isRunning && item.status === 'streaming' && item.id === activeItemId
-      const displayReasoning = isLiveStreaming ? streamingReasoning : (item.reasoning ?? '')
-      renderNodes.push(
-        <ThinkingIndicator
-          key={item.id}
-          elapsedSeconds={item.elapsedSeconds}
-          reasoning={displayReasoning}
-          streaming={isLiveStreaming}
-        />
-      )
-    } else if (item.type === 'agentMessage') {
-      const isLiveStreaming =
-        isRunning && item.status === 'streaming' && item.id === activeItemId
-      const displayText = isLiveStreaming ? streamingMessage : (item.text ?? '')
-      renderNodes.push(
-        <AgentMessage key={item.id} text={displayText} streaming={isLiveStreaming} />
-      )
-    } else if (item.type === 'error') {
-      renderNodes.push(
-        <ErrorBlock key={item.id} message={item.text ?? 'Unknown error'} />
-      )
-    } else if (item.type === 'approvalCard') {
-      // Active approval card: pendingApproval.itemId matches this item
-      const isActiveApproval = isActiveTurn && pendingApproval?.itemId === item.id
-      renderNodes.push(
-        <ApprovalCard
-          key={item.id}
-          item={item}
-          isActive={isActiveApproval}
-        />
-      )
-    } else if (item.type === 'systemNotice') {
-      renderNodes.push(<SystemNoticeBlock key={item.id} item={item} />)
+      i++
     }
 
-    i++
+    return nodes
+  }
+
+  const lastFinalAgentMessageIndex =
+    !isRunning && turn.status === 'completed'
+      ? findLastAgentMessageIndex(renderableItems)
+      : -1
+  const shouldCollapseIntermediate = lastFinalAgentMessageIndex > 0
+  const renderNodes: React.ReactNode[] = []
+
+  if (shouldCollapseIntermediate) {
+    const intermediateItems = renderableItems.slice(0, lastFinalAgentMessageIndex)
+    const trailingItems = renderableItems.slice(lastFinalAgentMessageIndex)
+    const intermediateNodes = renderItemSequence(intermediateItems)
+    const trailingNodes = renderItemSequence(trailingItems)
+
+    if (intermediateNodes.length > 0) {
+      const elapsedMs = getIntermediateElapsedMs(turn, renderableItems[lastFinalAgentMessageIndex])
+      renderNodes.push(
+        <TurnCollapsedSummary
+          key={`turn-collapsed-${turn.id}`}
+          elapsedMs={elapsedMs}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {intermediateNodes}
+          </div>
+        </TurnCollapsedSummary>
+      )
+    }
+
+    renderNodes.push(...trailingNodes)
+  } else {
+    renderNodes.push(...renderItemSequence(renderableItems))
   }
 
   return (
@@ -243,15 +277,14 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
   const label = formatToolGroupLabel(category, items, locale, changedFiles)
   const hasFailedItems = items.some(isGroupedItemFailed)
   const [expanded, setExpanded] = useState(false)
-  const statusIcon = hasFailedItems ? '✕' : '✓'
-  const statusColor = hasFailedItems
-    ? 'var(--error)'
-    : 'var(--success)'
+  const [hovered, setHovered] = useState(false)
 
   return (
     <div>
       <button
         onClick={() => setExpanded((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -267,11 +300,10 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
           borderRadius: '4px'
         }}
       >
-        <span style={{ color: statusColor, fontSize: '11px' }}>
-          {statusIcon}
+        <span style={{ flex: 1, color: hasFailedItems ? 'var(--error)' : 'var(--text-secondary)' }}>
+          {label}
         </span>
-        <span style={{ flex: 1 }}>{label}</span>
-        <ToolCollapseChevron expanded={expanded} />
+        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
       </button>
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>
@@ -290,4 +322,33 @@ function isGroupedItemFailed(item: ConversationItem): boolean {
     || item.executionStatus === 'cancelled'
     || (item.exitCode != null && item.exitCode !== 0)
   return item.success === false || executionFailed
+}
+
+function findLastAgentMessageIndex(items: ConversationItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type === 'agentMessage') {
+      return i
+    }
+  }
+  return -1
+}
+
+function getIntermediateElapsedMs(
+  turn: ConversationTurn,
+  finalAgentMessage: ConversationItem | undefined
+): number {
+  const turnStartMs = Date.parse(turn.startedAt)
+  if (!Number.isFinite(turnStartMs)) return 0
+
+  const finalStartMs = finalAgentMessage?.createdAt ? Date.parse(finalAgentMessage.createdAt) : Number.NaN
+  if (Number.isFinite(finalStartMs) && finalStartMs >= turnStartMs) {
+    return finalStartMs - turnStartMs
+  }
+
+  const turnCompletedMs = turn.completedAt ? Date.parse(turn.completedAt) : Number.NaN
+  if (Number.isFinite(turnCompletedMs) && turnCompletedMs >= turnStartMs) {
+    return turnCompletedMs - turnStartMs
+  }
+
+  return 0
 }

@@ -156,7 +156,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 | `item/toolCall/argumentsDelta` | Tool argument construction streams incrementally. For known built-in tools, the client renders a bespoke running label (e.g. "Writing <path>", "Searching \"<pattern>\"", "Drafting plan...") and, where useful, a progressive preview of the parsed argument fields. For unknown tools (including MCP and module tools), the client renders a generic "Generating parameters for <toolName>..." placeholder without surfacing the raw argument JSON. |
 | `item/commandExecution/outputDelta` | Running shell output is appended live to the matching command block in both the conversation view and the Terminal review surface. |
 | `item/completed` | The final item output replaces or finalizes any in-progress representation. |
-| `item/usage/delta` | Token usage counters update when the client exposes real-time usage. |
+| `item/usage/delta` | Context usage indicators refresh when the client surfaces real-time usage. |
 
 ### 4.4 Approval Events
 

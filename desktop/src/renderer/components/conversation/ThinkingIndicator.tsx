@@ -20,6 +20,7 @@ export function ThinkingIndicator({
   streaming = false
 }: ThinkingIndicatorProps): JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const [hovered, setHovered] = useState(false)
 
   const label = streaming
     ? 'Thinking...'
@@ -30,6 +31,8 @@ export function ThinkingIndicator({
       {/* Summary line */}
       <button
         onClick={() => !streaming && setExpanded((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -50,7 +53,7 @@ export function ThinkingIndicator({
             fontSize: '10px',
             transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 150ms ease',
-            opacity: streaming ? 0 : 1
+            opacity: !streaming && (expanded || hovered) ? 1 : 0
           }}
           aria-hidden="true"
         >

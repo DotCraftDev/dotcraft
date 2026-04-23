@@ -47,6 +47,28 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.getByText((content) => content.includes('line 1'))).toBeInTheDocument()
   })
 
+  it('renders ANSI shell output without raw escape markers', () => {
+    const item: ConversationItem = {
+      id: 'tool-ansi-shell',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'Exec',
+      toolCallId: 'exec-ansi-1',
+      arguments: { command: 'pnpm test' },
+      aggregatedOutput: '\u001b[1;46m RUN \u001b[0m\u001b[36mv3.2.4\u001b[0m',
+      result: '\u001b[1;46m RUN \u001b[0m\u001b[36mv3.2.4\u001b[0m',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    const pre = document.querySelector('pre')
+    expect(pre?.textContent).toContain(' RUN v3.2.4')
+    expect(pre?.textContent).not.toContain('\u001b')
+  })
+
   it('renders streaming InlineDiffView for running WriteFile tool calls', () => {
     const item: ConversationItem = {
       id: 'tool-write-streaming',
@@ -313,6 +335,35 @@ describe('ToolCallCard shell rendering', () => {
 
     expect(screen.queryByText('hello')).toBeNull()
     vi.useRealTimers()
+  })
+
+  it('hides success glyph and duration for completed rows, and only shows chevron on hover', () => {
+    const item: ConversationItem = {
+      id: 'tool-style-completed',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'ReadFile',
+      toolCallId: 'call-style-1',
+      arguments: { path: 'src/main.ts' },
+      result: 'ok',
+      success: true,
+      duration: 350,
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+    expect(screen.queryByText('✓')).toBeNull()
+    expect(screen.queryByText('350ms')).toBeNull()
+
+    const button = screen.getByRole('button')
+    const wrapper = button.parentElement as HTMLElement
+    const chevron = screen.getByText('▼')
+    expect(chevron).toHaveStyle({ opacity: '0' })
+
+    fireEvent.mouseEnter(wrapper)
+    expect(chevron).toHaveStyle({ opacity: '1' })
   })
 
 })

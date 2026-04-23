@@ -30,13 +30,14 @@ import { PlanToolOutput } from './PlanToolOutput'
 import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
 import { CronCreatedCard } from './CronCreatedCard'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
+import { CollapsibleContent } from './CollapsibleContent'
+import { AnsiPre } from './AnsiPre'
+import { stripAnsi } from '../../utils/ansi'
 
 interface ToolCallCardProps {
   item: ConversationItem
   turnId: string
 }
-
-const COLLAPSIBLE_TRANSITION_MS = 200
 
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
   if (!isShellTool) return false
@@ -58,6 +59,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   turnId
 }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
+  const [hovered, setHovered] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [renderExpanded, setRenderExpanded] = useState(false)
   const [autoExpanded, setAutoExpanded] = useState(false)
@@ -189,6 +191,8 @@ export const ToolCallCard = memo(function ToolCallCard({
   if (isRunning) {
     return (
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           borderRadius: '4px',
           overflow: 'hidden',
@@ -236,7 +240,7 @@ export const ToolCallCard = memo(function ToolCallCard({
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} />}
+          {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} visible />}
         </button>
 
         <CollapsibleContent
@@ -281,9 +285,12 @@ export const ToolCallCard = memo(function ToolCallCard({
   }
 
   const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+  const failedPreview = stripAnsi(item.result ?? shellOutput)
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         borderRadius: '4px',
         overflow: 'hidden',
@@ -308,30 +315,15 @@ export const ToolCallCard = memo(function ToolCallCard({
           borderRadius: expanded ? '4px 4px 0 0' : '4px'
         }}
       >
-        {success ? (
-          <span style={{ color: 'var(--success)', fontSize: '11px', lineHeight: 1 }}>✓</span>
-        ) : (
-          <span style={{ color: 'var(--error)', fontSize: '11px', lineHeight: 1 }}>✕</span>
-        )}
-
-        <span style={{ flex: 1 }}>
+        <span style={{ flex: 1, color: success ? 'var(--text-secondary)' : 'var(--error)' }}>
           {success ? label : translate(locale, 'toolCall.failed', { label })}
           {!success && (item.result || shellOutput) && (
             <span style={{ color: 'var(--error)', marginLeft: '6px' }}>
-              - {(item.result ?? shellOutput).slice(0, 80)}{(item.result ?? shellOutput).length > 80 ? '…' : ''}
+              - {failedPreview.slice(0, 80)}{failedPreview.length > 80 ? '…' : ''}
             </span>
           )}
         </span>
-
-        {item.duration !== undefined && item.duration > 0 && (
-          <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px' }}>
-            {item.duration < 1000
-              ? `${item.duration}ms`
-              : `${(item.duration / 1000).toFixed(1)}s`}
-          </span>
-        )}
-
-        <ToolCollapseChevron expanded={expanded} />
+        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
       </button>
 
       <CollapsibleContent
@@ -355,123 +347,6 @@ export const ToolCallCard = memo(function ToolCallCard({
     </div>
   )
 })
-
-interface CollapsibleContentProps {
-  expanded: boolean
-  renderExpanded: boolean
-  setRenderExpanded: (value: boolean) => void
-  children: JSX.Element
-}
-
-function CollapsibleContent({
-  expanded,
-  renderExpanded,
-  setRenderExpanded,
-  children
-}: CollapsibleContentProps): JSX.Element | null {
-  const contentRef = useRef<HTMLDivElement | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
-  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [height, setHeight] = useState<string>('0px')
-  const [opacity, setOpacity] = useState(0)
-  const [translateY, setTranslateY] = useState('-2px')
-
-  useEffect(() => {
-    if (animationFrameRef.current != null) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
-    }
-    if (transitionTimerRef.current != null) {
-      clearTimeout(transitionTimerRef.current)
-      transitionTimerRef.current = null
-    }
-
-    if (!renderExpanded) {
-      setHeight('0px')
-      setOpacity(0)
-      setTranslateY('-2px')
-      return
-    }
-
-    const measuredHeight = contentRef.current?.scrollHeight ?? 0
-
-    if (expanded) {
-      setHeight('0px')
-      setOpacity(0)
-      setTranslateY('-2px')
-      animationFrameRef.current = requestAnimationFrame(() => {
-        setHeight(`${measuredHeight}px`)
-        setOpacity(1)
-        setTranslateY('0px')
-        animationFrameRef.current = null
-      })
-      transitionTimerRef.current = setTimeout(() => {
-        setHeight('auto')
-        transitionTimerRef.current = null
-      }, COLLAPSIBLE_TRANSITION_MS)
-      return
-    }
-
-    setHeight(`${measuredHeight}px`)
-    setOpacity(1)
-    setTranslateY('0px')
-    animationFrameRef.current = requestAnimationFrame(() => {
-      setHeight('0px')
-      setOpacity(0)
-      setTranslateY('-2px')
-      animationFrameRef.current = null
-    })
-    transitionTimerRef.current = setTimeout(() => {
-      setRenderExpanded(false)
-      transitionTimerRef.current = null
-    }, COLLAPSIBLE_TRANSITION_MS)
-
-    return () => {
-      if (animationFrameRef.current != null) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
-      }
-      if (transitionTimerRef.current != null) {
-        clearTimeout(transitionTimerRef.current)
-        transitionTimerRef.current = null
-      }
-    }
-  }, [expanded, renderExpanded, setRenderExpanded])
-
-  useEffect(() => {
-    return () => {
-      if (animationFrameRef.current != null) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
-      }
-      if (transitionTimerRef.current != null) {
-        clearTimeout(transitionTimerRef.current)
-        transitionTimerRef.current = null
-      }
-    }
-  }, [])
-
-  if (!renderExpanded) {
-    return null
-  }
-
-  return (
-    <div
-      aria-hidden={!expanded}
-      style={{
-        overflow: 'hidden',
-        height,
-        opacity,
-        transform: `translateY(${translateY})`,
-        transition: `height ${COLLAPSIBLE_TRANSITION_MS}ms ease-out, opacity ${COLLAPSIBLE_TRANSITION_MS}ms ease-out, transform ${COLLAPSIBLE_TRANSITION_MS}ms ease-out`
-      }}
-    >
-      <div ref={contentRef}>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 interface ExpandedContentProps {
   itemId: string
@@ -566,9 +441,6 @@ function ExpandedContent({
   if (isShellToolName(toolName)) {
     const command = (args?.command as string | undefined) ?? toolName
     const output = result ?? ''
-    const outputLines = output.split('\n')
-    const preview = outputLines.slice(0, 40)
-    const truncated = outputLines.length > 40
 
     return (
       <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
@@ -577,19 +449,12 @@ function ExpandedContent({
           <span style={{ color: 'var(--text-primary)' }}>{command}</span>
         </div>
         {output ? (
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              color: success ? 'var(--text-secondary)' : 'var(--error)',
-              maxHeight: '200px',
-              overflow: 'auto'
-            }}
-          >
-            {preview.join('\n')}
-            {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
-          </pre>
+          <AnsiPre
+            text={output}
+            truncatedLinesOver={40}
+            maxHeight={200}
+            colorWhenNoSgr={success ? 'var(--text-secondary)' : 'var(--error)'}
+          />
         ) : (
           <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>Waiting for output...</div>
         )}
@@ -598,9 +463,6 @@ function ExpandedContent({
   }
 
   const resultText = result ?? ''
-  const resultLines = resultText.split('\n')
-  const preview = resultLines.slice(0, 10)
-  const truncated = resultLines.length > 10
   const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
 
   return (
@@ -611,19 +473,12 @@ function ExpandedContent({
         </div>
       )}
       {resultText && (
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            color: success ? 'var(--text-secondary)' : 'var(--error)',
-            maxHeight: '160px',
-            overflow: 'auto'
-          }}
-        >
-          {preview.join('\n')}
-          {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
-        </pre>
+        <AnsiPre
+          text={resultText}
+          truncatedLinesOver={10}
+          maxHeight={160}
+          colorWhenNoSgr={success ? 'var(--text-secondary)' : 'var(--error)'}
+        />
       )}
     </div>
   )
