@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import type { AutomationSchedule } from '../../stores/automationsStore'
 
@@ -39,6 +39,15 @@ export function SchedulePicker({ value, onChange }: Props): JSX.Element {
   const [customMinutes, setCustomMinutes] = useState<number>(
     value?.everyMs ? Math.max(1, Math.round(value.everyMs / 60_000)) : 30
   )
+
+  useEffect(() => {
+    if (preset !== 'custom' || !value?.everyMs) return
+
+    const nextCustomMinutes = Math.max(1, Math.round(value.everyMs / 60_000))
+    if (nextCustomMinutes !== customMinutes) {
+      setCustomMinutes(nextCustomMinutes)
+    }
+  }, [preset, value?.everyMs, customMinutes])
 
   const hour = value?.dailyHour ?? 9
   const minute = value?.dailyMinute ?? 0
