@@ -301,7 +301,7 @@ public sealed partial class AutomationsRequestHandler(
         if (kind == "once")
             return;
         sb.AppendLine("schedule:");
-        sb.AppendLine($"  kind: {kind}");
+        sb.AppendLine($"  kind: \"{EscapeYamlString(kind)}\"");
         if (schedule.AtMs.HasValue) sb.AppendLine($"  at_ms: {schedule.AtMs.Value}");
         if (schedule.EveryMs.HasValue) sb.AppendLine($"  every_ms: {schedule.EveryMs.Value}");
         if (schedule.InitialDelayMs.HasValue) sb.AppendLine($"  initial_delay_ms: {schedule.InitialDelayMs.Value}");
