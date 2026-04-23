@@ -73,7 +73,7 @@ public static class LocalTaskTemplates
             Id: "weekly-report",
             Title: "Weekly activity report",
             Description: "Synthesize the week's PRs, rollouts, and incidents into a single report.",
-            Icon: "🗂",
+            Icon: "📅",
             Category: "digest",
             DefaultTitle: "Weekly activity report",
             DefaultDescription:
@@ -109,7 +109,7 @@ public static class LocalTaskTemplates
             Id: "ci-triage",
             Title: "Triage CI failures",
             Description: "Hourly scan of CI failures, grouped by root cause with minimal fix suggestions.",
-            Icon: "🛠",
+            Icon: "🛠️",
             Category: "review",
             DefaultTitle: "Triage CI failures",
             DefaultDescription:
@@ -127,7 +127,7 @@ public static class LocalTaskTemplates
             Id: "issue-triage",
             Title: "Triage new issues",
             Description: "Hourly review of new issues, suggesting owner, priority, and labels.",
-            Icon: "🏷",
+            Icon: "🎯",
             Category: "review",
             DefaultTitle: "Triage new issues",
             DefaultDescription:
