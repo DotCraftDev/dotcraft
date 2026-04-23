@@ -38,7 +38,7 @@ export function AnsiPre({
             {spans.length > 0
               ? spans.map((span, spanIdx) => {
                 const fg = span.inverse ? (span.bg ?? colorWhenNoSgr) : (span.fg ?? colorWhenNoSgr)
-                const bg = span.inverse ? span.fg : span.bg
+                const bg = span.inverse ? (span.fg ?? colorWhenNoSgr) : span.bg
                 const decorations = [
                   span.underline ? 'underline' : '',
                   span.strike ? 'line-through' : ''
