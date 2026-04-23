@@ -203,6 +203,10 @@ public sealed class StateRuntime
 
                 CREATE INDEX IF NOT EXISTS idx_dashboard_usage_source_ts
                     ON dashboard_usage_records(source_id, timestamp DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_dashboard_usage_source_subject
+                    ON dashboard_usage_records(source_id, subject_kind, subject_id);
+                CREATE INDEX IF NOT EXISTS idx_dashboard_usage_source_context
+                    ON dashboard_usage_records(source_id, context_kind, context_id);
                 CREATE INDEX IF NOT EXISTS idx_dashboard_usage_thread
                     ON dashboard_usage_records(thread_id, timestamp DESC, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_dashboard_usage_session

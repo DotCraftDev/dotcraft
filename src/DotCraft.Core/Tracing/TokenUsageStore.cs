@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotCraft.State;
@@ -107,7 +106,8 @@ public sealed class TokenUsageStore
 {
     private readonly string? _storagePath;
     private readonly StateRuntime? _stateRuntime;
-    private readonly ConcurrentQueue<TokenUsageRecord> _records = new();
+    private readonly Dictionary<string, FallbackSourceAggregate> _fallbackSources = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _aggregateLock = new();
     private readonly object _fileLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -129,150 +129,48 @@ public sealed class TokenUsageStore
 
     public void Record(TokenUsageRecord record)
     {
-        if (string.IsNullOrWhiteSpace(record.SourceId)
-            || string.IsNullOrWhiteSpace(record.SourceMode)
-            || string.IsNullOrWhiteSpace(record.SubjectKind)
-            || string.IsNullOrWhiteSpace(record.SubjectId))
+        if (!IsValidRecord(record))
         {
             return;
         }
 
-        ApplyRecord(record);
-
         if (_stateRuntime != null)
             PersistRecordToDb(record);
-        else if (_storagePath != null)
-            PersistRecordToFile(record);
+        else
+        {
+            ApplyFallbackRecord(record);
+            if (_storagePath != null)
+                PersistRecordToFile(record);
+        }
     }
 
     public IReadOnlyList<UsageSourceSummary> GetSourceSummaries()
     {
-        return SnapshotRecords()
-            .GroupBy(r => r.SourceId, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new UsageSourceSummary
-            {
-                SourceId = group.Key,
-                SourceMode = CollapseKinds(group.Select(r => r.SourceMode), TokenUsageSourceModes.Mixed),
-                SubjectKind = CollapseKinds(group.Select(r => r.SubjectKind), TokenUsageSubjectKinds.Mixed),
-                ContextKind = CollapseOptionalKinds(group.Select(r => r.ContextKind), TokenUsageContextKinds.Mixed),
-                SubjectCount = group
-                    .Select(r => r.SubjectId)
-                    .Distinct(StringComparer.Ordinal)
-                    .Count(),
-                ContextCount = group
-                    .Where(r => !string.IsNullOrWhiteSpace(r.ContextId))
-                    .Select(r => r.ContextId!)
-                    .Distinct(StringComparer.Ordinal)
-                    .Count(),
-                RequestCount = group.Count(),
-                TotalInputTokens = group.Sum(r => r.InputTokens),
-                TotalOutputTokens = group.Sum(r => r.OutputTokens),
-                LastActiveAt = group.Max(r => r.Timestamp)
-            })
-            .OrderByDescending(s => s.TotalTokens)
-            .ThenBy(s => s.SourceId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return _stateRuntime != null
+            ? GetSourceSummariesFromDb()
+            : GetSourceSummariesFromFallback();
     }
 
     public IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdown(string sourceId)
     {
-        return SnapshotRecords()
-            .Where(r => string.Equals(r.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(r => new { r.SubjectKind, r.SubjectId })
-            .Select(group => new UsageBreakdownEntry
-            {
-                Kind = CollapseKinds(group.Select(r => r.SubjectKind), TokenUsageSubjectKinds.Mixed),
-                Id = group.Key.SubjectId,
-                Label = group
-                    .Select(r => string.IsNullOrWhiteSpace(r.SubjectLabel) ? r.SubjectId : r.SubjectLabel)
-                    .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))
-                    ?? group.Key.SubjectId,
-                RequestCount = group.Count(),
-                TotalInputTokens = group.Sum(r => r.InputTokens),
-                TotalOutputTokens = group.Sum(r => r.OutputTokens),
-                LastActiveAt = group.Max(r => r.Timestamp)
-            })
-            .OrderByDescending(e => e.TotalTokens)
-            .ThenBy(e => e.Label, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return _stateRuntime != null
+            ? GetSubjectBreakdownFromDb(sourceId)
+            : GetSubjectBreakdownFromFallback(sourceId);
     }
 
     public IReadOnlyList<UsageBreakdownEntry> GetContextBreakdown(string sourceId)
     {
-        return SnapshotRecords()
-            .Where(r => string.Equals(r.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
-            .Where(r => !string.IsNullOrWhiteSpace(r.ContextId))
-            .GroupBy(r => new { Kind = r.ContextKind ?? string.Empty, Id = r.ContextId! })
-            .Select(group => new UsageBreakdownEntry
-            {
-                Kind = CollapseKinds(group.Select(r => r.ContextKind ?? string.Empty), TokenUsageContextKinds.Mixed),
-                Id = group.Key.Id,
-                Label = group
-                    .Select(r => string.IsNullOrWhiteSpace(r.ContextLabel) ? group.Key.Id : r.ContextLabel!)
-                    .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label))
-                    ?? group.Key.Id,
-                RequestCount = group.Count(),
-                RelatedSubjectCount = group
-                    .Select(r => r.SubjectId)
-                    .Distinct(StringComparer.Ordinal)
-                    .Count(),
-                TotalInputTokens = group.Sum(r => r.InputTokens),
-                TotalOutputTokens = group.Sum(r => r.OutputTokens),
-                LastActiveAt = group.Max(r => r.Timestamp)
-            })
-            .OrderByDescending(e => e.TotalTokens)
-            .ThenBy(e => e.Label, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return _stateRuntime != null
+            ? GetContextBreakdownFromDb(sourceId)
+            : GetContextBreakdownFromFallback(sourceId);
     }
 
     public void LoadFromDisk()
     {
-        ClearRecords();
-
         if (_stateRuntime != null)
-        {
-            using var connection = _stateRuntime.OpenConnection();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                SELECT
-                    timestamp,
-                    source_id,
-                    source_mode,
-                    subject_kind,
-                    subject_id,
-                    subject_label,
-                    context_kind,
-                    context_id,
-                    context_label,
-                    thread_id,
-                    session_key,
-                    input_tokens,
-                    output_tokens
-                FROM dashboard_usage_records
-                ORDER BY timestamp, id
-                """;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                ApplyRecord(new TokenUsageRecord
-                {
-                    Timestamp = DateTimeOffset.Parse(reader.GetString(0)),
-                    SourceId = reader.GetString(1),
-                    SourceMode = reader.GetString(2),
-                    SubjectKind = reader.GetString(3),
-                    SubjectId = reader.GetString(4),
-                    SubjectLabel = reader.GetString(5),
-                    ContextKind = reader.IsDBNull(6) ? null : reader.GetString(6),
-                    ContextId = reader.IsDBNull(7) ? null : reader.GetString(7),
-                    ContextLabel = reader.IsDBNull(8) ? null : reader.GetString(8),
-                    ThreadId = reader.IsDBNull(9) ? null : reader.GetString(9),
-                    SessionKey = reader.IsDBNull(10) ? null : reader.GetString(10),
-                    InputTokens = reader.GetInt64(11),
-                    OutputTokens = reader.GetInt64(12)
-                });
-            }
             return;
-        }
+
+        ClearFallbackAggregates();
 
         if (_storagePath == null)
             return;
@@ -292,8 +190,8 @@ public sealed class TokenUsageStore
                 try
                 {
                     var record = JsonSerializer.Deserialize<TokenUsageRecord>(line, JsonOptions);
-                    if (record != null)
-                        ApplyRecord(record);
+                    if (record != null && IsValidRecord(record))
+                        ApplyFallbackRecord(record);
                 }
                 catch
                 {
@@ -307,22 +205,157 @@ public sealed class TokenUsageStore
         }
     }
 
-    private void ApplyRecord(TokenUsageRecord record)
-    {
-        _records.Enqueue(record);
-    }
+    #region Database Queries
 
-    private void ClearRecords()
+    private IReadOnlyList<UsageSourceSummary> GetSourceSummariesFromDb()
     {
-        while (_records.TryDequeue(out _))
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                MIN(source_id) AS source_id,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(source_mode)) = 0 THEN ''
+                    WHEN COUNT(DISTINCT LOWER(source_mode)) = 1 THEN MIN(source_mode)
+                    ELSE $mixed_source_mode
+                END AS source_mode,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(subject_kind)) = 0 THEN ''
+                    WHEN COUNT(DISTINCT LOWER(subject_kind)) = 1 THEN MIN(subject_kind)
+                    ELSE $mixed_subject_kind
+                END AS subject_kind,
+                CASE
+                    WHEN COUNT(DISTINCT LOWER(NULLIF(TRIM(context_kind), ''))) = 0 THEN NULL
+                    WHEN COUNT(DISTINCT LOWER(NULLIF(TRIM(context_kind), ''))) = 1 THEN MIN(NULLIF(TRIM(context_kind), ''))
+                    ELSE $mixed_context_kind
+                END AS context_kind,
+                COUNT(DISTINCT subject_id) AS subject_count,
+                COUNT(DISTINCT NULLIF(TRIM(context_id), '')) AS context_count,
+                COUNT(*) AS request_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            GROUP BY LOWER(source_id)
+            ORDER BY total_tokens DESC, source_id COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$mixed_source_mode", TokenUsageSourceModes.Mixed);
+        command.Parameters.AddWithValue("$mixed_subject_kind", TokenUsageSubjectKinds.Mixed);
+        command.Parameters.AddWithValue("$mixed_context_kind", TokenUsageContextKinds.Mixed);
+
+        using var reader = command.ExecuteReader();
+        var summaries = new List<UsageSourceSummary>();
+        while (reader.Read())
         {
+            summaries.Add(new UsageSourceSummary
+            {
+                SourceId = reader.GetString(0),
+                SourceMode = reader.GetString(1),
+                SubjectKind = reader.GetString(2),
+                ContextKind = reader.IsDBNull(3) ? null : reader.GetString(3),
+                SubjectCount = reader.GetInt32(4),
+                ContextCount = reader.GetInt32(5),
+                RequestCount = reader.GetInt32(6),
+                TotalInputTokens = reader.GetInt64(7),
+                TotalOutputTokens = reader.GetInt64(8),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(9))
+            });
         }
+
+        return summaries;
     }
 
-    private TokenUsageRecord[] SnapshotRecords()
+    private IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdownFromDb(string sourceId)
     {
-        return _records.ToArray();
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                subject_kind,
+                subject_id,
+                COALESCE(MAX(NULLIF(TRIM(subject_label), '')), subject_id) AS label,
+                COUNT(*) AS request_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            WHERE source_id = $source_id COLLATE NOCASE
+            GROUP BY subject_kind, subject_id
+            ORDER BY total_tokens DESC, label COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$source_id", sourceId);
+
+        using var reader = command.ExecuteReader();
+        var entries = new List<UsageBreakdownEntry>();
+        while (reader.Read())
+        {
+            entries.Add(new UsageBreakdownEntry
+            {
+                Kind = reader.GetString(0),
+                Id = reader.GetString(1),
+                Label = reader.GetString(2),
+                RequestCount = reader.GetInt32(3),
+                TotalInputTokens = reader.GetInt64(4),
+                TotalOutputTokens = reader.GetInt64(5),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(6))
+            });
+        }
+
+        return entries;
     }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetContextBreakdownFromDb(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        using var connection = _stateRuntime!.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                context_kind,
+                context_id,
+                COALESCE(MAX(NULLIF(TRIM(context_label), '')), context_id) AS label,
+                COUNT(*) AS request_count,
+                COUNT(DISTINCT subject_id) AS related_subject_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                MAX(timestamp) AS last_active_at,
+                COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens
+            FROM dashboard_usage_records
+            WHERE source_id = $source_id COLLATE NOCASE
+              AND NULLIF(TRIM(context_id), '') IS NOT NULL
+            GROUP BY context_kind, context_id
+            ORDER BY total_tokens DESC, label COLLATE NOCASE ASC
+            """;
+        command.Parameters.AddWithValue("$source_id", sourceId);
+
+        using var reader = command.ExecuteReader();
+        var entries = new List<UsageBreakdownEntry>();
+        while (reader.Read())
+        {
+            entries.Add(new UsageBreakdownEntry
+            {
+                Kind = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
+                Id = reader.GetString(1),
+                Label = reader.GetString(2),
+                RequestCount = reader.GetInt32(3),
+                RelatedSubjectCount = reader.GetInt32(4),
+                TotalInputTokens = reader.GetInt64(5),
+                TotalOutputTokens = reader.GetInt64(6),
+                LastActiveAt = DateTimeOffset.Parse(reader.GetString(7))
+            });
+        }
+
+        return entries;
+    }
+
+    #endregion
 
     private void PersistRecordToDb(TokenUsageRecord record)
     {
@@ -382,6 +415,147 @@ public sealed class TokenUsageStore
         }
     }
 
+    #region File Fallback Aggregation
+
+    private IReadOnlyList<UsageSourceSummary> GetSourceSummariesFromFallback()
+    {
+        lock (_aggregateLock)
+        {
+            return _fallbackSources.Values
+                .Select(source => new UsageSourceSummary
+                {
+                    SourceId = source.SourceId,
+                    SourceMode = CollapseKinds(source.SourceModes, TokenUsageSourceModes.Mixed),
+                    SubjectKind = CollapseKinds(source.SubjectKinds, TokenUsageSubjectKinds.Mixed),
+                    ContextKind = CollapseOptionalKinds(source.ContextKinds, TokenUsageContextKinds.Mixed),
+                    SubjectCount = source.SubjectIds.Count,
+                    ContextCount = source.ContextIds.Count,
+                    RequestCount = source.RequestCount,
+                    TotalInputTokens = source.TotalInputTokens,
+                    TotalOutputTokens = source.TotalOutputTokens,
+                    LastActiveAt = source.LastActiveAt
+                })
+                .OrderByDescending(summary => summary.TotalTokens)
+                .ThenBy(summary => summary.SourceId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetSubjectBreakdownFromFallback(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        lock (_aggregateLock)
+        {
+            if (!_fallbackSources.TryGetValue(sourceId, out var source))
+                return [];
+
+            return source.Subjects.Values
+                .Select(entry => new UsageBreakdownEntry
+                {
+                    Kind = entry.Kind,
+                    Id = entry.Id,
+                    Label = string.IsNullOrWhiteSpace(entry.Label) ? entry.Id : entry.Label,
+                    RequestCount = entry.RequestCount,
+                    TotalInputTokens = entry.TotalInputTokens,
+                    TotalOutputTokens = entry.TotalOutputTokens,
+                    LastActiveAt = entry.LastActiveAt
+                })
+                .OrderByDescending(entry => entry.TotalTokens)
+                .ThenBy(entry => entry.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<UsageBreakdownEntry> GetContextBreakdownFromFallback(string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(sourceId))
+            return [];
+
+        lock (_aggregateLock)
+        {
+            if (!_fallbackSources.TryGetValue(sourceId, out var source))
+                return [];
+
+            return source.Contexts.Values
+                .Select(entry => new UsageBreakdownEntry
+                {
+                    Kind = entry.Kind,
+                    Id = entry.Id,
+                    Label = string.IsNullOrWhiteSpace(entry.Label) ? entry.Id : entry.Label,
+                    RequestCount = entry.RequestCount,
+                    RelatedSubjectCount = entry.RelatedSubjectIds.Count,
+                    TotalInputTokens = entry.TotalInputTokens,
+                    TotalOutputTokens = entry.TotalOutputTokens,
+                    LastActiveAt = entry.LastActiveAt
+                })
+                .OrderByDescending(entry => entry.TotalTokens)
+                .ThenBy(entry => entry.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    private void ApplyFallbackRecord(TokenUsageRecord record)
+    {
+        lock (_aggregateLock)
+        {
+            var source = _fallbackSources.GetValueOrDefault(record.SourceId);
+            if (source == null)
+            {
+                source = new FallbackSourceAggregate(record.SourceId);
+                _fallbackSources[record.SourceId] = source;
+            }
+
+            source.SourceModes.Add(record.SourceMode);
+            source.SubjectKinds.Add(record.SubjectKind);
+            source.SubjectIds.Add(record.SubjectId);
+            source.RequestCount++;
+            source.TotalInputTokens += record.InputTokens;
+            source.TotalOutputTokens += record.OutputTokens;
+            if (record.Timestamp > source.LastActiveAt)
+                source.LastActiveAt = record.Timestamp;
+
+            var subjectKey = (record.SubjectKind, record.SubjectId);
+            var subject = source.Subjects.GetValueOrDefault(subjectKey);
+            if (subject == null)
+            {
+                subject = new FallbackBreakdownAggregate(record.SubjectKind, record.SubjectId);
+                source.Subjects[subjectKey] = subject;
+            }
+
+            subject.Add(record.SubjectLabel, record.Timestamp, record.InputTokens, record.OutputTokens);
+
+            if (string.IsNullOrWhiteSpace(record.ContextId))
+                return;
+
+            source.ContextIds.Add(record.ContextId);
+            if (!string.IsNullOrWhiteSpace(record.ContextKind))
+                source.ContextKinds.Add(record.ContextKind!);
+
+            var contextKind = record.ContextKind ?? string.Empty;
+            var contextKey = (contextKind, record.ContextId);
+            var context = source.Contexts.GetValueOrDefault(contextKey);
+            if (context == null)
+            {
+                context = new FallbackContextAggregate(contextKind, record.ContextId);
+                source.Contexts[contextKey] = context;
+            }
+
+            context.Add(record.ContextLabel, record.SubjectId, record.Timestamp, record.InputTokens, record.OutputTokens);
+        }
+    }
+
+    private void ClearFallbackAggregates()
+    {
+        lock (_aggregateLock)
+        {
+            _fallbackSources.Clear();
+        }
+    }
+
+    #endregion
+
     private void PersistRecordToFile(TokenUsageRecord record)
     {
         _ = Task.Run(() =>
@@ -401,6 +575,14 @@ public sealed class TokenUsageStore
                 // Silently ignore persistence errors
             }
         });
+    }
+
+    private static bool IsValidRecord(TokenUsageRecord record)
+    {
+        return !string.IsNullOrWhiteSpace(record.SourceId)
+            && !string.IsNullOrWhiteSpace(record.SourceMode)
+            && !string.IsNullOrWhiteSpace(record.SubjectKind)
+            && !string.IsNullOrWhiteSpace(record.SubjectId);
     }
 
     private static string CollapseKinds(IEnumerable<string> values, string mixedValue)
@@ -432,5 +614,73 @@ public sealed class TokenUsageStore
             1 => distinct[0],
             _ => mixedValue
         };
+    }
+
+    private sealed class FallbackSourceAggregate(string sourceId)
+    {
+        public string SourceId { get; } = sourceId;
+
+        public HashSet<string> SourceModes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> SubjectKinds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> ContextKinds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> SubjectIds { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> ContextIds { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<(string Kind, string Id), FallbackBreakdownAggregate> Subjects { get; } = [];
+
+        public Dictionary<(string Kind, string Id), FallbackContextAggregate> Contexts { get; } = [];
+
+        public int RequestCount { get; set; }
+
+        public long TotalInputTokens { get; set; }
+
+        public long TotalOutputTokens { get; set; }
+
+        public DateTimeOffset LastActiveAt { get; set; } = DateTimeOffset.MinValue;
+    }
+
+    private class FallbackBreakdownAggregate(string kind, string id)
+    {
+        public string Kind { get; } = kind;
+
+        public string Id { get; } = id;
+
+        public string Label { get; private set; } = string.Empty;
+
+        public int RequestCount { get; private set; }
+
+        public long TotalInputTokens { get; private set; }
+
+        public long TotalOutputTokens { get; private set; }
+
+        public DateTimeOffset LastActiveAt { get; private set; } = DateTimeOffset.MinValue;
+
+        public void Add(string? label, DateTimeOffset timestamp, long inputTokens, long outputTokens)
+        {
+            if (string.IsNullOrWhiteSpace(Label) && !string.IsNullOrWhiteSpace(label))
+                Label = label;
+
+            RequestCount++;
+            TotalInputTokens += inputTokens;
+            TotalOutputTokens += outputTokens;
+            if (timestamp > LastActiveAt)
+                LastActiveAt = timestamp;
+        }
+    }
+
+    private sealed class FallbackContextAggregate(string kind, string id)
+        : FallbackBreakdownAggregate(kind, id)
+    {
+        public HashSet<string> RelatedSubjectIds { get; } = new(StringComparer.Ordinal);
+
+        public void Add(string? label, string subjectId, DateTimeOffset timestamp, long inputTokens, long outputTokens)
+        {
+            base.Add(label, timestamp, inputTokens, outputTokens);
+            RelatedSubjectIds.Add(subjectId);
+        }
     }
 }
