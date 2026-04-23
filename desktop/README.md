@@ -9,7 +9,7 @@ Electron client for [DotCraft](../README.md). Open a workspace, chat with the ag
 ## Prerequisites
 
 - **Node.js 18+** and **npm**
-- **DotCraft AppServer** (`dotcraft` / `dotcraft.exe`) on `PATH` or set in app settings — [Releases](https://github.com/DotHarness/DotCraft/releases) or [build from source](../README.md#build-from-source).
+- **DotCraft AppServer** (`dotcraft` / `dotcraft.exe`) on `PATH` or set in app settings — [Releases](https://github.com/DotHarness/dotcraft/releases) or [build from source](../README.md#build-from-source).
 
 ---
 

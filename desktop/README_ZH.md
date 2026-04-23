@@ -9,7 +9,7 @@
 ## 前提条件
 
 - **Node.js 18+** 与 **npm**
-- **DotCraft AppServer**（`dotcraft` / `dotcraft.exe`）需在 `PATH` 中或通过应用设置指定 —— 见 [GitHub Releases](https://github.com/DotHarness/DotCraft/releases) 或[从源码构建](../README_ZH.md#从源码构建)。
+- **DotCraft AppServer**（`dotcraft` / `dotcraft.exe`）需在 `PATH` 中或通过应用设置指定 —— 见 [GitHub Releases](https://github.com/DotHarness/dotcraft/releases) 或[从源码构建](../README_ZH.md#从源码构建)。
 
 ---
 

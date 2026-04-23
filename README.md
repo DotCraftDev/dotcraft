@@ -1,6 +1,6 @@
 <div align="center">
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/DotCraft)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/dotcraft)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **中文 | [English](./README_EN.md)**
@@ -36,7 +36,7 @@
 
 #### 方式一：直接下载 Release 包
 
-前往 [GitHub Releases](https://github.com/DotHarness/DotCraft/releases) 下载桌面应用：
+前往 [GitHub Releases](https://github.com/DotHarness/dotcraft/releases) 下载桌面应用：
 
 | 平台 | 文件 |
 |------|------|

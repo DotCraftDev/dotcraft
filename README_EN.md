@@ -1,6 +1,6 @@
 <div align="center">
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/DotCraft)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/dotcraft)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **[中文](./README_ZH.md) | English**
@@ -36,7 +36,7 @@ Use DotCraft's most recommended Desktop application as the primary entry point.
 
 #### Option 1: Download a release build
 
-Download the desktop app from [GitHub Releases](https://github.com/DotHarness/DotCraft/releases):
+Download the desktop app from [GitHub Releases](https://github.com/DotHarness/dotcraft/releases):
 
 | Platform | File |
 |----------|------|

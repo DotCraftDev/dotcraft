@@ -1,6 +1,6 @@
 # DotCraft Unity Client
 
-DotCraft Unity Client is a Unity Editor extension that integrates the [DotCraft](https://github.com/DotHarness/DotCraft) AI agent into the Unity Editor via the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). It provides an in-editor chat interface with full file read/write and terminal capabilities.
+DotCraft Unity Client is a Unity Editor extension that integrates the [DotCraft](https://github.com/DotHarness/dotcraft) AI agent into the Unity Editor via the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). It provides an in-editor chat interface with full file read/write and terminal capabilities.
 
 **Minimum Unity version:** 2022.3
 
@@ -19,7 +19,7 @@ Add the package to your Unity project via the Package Manager:
 **Option A — Git URL** (recommended)
 
 ```
-https://github.com/DotHarness/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
+https://github.com/DotHarness/dotcraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
 ```
 
 **Option B — Local path**
@@ -32,7 +32,7 @@ Clone the repository and add from disk: **+ → Add package from disk**, then se
 2. Click **Connect** to launch the DotCraft process
 3. Start chatting with the AI assistant
 
-For detailed configuration, troubleshooting, and usage guides, see the [Unity Integration Guide](https://github.com/DotHarness/DotCraft/blob/master/docs/en/unity_guide.md).
+For detailed configuration, troubleshooting, and usage guides, see the [Unity Integration Guide](https://github.com/DotHarness/dotcraft/blob/master/docs/en/unity_guide.md).
 
 ## Extended Capabilities
 
@@ -65,5 +65,5 @@ https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main
 
 ## See Also
 
-- [Unity Integration Guide](https://github.com/DotHarness/DotCraft/blob/master/docs/en/unity_guide.md) - Detailed documentation
-- [ACP Mode Guide](https://github.com/DotHarness/DotCraft/blob/master/docs/en/acp_guide.md) - Protocol details
+- [Unity Integration Guide](https://github.com/DotHarness/dotcraft/blob/master/docs/en/unity_guide.md) - Detailed documentation
+- [ACP Mode Guide](https://github.com/DotHarness/dotcraft/blob/master/docs/en/acp_guide.md) - Protocol details

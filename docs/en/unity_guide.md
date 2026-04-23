@@ -49,7 +49,7 @@ If you haven't installed NuGetForUnity yet:
 2. Click **+ → Add package from git URL**
 3. Enter:
    ```
-   https://github.com/DotHarness/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
+   https://github.com/DotHarness/dotcraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
    ```
 
 **Option B — Local path**:
@@ -323,6 +323,6 @@ AI: [Uses unity_get_project_info tool]
 
 - [Configuration Guide](./config_guide.md) - DotCraft configuration options
 - [ACP Mode Guide](./acp_guide.md) - Agent Client Protocol details
-- [Unity Client README](https://github.com/DotHarness/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - Package documentation
+- [Unity Client README](https://github.com/DotHarness/dotcraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - Package documentation
 - [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - HTTP REST API based Unity skill library
 - [unity-mcp](https://github.com/CoplayDev/unity-mcp) - MCP protocol based Unity integration tool

@@ -49,7 +49,7 @@ Unity 集成包含两个组件：
 2. 点击 **+ → Add package from git URL**
 3. 输入：
    ```
-   https://github.com/DotHarness/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
+   https://github.com/DotHarness/dotcraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
    ```
 
 **方式 B — 本地路径**：
@@ -323,6 +323,6 @@ AI: [使用 unity_get_project_info 工具]
 
 - [配置指南](./config_guide.md) - DotCraft 配置选项
 - [ACP 模式指南](./acp_guide.md) - Agent Client Protocol 详情
-- [Unity 客户端 README](https://github.com/DotHarness/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - 包文档
+- [Unity 客户端 README](https://github.com/DotHarness/dotcraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - 包文档
 - [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - HTTP REST API 方式的 Unity 技能库
 - [unity-mcp](https://github.com/CoplayDev/unity-mcp) - MCP 协议方式的 Unity 集成工具

@@ -1,25 +1,3 @@
 # DotCraft {{ VERSION }}
 
-## 🚀 Quick Start 快速开始
-
-1. Download the compressed package for your platform.
-
-2. Extract it to any directory.
-
-3. Configure the `config.json` file.
-
-4. Run the executable file.
-
-For detailed documentation, please see: [User Guide](https://github.com/{{ REPO }}/tree/master/docs/en/index.md)
-
-
-1. 下载对应平台的压缩包
-2. 解压到任意目录
-3. 配置 `config.json` 文件
-4. 运行可执行文件
-
-详细文档请查看：[使用指南](https://github.com/{{ REPO }}/tree/master/docs/index.md)
-
-## 📝 Changelog 更新日志
-
 {{ CHANGELOG }}
