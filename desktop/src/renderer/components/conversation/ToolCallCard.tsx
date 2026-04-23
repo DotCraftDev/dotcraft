@@ -31,6 +31,8 @@ import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
 import { CronCreatedCard } from './CronCreatedCard'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { CollapsibleContent } from './CollapsibleContent'
+import { AnsiPre } from './AnsiPre'
+import { stripAnsi } from '../../utils/ansi'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -283,6 +285,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   }
 
   const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+  const failedPreview = stripAnsi(item.result ?? shellOutput)
 
   return (
     <div
@@ -316,7 +319,7 @@ export const ToolCallCard = memo(function ToolCallCard({
           {success ? label : translate(locale, 'toolCall.failed', { label })}
           {!success && (item.result || shellOutput) && (
             <span style={{ color: 'var(--error)', marginLeft: '6px' }}>
-              - {(item.result ?? shellOutput).slice(0, 80)}{(item.result ?? shellOutput).length > 80 ? '…' : ''}
+              - {failedPreview.slice(0, 80)}{failedPreview.length > 80 ? '…' : ''}
             </span>
           )}
         </span>
@@ -438,9 +441,6 @@ function ExpandedContent({
   if (isShellToolName(toolName)) {
     const command = (args?.command as string | undefined) ?? toolName
     const output = result ?? ''
-    const outputLines = output.split('\n')
-    const preview = outputLines.slice(0, 40)
-    const truncated = outputLines.length > 40
 
     return (
       <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
@@ -449,19 +449,12 @@ function ExpandedContent({
           <span style={{ color: 'var(--text-primary)' }}>{command}</span>
         </div>
         {output ? (
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              color: success ? 'var(--text-secondary)' : 'var(--error)',
-              maxHeight: '200px',
-              overflow: 'auto'
-            }}
-          >
-            {preview.join('\n')}
-            {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
-          </pre>
+          <AnsiPre
+            text={output}
+            truncatedLinesOver={40}
+            maxHeight={200}
+            colorWhenNoSgr={success ? 'var(--text-secondary)' : 'var(--error)'}
+          />
         ) : (
           <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>Waiting for output...</div>
         )}
@@ -470,9 +463,6 @@ function ExpandedContent({
   }
 
   const resultText = result ?? ''
-  const resultLines = resultText.split('\n')
-  const preview = resultLines.slice(0, 10)
-  const truncated = resultLines.length > 10
   const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
 
   return (
@@ -483,19 +473,12 @@ function ExpandedContent({
         </div>
       )}
       {resultText && (
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            color: success ? 'var(--text-secondary)' : 'var(--error)',
-            maxHeight: '160px',
-            overflow: 'auto'
-          }}
-        >
-          {preview.join('\n')}
-          {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
-        </pre>
+        <AnsiPre
+          text={resultText}
+          truncatedLinesOver={10}
+          maxHeight={160}
+          colorWhenNoSgr={success ? 'var(--text-secondary)' : 'var(--error)'}
+        />
       )}
     </div>
   )

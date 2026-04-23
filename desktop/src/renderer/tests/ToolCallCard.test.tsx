@@ -47,6 +47,28 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.getByText((content) => content.includes('line 1'))).toBeInTheDocument()
   })
 
+  it('renders ANSI shell output without raw escape markers', () => {
+    const item: ConversationItem = {
+      id: 'tool-ansi-shell',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'Exec',
+      toolCallId: 'exec-ansi-1',
+      arguments: { command: 'pnpm test' },
+      aggregatedOutput: '\u001b[1;46m RUN \u001b[0m\u001b[36mv3.2.4\u001b[0m',
+      result: '\u001b[1;46m RUN \u001b[0m\u001b[36mv3.2.4\u001b[0m',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    const pre = document.querySelector('pre')
+    expect(pre?.textContent).toContain(' RUN v3.2.4')
+    expect(pre?.textContent).not.toContain('\u001b')
+  })
+
   it('renders streaming InlineDiffView for running WriteFile tool calls', () => {
     const item: ConversationItem = {
       id: 'tool-write-streaming',

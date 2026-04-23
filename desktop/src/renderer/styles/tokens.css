@@ -151,6 +151,24 @@
   --code-copy-text: rgba(255, 255, 255, 0.6);
   --on-accent: #ffffff;
   --overlay-scrim: rgba(0, 0, 0, 0.5);
+
+  /* ANSI terminal palette (normal + bright) */
+  --ansi-black: #3b3b3b;
+  --ansi-red: #e06c75;
+  --ansi-green: #98c379;
+  --ansi-yellow: #e5c07b;
+  --ansi-blue: #61afef;
+  --ansi-magenta: #c678dd;
+  --ansi-cyan: #56b6c2;
+  --ansi-white: #dcdfe4;
+  --ansi-bright-black: #6a737d;
+  --ansi-bright-red: #ff7b72;
+  --ansi-bright-green: #7ee787;
+  --ansi-bright-yellow: #f2cc60;
+  --ansi-bright-blue: #79c0ff;
+  --ansi-bright-magenta: #d2a8ff;
+  --ansi-bright-cyan: #a5f3fc;
+  --ansi-bright-white: #f0f6fc;
 }
 
 /* ─── Light theme (DotBot: shell / slate / sky / amber) ─── */
@@ -225,6 +243,24 @@ html[data-theme="light"] {
   --code-copy-text: #5c6b7a;
   --on-accent: #ffffff;
   --overlay-scrim: rgba(15, 23, 42, 0.35);
+
+  /* ANSI terminal palette (normal + bright) */
+  --ansi-black: #4b5563;
+  --ansi-red: #dc2626;
+  --ansi-green: #16a34a;
+  --ansi-yellow: #b45309;
+  --ansi-blue: #2563eb;
+  --ansi-magenta: #9333ea;
+  --ansi-cyan: #0e7490;
+  --ansi-white: #374151;
+  --ansi-bright-black: #94a3b8;
+  --ansi-bright-red: #ef4444;
+  --ansi-bright-green: #22c55e;
+  --ansi-bright-yellow: #d97706;
+  --ansi-bright-blue: #3b82f6;
+  --ansi-bright-magenta: #a855f7;
+  --ansi-bright-cyan: #06b6d4;
+  --ansi-bright-white: #111827;
 }
 
 /* ─── Base Styles ─── */
