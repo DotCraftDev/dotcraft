@@ -124,6 +124,11 @@ const MESSAGES_EN = {
   'settings.proxy.binarySource.bundledDesc': 'Use the CLIProxyAPI binary embedded inside DotCraft Desktop.',
   'settings.proxy.binarySource.pathDesc': 'Use cliproxyapi discovered from your system PATH.',
   'settings.proxy.binarySource.customDesc': 'Use a specific CLIProxyAPI executable you choose.',
+  'settings.proxy.binaryNotFound.bundled':
+    'Bundled CLIProxyAPI binary not found. Reinstall Desktop or switch to another source.',
+  'settings.proxy.binaryNotFound.path': 'No CLIProxyAPI binary was found on PATH.',
+  'settings.proxy.binaryNotFound.custom':
+    'The selected custom CLIProxyAPI binary path does not exist yet.',
   'settings.proxy.status': 'Runtime status',
   'settings.proxy.status.stopped': 'Stopped',
   'settings.proxy.status.starting': 'Starting',
@@ -1450,6 +1455,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.proxy.binarySource.bundledDesc': '使用 DotCraft Desktop 内嵌的 CLIProxyAPI 可执行文件。',
   'settings.proxy.binarySource.pathDesc': '使用系统 PATH 中找到的 cliproxyapi。',
   'settings.proxy.binarySource.customDesc': '使用你指定的 CLIProxyAPI 可执行文件路径。',
+  'settings.proxy.binaryNotFound.bundled':
+    '未找到内嵌的 CLIProxyAPI 可执行文件。请重新安装 Desktop 或切换为其他来源。',
+  'settings.proxy.binaryNotFound.path': '未在系统 PATH 中找到 cliproxyapi 可执行文件。',
+  'settings.proxy.binaryNotFound.custom': '当前选择的自定义 CLIProxyAPI 可执行文件路径不存在。',
   'settings.proxy.status': '运行状态',
   'settings.proxy.status.stopped': '已停止',
   'settings.proxy.status.starting': '启动中',
