@@ -125,14 +125,6 @@ public sealed class LocalAutomationSource(
             await RunShellHookAsync(workspace, workflow.OnApprove, ct);
         }
 
-        // For scheduled tasks, approval resumes the schedule loop: rearm NextRunAt and drop back to Pending so
-        // the orchestrator dispatches at the next due time.
-        if (local.Schedule != null)
-        {
-            local.NextRunAt = null;
-            local.Status = AutomationTaskStatus.Pending;
-            await fileStore.SaveAsync(local, ct);
-        }
     }
 
     /// <summary>
@@ -160,13 +152,6 @@ public sealed class LocalAutomationSource(
             await RunShellHookAsync(workspace, workflow.OnReject, ct);
         }
 
-        // Rejecting a scheduled task still resumes the loop (the user wanted the schedule; this run was bad).
-        if (local.Schedule != null)
-        {
-            local.NextRunAt = null;
-            local.Status = AutomationTaskStatus.Pending;
-            await fileStore.SaveAsync(local, ct);
-        }
     }
 
     /// <summary>

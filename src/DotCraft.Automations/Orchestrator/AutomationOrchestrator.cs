@@ -119,33 +119,27 @@ public sealed class AutomationOrchestrator
         PollOnceAsync(cancellationToken);
 
     /// <summary>
-    /// Approves a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Approved"/>.
+    /// Approves a task via its source.
+    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
+    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Approved"/>.
     /// </summary>
     public async Task ApproveTaskAsync(string sourceName, string taskId, CancellationToken ct)
     {
         var source = ResolveSource(sourceName);
         await source.ApproveTaskAsync(taskId, ct);
-
-        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
-        {
-            cached.Status = AutomationTaskStatus.Approved;
-            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Approved);
-        }
+        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Approved, ct);
     }
 
     /// <summary>
-    /// Rejects a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Rejected"/>.
+    /// Rejects a task via its source.
+    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
+    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Rejected"/>.
     /// </summary>
     public async Task RejectTaskAsync(string sourceName, string taskId, string? reason, CancellationToken ct)
     {
         var source = ResolveSource(sourceName);
         await source.RejectTaskAsync(taskId, reason, ct);
-
-        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
-        {
-            cached.Status = AutomationTaskStatus.Rejected;
-            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Rejected);
-        }
+        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Rejected, ct);
     }
 
     /// <summary>
@@ -887,6 +881,44 @@ public sealed class AutomationOrchestrator
         if (!_sources.TryGetValue(sourceName, out var source))
             throw new KeyNotFoundException($"Automation source '{sourceName}' not found.");
         return source;
+    }
+
+    private async Task FinalizeReviewedTaskAsync(
+        IAutomationSource source,
+        string taskId,
+        AutomationTaskStatus terminalStatus,
+        CancellationToken ct)
+    {
+        var task = await ReloadTaskAfterReviewAsync(source, taskId, ct);
+        if (task.Schedule != null)
+        {
+            RearmSchedule(task);
+            task.Status = AutomationTaskStatus.Pending;
+            TrackTask(task);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
+            return;
+        }
+
+        task.Status = terminalStatus;
+        TrackTask(task);
+        await RaiseStatusChangedAsync(task, terminalStatus);
+    }
+
+    private async Task<AutomationTask> ReloadTaskAfterReviewAsync(
+        IAutomationSource source,
+        string taskId,
+        CancellationToken ct)
+    {
+        var sourceTask = (await source.GetAllTasksAsync(ct))
+            .FirstOrDefault(t => string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        if (sourceTask != null)
+            return sourceTask;
+
+        if (_allTasks.TryGetValue(TaskKey(source.Name, taskId), out var cached))
+            return cached;
+
+        throw new KeyNotFoundException($"Task '{taskId}' was not found in source '{source.Name}' after review.");
     }
 
     private static string TaskKey(AutomationTask task) => TaskKey(task.SourceName, task.Id);
