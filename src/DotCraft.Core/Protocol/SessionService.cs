@@ -559,6 +559,7 @@ public sealed class SessionService(
 
             IDisposable? gateLock = null;
             IDisposable? approvalOverride = null;
+            AIAgent agent = defaultAgent;
             AgentSession? session = null;
             TokenTracker? tokenTracker = null;
             try
@@ -576,7 +577,7 @@ public sealed class SessionService(
                 }
 
                 // Step 5b: Load/create AgentSession
-                var agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
+                agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
 
                 // Bind tracing and token tracking before session creation so session metadata
                 // captured during CreateSessionAsync / LoadOrCreateSessionAsync is attributed
@@ -1262,7 +1263,7 @@ public sealed class SessionService(
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
                 if (session is not null)
-                    await TrySaveSessionAsync(defaultAgent, session, threadId);
+                    await TrySaveSessionAsync(agent, session, threadId);
             }
             finally
             {
@@ -1351,8 +1352,8 @@ public sealed class SessionService(
         if (_threads.TryGetValue(threadId, out var cached))
             return cached;
 
-            var thread = await persistence.LoadThreadAsync(threadId, ct)
-            ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
+        var thread = await persistence.LoadThreadAsync(threadId, ct)
+                     ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         _threads[thread.Id] = thread;
         _materializedThreads[thread.Id] = 0;
@@ -1496,7 +1497,7 @@ public sealed class SessionService(
         eventChannel.EmitItemStarted(item);
         runtime.RegisterPending(new PendingCommandExecutionRegistration
         {
-            CallId = functionCall.CallId ?? string.Empty,
+            CallId = functionCall.CallId,
             Command = command,
             WorkingDirectory = workingDirectory,
             Source = "host",
@@ -1508,7 +1509,7 @@ public sealed class SessionService(
     {
         for (var current = ex; current is not null; current = current.InnerException)
         {
-            var msg = current.Message ?? string.Empty;
+            var msg = current.Message;
             if (msg.Contains("prompt_too_long", StringComparison.OrdinalIgnoreCase)
                 || msg.Contains("context_length_exceeded", StringComparison.OrdinalIgnoreCase)
                 || msg.Contains("maximum context length", StringComparison.OrdinalIgnoreCase)
@@ -1813,9 +1814,7 @@ public sealed class SessionService(
     }
 
     private IReadOnlySet<string> GetExternalChannelToolNames(string threadId)
-        => _threadExternalChannelToolNames.TryGetValue(threadId, out var names)
-            ? names
-            : EmptyExternalToolNames;
+        => _threadExternalChannelToolNames.GetValueOrDefault(threadId, EmptyExternalToolNames);
 
     private static bool IsExternalChannelTool(IReadOnlySet<string> externalToolNames, string? toolName)
         => !string.IsNullOrWhiteSpace(toolName) && externalToolNames.Contains(toolName);

@@ -76,6 +76,10 @@ public sealed class AppServerWelcomeSuggestionsTests : IDisposable
     {
         public WelcomeSuggestionsParams? LastParams { get; private set; }
 
+        public void ScheduleRefresh(string workspacePath, string? triggerThreadId = null)
+        {
+        }
+
         public Task<WelcomeSuggestionsResult> SuggestAsync(
             WelcomeSuggestionsParams parameters,
             CancellationToken cancellationToken = default)

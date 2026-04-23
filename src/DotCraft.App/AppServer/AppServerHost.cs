@@ -42,47 +42,11 @@ namespace DotCraft.AppServer;
 /// each with an isolated <see cref="AppServerConnection"/> sharing the same session service.
 /// </summary>
 public sealed class AppServerHost(
-    IServiceProvider sp,
-    AppConfig config,
-    DotCraftPaths paths,
-    MemoryStore memoryStore,
-    SkillsLoader skillsLoader,
-    PathBlacklist blacklist,
-    McpClientManager mcpClientManager,
-    LspServerManager lspServerManager,
-    ModuleRegistry moduleRegistry,
+    WorkspaceRuntime runtime,
     ExternalChannelRegistry? externalChannelRegistry = null) : IDotCraftHost
 {
-    private AgentFactory? _agentFactory;
-
-    /// <summary>
-    /// Routes <c>ext/acp/*</c> from the agent to the wire client bound per thread (spec §11.2).
-    /// </summary>
-    private WireAcpExtensionProxy? _wireAcpExtensionProxy;
-
-    /// <summary>
-    /// Cron service instance owned by this AppServer process. Set during RunAsync and passed to
-    /// request handlers so wire clients can manage cron jobs via the cron/* wire methods (spec §16).
-    /// </summary>
-    private CronService? _cronService;
-
-    /// <summary>
-    /// Heartbeat service instance owned by this AppServer process. Set during RunAsync and passed
-    /// to request handlers so wire clients can trigger heartbeats via heartbeat/trigger (spec §17).
-    /// </summary>
-    private HeartbeatService? _heartbeatService;
-
-    private IAutomationsRequestHandler? _automationsHandler;
-
-    private ChannelRunner? _channelRunner;
-    private WelcomeSuggestionService? _welcomeSuggestionService;
-
-    /// <summary>
-    /// DashBoard URL when <see cref="ChannelRunner"/> hosts it; exposed via wire <c>initialize</c>.
-    /// </summary>
-    private string? _dashboardUrl;
-    private IReadOnlyList<ConfigSchemaSection> _configSchema = [];
-    private readonly IAppConfigMonitor _appConfigMonitor = sp.GetRequiredService<IAppConfigMonitor>();
+    private readonly WorkspaceRuntime _runtime = runtime;
+    private readonly IServiceProvider _services = runtime.Services;
 
     /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
@@ -105,222 +69,15 @@ public sealed class AppServerHost(
     }
 
     private IReadOnlyList<IAppServerProtocolExtension> ProtocolExtensions =>
-        sp.GetServices<IAppServerProtocolExtension>().ToArray();
-
-    private ModuleRegistryChannelListContributor CreateChannelListContributor() =>
-        new(moduleRegistry, _cronService, _heartbeatService);
+        _runtime.Services.GetServices<IAppServerProtocolExtension>().ToArray();
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        _appConfigMonitor.Changed += OnAppConfigChanged;
-        skillsLoader.SetDisabledSkills(config.Skills.DisabledSkills);
+        var moduleRegistry = _runtime.Services.GetRequiredService<ModuleRegistry>();
+        await _runtime.StartAsync(moduleRegistry, cancellationToken);
+        SubscribeRuntimeEvents();
 
-        var traceCollector = sp.GetService<TraceCollector>();
-        var cronTools = sp.GetService<CronTools>();
-
-        ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
-        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
-
-        // SessionScopedApprovalService delegates per-turn approval to the SessionApprovalService
-        // that is installed by SessionService for each turn's event stream. The AutoApproveApprovalService
-        // acts as the fallback when no turn override is active (should never happen in normal flow).
-        var fallbackApproval = new AutoApproveApprovalService();
-        var scopedApproval = new SessionScopedApprovalService(fallbackApproval);
-
-        var planStore = new PlanStore(paths.CraftPath);
-
-        _wireAcpExtensionProxy = new WireAcpExtensionProxy();
-
-        _agentFactory = new AgentFactory(
-            paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader,
-            approvalService: scopedApproval,
-            blacklist,
-            toolProviders: toolProviders,
-            toolProviderContext: new ToolProviderContext
-            {
-                Config = config,
-                ChatClient = new OpenAIClient(
-                    new ApiKeyCredential(config.ApiKey),
-                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
-                    .GetChatClient(config.Model),
-                WorkspacePath = paths.WorkspacePath,
-                BotPath = paths.CraftPath,
-                MemoryStore = memoryStore,
-                SkillsLoader = skillsLoader,
-                ApprovalService = scopedApproval,
-                PathBlacklist = blacklist,
-                CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                LspServerManager = lspServerManager,
-                TraceCollector = traceCollector,
-                AcpExtensionProxy = _wireAcpExtensionProxy
-            },
-            traceCollector: traceCollector,
-            planStore: planStore,
-            onPlanUpdated: BroadcastPlanUpdated);
-
-        if (sp.GetService<IChannelRuntimeToolProvider>() is ExternalChannelToolProvider externalChannelToolProvider)
-        {
-            externalChannelToolProvider.ConfigureReservedToolNames(
-                _agentFactory.CreateToolsForMode(AgentMode.Agent).Select(tool => tool.Name));
-        }
-
-        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
-        sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
-        sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
-        sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
-        sessionService.ThreadRuntimeSignalForBroadcast = OnThreadRuntimeSignal;
-        var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
-        var welcomeSuggestionService = new WelcomeSuggestionService(
-            sessionService,
-            sp.GetRequiredService<SessionPersistenceService>(),
-            memoryStore,
-            paths.WorkspacePath,
-            sp.GetService<ILoggerFactory>()?.CreateLogger<WelcomeSuggestionService>());
-        _welcomeSuggestionService = welcomeSuggestionService;
-        mcpClientManager.StatusChanged += OnMcpStatusChanged;
-
-        // Cron and Heartbeat — owned and executed entirely within the AppServer process.
-        // The agent stack (sessionService, agentFactory) lives here, so execution is
-        // correct and concurrency-safe. Results are delivered via system/jobResult wire
-        // notifications to connected CLI clients.
-        var cronService = sp.GetRequiredService<CronService>();
-        _cronService = cronService;
-        // quiet=true suppresses verbose progress lines; results are delivered via
-        // system/jobResult wire notifications instead of console output.
-        var runner = new AgentRunner(paths.WorkspacePath, sessionService, quiet: true);
-
-        var messageRouter = sp.GetRequiredService<MessageRouter>();
-
-        cronService.CronJobPersistedAfterExecution = (job, id, removed) =>
-        {
-            if (removed)
-                BroadcastCronStateChanged(new CronJobWireInfo { Id = id }, removed: true);
-            else if (job != null)
-                BroadcastCronStateChanged(CronJobWireMapping.ToWire(job), removed: false);
-        };
-
-        using var heartbeatService = new HeartbeatService(
-            paths.CraftPath,
-            onHeartbeat: async (prompt, sessionKey, threadDisplayName, ct) =>
-            {
-                try
-                {
-                    var run = await runner.RunAsync(prompt, sessionKey, threadDisplayName, ct);
-                    if (run != null && run.Error == null && run.Result != null)
-                        BroadcastJobResult("heartbeat", jobId: null, jobName: null, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
-                    else if (run != null && run.Error != null)
-                        BroadcastJobResult("heartbeat", null, null, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
-                    return run;
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Heartbeat run failed: {Markup.Escape(ex.Message)}[/]");
-                    return null;
-                }
-            },
-            intervalSeconds: config.Heartbeat.IntervalSeconds,
-            enabled: config.Heartbeat.Enabled,
-            logger: sp.GetService<ILoggerFactory>()?.CreateLogger<HeartbeatService>());
-        _heartbeatService = heartbeatService;
-
-        _automationsHandler = sp.GetService<IAutomationsRequestHandler>();
-        var orchestrator = sp.GetService<AutomationOrchestrator>();
-        AutomationOrchestrator? automationOrchestratorStarted = null;
-        if (orchestrator != null)
-        {
-            _ = new AutomationsEventDispatcher(orchestrator, (task, _) =>
-                BroadcastAutomationTaskUpdated(task));
-
-            // Desktop and other AppServer clients need the poll loop to dispatch local tasks;
-            // Gateway mode does this via AutomationsChannelService — here we reuse the same session.
-            var automationSessionClient = new AutomationSessionClient(sessionService, paths);
-            orchestrator.SetSessionClient(automationSessionClient);
-            await orchestrator.StartAsync(cancellationToken);
-            automationOrchestratorStarted = orchestrator;
-        }
-
-        // Native channels, external channels, and DashBoard share WebHostPool + MessageRouter (Gateway parity).
-        _dashboardUrl = null;
-        _channelRunner = ChannelRunner.TryCreateForAppServer(sp, config, paths, moduleRegistry);
-        if (_channelRunner != null)
-        {
-            _channelRunner.Initialize(sessionService, heartbeatService, cronService);
-            await _channelRunner.StartWebPoolAsync();
-            _dashboardUrl = _channelRunner.DashBoardUrl;
-        }
-
-        cronService.OnJob = async job =>
-        {
-            var sessionKey = $"cron:{job.Id}";
-            AgentRunResult? run;
-            try
-            {
-                run = await runner.RunAsync(job.Payload.Message, sessionKey, job.Name, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Cron job {job.Id} failed: {Markup.Escape(ex.Message)}[/]");
-                return new CronOnJobResult(null, null, ex.Message, false, null, null);
-            }
-
-            var channel = job.Payload.Channel;
-            var isCliChannel = channel == null
-                || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase);
-            if (job.Payload.Deliver && isCliChannel)
-            {
-                if (run != null && run.Error == null)
-                    BroadcastJobResult("cron", job.Id, job.Name, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
-                else if (run != null && run.Error != null)
-                    BroadcastJobResult("cron", job.Id, job.Name, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
-            }
-            else if (job.Payload.Deliver
-                     && !isCliChannel
-                     && !string.IsNullOrEmpty(channel))
-            {
-                var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
-                var content = run?.Error == null
-                    ? (run?.Result ?? "")
-                    : $"[Cron] {job.Name}\n{run.Error}";
-                if (!string.IsNullOrEmpty(content) || run?.Error != null)
-                    await messageRouter.DeliverAsync(
-                        channel,
-                        target,
-                        new ChannelOutboundMessage
-                        {
-                            Kind = "text",
-                            Text = content
-                        });
-            }
-
-            var ok = run != null && run.Error == null;
-            return new CronOnJobResult(run?.ThreadId, run?.Result, run?.Error, ok, run?.InputTokens, run?.OutputTokens);
-        };
-
-        if (config.Heartbeat.NotifyAdmin)
-        {
-            heartbeatService.OnResult = async result =>
-                await messageRouter.BroadcastToAdminsAsync($"[Heartbeat] {result}");
-        }
-
-        if (config.Cron.Enabled)
-        {
-            cronService.Start();
-            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Cron service started ({cronService.ListJobs().Count} jobs)");
-        }
-
-        if (config.Heartbeat.Enabled)
-        {
-            heartbeatService.Start();
-            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
-        }
-
-        _channelRunner?.BeginChannelLoops(cancellationToken);
-
-        _configSchema = ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes());
-        var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
+        var appServerConfig = _runtime.Config.GetSection<AppServerConfig>("AppServer");
 
         try
         {
@@ -331,74 +88,98 @@ public sealed class AppServerHost(
                     // Pure WebSocket mode: no stdio transport; the WebSocket server is
                     // the main loop. Stdout remains available for normal console output.
                     // -------------------------------------------------------------------
-                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
+                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, cancellationToken);
                     break;
 
                 case AppServerMode.StdioAndWebSocket:
                     // -------------------------------------------------------------------
                     // Dual mode: stdio main loop + WebSocket listener running in parallel.
                     // -------------------------------------------------------------------
-                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
+                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, cancellationToken);
                     break;
 
                 default:
                     // -------------------------------------------------------------------
                     // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
                     // -------------------------------------------------------------------
-                    await RunStdioOnlyAsync(sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
+                    await RunStdioOnlyAsync(cancellationToken);
                     break;
             }
         }
         finally
         {
-            _appConfigMonitor.Changed -= OnAppConfigChanged;
-            if (_channelRunner != null)
-            {
-                try
-                {
-                    await _channelRunner.DisposeAsync();
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[grey][[AppServer]][/] [yellow]Channel runner shutdown: {Markup.Escape(ex.Message)}[/]");
-                }
-
-                _channelRunner = null;
-            }
-
-            if (automationOrchestratorStarted != null)
-                await automationOrchestratorStarted.StopAsync();
-
-            if (_welcomeSuggestionService != null)
-            {
-                try
-                {
-                    await _welcomeSuggestionService.DisposeAsync();
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[grey][[AppServer]][/] [yellow]Welcome suggestion service shutdown: {Markup.Escape(ex.Message)}[/]");
-                }
-
-                _welcomeSuggestionService = null;
-            }
+            UnsubscribeRuntimeEvents();
+            await _runtime.StopAsync(CancellationToken.None);
         }
 
-        cronService.Stop();
         AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
+    }
+
+    private void SubscribeRuntimeEvents()
+    {
+        _runtime.WorkspaceConfigChanged += BroadcastWorkspaceConfigChanged;
+        _runtime.McpStatusChanged += OnRuntimeMcpStatusChanged;
+        _runtime.PlanUpdated += BroadcastPlanUpdated;
+        _runtime.ThreadStarted += BroadcastThreadStarted;
+        _runtime.ThreadRenamed += BroadcastThreadRenamed;
+        _runtime.ThreadDeleted += BroadcastThreadDeleted;
+        _runtime.ThreadRuntimeSignal += OnThreadRuntimeSignal;
+        _runtime.CronStateChanged += OnCronStateChanged;
+        _runtime.BackgroundJobResultProduced += OnBackgroundJobResultProduced;
+        _runtime.AutomationTaskUpdated += BroadcastAutomationTaskUpdated;
+    }
+
+    private void UnsubscribeRuntimeEvents()
+    {
+        _runtime.WorkspaceConfigChanged -= BroadcastWorkspaceConfigChanged;
+        _runtime.McpStatusChanged -= OnRuntimeMcpStatusChanged;
+        _runtime.PlanUpdated -= BroadcastPlanUpdated;
+        _runtime.ThreadStarted -= BroadcastThreadStarted;
+        _runtime.ThreadRenamed -= BroadcastThreadRenamed;
+        _runtime.ThreadDeleted -= BroadcastThreadDeleted;
+        _runtime.ThreadRuntimeSignal -= OnThreadRuntimeSignal;
+        _runtime.CronStateChanged -= OnCronStateChanged;
+        _runtime.BackgroundJobResultProduced -= OnBackgroundJobResultProduced;
+        _runtime.AutomationTaskUpdated -= BroadcastAutomationTaskUpdated;
+    }
+
+    private AppServerRequestHandler CreateRequestHandler(
+        IAppServerTransport transport,
+        AppServerConnection connection)
+    {
+        return new AppServerRequestHandler(
+            _runtime.SessionService,
+            connection,
+            transport,
+            _runtime.ChannelListContributor,
+            serverVersion: AppVersion.Informational,
+            cronService: _runtime.CronService,
+            heartbeatService: _runtime.HeartbeatService,
+            skillsLoader: _runtime.SkillsLoader,
+            workspaceCraftPath: _runtime.Paths.CraftPath,
+            hostWorkspacePath: _runtime.Paths.WorkspacePath,
+            automationsHandler: _runtime.AutomationsHandler,
+            broadcastCronStateChanged: BroadcastCronStateChanged,
+            commitMessageSuggest: _runtime.CommitMessageSuggestService,
+            welcomeSuggestionService: _runtime.WelcomeSuggestionService,
+            dashboardUrl: _runtime.DashboardUrl,
+            wireAcpExtensionProxy: _runtime.WireAcpExtensionProxy,
+            channelStatusProvider: _runtime.ChannelStatusProvider,
+            mcpClientManager: _runtime.McpClientManager,
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
+            protocolExtensions: ProtocolExtensions,
+            onExternalChannelUpserted: _runtime.ApplyExternalChannelUpsertAsync,
+            onExternalChannelRemoved: _runtime.ApplyExternalChannelRemoveAsync,
+            streamDebugLogger: _services.GetService<SessionStreamDebugLogger>(),
+            configSchema: _runtime.ConfigSchema,
+            appConfigMonitor: _services.GetRequiredService<IAppConfigMonitor>());
     }
 
     // -------------------------------------------------------------------------
     // Run modes
     // -------------------------------------------------------------------------
 
-    private async Task RunStdioOnlyAsync(
-        ISessionService sessionService,
-        ICommitMessageSuggestService commitMessageSuggest,
-        IWelcomeSuggestionService welcomeSuggestionService,
-        CancellationToken cancellationToken)
+    private async Task RunStdioOnlyAsync(CancellationToken cancellationToken)
     {
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
@@ -406,35 +187,13 @@ public sealed class AppServerHost(
         var connection = new AppServerConnection();
         _activeTransports.TryAdd(transport, connection);
 
-        var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, CreateChannelListContributor(),
-            serverVersion: AppVersion.Informational,
-            cronService: _cronService, heartbeatService: _heartbeatService,
-            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-            hostWorkspacePath: paths.WorkspacePath,
-            automationsHandler: _automationsHandler,
-            broadcastCronStateChanged: BroadcastCronStateChanged,
-            commitMessageSuggest: commitMessageSuggest,
-            welcomeSuggestionService: welcomeSuggestionService,
-            dashboardUrl: _dashboardUrl,
-            wireAcpExtensionProxy: _wireAcpExtensionProxy,
-            channelStatusProvider: _channelRunner,
-            mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            protocolExtensions: ProtocolExtensions,
-            onExternalChannelUpserted: (channel, ct) =>
-                _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
-            onExternalChannelRemoved: (channelName, ct) =>
-                _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
-            configSchema: _configSchema,
-            appConfigMonitor: _appConfigMonitor);
+        var handler = CreateRequestHandler(transport, connection);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _wireAcpExtensionProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, cancellationToken);
         }
         finally
         {
@@ -444,16 +203,10 @@ public sealed class AppServerHost(
 
     private async Task RunWebSocketOnlyAsync(
         WebSocketServerConfig wsConfig,
-        ISessionService sessionService,
-        ICommitMessageSuggestService commitMessageSuggest,
-        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken cancellationToken)
     {
         var (wsApp, wsUrl) = BuildWebSocketApp(
             wsConfig,
-            sessionService,
-            commitMessageSuggest,
-            welcomeSuggestionService,
             cancellationToken,
             externalChannelRegistry);
 
@@ -466,18 +219,12 @@ public sealed class AppServerHost(
 
     private async Task RunStdioWithWebSocketAsync(
         WebSocketServerConfig wsConfig,
-        ISessionService sessionService,
-        ICommitMessageSuggestService commitMessageSuggest,
-        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken cancellationToken)
     {
         // Build the WebSocket app and start it explicitly so that bind failures
         // surface immediately (fail-fast) instead of being deferred to finally.
         var (wsApp, wsUrl) = BuildWebSocketApp(
             wsConfig,
-            sessionService,
-            commitMessageSuggest,
-            welcomeSuggestionService,
             cancellationToken,
             externalChannelRegistry);
         wsApp.Urls.Add(wsUrl);
@@ -492,35 +239,13 @@ public sealed class AppServerHost(
         var connection = new AppServerConnection();
         _activeTransports.TryAdd(transport, connection);
 
-        var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, CreateChannelListContributor(),
-            serverVersion: AppVersion.Informational,
-            cronService: _cronService, heartbeatService: _heartbeatService,
-            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-            hostWorkspacePath: paths.WorkspacePath,
-            automationsHandler: _automationsHandler,
-            broadcastCronStateChanged: BroadcastCronStateChanged,
-            commitMessageSuggest: commitMessageSuggest,
-            welcomeSuggestionService: welcomeSuggestionService,
-            dashboardUrl: _dashboardUrl,
-            wireAcpExtensionProxy: _wireAcpExtensionProxy,
-            channelStatusProvider: _channelRunner,
-            mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            protocolExtensions: ProtocolExtensions,
-            onExternalChannelUpserted: (channel, ct) =>
-                _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
-            onExternalChannelRemoved: (channelName, ct) =>
-                _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
-            configSchema: _configSchema,
-            appConfigMonitor: _appConfigMonitor);
+        var handler = CreateRequestHandler(transport, connection);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _wireAcpExtensionProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, cancellationToken);
         }
         finally
         {
@@ -536,9 +261,6 @@ public sealed class AppServerHost(
 
     private (WebApplication App, string Url) BuildWebSocketApp(
         WebSocketServerConfig wsConfig,
-        ISessionService sessionService,
-        ICommitMessageSuggestService commitMessageSuggest,
-        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken hostCt,
         ExternalChannelRegistry? channelRegistry = null)
     {
@@ -587,29 +309,7 @@ public sealed class AppServerHost(
             _activeTransports.TryAdd(wsTransport, wsConnection);
             try
             {
-                var wsHandler = new AppServerRequestHandler(
-                    sessionService, wsConnection, wsTransport, CreateChannelListContributor(),
-                    serverVersion: AppVersion.Informational,
-                    cronService: _cronService, heartbeatService: _heartbeatService,
-                    skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-                    hostWorkspacePath: paths.WorkspacePath,
-                    automationsHandler: _automationsHandler,
-                    broadcastCronStateChanged: BroadcastCronStateChanged,
-                    commitMessageSuggest: commitMessageSuggest,
-                    welcomeSuggestionService: welcomeSuggestionService,
-                    dashboardUrl: _dashboardUrl,
-                    wireAcpExtensionProxy: _wireAcpExtensionProxy,
-                    channelStatusProvider: _channelRunner,
-                    mcpClientManager: mcpClientManager,
-                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-                    protocolExtensions: ProtocolExtensions,
-                    onExternalChannelUpserted: (channel, ct) =>
-                        _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
-                    onExternalChannelRemoved: (channelName, ct) =>
-                        _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-                    streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
-                    configSchema: _configSchema,
-                    appConfigMonitor: _appConfigMonitor);
+                var wsHandler = CreateRequestHandler(wsTransport, wsConnection);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -699,7 +399,7 @@ public sealed class AppServerHost(
 
                         // Not a channel adapter — fall through to normal RunLoopAsync
                         // (initialize already processed, loop will handle subsequent messages)
-                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _wireAcpExtensionProxy, hostCt);
+                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, hostCt);
                         return;
                     }
 
@@ -714,7 +414,7 @@ public sealed class AppServerHost(
                     }
                 }
 
-                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _wireAcpExtensionProxy, hostCt);
+                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, hostCt);
             } // end try
             finally
             {
@@ -860,24 +560,10 @@ public sealed class AppServerHost(
 
     public async ValueTask DisposeAsync()
     {
-        mcpClientManager.StatusChanged -= OnMcpStatusChanged;
-        _appConfigMonitor.Changed -= OnAppConfigChanged;
-        if (_welcomeSuggestionService != null)
-        {
-            await _welcomeSuggestionService.DisposeAsync();
-            _welcomeSuggestionService = null;
-        }
-        if (_agentFactory != null)
-            await _agentFactory.DisposeAsync();
+        await _runtime.DisposeAsync();
     }
 
-    private void OnAppConfigChanged(object? sender, AppConfigChangedEventArgs e)
-    {
-        _ = sender;
-        BroadcastWorkspaceConfigChanged(e);
-    }
-
-    private void OnMcpStatusChanged(object? sender, McpServerStatusChangedEventArgs e)
+    private void OnRuntimeMcpStatusChanged(McpServerStatusChangedEventArgs e)
     {
         BroadcastMcpStatusChanged(new McpStatusInfoWire
         {
@@ -890,6 +576,31 @@ public sealed class AppServerHost(
             LastError = e.Status.LastError,
             Transport = e.Status.Transport
         });
+    }
+
+    private void OnCronStateChanged(CronJob? job, string id, bool removed)
+    {
+        if (removed)
+        {
+            BroadcastCronStateChanged(new CronJobWireInfo { Id = id }, removed: true);
+            return;
+        }
+
+        if (job != null)
+            BroadcastCronStateChanged(CronJobWireMapping.ToWire(job), removed: false);
+    }
+
+    private void OnBackgroundJobResultProduced(BackgroundJobResult result)
+    {
+        BroadcastJobResult(
+            result.Source,
+            result.JobId,
+            result.JobName,
+            result.Result,
+            result.Error,
+            result.ThreadId,
+            result.InputTokens,
+            result.OutputTokens);
     }
 
     /// <summary>
@@ -1162,7 +873,7 @@ public sealed class AppServerHost(
             if (_threadRuntime.TryAdd(threadId, next) || _threadRuntime.TryUpdate(threadId, next, previous))
             {
                 if (signal == SessionThreadRuntimeSignal.TurnCompleted)
-                    _welcomeSuggestionService?.ScheduleRefresh(paths.WorkspacePath, threadId);
+                    _runtime.WelcomeSuggestionService.ScheduleRefresh(_runtime.Paths.WorkspacePath, threadId);
                 BroadcastThreadRuntime(threadId, next.ToWire());
                 return;
             }
@@ -1293,9 +1004,9 @@ public sealed class AppServerHost(
     /// Broadcasts an <c>automation/task/updated</c> JSON-RPC notification to all connected transports.
     /// Called by <see cref="AutomationsEventDispatcher"/> when a task status changes.
     /// </summary>
-    private void BroadcastAutomationTaskUpdated(AutomationTask task)
+    private void BroadcastAutomationTaskUpdated(IAutomationTaskEventPayload task)
     {
-        var notification = AutomationsEventDispatcher.BuildNotification(task, paths.WorkspacePath);
+        var notification = AutomationsEventDispatcher.BuildNotification(task, _runtime.Paths.WorkspacePath);
 
         foreach (var (transport, connection) in _activeTransports)
         {

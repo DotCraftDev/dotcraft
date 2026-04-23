@@ -107,6 +107,7 @@ public interface ISessionService
     /// Null for server-managed mode (Session Core loads history from persistence).
     /// </param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="inputSnapshot"></param>
     IAsyncEnumerable<SessionEvent> SubmitInputAsync(
         string threadId,
         IList<AIContent> content,

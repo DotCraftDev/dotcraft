@@ -12,3 +12,12 @@ public interface IChannelRuntimeToolProvider
         SessionThread thread,
         IReadOnlySet<string> reservedToolNames);
 }
+
+/// <summary>
+/// Optional configurator for runtime tool providers that need the reserved tool-name set
+/// before channel adapters finalize their dynamic registrations.
+/// </summary>
+public interface IReservedRuntimeToolNameConfigurator
+{
+    void ConfigureReservedToolNames(IEnumerable<string> toolNames);
+}

@@ -2423,10 +2423,10 @@ export function SettingsView({
                         const showError = !resolvingProxyBinary && !resolvedProxyBinaryPath
                         const errorText =
                           source === 'bundled'
-                            ? t('settings.binaryNotFound.bundled')
+                            ? t('settings.proxy.binaryNotFound.bundled')
                             : source === 'path'
-                              ? t('settings.binaryNotFound.path')
-                              : t('settings.binaryNotFound.custom')
+                              ? t('settings.proxy.binaryNotFound.path')
+                              : t('settings.proxy.binaryNotFound.custom')
                         return (
                           <SelectionCard
                             key={`proxy-${source}`}
