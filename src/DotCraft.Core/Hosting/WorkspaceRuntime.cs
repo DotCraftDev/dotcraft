@@ -238,7 +238,15 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                     {
                         try
                         {
-                            return await agentRunner.RunAsync(prompt, sessionKey, threadDisplayName, cancellationToken);
+                            var run = await agentRunner.RunAsync(
+                                prompt,
+                                sessionKey,
+                                threadDisplayName,
+                                cancellationToken);
+                            var backgroundJobResult = CreateHeartbeatBackgroundJobResult(run);
+                            if (backgroundJobResult != null)
+                                BackgroundJobResultProduced?.Invoke(backgroundJobResult);
+                            return run;
                         }
                         catch (Exception ex)
                         {
@@ -342,6 +350,40 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
         {
             _lifecycleLock.Release();
         }
+    }
+
+    internal static BackgroundJobResult? CreateHeartbeatBackgroundJobResult(AgentRunResult? run)
+    {
+        if (run == null)
+            return null;
+
+        if (run.Error == null && run.Result != null)
+        {
+            return new BackgroundJobResult(
+                "heartbeat",
+                null,
+                null,
+                run.Result,
+                null,
+                run.ThreadId,
+                run.InputTokens,
+                run.OutputTokens);
+        }
+
+        if (run.Error != null)
+        {
+            return new BackgroundJobResult(
+                "heartbeat",
+                null,
+                null,
+                null,
+                run.Error,
+                run.ThreadId,
+                run.InputTokens,
+                run.OutputTokens);
+        }
+
+        return null;
     }
 
     public async Task StopAsync(CancellationToken ct = default)

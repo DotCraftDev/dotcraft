@@ -1,5 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Cron;
+using DotCraft.Agents;
 using DotCraft.Hosting;
 using DotCraft.Lsp;
 using DotCraft.Mcp;
@@ -274,6 +275,60 @@ public sealed class WorkspaceRuntimeTests
         Assert.Equal(1, feature.DisposeCalls);
         Assert.True(feature.SawCronCallbackDuringStop);
         Assert.Throws<ObjectDisposedException>(() => _ = runtime.SessionService);
+    }
+
+    [Fact]
+    public void CreateHeartbeatBackgroundJobResult_OnSuccess_ReturnsHeartbeatResult()
+    {
+        var run = new AgentRunResult("done", "thread-1", 12, 34, null);
+
+        var result = WorkspaceRuntime.CreateHeartbeatBackgroundJobResult(run);
+
+        Assert.NotNull(result);
+        Assert.Equal("heartbeat", result!.Source);
+        Assert.Null(result.JobId);
+        Assert.Null(result.JobName);
+        Assert.Equal("done", result.Result);
+        Assert.Null(result.Error);
+        Assert.Equal("thread-1", result.ThreadId);
+        Assert.Equal(12, result.InputTokens);
+        Assert.Equal(34, result.OutputTokens);
+    }
+
+    [Fact]
+    public void CreateHeartbeatBackgroundJobResult_OnFailure_ReturnsHeartbeatError()
+    {
+        var run = new AgentRunResult(null, "thread-2", 21, 43, "boom");
+
+        var result = WorkspaceRuntime.CreateHeartbeatBackgroundJobResult(run);
+
+        Assert.NotNull(result);
+        Assert.Equal("heartbeat", result!.Source);
+        Assert.Null(result.JobId);
+        Assert.Null(result.JobName);
+        Assert.Null(result.Result);
+        Assert.Equal("boom", result.Error);
+        Assert.Equal("thread-2", result.ThreadId);
+        Assert.Equal(21, result.InputTokens);
+        Assert.Equal(43, result.OutputTokens);
+    }
+
+    [Fact]
+    public void CreateHeartbeatBackgroundJobResult_WhenRunIsNull_ReturnsNull()
+    {
+        var result = WorkspaceRuntime.CreateHeartbeatBackgroundJobResult(null);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CreateHeartbeatBackgroundJobResult_WhenRunHasNoResultOrError_ReturnsNull()
+    {
+        var run = new AgentRunResult(null, "thread-3", 5, 8, null);
+
+        var result = WorkspaceRuntime.CreateHeartbeatBackgroundJobResult(run);
+
+        Assert.Null(result);
     }
 
     [Fact]
