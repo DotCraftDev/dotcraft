@@ -12,6 +12,15 @@ describe('AnsiPre', () => {
     expect(document.querySelector('pre')).toHaveTextContent('RUN plain')
   })
 
+  it('preserves SGR style across explicit newlines', () => {
+    render(<AnsiPre text={'\u001b[31mline1\nline2\u001b[0m'} />)
+
+    const line1 = screen.getByText('line1')
+    const line2 = screen.getByText('line2')
+    expect(line1).toHaveStyle({ color: 'var(--ansi-red)' })
+    expect(line2).toHaveStyle({ color: 'var(--ansi-red)' })
+  })
+
   it('truncates lines when threshold is exceeded', () => {
     render(<AnsiPre text={'a\nb\nc'} truncatedLinesOver={2} />)
     expect(screen.getByText('a')).toBeInTheDocument()

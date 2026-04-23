@@ -1,4 +1,5 @@
-import { parseAnsi } from '../../utils/ansi'
+import { useMemo, type CSSProperties } from 'react'
+import { parseAnsi, type AnsiSpan } from '../../utils/ansi'
 
 interface AnsiPreProps {
   text: string
@@ -13,11 +14,45 @@ export function AnsiPre({
   colorWhenNoSgr = 'var(--text-secondary)',
   truncatedLinesOver
 }: AnsiPreProps): JSX.Element {
-  const lines = text.split('\n')
-  const shouldTruncate = truncatedLinesOver != null && lines.length > truncatedLinesOver
-  const visibleLines = shouldTruncate && truncatedLinesOver != null
-    ? [...lines.slice(0, truncatedLinesOver), '…']
-    : lines
+  const renderedNodes = useMemo(() => {
+    const spans = parseAnsi(text)
+    const totalLines = text.split('\n').length
+    const shouldTruncate = truncatedLinesOver != null && totalLines > truncatedLinesOver
+    const lineLimit = shouldTruncate ? truncatedLinesOver : undefined
+    const nodes: Array<JSX.Element | string> = []
+    let currentLine = 0
+
+    outer: for (const span of spans) {
+      const parts = span.text.split('\n')
+      for (let idx = 0; idx < parts.length; idx++) {
+        if (idx > 0) {
+          if (lineLimit != null && currentLine + 1 >= lineLimit) {
+            break outer
+          }
+          nodes.push('\n')
+          currentLine++
+        }
+
+        if (parts[idx].length === 0) continue
+        nodes.push(
+          <span
+            key={`ansi-${currentLine}-${nodes.length}`}
+            style={resolveSpanStyle(span, colorWhenNoSgr)}
+          >
+            {parts[idx]}
+          </span>
+        )
+      }
+    }
+
+    if (shouldTruncate && lineLimit != null) {
+      if (lineLimit > 0) {
+        nodes.push('\n')
+      }
+      nodes.push(<span key="ansi-truncation-ellipsis">…</span>)
+    }
+    return nodes
+  }, [colorWhenNoSgr, text, truncatedLinesOver])
 
   return (
     <pre
@@ -31,39 +66,28 @@ export function AnsiPre({
         color: colorWhenNoSgr
       }}
     >
-      {visibleLines.map((line, lineIdx) => {
-        const spans = parseAnsi(line)
-        return (
-          <span key={lineIdx}>
-            {spans.length > 0
-              ? spans.map((span, spanIdx) => {
-                const fg = span.inverse ? (span.bg ?? colorWhenNoSgr) : (span.fg ?? colorWhenNoSgr)
-                const bg = span.inverse ? (span.fg ?? colorWhenNoSgr) : span.bg
-                const decorations = [
-                  span.underline ? 'underline' : '',
-                  span.strike ? 'line-through' : ''
-                ].filter((value) => value.length > 0).join(' ')
-                return (
-                  <span
-                    key={spanIdx}
-                    style={{
-                      color: fg,
-                      backgroundColor: bg,
-                      fontWeight: span.bold ? 600 : undefined,
-                      opacity: span.dim ? 0.65 : undefined,
-                      fontStyle: span.italic ? 'italic' : undefined,
-                      textDecoration: decorations || undefined
-                    }}
-                  >
-                    {span.text}
-                  </span>
-                )
-              })
-              : line}
-            {lineIdx < visibleLines.length - 1 ? '\n' : null}
-          </span>
-        )
-      })}
+      {renderedNodes}
     </pre>
   )
+}
+
+function resolveSpanStyle(
+  span: AnsiSpan,
+  colorWhenNoSgr: string
+): CSSProperties {
+  const fg = span.inverse ? (span.bg ?? colorWhenNoSgr) : (span.fg ?? colorWhenNoSgr)
+  const bg = span.inverse ? (span.fg ?? colorWhenNoSgr) : span.bg
+  const decorations = [
+    span.underline ? 'underline' : '',
+    span.strike ? 'line-through' : ''
+  ].filter((value) => value.length > 0).join(' ')
+
+  return {
+    color: fg,
+    backgroundColor: bg,
+    fontWeight: span.bold ? 600 : undefined,
+    opacity: span.dim ? 0.65 : undefined,
+    fontStyle: span.italic ? 'italic' : undefined,
+    textDecoration: decorations || undefined
+  }
 }
