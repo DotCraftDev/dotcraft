@@ -1,10 +1,12 @@
+using DotCraft.Protocol.AppServer;
+
 namespace DotCraft.Automations.Abstractions;
 
 /// <summary>
 /// Source-agnostic representation of a unit of automation work.
 /// Each <see cref="IAutomationSource"/> produces a concrete subclass.
 /// </summary>
-public abstract class AutomationTask
+public abstract class AutomationTask : IAutomationTaskEventPayload
 {
     private AutomationTaskStatus _status;
     private readonly object _statusLock = new();

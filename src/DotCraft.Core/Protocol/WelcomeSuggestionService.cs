@@ -18,6 +18,8 @@ public interface IWelcomeSuggestionService
     Task<WelcomeSuggestionsResult> SuggestAsync(
         WelcomeSuggestionsParams parameters,
         CancellationToken cancellationToken = default);
+
+    void ScheduleRefresh(string workspacePath, string? triggerThreadId = null);
 }
 
 public sealed class WelcomeSuggestionService(

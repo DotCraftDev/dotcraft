@@ -10,7 +10,8 @@ using Microsoft.Extensions.AI;
 
 namespace DotCraft.ExternalChannel;
 
-internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry registry) : IChannelRuntimeToolProvider
+internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry registry)
+    : IChannelRuntimeToolProvider, IReservedRuntimeToolNameConfigurator
 {
     private readonly Lock _registrationLock = new();
     private HashSet<string> _reservedRuntimeToolNames = new(StringComparer.Ordinal);

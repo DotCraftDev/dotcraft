@@ -160,6 +160,8 @@ public static class ServiceRegistration
         services.AddSingleton(sp => new SessionPersistenceService(
             sp.GetRequiredService<ThreadStore>(),
             sp.GetService<TraceStore>()));
+        services.AddSingleton<IWorkspaceRuntimeFactory, WorkspaceRuntimeFactory>();
+        services.AddSingleton(sp => sp.GetRequiredService<IWorkspaceRuntimeFactory>().Create(sp));
 
         return services;
     }

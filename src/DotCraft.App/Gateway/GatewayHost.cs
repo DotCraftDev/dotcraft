@@ -229,9 +229,9 @@ public sealed class GatewayHost : IDotCraftHost
             planStore: planStore,
             hookRunner: hookRunner);
 
-        if (_sp.GetService<IChannelRuntimeToolProvider>() is ExternalChannelToolProvider externalChannelToolProvider)
+        if (_sp.GetService<IChannelRuntimeToolProvider>() is IReservedRuntimeToolNameConfigurator reservedToolNameConfigurator)
         {
-            externalChannelToolProvider.ConfigureReservedToolNames(
+            reservedToolNameConfigurator.ConfigureReservedToolNames(
                 _sharedAgentFactory.CreateToolsForMode(AgentMode.Agent).Select(tool => tool.Name));
         }
 

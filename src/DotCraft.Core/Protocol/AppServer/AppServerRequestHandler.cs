@@ -52,24 +52,11 @@ public sealed class AppServerRequestHandler(
     IReadOnlyList<ConfigSchemaSection>? configSchema = null,
     IAppConfigMonitor? appConfigMonitor = null)
 {
-    private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
-        ?? CommandRegistry.CreateDefault(
-            !string.IsNullOrWhiteSpace(workspaceCraftPath) ? new CustomCommandLoader(workspaceCraftPath) : null);
+                                                        ?? CommandRegistry.CreateDefault(
+                                                            !string.IsNullOrWhiteSpace(workspaceCraftPath) ? new CustomCommandLoader(workspaceCraftPath) : null);
 
-    private readonly IAppServerChannelListContributor _channelListContributor = channelListContributor;
-
-    private readonly IChannelStatusProvider? _channelStatusProvider = channelStatusProvider;
-
-    private readonly string? _dashboardUrl = dashboardUrl;
-
-    private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
-    private readonly Action<McpStatusInfoWire>? _broadcastMcpStatusChanged = broadcastMcpStatusChanged;
-    private readonly McpClientManager? _mcpClientManager = mcpClientManager;
-    private readonly Func<ExternalChannelEntry, CancellationToken, Task>? _onExternalChannelUpserted = onExternalChannelUpserted;
-    private readonly Func<string, CancellationToken, Task>? _onExternalChannelRemoved = onExternalChannelRemoved;
     private readonly IReadOnlyList<ConfigSchemaSection> _configSchema = configSchema ?? [];
-    private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
 
     /// <summary>
     /// Fallback decision used by <see cref="AppServerEventDispatcher"/> when non-interactive
@@ -274,13 +261,13 @@ public sealed class AppServerRequestHandler(
             SkillsManagement = skillsLoader != null,
             CommandManagement = true,
             Automations = automationsHandler != null,
-            ChannelStatus = _channelStatusProvider != null,
+            ChannelStatus = channelStatusProvider != null,
             ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-            McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
+            McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && mcpClientManager != null,
             ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SubAgentManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-            McpStatus = _mcpClientManager != null
+            McpStatus = mcpClientManager != null
         };
 
         var capabilityBuilder = new AppServerCapabilityBuilder(capabilities, workspaceCraftPath);
@@ -298,7 +285,7 @@ public sealed class AppServerRequestHandler(
                 ProtocolVersion = "1"
             },
             Capabilities = capabilities,
-            DashboardUrl = _dashboardUrl
+            DashboardUrl = dashboardUrl
         };
 
         return Task.FromResult<object?>(result);
@@ -331,8 +318,8 @@ public sealed class AppServerRequestHandler(
             displayName: p.DisplayName,
             ct: ct);
 
-        if (_wireAcpExtensionProxy != null && connection.HasAcpExtensions)
-            _wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
+        if (wireAcpExtensionProxy != null && connection.HasAcpExtensions)
+            wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
@@ -353,8 +340,8 @@ public sealed class AppServerRequestHandler(
         var p = GetParams<ThreadResumeParams>(msg);
         var thread = await sessionService.ResumeThreadAsync(p.ThreadId, ct);
 
-        if (_wireAcpExtensionProxy != null && connection.HasAcpExtensions)
-            _wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
+        if (wireAcpExtensionProxy != null && connection.HasAcpExtensions)
+            wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
 
         // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
         var resumedBy = connection.ClientInfo?.Name ?? "appserver";
@@ -417,7 +404,7 @@ public sealed class AppServerRequestHandler(
             channels.Add(new ChannelInfo { Name = name, Category = category });
         }
 
-        _channelListContributor.AppendBaseChannels(channels, seen);
+        channelListContributor.AppendBaseChannels(channels, seen);
 
         if (!string.IsNullOrEmpty(workspaceCraftPath))
         {
@@ -468,10 +455,10 @@ public sealed class AppServerRequestHandler(
         _ = msg;
         _ = ct;
 
-        if (_channelStatusProvider == null)
+        if (channelStatusProvider == null)
             throw AppServerErrors.MethodNotFound(AppServerMethods.ChannelStatus);
 
-        var statuses = _channelStatusProvider.GetChannelStatuses();
+        var statuses = channelStatusProvider.GetChannelStatuses();
         return Task.FromResult<object?>(new ChannelStatusResult { Channels = [.. statuses] });
     }
 
@@ -504,7 +491,7 @@ public sealed class AppServerRequestHandler(
     {
         _ = msg;
         EnsureMcpManagementAvailable();
-        var servers = await _mcpClientManager!.ListConfigsAsync(ct);
+        var servers = await mcpClientManager!.ListConfigsAsync(ct);
         return new McpListResult { Servers = servers.Select(MapMcpConfigToWire).ToList() };
     }
 
@@ -515,7 +502,7 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(p.Name))
             throw AppServerErrors.InvalidParams("'name' is required.");
 
-        var server = await _mcpClientManager!.GetConfigAsync(p.Name, ct);
+        var server = await mcpClientManager!.GetConfigAsync(p.Name, ct);
         if (server == null)
             throw AppServerErrors.McpServerNotFound(p.Name);
 
@@ -526,13 +513,13 @@ public sealed class AppServerRequestHandler(
     {
         var p = GetParams<McpUpsertParams>(msg);
         EnsureMcpManagementAvailable();
-        var mcpManager = _mcpClientManager!;
+        var mcpManager = mcpClientManager!;
         ValidateMcpConfigWire(p.Server);
 
         var server = MapWireToMcpConfig(p.Server);
         await mcpManager.UpsertAsync(server, ct);
         await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpManager, ct);
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.McpUpsert,
             [ConfigChangeRegions.Mcp]);
 
@@ -540,7 +527,7 @@ public sealed class AppServerRequestHandler(
         var status = (await mcpManager.ListStatusesAsync(ct))
             .FirstOrDefault(s => string.Equals(s.Name, updated.Name, StringComparison.OrdinalIgnoreCase));
         if (status != null)
-            _broadcastMcpStatusChanged?.Invoke(MapMcpStatusToWire(status));
+            broadcastMcpStatusChanged?.Invoke(MapMcpStatusToWire(status));
 
         return new McpUpsertResult { Server = MapMcpConfigToWire(updated) };
     }
@@ -552,12 +539,12 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(p.Name))
             throw AppServerErrors.InvalidParams("'name' is required.");
 
-        var removed = await _mcpClientManager!.RemoveAsync(p.Name, ct);
+        var removed = await mcpClientManager!.RemoveAsync(p.Name, ct);
         if (!removed)
             throw AppServerErrors.McpServerNotFound(p.Name);
 
-        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
-        _appConfigMonitor?.NotifyChanged(
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpClientManager, ct);
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.McpRemove,
             [ConfigChangeRegions.Mcp]);
         return new McpRemoveResult { Removed = true };
@@ -611,9 +598,9 @@ public sealed class AppServerRequestHandler(
             channels.Add(channel);
 
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
-        if (_onExternalChannelUpserted != null)
-            await _onExternalChannelUpserted(channel, ct);
-        _appConfigMonitor?.NotifyChanged(
+        if (onExternalChannelUpserted != null)
+            await onExternalChannelUpserted(channel, ct);
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.ExternalChannelUpsert,
             [ConfigChangeRegions.ExternalChannel]);
 
@@ -636,9 +623,9 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.ExternalChannelNotFound(p.Name);
 
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
-        if (_onExternalChannelRemoved != null)
-            await _onExternalChannelRemoved(p.Name, ct);
-        _appConfigMonitor?.NotifyChanged(
+        if (onExternalChannelRemoved != null)
+            await onExternalChannelRemoved(p.Name, ct);
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.ExternalChannelRemove,
             [ConfigChangeRegions.ExternalChannel]);
 
@@ -670,7 +657,7 @@ public sealed class AppServerRequestHandler(
             p.ExternalCliSessionResumeEnabled.Value,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentSettingsUpdate,
             [ConfigChangeRegions.SubAgent]);
 
@@ -716,7 +703,7 @@ public sealed class AppServerRequestHandler(
             state.EnableExternalCliSessionResume,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileSetEnabled,
             [ConfigChangeRegions.SubAgent]);
 
@@ -750,7 +737,7 @@ public sealed class AppServerRequestHandler(
             state.EnableExternalCliSessionResume,
             profiles);
         RefreshCurrentSubAgentConfig();
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileUpsert,
             [ConfigChangeRegions.SubAgent]);
 
@@ -786,7 +773,7 @@ public sealed class AppServerRequestHandler(
             state.EnableExternalCliSessionResume,
             workspaceProfiles);
         RefreshCurrentSubAgentConfig();
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileRemove,
             [ConfigChangeRegions.SubAgent]);
 
@@ -796,21 +783,21 @@ public sealed class AppServerRequestHandler(
     private async Task<object?> HandleMcpStatusListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = msg;
-        if (_mcpClientManager == null)
+        if (mcpClientManager == null)
             throw AppServerErrors.MethodNotFound(AppServerMethods.McpStatusList);
 
-        var statuses = await _mcpClientManager.ListStatusesAsync(ct);
+        var statuses = await mcpClientManager.ListStatusesAsync(ct);
         return new McpStatusListResult { Servers = statuses.Select(MapMcpStatusToWire).ToList() };
     }
 
     private async Task<object?> HandleMcpTestAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<McpTestParams>(msg);
-        if (_mcpClientManager == null)
+        if (mcpClientManager == null)
             throw AppServerErrors.MethodNotFound(AppServerMethods.McpTest);
 
         ValidateMcpConfigWire(p.Server);
-        var status = await _mcpClientManager.TestAsync(MapWireToMcpConfig(p.Server), ct);
+        var status = await mcpClientManager.TestAsync(MapWireToMcpConfig(p.Server), ct);
         return new McpTestResult
         {
             Success = string.Equals(status.StartupState, "ready", StringComparison.OrdinalIgnoreCase),
@@ -1196,7 +1183,7 @@ public sealed class AppServerRequestHandler(
 
     private void EnsureMcpManagementAvailable()
     {
-        if (_mcpClientManager == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+        if (mcpClientManager == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound("mcp/*");
     }
 
@@ -1608,17 +1595,17 @@ public sealed class AppServerRequestHandler(
 
     private void RefreshCurrentSubAgentConfig()
     {
-        if (_appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+        if (appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
             return;
 
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
-        _appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
+        appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
         {
             DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles],
             EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume
         };
-        _appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
+        appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))
             .Select(profile => profile.Clone())
             .ToList();
@@ -1647,7 +1634,7 @@ public sealed class AppServerRequestHandler(
     private void EnsureExternalChannelNameAvailable(string name)
     {
         var nativeChannels = new List<ChannelInfo>();
-        _channelListContributor.AppendBaseChannels(nativeChannels, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        channelListContributor.AppendBaseChannels(nativeChannels, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         if (nativeChannels.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
             throw AppServerErrors.ExternalChannelNameConflict(
@@ -1728,7 +1715,7 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (changedRegions.Count > 0)
         {
-            _appConfigMonitor?.NotifyChanged(
+            appConfigMonitor?.NotifyChanged(
                 AppServerMethods.WorkspaceConfigUpdate,
                 changedRegions);
         }
@@ -1778,7 +1765,7 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams("'jobId' is required.");
         var removed = cronService.RemoveJob(p.JobId);
         if (!removed) throw AppServerErrors.CronJobNotFound(p.JobId);
-        _broadcastCronStateChanged?.Invoke(new CronJobWireInfo { Id = p.JobId }, true);
+        broadcastCronStateChanged?.Invoke(new CronJobWireInfo { Id = p.JobId }, true);
         return Task.FromResult<object?>(new CronRemoveResult { Removed = true });
     }
 
@@ -1790,7 +1777,7 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams("'jobId' is required.");
         var job = cronService.EnableJob(p.JobId, p.Enabled);
         if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
-        _broadcastCronStateChanged?.Invoke(MapCronJob(job), false);
+        broadcastCronStateChanged?.Invoke(MapCronJob(job), false);
         return Task.FromResult<object?>(new CronEnableResult { Job = MapCronJob(job) });
     }
 
@@ -1867,7 +1854,7 @@ public sealed class AppServerRequestHandler(
 
         SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
         skillsLoader.SetDisabledSkills(disabled);
-        _appConfigMonitor?.NotifyChanged(
+        appConfigMonitor?.NotifyChanged(
             AppServerMethods.SkillsSetEnabled,
             [ConfigChangeRegions.Skills]);
 

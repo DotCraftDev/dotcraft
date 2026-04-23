@@ -9,7 +9,7 @@ namespace DotCraft.Automations.Protocol;
 /// a broadcast callback to push <c>automation/task/updated</c> notifications to all
 /// connected Wire Protocol clients.
 /// </summary>
-public sealed class AutomationsEventDispatcher
+public sealed class AutomationsEventDispatcher : IDisposable
 {
     private readonly AutomationOrchestrator _orchestrator;
     private readonly Action<AutomationTask, AutomationTaskStatus> _broadcastCallback;
@@ -29,17 +29,28 @@ public sealed class AutomationsEventDispatcher
         return Task.CompletedTask;
     }
 
+    public void Dispose()
+    {
+        _orchestrator.OnTaskStatusChanged -= OnTaskStatusChangedAsync;
+    }
+
     /// <summary>
     /// Builds the JSON-RPC notification object for <c>automation/task/updated</c>.
     /// </summary>
-    public static object BuildNotification(AutomationTask task, string workspacePath) => new
+    public static object BuildNotification(DotCraft.Protocol.AppServer.IAutomationTaskEventPayload task, string workspacePath)
     {
-        jsonrpc = "2.0",
-        method = AppServerMethods.AutomationTaskUpdated,
-        @params = new
+        if (task is not AutomationTask automationTask)
+            throw new InvalidOperationException("Unsupported automation task payload.");
+
+        return new
         {
-            workspacePath,
-            task = AutomationsRequestHandler.ToNotificationWire(task)
-        }
-    };
+            jsonrpc = "2.0",
+            method = AppServerMethods.AutomationTaskUpdated,
+            @params = new
+            {
+                workspacePath,
+                task = AutomationsRequestHandler.ToNotificationWire(automationTask)
+            }
+        };
+    }
 }
