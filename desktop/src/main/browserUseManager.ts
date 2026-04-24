@@ -545,7 +545,7 @@ export class BrowserUseManager {
         el.focus();
       })()
     `)
-    wc.insertText(text)
+    await wc.insertText(text)
   }
 
   private async press(tab: BrowserUseTabRuntime, selector: string, key: string): Promise<void> {
