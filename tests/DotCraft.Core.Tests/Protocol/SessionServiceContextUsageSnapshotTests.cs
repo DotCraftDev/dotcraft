@@ -1,11 +1,13 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Configuration;
+using DotCraft.Context.Compaction;
 using DotCraft.Memory;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -36,7 +38,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_ReturnsZeroSnapshot_WhenTrackerDoesNotExist()
+    public async Task TryGetContextUsageSnapshot_ReturnsNull_WhenTrackerAndHistoryDoNotExist()
     {
         const string threadId = "thread-missing";
 
@@ -45,14 +47,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
 
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
-        Assert.NotNull(snapshot);
-        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(0);
-        Assert.Equal(threshold.Tokens, snapshot!.Tokens);
-        Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
-        Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);
-        Assert.Equal(threshold.WarningThreshold, snapshot.WarningThreshold);
-        Assert.Equal(threshold.ErrorThreshold, snapshot.ErrorThreshold);
-        Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
+        Assert.Null(snapshot);
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
     }
 
@@ -66,7 +61,28 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
 
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
-        Assert.NotNull(snapshot);
+        Assert.Null(snapshot);
+        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
+    }
+
+    [Fact]
+    public async Task TryGetContextUsageSnapshot_ReturnsNull_ForFreshThreadWithoutHistory()
+    {
+        const string threadId = "thread-fresh";
+
+        await using var agentFactory = CreateAgentFactory();
+        var service = CreateSessionService(agentFactory);
+        var identity = new SessionIdentity
+        {
+            WorkspacePath = _tempDir,
+            ChannelName = "desktop",
+            UserId = "user"
+        };
+        await service.CreateThreadAsync(identity, threadId: threadId);
+
+        var snapshot = service.TryGetContextUsageSnapshot(threadId);
+
+        Assert.Null(snapshot);
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
     }
 
@@ -94,7 +110,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_UsesLastCompletedTurnTokenUsage_WhenTrackerMissing()
+    public async Task TryGetContextUsageSnapshot_UsesCompletedHistoryEstimate_WhenTrackerMissing()
     {
         const string threadId = "thread-history";
 
@@ -115,6 +131,29 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
             Status = TurnStatus.Completed,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
             CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            Items =
+            [
+                new SessionItem
+                {
+                    Id = "item_001",
+                    TurnId = "turn_001",
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    Payload = new UserMessagePayload { Text = "Short user question" }
+                },
+                new SessionItem
+                {
+                    Id = "item_002",
+                    TurnId = "turn_001",
+                    Type = ItemType.AgentMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    Payload = new AgentMessagePayload { Text = "Short assistant answer" }
+                }
+            ],
             TokenUsage = new TokenUsageInfo
             {
                 InputTokens = 12_000,
@@ -129,6 +168,29 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
             Status = TurnStatus.Completed,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
             CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            Items =
+            [
+                new SessionItem
+                {
+                    Id = "item_003",
+                    TurnId = "turn_002",
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    Payload = new UserMessagePayload { Text = "Another short user question" }
+                },
+                new SessionItem
+                {
+                    Id = "item_004",
+                    TurnId = "turn_002",
+                    Type = ItemType.AgentMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    Payload = new AgentMessagePayload { Text = "Another short assistant answer" }
+                }
+            ],
             TokenUsage = new TokenUsageInfo
             {
                 InputTokens = 80_000,
@@ -142,7 +204,13 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
         Assert.NotNull(snapshot);
-        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(80_000);
+        var estimatedHistoryTokens = MessageTokenEstimator.Estimate([
+            new ChatMessage(ChatRole.User, "Short user question"),
+            new ChatMessage(ChatRole.Assistant, "Short assistant answer"),
+            new ChatMessage(ChatRole.User, "Another short user question"),
+            new ChatMessage(ChatRole.Assistant, "Another short assistant answer")
+        ]);
+        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(estimatedHistoryTokens);
         Assert.Equal(threshold.Tokens, snapshot!.Tokens);
         Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
         Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);

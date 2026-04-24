@@ -81,7 +81,7 @@ public sealed class SessionService(
             return null;
 
         var pipeline = agentFactory.CompactionPipeline;
-        long tokens = 0;
+        long? tokens = null;
 
         var tracker = agentFactory.TryGetTokenTracker(threadId);
         if (tracker is not null)
@@ -90,20 +90,13 @@ public sealed class SessionService(
         }
         else if (_threads.TryGetValue(threadId, out var thread))
         {
-            // Rehydrate from the latest completed turn so desktop can render
-            // context usage immediately after process restarts.
-            for (var i = thread.Turns.Count - 1; i >= 0; i--)
-            {
-                var turn = thread.Turns[i];
-                if (turn.Status == TurnStatus.Completed && turn.TokenUsage is not null)
-                {
-                    tokens = turn.TokenUsage.InputTokens;
-                    break;
-                }
-            }
+            tokens = EstimateCompletedHistoryTokens(thread);
         }
 
-        var threshold = pipeline.EvaluateThreshold(tokens);
+        if (tokens is null)
+            return null;
+
+        var threshold = pipeline.EvaluateThreshold(tokens.Value);
 
         return new ContextUsageSnapshot
         {
@@ -114,6 +107,34 @@ public sealed class SessionService(
             ErrorThreshold = threshold.ErrorThreshold,
             PercentLeft = threshold.PercentLeft
         };
+    }
+
+    private static long? EstimateCompletedHistoryTokens(SessionThread thread)
+    {
+        var history = new List<ChatMessage>();
+        foreach (var turn in thread.Turns.OrderBy(t => t.StartedAt).ThenBy(t => t.Id, StringComparer.Ordinal))
+        {
+            foreach (var item in turn.Items)
+            {
+                if (item.Status != ItemStatus.Completed)
+                    continue;
+
+                if (item.Type == ItemType.UserMessage
+                    && item.AsUserMessage is { Text: { } userText }
+                    && !string.IsNullOrWhiteSpace(userText))
+                {
+                    history.Add(new ChatMessage(ChatRole.User, userText.Trim()));
+                }
+                else if (item.Type == ItemType.AgentMessage
+                    && item.AsAgentMessage is { Text: { } agentText }
+                    && !string.IsNullOrWhiteSpace(agentText))
+                {
+                    history.Add(new ChatMessage(ChatRole.Assistant, agentText.Trim()));
+                }
+            }
+        }
+
+        return history.Count == 0 ? null : MessageTokenEstimator.Estimate(history);
     }
 
     // =========================================================================

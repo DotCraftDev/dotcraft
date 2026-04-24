@@ -613,11 +613,11 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
 
-**`contextUsage` field**: When the server has a live token tracker for the thread (i.e. the thread has received at least one turn in the current process lifetime, or its rolled-out history was rehydrated), the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring:
+**`contextUsage` field**: When the server can determine current context-window occupancy for the thread (from a live token tracker or estimated completed user/assistant history), the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring. This snapshot is not billing usage and must not be derived from cumulative `Turn.tokenUsage` totals:
 
 ```
 "contextUsage": {
-  "tokens": number,                // Approximate input tokens currently consumed
+  "tokens": number,                // Approximate input tokens currently occupying context
   "contextWindow": number,         // Configured effective context window (denominator)
   "autoCompactThreshold": number,  // Token count at which auto-compact runs
   "warningThreshold": number,      // Token count at which compactWarning starts firing
@@ -626,7 +626,7 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 }
 ```
 
-The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. The field is omitted when no token tracker exists yet (e.g. fresh thread before the first turn).
+The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. The field is omitted when no tracker or completed history exists yet (e.g. a fresh thread before the first turn).
 
 ### 4.5 `thread/subscribe`
 
@@ -1430,8 +1430,8 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
 | `turnId` | string | Active turn. |
 | `inputTokens` | integer | Input tokens consumed in this LLM iteration (delta, not cumulative). |
 | `outputTokens` | integer | Output tokens consumed in this LLM iteration (delta, not cumulative). |
-| `totalInputTokens` | integer | Optional. Cumulative input-token snapshot from `TokenTracker.LastInputTokens`. Drives the desktop context-usage ring without waiting for turn completion. Absent when unavailable. |
-| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. Mirrors `totalInputTokens`; absent when unavailable. |
+| `totalInputTokens` | integer | Optional. Context-occupancy input-token snapshot from `TokenTracker.LastInputTokens`. Drives the desktop context-usage ring without waiting for turn completion. It is not billing/cumulative thread usage. Absent when unavailable. |
+| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. It is not used for context-occupancy calculations; absent when unavailable. |
 
 **Emission rules**:
 

@@ -52,7 +52,7 @@ export type ContextUsageSeverity = 'normal' | 'warning' | 'error'
 /**
  * Mirror of the backend `ContextUsageSnapshot` wire shape, plus a derived
  * severity bucket for UI color coding. Null when the thread has no live
- * token tracker yet.
+ * token tracker or completed history estimate yet.
  */
 export interface ContextUsage {
   tokens: number
@@ -168,8 +168,9 @@ interface ConversationActions {
   /**
    * item/usage/delta notification.
    *
-   * `totalInputTokens` (when provided) is the cumulative input snapshot from
-   * `TokenTracker.LastInputTokens` and drives the context-usage ring directly.
+   * `totalInputTokens` (when provided) is the current context-occupancy
+   * snapshot from `TokenTracker.LastInputTokens` and drives the token ring
+   * directly. It is not billing/cumulative turn usage.
    */
   onUsageDelta(
     inputTokens: number,

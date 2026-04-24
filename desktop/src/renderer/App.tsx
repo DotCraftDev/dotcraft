@@ -370,6 +370,14 @@ export function App(): JSX.Element {
         const conv = useConversationStore.getState()
         const { addThread: doAddThread, updateThreadStatus: doUpdateStatus } =
           useThreadStore.getState()
+        const shouldUpdateActiveConversation = (threadId: string | null | undefined): boolean => {
+          if (!threadId) return true
+          return useThreadStore.getState().activeThreadId === threadId
+        }
+        const shouldUpdateReviewThread = (threadId: string | null | undefined): boolean => {
+          if (!threadId) return false
+          return useReviewPanelStore.getState().reviewThreadId === threadId
+        }
 
         switch (method) {
           // ── Thread lifecycle ──────────────────────────────────────────
@@ -443,13 +451,13 @@ export function App(): JSX.Element {
           // ── Turn lifecycle ────────────────────────────────────────────
           case 'turn/started': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
-            conv.onTurnStarted(rawTurn)
             const startedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            {
+            if (shouldUpdateActiveConversation(startedThreadId)) {
+              conv.onTurnStarted(rawTurn)
+            }
+            if (shouldUpdateReviewThread(startedThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (startedThreadId && rs.reviewThreadId === startedThreadId) {
-                rs.onTurnStarted(rawTurn)
-              }
+              rs.onTurnStarted(rawTurn)
             }
             break
           }
@@ -457,37 +465,39 @@ export function App(): JSX.Element {
           case 'turn/completed': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const completedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            const pendingBefore = conv.pendingMessage
-            conv.onTurnCompleted(rawTurn)
-            // Auto-send pending message if any
-            const pending = pendingBefore
-            if (pending) {
-              const activeId = useThreadStore.getState().activeThreadId
-              if (activeId) {
-                const path = workspacePathRef.current
-                void (async () => {
-                  const pendingInputParts = pending.inputParts
-                    ?? buildComposerInputParts({
-                      text: pending.text.trim(),
-                      files: pending.files ?? []
-                    }).inputParts
-                  if (pendingInputParts.length === 0) return
-                  await window.api.appServer.sendRequest('turn/start', {
-                    threadId: activeId,
-                    input: pendingInputParts,
-                    identity: {
-                      channelName: 'dotcraft-desktop',
-                      userId: 'local',
-                      channelContext: `workspace:${path}`,
-                      workspacePath: path
-                    }
-                  })
-                })().catch((err: unknown) =>
-                  console.error('Auto-send pending message failed:', err)
-                )
+            if (shouldUpdateActiveConversation(completedThreadId)) {
+              const pendingBefore = useConversationStore.getState().pendingMessage
+              conv.onTurnCompleted(rawTurn)
+              // Auto-send pending message if any
+              const pending = pendingBefore
+              if (pending) {
+                const activeId = useThreadStore.getState().activeThreadId
+                if (activeId) {
+                  const path = workspacePathRef.current
+                  void (async () => {
+                    const pendingInputParts = pending.inputParts
+                      ?? buildComposerInputParts({
+                        text: pending.text.trim(),
+                        files: pending.files ?? []
+                      }).inputParts
+                    if (pendingInputParts.length === 0) return
+                    await window.api.appServer.sendRequest('turn/start', {
+                      threadId: activeId,
+                      input: pendingInputParts,
+                      identity: {
+                        channelName: 'dotcraft-desktop',
+                        userId: 'local',
+                        channelContext: `workspace:${path}`,
+                        workspacePath: path
+                      }
+                    })
+                  })().catch((err: unknown) =>
+                    console.error('Auto-send pending message failed:', err)
+                  )
+                }
+                // Clear the pending message now that we've sent it
+                useConversationStore.getState().setPendingMessage(null)
               }
-              // Clear the pending message now that we've sent it
-              useConversationStore.getState().setPendingMessage(null)
             }
             // Fallback: poll thread/read if sidebar still has no displayName (e.g. missed thread/renamed).
             // Primary updates come from thread/renamed broadcast and thread/read on selection.
@@ -505,11 +515,9 @@ export function App(): JSX.Element {
                   .catch(() => { /* non-critical — ignore */ })
               }
             }
-            {
+            if (shouldUpdateReviewThread(completedThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (completedThreadId && rs.reviewThreadId === completedThreadId) {
-                rs.onTurnCompleted(rawTurn)
-              }
+              rs.onTurnCompleted(rawTurn)
             }
             break
           }
@@ -521,15 +529,15 @@ export function App(): JSX.Element {
             const errorCode = (p.code as number | undefined)
               ?? ((p.error as Record<string, unknown> | undefined)?.code as number | undefined)
             // -32020 = approval timeout — update the pending approval card
-            if (errorCode === -32020 || error.includes('-32020')) {
-              conv.onApprovalTimeout()
-            }
-            conv.onTurnFailed(rawTurn, error)
-            {
-              const rs = useReviewPanelStore.getState()
-              if (failedThreadId && rs.reviewThreadId === failedThreadId) {
-                rs.onTurnFailed(rawTurn, error)
+            if (shouldUpdateActiveConversation(failedThreadId)) {
+              if (errorCode === -32020 || error.includes('-32020')) {
+                conv.onApprovalTimeout()
               }
+              conv.onTurnFailed(rawTurn, error)
+            }
+            if (shouldUpdateReviewThread(failedThreadId)) {
+              const rs = useReviewPanelStore.getState()
+              rs.onTurnFailed(rawTurn, error)
             }
             break
           }
@@ -538,94 +546,103 @@ export function App(): JSX.Element {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const cancelledThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
             const reason = (p.reason as string) ?? ''
-            conv.onTurnCancelled(rawTurn, reason)
-            {
+            if (shouldUpdateActiveConversation(cancelledThreadId)) {
+              conv.onTurnCancelled(rawTurn, reason)
+            }
+            if (shouldUpdateReviewThread(cancelledThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (cancelledThreadId && rs.reviewThreadId === cancelledThreadId) {
-                rs.onTurnCancelled(rawTurn, reason)
-              }
+              rs.onTurnCancelled(rawTurn, reason)
             }
             break
           }
 
           // ── Item lifecycle ────────────────────────────────────────────
-          case 'item/started':
-            conv.onItemStarted(p)
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/started': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onItemStarted(p)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onItemStarted(p)
-              }
+              rs.onItemStarted(p)
             }
             break
+          }
 
-          case 'item/agentMessage/delta':
-            conv.onAgentMessageDelta((p.delta as string) ?? '')
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/agentMessage/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const delta = (p.delta as string) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onAgentMessageDelta(delta)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onAgentMessageDelta((p.delta as string) ?? '')
-              }
+              rs.onAgentMessageDelta(delta)
             }
             break
+          }
 
-          case 'item/reasoning/delta':
-            conv.onReasoningDelta((p.delta as string) ?? '')
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/reasoning/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const delta = (p.delta as string) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onReasoningDelta(delta)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onReasoningDelta((p.delta as string) ?? '')
-              }
+              rs.onReasoningDelta(delta)
             }
             break
+          }
 
-          case 'item/commandExecution/outputDelta':
-            conv.onCommandExecutionDelta({
+          case 'item/commandExecution/outputDelta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const params = {
               threadId: (p.threadId as string | undefined),
               turnId: (p.turnId as string | undefined),
               itemId: (p.itemId as string | undefined),
               delta: (p.delta as string | undefined)
-            })
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+            }
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onCommandExecutionDelta(params)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onCommandExecutionDelta({
-                  threadId: (p.threadId as string | undefined),
-                  turnId: (p.turnId as string | undefined),
-                  itemId: (p.itemId as string | undefined),
-                  delta: (p.delta as string | undefined)
-                })
-              }
+              rs.onCommandExecutionDelta(params)
             }
             break
+          }
 
-          case 'item/toolCall/argumentsDelta':
-            conv.onToolCallArgumentsDelta({
-              threadId: (p.threadId as string | undefined),
-              turnId: (p.turnId as string | undefined),
-              itemId: (p.itemId as string | undefined),
-              toolName: (p.toolName as string | undefined),
-              callId: (p.callId as string | undefined),
-              delta: (p.delta as string | undefined)
-            })
-            break
-
-          case 'item/completed':
-            conv.onItemCompleted(p)
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
-              const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onItemCompleted(p)
-              }
+          case 'item/toolCall/argumentsDelta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onToolCallArgumentsDelta({
+                threadId: (p.threadId as string | undefined),
+                turnId: (p.turnId as string | undefined),
+                itemId: (p.itemId as string | undefined),
+                toolName: (p.toolName as string | undefined),
+                callId: (p.callId as string | undefined),
+                delta: (p.delta as string | undefined)
+              })
             }
             break
+          }
+
+          case 'item/completed': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onItemCompleted(p)
+            }
+            if (shouldUpdateReviewThread(tid)) {
+              const rs = useReviewPanelStore.getState()
+              rs.onItemCompleted(p)
+            }
+            break
+          }
 
           case 'item/usage/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (!shouldUpdateActiveConversation(tid)) break
             const input = (p.inputTokens as number) ?? 0
             const output = (p.outputTokens as number) ?? 0
             const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
@@ -638,23 +655,25 @@ export function App(): JSX.Element {
           case 'subagent/progress': {
             const entries = (p.entries as SubAgentEntry[]) ?? []
             const threadId = (p.threadId as string | undefined) ?? ''
-            const activeId = useThreadStore.getState().activeThreadId
-            const reviewThreadId = useReviewPanelStore.getState().reviewThreadId
-            if (threadId && threadId === reviewThreadId) {
+            if (shouldUpdateReviewThread(threadId)) {
               useReviewPanelStore.getState().onSubagentProgress(entries)
-            } else if (!threadId || threadId === activeId) {
+            }
+            if (shouldUpdateActiveConversation(threadId)) {
               conv.onSubagentProgress(entries)
             }
             break
           }
 
           // ── System events ─────────────────────────────────────────────
-          case 'system/event':
+          case 'system/event': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (!shouldUpdateActiveConversation(tid)) break
             conv.onSystemEvent((p.kind as string) ?? '', {
               tokenCount: typeof p.tokenCount === 'number' ? (p.tokenCount as number) : null,
               percentLeft: typeof p.percentLeft === 'number' ? (p.percentLeft as number) : null
             })
             break
+          }
 
           // ── Plan updates ──────────────────────────────────────────────
           case 'plan/updated': {

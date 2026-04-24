@@ -197,7 +197,7 @@ public sealed record UsageDeltaPayload
     public long OutputTokens { get; init; }
 
     /// <summary>
-    /// Optional cumulative input-token snapshot for the thread at the time
+    /// Optional context-occupancy input-token snapshot for the thread at the time
     /// of the delta (<c>TokenTracker.LastInputTokens</c>). Desktop clients use
     /// this to drive the context-usage ring without waiting for turn completion.
     /// </summary>
@@ -205,8 +205,8 @@ public sealed record UsageDeltaPayload
 
     /// <summary>
     /// Optional cumulative output-token total emitted so far in the current
-    /// turn. Mirrors <see cref="TotalInputTokens"/> and is populated when
-    /// possible; null otherwise.
+    /// turn. Populated when possible; null otherwise. This is not used for
+    /// context-occupancy calculations.
     /// </summary>
     public long? TotalOutputTokens { get; init; }
 }
