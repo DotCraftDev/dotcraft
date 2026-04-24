@@ -521,7 +521,7 @@ Token 缺少 `Issues: Write` 权限，重新生成并赋予 `Issues: Read and Wr
 
 ## 示例模板
 
-完整的配置模板和工作流文件见 [samples/automations/](../samples/automations/)，包含：
+完整的配置模板和工作流文件见 [Automations Samples](./samples/automations.md)，包含：
 
 - `example-local-task/` — 本地任务示例
 - `github-review-bot/` — PR 审查机器人

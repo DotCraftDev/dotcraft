@@ -126,7 +126,7 @@ Editors and ACP are for users who want DotCraft embedded directly into developme
 
 QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide) and [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide).
 
-For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](./sdk/python/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
+For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python) and [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript).
 
 DotCraft currently includes integrations for Telegram, WeChat, and Feishu/Lark.
 
@@ -183,8 +183,8 @@ For the full docs, visit the [Official Documentation](https://dotharness.github.
 
 - [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide): NapCat, permissions, and approvals
 - [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide): WeCom push notifications and bot mode
-- [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
-- [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` for WeChat, Feishu, and similar channels
+- [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python): build external adapters with `dotcraft-wire` and the Telegram reference example
+- [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript): build external adapters with `dotcraft-wire` for WeChat, Feishu, and similar channels
 - [Hooks Guide](https://dotharness.github.io/dotcraft/en/hooks_guide): lifecycle hooks, shell extensions, and security guards
 
 ## 🤝 Contributing

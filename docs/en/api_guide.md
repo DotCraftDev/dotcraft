@@ -48,7 +48,7 @@ Use any OpenAI-compatible SDK to call:
 
 **Python**
 
-Python sample code is available in `Samples/python`.
+Python sample code is available in [API Samples](./samples/api.md).
 
 ```python
 
@@ -131,13 +131,13 @@ API mode handles operation approval via `ApiApprovalService`, supporting two mod
 
 ## Python Examples
 
-For complete Python usage examples, see the [`Samples/python/`](../../Samples/python/) directory:
+For complete Python usage examples, see [API Samples](./samples/api.md):
 
 | Example | Description |
 |---------|-------------|
-| [basic_chat.py](../../Samples/python/basic_chat.py) | Basic chat (non-streaming) |
-| [streaming_chat.py](../../Samples/python/streaming_chat.py) | Streaming output |
-| [multi_turn_chat.py](../../Samples/python/multi_turn_chat.py) | Multi-turn conversation (interactive REPL) |
+| [basic_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/basic_chat.py) | Basic chat (non-streaming) |
+| [streaming_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/streaming_chat.py) | Streaming output |
+| [multi_turn_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/multi_turn_chat.py) | Multi-turn conversation (interactive REPL) |
 
 ---
 

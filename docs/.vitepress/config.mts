@@ -36,6 +36,31 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'QQ 机器人', link: '/qq_bot_guide' },
       { text: '企业微信', link: '/wecom_guide' }
     ]
+  },
+  {
+    text: 'Samples',
+    items: [
+      { text: 'Samples 总览', link: '/samples/' },
+      { text: 'AG-UI Client', link: '/samples/ag-ui-client' },
+      { text: 'API Samples', link: '/samples/api' },
+      { text: 'Automations Samples', link: '/samples/automations' },
+      { text: 'Bootstrap Samples', link: '/samples/bootstrap' },
+      { text: 'Hooks Samples', link: '/samples/hooks' },
+      { text: 'Workspace Sample', link: '/samples/workspace' },
+      { text: 'Skills Samples', link: '/samples/skills' }
+    ]
+  },
+  {
+    text: 'SDK',
+    items: [
+      { text: 'SDK 总览', link: '/sdk/' },
+      { text: 'Python SDK', link: '/sdk/python' },
+      { text: 'Python Telegram Adapter', link: '/sdk/python-telegram' },
+      { text: 'TypeScript SDK', link: '/sdk/typescript' },
+      { text: 'Feishu Adapter', link: '/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' }
+    ]
   }
 ]
 
@@ -68,17 +93,45 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'QQ Bot', link: '/en/qq_bot_guide' },
       { text: 'WeCom', link: '/en/wecom_guide' }
     ]
+  },
+  {
+    text: 'Samples',
+    items: [
+      { text: 'Samples Overview', link: '/en/samples/' },
+      { text: 'AG-UI Client', link: '/en/samples/ag-ui-client' },
+      { text: 'API Samples', link: '/en/samples/api' },
+      { text: 'Automations Samples', link: '/en/samples/automations' },
+      { text: 'Bootstrap Samples', link: '/en/samples/bootstrap' },
+      { text: 'Hooks Samples', link: '/en/samples/hooks' },
+      { text: 'Workspace Sample', link: '/en/samples/workspace' },
+      { text: 'Skills Samples', link: '/en/samples/skills' }
+    ]
+  },
+  {
+    text: 'SDK',
+    items: [
+      { text: 'SDK Overview', link: '/en/sdk/' },
+      { text: 'Python SDK', link: '/en/sdk/python' },
+      { text: 'Python Telegram Adapter', link: '/en/sdk/python-telegram' },
+      { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
+      { text: 'Feishu Adapter', link: '/en/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/en/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' }
+    ]
   }
 ]
 
 const zhNav: DefaultTheme.NavItem[] = [
   { text: '功能', link: '/#features' },
   { text: '文档', link: '/reference' },
+  { text: 'Samples', link: '/samples/' },
   {
     text: 'SDK',
     items: [
-      { text: 'Python SDK', link: `${repo}/tree/master/sdk/python` },
-      { text: 'TypeScript SDK', link: `${repo}/tree/master/sdk/typescript` }
+      { text: 'SDK 总览', link: '/sdk/' },
+      { text: 'Python SDK', link: '/sdk/python' },
+      { text: 'TypeScript SDK', link: '/sdk/typescript' },
+      { text: '频道适配器', link: '/sdk/typescript-feishu' }
     ]
   }
 ]
@@ -86,11 +139,14 @@ const zhNav: DefaultTheme.NavItem[] = [
 const enNav: DefaultTheme.NavItem[] = [
   { text: 'Features', link: '/en/#features' },
   { text: 'Docs', link: '/en/reference' },
+  { text: 'Samples', link: '/en/samples/' },
   {
     text: 'SDK',
     items: [
-      { text: 'Python SDK', link: `${repo}/tree/master/sdk/python` },
-      { text: 'TypeScript SDK', link: `${repo}/tree/master/sdk/typescript` }
+      { text: 'SDK Overview', link: '/en/sdk/' },
+      { text: 'Python SDK', link: '/en/sdk/python' },
+      { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
+      { text: 'Channel Adapters', link: '/en/sdk/typescript-feishu' }
     ]
   }
 ]

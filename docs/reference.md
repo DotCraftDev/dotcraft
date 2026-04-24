@@ -10,7 +10,11 @@
 
 [API 模式指南](./api_guide.md) - OpenAI 兼容 API 服务、工具过滤、SDK 调用示例
 
+[Samples](./samples/index.md) - AG-UI、API、Automations、Hooks、Workspace、Skills 示例
+
 [AG-UI 模式指南](./agui_guide.md) - AG-UI 协议 SSE 服务端、CopilotKit 集成
+
+[SDK](./sdk/index.md) - Python SDK、TypeScript SDK 与外部频道适配器
 
 [QQ 机器人使用指南](./qq_bot_guide.md) - NapCat/OneBot V11、权限与审批
 

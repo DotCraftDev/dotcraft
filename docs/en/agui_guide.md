@@ -29,7 +29,7 @@ dotcraft
 
 Point any AG-UI client to `http://127.0.0.1:5100/ag-ui` to start chatting.
 
-DotCraft includes a minimal Next.js + CopilotKit sample client — see [`samples/ag-ui-client/`](../../samples/ag-ui-client/).
+DotCraft includes a minimal Next.js + CopilotKit sample client — see [AG-UI Client Sample](./samples/ag-ui-client.md).
 
 ---
 
@@ -62,7 +62,7 @@ Leave `RequireAuth` as `false` to disable authentication for local development o
 
 ## Sample Client
 
-[`samples/ag-ui-client/`](../../samples/ag-ui-client/) provides a minimal Next.js client that connects to DotCraft's AG-UI server via CopilotKit.
+[AG-UI Client Sample](./samples/ag-ui-client.md) provides a minimal Next.js client that connects to DotCraft's AG-UI server via CopilotKit.
 
 **Quick setup**:
 

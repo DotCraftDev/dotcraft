@@ -48,7 +48,7 @@ Press Ctrl+C to stop...
 
 **Python**
 
-Python 示例代码可见 `Samples/python`.
+Python 示例代码可见 [API Samples](./samples/api.md)。
 
 ```python
 from openai import OpenAI
@@ -124,13 +124,13 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 
 ## Python 示例
 
-完整的 Python 使用示例见 [`Samples/python/`](../Samples/python/) 目录：
+完整的 Python 使用示例见 [API Samples](./samples/api.md)：
 
 | 示例 | 说明 |
 |------|------|
-| [basic_chat.py](../Samples/python/basic_chat.py) | 基本对话（非流式） |
-| [streaming_chat.py](../Samples/python/streaming_chat.py) | 流式输出 |
-| [multi_turn_chat.py](../Samples/python/multi_turn_chat.py) | 多轮对话（交互式 REPL） |
+| [basic_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/basic_chat.py) | 基本对话（非流式） |
+| [streaming_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/streaming_chat.py) | 流式输出 |
+| [multi_turn_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/multi_turn_chat.py) | 多轮对话（交互式 REPL） |
 
 ---
 

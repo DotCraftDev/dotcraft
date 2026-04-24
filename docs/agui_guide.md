@@ -29,7 +29,7 @@ dotcraft
 
 将 AG-UI 客户端指向 `http://127.0.0.1:5100/ag-ui` 即可开始对话。
 
-DotCraft 提供了一个基于 Next.js + CopilotKit 的示例客户端，详见 [`samples/ag-ui-client/`](../samples/ag-ui-client/)。
+DotCraft 提供了一个基于 Next.js + CopilotKit 的示例客户端，详见 [AG-UI Client Sample](./samples/ag-ui-client.md)。
 
 ---
 
@@ -62,7 +62,7 @@ Authorization: Bearer your-api-key
 
 ## 示例客户端
 
-[`samples/ag-ui-client/`](../samples/ag-ui-client/) 提供了一个最小可运行的 Next.js 客户端示例，通过 CopilotKit 连接 DotCraft AG-UI 服务。
+[AG-UI Client Sample](./samples/ag-ui-client.md) 提供了一个最小可运行的 Next.js 客户端示例，通过 CopilotKit 连接 DotCraft AG-UI 服务。
 
 **快速启动**：
 
