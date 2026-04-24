@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { translate } from '../shared/locales'
+import type { CSSProperties, ReactNode } from 'react'
+import { translate, type AppLocale } from '../shared/locales'
 import { useLocale } from './contexts/LocaleContext'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
@@ -49,8 +49,121 @@ import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
 } from './utils/workspaceConfigChanged'
-import type { DiscoveredModule, ModuleStatusMap, WorkspaceStatusPayload } from '../preload/api.d'
+import type {
+  BrowserUseApprovalRequestPayload,
+  BrowserUseApprovalResponseAction,
+  DiscoveredModule,
+  ModuleStatusMap,
+  WorkspaceStatusPayload
+} from '../preload/api.d'
 import './styles/tokens.css'
+
+function BrowserUseApprovalDialog({
+  locale,
+  request,
+  onRespond
+}: {
+  locale: AppLocale
+  request: BrowserUseApprovalRequestPayload
+  onRespond: (action: BrowserUseApprovalResponseAction) => void
+}): JSX.Element {
+  const session = request.sessionName?.trim()
+  const message = session
+    ? translate(locale, 'browserUse.approval.messageWithSession', { session, domain: request.domain })
+    : translate(locale, 'browserUse.approval.message', { domain: request.domain })
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="browser-use-approval-title"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'var(--overlay-scrim)'
+      }}
+    >
+      <div
+        style={{
+          width: '460px',
+          maxWidth: 'calc(100vw - 48px)',
+          border: '1px solid var(--border-default)',
+          borderRadius: '12px',
+          background: 'var(--bg-secondary)',
+          boxShadow: 'var(--shadow-level-3)',
+          padding: '22px'
+        }}
+      >
+        <h2
+          id="browser-use-approval-title"
+          style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}
+        >
+          {translate(locale, 'browserUse.approval.title')}
+        </h2>
+        <p style={{ margin: '8px 0 14px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+          {message}
+        </p>
+        <div
+          style={{
+            border: '1px solid var(--border-default)',
+            borderRadius: '8px',
+            background: 'var(--bg-primary)',
+            padding: '10px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            overflowWrap: 'anywhere'
+          }}
+        >
+          {request.url}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px', flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => onRespond('deny')} style={dialogSecondaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.cancel')}
+          </button>
+          <button type="button" onClick={() => onRespond('blockDomain')} style={dialogSecondaryButtonStyle(true)}>
+            {translate(locale, 'browserUse.approval.blockDomain')}
+          </button>
+          <button type="button" onClick={() => onRespond('allowOnce')} style={dialogSecondaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.allowOnce')}
+          </button>
+          <button type="button" onClick={() => onRespond('allowDomain')} style={dialogPrimaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.alwaysAllow')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function dialogSecondaryButtonStyle(danger = false): CSSProperties {
+  return {
+    padding: '8px 12px',
+    border: '1px solid var(--border-default)',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: danger ? 'var(--error)' : 'var(--text-primary)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer'
+  }
+}
+
+function dialogPrimaryButtonStyle(): CSSProperties {
+  return {
+    padding: '8px 12px',
+    border: 'none',
+    borderRadius: '8px',
+    background: 'var(--accent)',
+    color: 'var(--on-accent)',
+    fontSize: '13px',
+    fontWeight: 700,
+    cursor: 'pointer'
+  }
+}
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
   const showCustomMenu = window.api.platform !== 'darwin'
@@ -107,6 +220,7 @@ export function App(): JSX.Element {
   const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
+  const [browserUseApprovalRequests, setBrowserUseApprovalRequests] = useState<BrowserUseApprovalRequestPayload[]>([])
   const activeMainView = useUIStore((s) => s.activeMainView)
   const activeDetailTab = useUIStore((s) => s.activeDetailTab)
   const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
@@ -980,6 +1094,35 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = window.api.workspace.viewer.browserUse.onApprovalRequest((event) => {
+      setBrowserUseApprovalRequests((current) => {
+        if (current.some((item) => item.requestId === event.requestId)) return current
+        return [...current, event]
+      })
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  const respondToBrowserUseApproval = useCallback(
+    (request: BrowserUseApprovalRequestPayload, action: BrowserUseApprovalResponseAction): void => {
+      setBrowserUseApprovalRequests((current) => current.filter((item) => item.requestId !== request.requestId))
+      window.api.workspace.viewer.browserUse
+        .sendApprovalResponse({ requestId: request.requestId, action })
+        .catch((err: unknown) => {
+          addToast(
+            translate(localeRef.current, 'browserUse.approval.sendFailed', {
+              error: err instanceof Error ? err.message : String(err)
+            }),
+            'error'
+          )
+        })
+    },
+    []
+  )
+
   // Keep viewerTabStore in sync with active thread, and restore/fallback
   // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
   useEffect(() => {
@@ -1415,6 +1558,13 @@ export function App(): JSX.Element {
         {quickOpenVisible && (
           <QuickOpenDialog
             onClose={() => setQuickOpenVisible(false)}
+          />
+        )}
+        {browserUseApprovalRequests[0] && (
+          <BrowserUseApprovalDialog
+            locale={locale}
+            request={browserUseApprovalRequests[0]}
+            onRespond={(action) => respondToBrowserUseApproval(browserUseApprovalRequests[0], action)}
           />
         )}
         {status === 'disconnected' && isExpectedRestart && (

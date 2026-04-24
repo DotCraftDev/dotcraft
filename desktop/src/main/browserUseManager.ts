@@ -1,10 +1,16 @@
 import { BrowserWindow } from 'electron'
 import vm from 'vm'
 import { viewerBrowserManager } from './viewerBrowser'
+import type { AppSettings } from './settings'
+import {
+  isBrowserUseUrlAllowed as isBrowserUseUrlAllowedByPolicy,
+  normalizeBrowserUseDomainList,
+  resolveBrowserUseNavigationDecision
+} from './browserUsePolicy'
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
-const VIEWER_SCHEME = 'dotcraft-viewer:'
 const BROWSER_USE_OPEN_CHANNEL = 'viewer:browser-use:open'
+const BROWSER_USE_APPROVAL_REQUEST_CHANNEL = 'viewer:browser-use:approval-request'
+const BROWSER_USE_APPROVAL_TIMEOUT_MS = 120_000
 
 export interface BrowserUseEvaluateParams {
   threadId: string
@@ -34,6 +40,22 @@ export interface BrowserUseOpenPayload {
   focusMode: 'first-open' | 'none'
 }
 
+export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
+
+export interface BrowserUseApprovalRequestPayload {
+  requestId: string
+  threadId: string
+  tabId: string
+  url: string
+  domain: string
+  sessionName?: string
+}
+
+export interface BrowserUseApprovalResponsePayload {
+  requestId: string
+  action: BrowserUseApprovalResponseAction
+}
+
 interface BrowserUseViewerHost {
   createAutomationTab(win: BrowserWindow, params: {
     tabId: string
@@ -52,6 +74,11 @@ interface BrowserUseViewerHost {
     title: string
     loading: boolean
   } | null
+}
+
+interface BrowserUsePolicyHost {
+  getSettings(): AppSettings
+  updateSettings(partial: Partial<AppSettings>): Promise<void>
 }
 
 interface BrowserUseTabRuntime {
@@ -91,17 +118,7 @@ export function normalizeBrowserUseUrl(input: string): string | null {
 }
 
 export function isBrowserUseUrlAllowed(url: string): boolean {
-  if (url === 'about:blank') return true
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol === 'file:' || parsed.protocol === VIEWER_SCHEME) return true
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return LOCAL_HOSTS.has(parsed.hostname.toLowerCase())
-    }
-    return false
-  } catch {
-    return false
-  }
+  return isBrowserUseUrlAllowedByPolicy(url)
 }
 
 function imageFromDataUrl(dataUrl: string): BrowserUseImageResult | null {
@@ -126,9 +143,31 @@ function sanitizeThreadId(threadId: string): string {
 
 export class BrowserUseManager {
   private readonly runtimes = new Map<string, BrowserUseThreadRuntime>()
+  private readonly pendingApprovals = new Map<string, {
+    resolve: (action: BrowserUseApprovalResponseAction) => void
+    timer: ReturnType<typeof setTimeout>
+    onClosed: () => void
+    owner: BrowserWindow
+  }>()
   private nextTabId = 1
+  private nextApprovalId = 1
+  private policyHost: BrowserUsePolicyHost | null = null
 
   constructor(private readonly viewerHost: BrowserUseViewerHost = viewerBrowserManager) {}
+
+  setPolicyHost(host: BrowserUsePolicyHost): void {
+    this.policyHost = host
+  }
+
+  handleApprovalResponse(payload: BrowserUseApprovalResponsePayload): boolean {
+    const pending = this.pendingApprovals.get(payload.requestId)
+    if (!pending) return false
+    this.pendingApprovals.delete(payload.requestId)
+    clearTimeout(pending.timer)
+    pending.owner.off('closed', pending.onClosed)
+    pending.resolve(payload.action)
+    return true
+  }
 
   async evaluate(owner: BrowserWindow, params: BrowserUseEvaluateParams): Promise<BrowserUseEvaluateResult> {
     const runtime = this.getOrCreateRuntime(owner, params.threadId, params.workspacePath)
@@ -255,11 +294,11 @@ export class BrowserUseManager {
   ): Promise<BrowserUseTabRuntime> {
     const normalizedInitial = initialUrl ? normalizeBrowserUseUrl(initialUrl) : null
     if (initialUrl && !normalizedInitial) throw new Error(`Invalid browser URL: ${initialUrl}`)
-    if (normalizedInitial && !isBrowserUseUrlAllowed(normalizedInitial)) {
-      throw new Error(`Blocked browser-use navigation to non-local URL: ${normalizedInitial}`)
+    const id = `browser-use-${sanitizeThreadId(runtime.threadId)}-${this.nextTabId++}`
+    if (normalizedInitial) {
+      await this.ensureNavigationAllowed(owner, runtime, id, normalizedInitial)
     }
 
-    const id = `browser-use-${sanitizeThreadId(runtime.threadId)}-${this.nextTabId++}`
     this.viewerHost.createAutomationTab(owner, {
       tabId: id,
       workspacePath: runtime.workspacePath || owner.getTitle(),
@@ -355,11 +394,100 @@ export class BrowserUseManager {
   private async navigate(tab: BrowserUseTabRuntime, url: string): Promise<Record<string, unknown>> {
     const normalized = normalizeBrowserUseUrl(url)
     if (!normalized) throw new Error(`Invalid browser URL: ${url}`)
-    if (!isBrowserUseUrlAllowed(normalized)) {
-      throw new Error(`Blocked browser-use navigation to non-local URL: ${normalized}`)
-    }
+    const runtime = this.getRuntimeForTab(tab)
+    await this.ensureNavigationAllowed(tab.owner, runtime, tab.id, normalized)
     await this.viewerHost.loadAutomationUrl(tab.owner, { tabId: tab.id, url: normalized })
     return this.tabSnapshot(tab)
+  }
+
+  private getRuntimeForTab(tab: BrowserUseTabRuntime): BrowserUseThreadRuntime {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.tabs.get(tab.id) === tab) return runtime
+    }
+    throw new Error(`Browser tab is no longer attached to a runtime: ${tab.id}`)
+  }
+
+  private async ensureNavigationAllowed(
+    owner: BrowserWindow,
+    runtime: BrowserUseThreadRuntime,
+    tabId: string,
+    url: string
+  ): Promise<void> {
+    const settings = this.policyHost?.getSettings().browserUse
+    const decision = resolveBrowserUseNavigationDecision(url, settings)
+    if (decision.kind === 'allow') return
+    if (decision.kind === 'block') throw new Error(decision.reason)
+
+    const action = await this.requestApproval(owner, {
+      requestId: `browser-use-approval-${this.nextApprovalId++}`,
+      threadId: runtime.threadId,
+      tabId,
+      url,
+      domain: decision.domain,
+      sessionName: runtime.sessionName
+    })
+
+    if (action === 'allowOnce') return
+    if (action === 'allowDomain') {
+      await this.addDomainToBrowserUseSettings(decision.domain, 'allowedDomains')
+      return
+    }
+    if (action === 'blockDomain') {
+      await this.addDomainToBrowserUseSettings(decision.domain, 'blockedDomains')
+      throw new Error(`Blocked browser-use domain: ${decision.domain}`)
+    }
+    throw new Error(`Browser-use navigation denied for domain: ${decision.domain}`)
+  }
+
+  private requestApproval(
+    owner: BrowserWindow,
+    payload: BrowserUseApprovalRequestPayload
+  ): Promise<BrowserUseApprovalResponseAction> {
+    if (owner.isDestroyed() || owner.webContents.isDestroyed()) {
+      return Promise.resolve('deny')
+    }
+    return new Promise((resolve) => {
+      const onClosed = () => {
+        this.pendingApprovals.delete(payload.requestId)
+        clearTimeout(timer)
+        resolve('deny')
+      }
+      const timer = setTimeout(() => {
+        owner.off('closed', onClosed)
+        this.pendingApprovals.delete(payload.requestId)
+        resolve('deny')
+      }, BROWSER_USE_APPROVAL_TIMEOUT_MS)
+      this.pendingApprovals.set(payload.requestId, { resolve, timer, onClosed, owner })
+      owner.once('closed', onClosed)
+      owner.webContents.send(BROWSER_USE_APPROVAL_REQUEST_CHANNEL, payload)
+    })
+  }
+
+  private async addDomainToBrowserUseSettings(
+    domain: string,
+    listName: 'allowedDomains' | 'blockedDomains'
+  ): Promise<void> {
+    if (!this.policyHost) return
+    const current = this.policyHost.getSettings().browserUse ?? {}
+    const allowedDomains = normalizeBrowserUseDomainList(current.allowedDomains)
+    const blockedDomains = normalizeBrowserUseDomainList(current.blockedDomains)
+    if (listName === 'allowedDomains') {
+      await this.policyHost.updateSettings({
+        browserUse: {
+          ...current,
+          allowedDomains: Array.from(new Set([...allowedDomains, domain])),
+          blockedDomains: blockedDomains.filter((item) => item !== domain)
+        }
+      })
+      return
+    }
+    await this.policyHost.updateSettings({
+      browserUse: {
+        ...current,
+        blockedDomains: Array.from(new Set([...blockedDomains, domain])),
+        allowedDomains: allowedDomains.filter((item) => item !== domain)
+      }
+    })
   }
 
   private async screenshot(tab: BrowserUseTabRuntime): Promise<BrowserUseImageResult> {

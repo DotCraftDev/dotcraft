@@ -2,6 +2,8 @@ export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
 export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
+export type BrowserUseApprovalMode = 'alwaysAsk' | 'askUnknown' | 'neverAsk'
+export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
@@ -51,6 +53,15 @@ export interface BrowserUseOpenPayload {
   initialUrl: string
   title?: string
   focusMode: 'first-open' | 'none'
+}
+
+export interface BrowserUseApprovalRequestPayload {
+  requestId: string
+  threadId: string
+  tabId: string
+  url: string
+  domain: string
+  sessionName?: string
 }
 
 export interface TerminalDataEventPayload {
@@ -407,6 +418,12 @@ declare global {
             }
             browserUse: {
               onOpen(callback: (event: BrowserUseOpenPayload) => void): UnsubscribeFn
+              onApprovalRequest(callback: (event: BrowserUseApprovalRequestPayload) => void): UnsubscribeFn
+              sendApprovalResponse(params: {
+                requestId: string
+                action: BrowserUseApprovalResponseAction
+              }): Promise<void>
+              clearCookies(): Promise<{ ok: boolean }>
             }
             terminal: {
             create(params: {
@@ -491,6 +508,11 @@ declare global {
           locale?: 'en' | 'zh-Hans'
           visibleChannels?: string[]
           lastOpenEditorId?: EditorId
+          browserUse?: {
+            approvalMode?: BrowserUseApprovalMode
+            blockedDomains?: string[]
+            allowedDomains?: string[]
+          }
         }>
         set(
           partial: {
@@ -519,6 +541,11 @@ declare global {
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]
             lastOpenEditorId?: EditorId
+            browserUse?: {
+              approvalMode?: BrowserUseApprovalMode
+              blockedDomains?: string[]
+              allowedDomains?: string[]
+            }
           }
         ): Promise<void>
       }

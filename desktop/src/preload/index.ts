@@ -5,6 +5,7 @@ import {
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
 import type {
+  BrowserUseApprovalRequestPayload,
   BrowserUseOpenPayload,
   BrowserEventPayload,
   TerminalDataEventPayload,
@@ -15,6 +16,8 @@ export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
 export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
+export type BrowserUseApprovalMode = 'alwaysAsk' | 'askUnknown' | 'neverAsk'
+export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
@@ -746,6 +749,20 @@ const api = {
             ipcRenderer.on('viewer:browser-use:open', wrapped)
             return () => ipcRenderer.removeListener('viewer:browser-use:open', wrapped)
           },
+          onApprovalRequest(listener: (event: BrowserUseApprovalRequestPayload) => void): UnsubscribeFn {
+            const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserUseApprovalRequestPayload) => listener(payload)
+            ipcRenderer.on('viewer:browser-use:approval-request', wrapped)
+            return () => ipcRenderer.removeListener('viewer:browser-use:approval-request', wrapped)
+          },
+          sendApprovalResponse(params: {
+            requestId: string
+            action: BrowserUseApprovalResponseAction
+          }): Promise<void> {
+            return ipcRenderer.invoke('viewer:browser-use:approval-response', params)
+          },
+          clearCookies(): Promise<{ ok: boolean }> {
+            return ipcRenderer.invoke('viewer:browser-use:clear-cookies')
+          }
         },
           terminal: {
         create(params: {
@@ -903,6 +920,11 @@ const api = {
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
       lastOpenEditorId?: EditorId
+      browserUse?: {
+        approvalMode?: BrowserUseApprovalMode
+        blockedDomains?: string[]
+        allowedDomains?: string[]
+      }
     }> {
       return ipcRenderer.invoke('settings:get')
     },
@@ -936,6 +958,11 @@ const api = {
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
       lastOpenEditorId?: EditorId
+      browserUse?: {
+        approvalMode?: BrowserUseApprovalMode
+        blockedDomains?: string[]
+        allowedDomains?: string[]
+      }
     }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }

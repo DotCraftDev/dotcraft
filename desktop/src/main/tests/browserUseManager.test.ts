@@ -15,6 +15,7 @@ import {
   isBrowserUseUrlAllowed,
   normalizeBrowserUseUrl
 } from '../browserUseManager'
+import { resolveBrowserUseNavigationDecision } from '../browserUsePolicy'
 
 function createFakeWebContents() {
   const emitter = new EventEmitter()
@@ -59,7 +60,11 @@ function createFakeHost(webContents = createFakeWebContents()) {
 }
 
 function createFakeOwner() {
+  const emitter = new EventEmitter()
   return {
+    on: emitter.on.bind(emitter),
+    once: emitter.once.bind(emitter),
+    off: emitter.off.bind(emitter),
     getTitle: () => 'test-window',
     isDestroyed: () => false,
     webContents: {
@@ -92,6 +97,40 @@ describe('isBrowserUseUrlAllowed', () => {
   it('blocks remote and unsupported URLs', () => {
     expect(isBrowserUseUrlAllowed('https://example.com/')).toBe(false)
     expect(isBrowserUseUrlAllowed('javascript:alert(1)')).toBe(false)
+  })
+})
+
+describe('browser-use navigation policy', () => {
+  it('allows configured external domains and their subdomains', () => {
+    expect(resolveBrowserUseNavigationDecision('https://example.com/', {
+      approvalMode: 'alwaysAsk',
+      allowedDomains: ['example.com']
+    })).toEqual({ kind: 'allow', local: false, domain: 'example.com' })
+    expect(resolveBrowserUseNavigationDecision('https://docs.example.com/', {
+      approvalMode: 'alwaysAsk',
+      allowedDomains: ['example.com']
+    })).toEqual({ kind: 'allow', local: false, domain: 'docs.example.com' })
+  })
+
+  it('lets blocked domains override allowed domains', () => {
+    expect(resolveBrowserUseNavigationDecision('https://docs.example.com/', {
+      approvalMode: 'neverAsk',
+      allowedDomains: ['example.com'],
+      blockedDomains: ['docs.example.com']
+    })).toMatchObject({ kind: 'block', domain: 'docs.example.com' })
+  })
+
+  it('requires approval for unknown external domains by default', () => {
+    expect(resolveBrowserUseNavigationDecision('https://example.com/')).toEqual({
+      kind: 'needs-approval',
+      domain: 'example.com'
+    })
+  })
+
+  it('allows unknown external domains when approval is disabled', () => {
+    expect(resolveBrowserUseNavigationDecision('https://example.com/', {
+      approvalMode: 'neverAsk'
+    })).toEqual({ kind: 'allow', local: false, domain: 'example.com' })
   })
 })
 
@@ -173,5 +212,80 @@ describe('BrowserUseManager JavaScript runtime', () => {
 
     expect(manager.reset('thread-1')).toEqual({ ok: true })
     expect(host.destroyTab).toHaveBeenCalledWith(owner, expect.stringMatching(/^browser-use-thread-1-/))
+  })
+
+  it('opens external URLs when approval is disabled', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+    manager.setPolicyHost({
+      getSettings: () => ({ browserUse: { approvalMode: 'neverAsk' } }),
+      updateSettings: vi.fn()
+    })
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('https://example.com/')
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, expect.objectContaining({
+      url: 'https://example.com/'
+    }))
+  })
+
+  it('blocks configured external domains before loading', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+    manager.setPolicyHost({
+      getSettings: () => ({ browserUse: { blockedDomains: ['example.com'] } }),
+      updateSettings: vi.fn()
+    })
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.tabs.new("https://example.com");'
+    })
+
+    expect(result.error).toContain('Blocked browser-use domain: example.com')
+    expect(host.loadAutomationUrl).not.toHaveBeenCalled()
+  })
+
+  it('persists allow-domain approval and continues navigation', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+    const settings = { browserUse: { approvalMode: 'alwaysAsk' as const, allowedDomains: [] as string[] } }
+    manager.setPolicyHost({
+      getSettings: () => settings,
+      updateSettings: vi.fn(async (partial) => {
+        Object.assign(settings, partial)
+      })
+    })
+
+    const pending = manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
+    })
+
+    await vi.waitFor(() => {
+      expect(owner.webContents.send).toHaveBeenCalledWith('viewer:browser-use:approval-request', expect.objectContaining({
+        domain: 'example.com'
+      }))
+    })
+    const payload = (owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as { requestId: string }
+    expect(manager.handleApprovalResponse({ requestId: payload.requestId, action: 'allowDomain' })).toBe(true)
+
+    const result = await pending
+    expect(result.error).toBeUndefined()
+    expect(settings.browserUse.allowedDomains).toEqual(['example.com'])
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, expect.objectContaining({
+      url: 'https://example.com/'
+    }))
   })
 })

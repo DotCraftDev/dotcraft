@@ -36,6 +36,7 @@ export interface RemoteConnectionSettings {
 
 export type ProxyStatus = 'stopped' | 'starting' | 'running' | 'error'
 export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
+export type BrowserUseApprovalMode = 'alwaysAsk' | 'askUnknown' | 'neverAsk'
 
 export interface ProxySettings {
   enabled?: boolean
@@ -46,6 +47,12 @@ export interface ProxySettings {
   authDir?: string
   apiKey?: string
   managementKey?: string
+}
+
+export interface BrowserUseSettings {
+  approvalMode?: BrowserUseApprovalMode
+  blockedDomains?: string[]
+  allowedDomains?: string[]
 }
 
 export interface AppSettings {
@@ -69,6 +76,7 @@ export interface AppSettings {
    */
   visibleChannels?: string[]
   lastOpenEditorId?: LastOpenEditorId
+  browserUse?: BrowserUseSettings
 }
 
 const MAX_RECENT = 20
@@ -141,6 +149,45 @@ function normalizeProxySettings(settings: AppSettings): ProxySettings | undefine
   return Object.keys(normalized).length > 0 ? normalized : undefined
 }
 
+function normalizeBrowserUseApprovalMode(value: unknown): BrowserUseApprovalMode {
+  return value === 'askUnknown' || value === 'neverAsk' ? value : 'alwaysAsk'
+}
+
+function normalizeDomainList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const domains: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const trimmed = item.trim()
+    if (!trimmed || /[\u0000-\u001f]/.test(trimmed)) continue
+    let domain = trimmed.toLowerCase().replace(/\.+$/, '')
+    try {
+      const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(trimmed)
+        ? trimmed
+        : `https://${trimmed}`
+      domain = new URL(candidate).hostname.trim().toLowerCase().replace(/\.+$/, '')
+    } catch {
+      // Keep the trimmed domain-like value below so older simple entries survive.
+    }
+    if (!domain || /[\u0000-\u001f]/.test(domain)) continue
+    if (seen.has(domain)) continue
+    seen.add(domain)
+    domains.push(domain)
+  }
+  return domains
+}
+
+function normalizeBrowserUseSettings(settings: AppSettings): BrowserUseSettings {
+  const raw = settings.browserUse
+  const source: BrowserUseSettings = raw != null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  return {
+    approvalMode: normalizeBrowserUseApprovalMode(source.approvalMode),
+    blockedDomains: normalizeDomainList(source.blockedDomains),
+    allowedDomains: normalizeDomainList(source.allowedDomains)
+  }
+}
+
 function normalizeActiveModuleVariants(settings: AppSettings): Record<string, string> | undefined {
   const raw = settings.activeModuleVariants
   if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -171,6 +218,7 @@ export function loadSettings(): AppSettings {
       raw.modulesDirectory = normalizeModulesDirectory(raw)
       raw.lastOpenEditorId = normalizeLastOpenEditorId(raw)
       raw.proxy = normalizeProxySettings(raw)
+      raw.browserUse = normalizeBrowserUseSettings(raw)
       raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
@@ -194,6 +242,7 @@ export function saveSettings(settings: AppSettings): void {
     settings.modulesDirectory = normalizeModulesDirectory(settings)
     settings.lastOpenEditorId = normalizeLastOpenEditorId(settings)
     settings.proxy = normalizeProxySettings(settings)
+    settings.browserUse = normalizeBrowserUseSettings(settings)
     settings.activeModuleVariants = normalizeActiveModuleVariants(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
   } catch {

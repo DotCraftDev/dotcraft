@@ -228,6 +228,17 @@ export interface BrowserUseOpenPayload {
   focusMode: 'first-open' | 'none'
 }
 
+export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
+
+export interface BrowserUseApprovalRequestPayload {
+  requestId: string
+  threadId: string
+  tabId: string
+  url: string
+  domain: string
+  sessionName?: string
+}
+
 export type TerminalEventType = 'data' | 'exit'
 
 export interface TerminalDataEventPayload {

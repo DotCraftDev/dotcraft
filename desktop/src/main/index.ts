@@ -166,6 +166,32 @@ const WINDOW_SHOW_FALLBACK_MS = 3000
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
 
+async function updateSharedSettings(partial: Partial<AppSettings>): Promise<void> {
+  const prevLocale = normalizeLocale(sharedSettings.locale)
+  const next = mergeUpdatedSettings(sharedSettings, partial)
+  Object.assign(sharedSettings, next)
+  saveSettings(sharedSettings)
+  if (resolveProxySettings(sharedSettings).enabled !== true) {
+    proxyManager?.shutdown()
+    proxyManager = null
+    proxyStatus = { status: 'stopped' }
+    if (currentWorkspacePath) {
+      await scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
+        proxyPort: resolveProxySettings(sharedSettings).port,
+        proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+      })
+    }
+  }
+  if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
+    refreshAppMenu()
+  }
+}
+
+browserUseManager.setPolicyHost({
+  getSettings: () => sharedSettings,
+  updateSettings: updateSharedSettings
+})
+
 function resolveWorkspacePath(settings: AppSettings): string | null {
   const argIdx = process.argv.indexOf('--workspace')
   if (argIdx !== -1 && process.argv[argIdx + 1]) {
@@ -773,24 +799,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
     },
     getSettings: () => sharedSettings,
     updateSettings: async (partial) => {
-      const prevLocale = normalizeLocale(sharedSettings.locale)
-      const next = mergeUpdatedSettings(sharedSettings, partial)
-      Object.assign(sharedSettings, next)
-      saveSettings(sharedSettings)
-      if (resolveProxySettings(sharedSettings).enabled !== true) {
-        proxyManager?.shutdown()
-        proxyManager = null
-        proxyStatus = { status: 'stopped' }
-        if (currentWorkspacePath) {
-          await scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
-            proxyPort: resolveProxySettings(sharedSettings).port,
-            proxyApiKey: resolveProxySettings(sharedSettings).apiKey
-          })
-        }
-      }
-      if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
-        refreshAppMenu()
-      }
+      await updateSharedSettings(partial)
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
     clearRecentWorkspaces: () => {
