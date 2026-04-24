@@ -457,7 +457,7 @@ export interface IpcHandlerCallbacks {
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  * - `shell:open-external`         (renderer -> main, invoke) -> opens allowed URL in OS handler
  * - `editors:list`                (renderer -> main, invoke) -> returns detected editor targets
- * - `editors:launch`              (renderer -> main, invoke) -> opens workspace path with editor target
+ * - `editors:launch`              (renderer -> main, invoke) -> opens workspace target with editor
  */
 function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
   return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)

@@ -301,7 +301,7 @@ declare global {
         /** Opens allowed URLs in the OS default handler (validated in main process). */
         openExternal(url: string): Promise<void>
         listEditors(): Promise<EditorInfo[]>
-        launchEditor(id: EditorId, cwd: string): Promise<void>
+        launchEditor(id: EditorId, targetPath: string): Promise<void>
         showItemInFolder(path: string): Promise<void>
       }
       file: {

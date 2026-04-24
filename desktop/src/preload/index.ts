@@ -483,8 +483,8 @@ const api = {
       return ipcRenderer.invoke('editors:list')
     },
 
-    launchEditor(id: EditorId, cwd: string): Promise<void> {
-      return ipcRenderer.invoke('editors:launch', id, cwd)
+    launchEditor(id: EditorId, targetPath: string): Promise<void> {
+      return ipcRenderer.invoke('editors:launch', id, targetPath)
     },
 
     showItemInFolder(path: string): Promise<void> {
