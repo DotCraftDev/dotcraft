@@ -10,7 +10,7 @@ namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 /// <c>SubmitInputAsync</c> yields canned <see cref="SessionEvent"/> sequences queued
 /// per thread via <see cref="EnqueueSubmitEvents"/>.
 /// </summary>
-internal sealed class TestableSessionService : ISessionService
+internal sealed class TestableSessionService : ISessionService, IThreadAgentRefreshService
 {
     private readonly ThreadStore _store;
     private readonly Dictionary<string, SessionThread> _cache = new();
@@ -23,6 +23,8 @@ internal sealed class TestableSessionService : ISessionService
     public IReadOnlyList<AIContent> LastSubmittedContent { get; private set; } = [];
     public IReadOnlyList<ChatMessage>? LastSubmittedMessages { get; private set; }
     public Func<string, IList<AIContent>, ChatMessage[]?, IEnumerable<SessionEvent>>? SubmitInputHandler { get; set; }
+    public IReadOnlyList<string> RefreshedThreadAgents => _refreshedThreadAgents;
+    private readonly List<string> _refreshedThreadAgents = new();
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -206,6 +208,12 @@ internal sealed class TestableSessionService : ISessionService
 
     public Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default) =>
         Task.CompletedTask;
+
+    public Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default)
+    {
+        _refreshedThreadAgents.Add(threadId);
+        return Task.CompletedTask;
+    }
 
     public async Task UpdateThreadConfigurationAsync(
         string threadId, ThreadConfiguration config, CancellationToken ct = default)

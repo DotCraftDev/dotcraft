@@ -111,6 +111,30 @@ public sealed class AppServerConnection
     /// <summary>Custom extension families (e.g. <c>_unity</c>).</summary>
     public IReadOnlyList<string> AcpCustomExtensions => AcpExtensions?.Extensions ?? [];
 
+    // -------------------------------------------------------------------------
+    // Browser-use extension state
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Browser-use runtime capabilities from <c>initialize</c>, or null when not declared.
+    /// </summary>
+    public BrowserUseCapability? BrowserUse => _clientCapabilities?.BrowserUse;
+
+    /// <summary>
+    /// True when the client sent a browser-use capability object.
+    /// </summary>
+    public bool HasBrowserUse => BrowserUse != null;
+
+    /// <summary>
+    /// True when the client can evaluate JavaScript in its browser-use runtime.
+    /// </summary>
+    public bool SupportsBrowserUseJsRuntime => BrowserUse?.JsRuntime == true;
+
+    /// <summary>
+    /// True when the client can return screenshots/images from browser-use calls.
+    /// </summary>
+    public bool SupportsBrowserUseImages => BrowserUse?.Images == true;
+
     /// <summary>
     /// Marks the connection as initialized and stores the client's identity and capabilities.
     /// Returns <c>false</c> if already initialized (caller should reject with AlreadyInitialized).

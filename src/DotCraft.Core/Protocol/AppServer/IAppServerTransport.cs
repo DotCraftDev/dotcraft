@@ -21,7 +21,7 @@ public interface IAppServerTransport : IAsyncDisposable
 
     /// <summary>
     /// Sends a server-initiated JSON-RPC request to the client and awaits the response.
-    /// Used exclusively for the bidirectional approval flow (item/approval/request).
+    /// Used for bidirectional approval flows and optional client-hosted extension runtimes.
     /// </summary>
     /// <param name="method">The JSON-RPC method name.</param>
     /// <param name="params">Request parameters.</param>

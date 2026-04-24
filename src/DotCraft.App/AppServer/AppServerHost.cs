@@ -164,6 +164,7 @@ public sealed class AppServerHost(
             welcomeSuggestionService: _runtime.WelcomeSuggestionService,
             dashboardUrl: _runtime.DashboardUrl,
             wireAcpExtensionProxy: _runtime.WireAcpExtensionProxy,
+            wireBrowserUseProxy: _runtime.WireBrowserUseProxy,
             channelStatusProvider: _runtime.ChannelStatusProvider,
             mcpClientManager: _runtime.McpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
@@ -193,7 +194,7 @@ public sealed class AppServerHost(
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireBrowserUseProxy, cancellationToken);
         }
         finally
         {
@@ -245,7 +246,7 @@ public sealed class AppServerHost(
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireBrowserUseProxy, cancellationToken);
         }
         finally
         {
@@ -399,7 +400,7 @@ public sealed class AppServerHost(
 
                         // Not a channel adapter — fall through to normal RunLoopAsync
                         // (initialize already processed, loop will handle subsequent messages)
-                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, hostCt);
+                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireBrowserUseProxy, hostCt);
                         return;
                     }
 
@@ -414,7 +415,7 @@ public sealed class AppServerHost(
                     }
                 }
 
-                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, hostCt);
+                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireBrowserUseProxy, hostCt);
             } // end try
             finally
             {
@@ -442,6 +443,7 @@ public sealed class AppServerHost(
         AppServerConnection connection,
         AppServerRequestHandler handler,
         WireAcpExtensionProxy? wireAcpProxy,
+        WireBrowserUseProxy? wireBrowserUseProxy,
         CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -495,6 +497,7 @@ public sealed class AppServerHost(
         // Clean up active subscriptions when the client disconnects
         connection.CancelAllSubscriptions();
         wireAcpProxy?.UnbindTransport(transport);
+        wireBrowserUseProxy?.UnbindTransport(transport);
     }
 
     private static async Task ProcessRequestAsync(

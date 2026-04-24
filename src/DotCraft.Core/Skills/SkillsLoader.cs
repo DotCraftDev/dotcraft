@@ -235,12 +235,15 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// The agent can read the full skill content using ReadFile when needed.
     /// Shows availability status and missing requirements for unavailable skills.
     /// </summary>
-    public string BuildSkillsSummary()
+    public string BuildSkillsSummary(IReadOnlyCollection<string>? availableToolNames = null)
     {
         var allSkills = ListSkills(filterUnavailable: false);
         if (allSkills.Count == 0)
             return string.Empty;
 
+        var toolSet = availableToolNames == null
+            ? null
+            : new HashSet<string>(availableToolNames, StringComparer.OrdinalIgnoreCase);
         var sb = new StringBuilder();
         sb.AppendLine("<skills>");
 
@@ -252,17 +255,30 @@ public sealed class SkillsLoader(string workspaceRoot)
             var description = GetSkillDescription(skill.Name);
             var metadata = GetSkillMetadata(skill.Name);
             var alwaysLoad = metadata?.GetValueOrDefault("always", "false").ToLowerInvariant() == "true";
+            var available = skill.Available;
+            var unavailableReason = skill.UnavailableReason;
+            if (toolSet != null && skill.Requirements?.Tools.Count > 0)
+            {
+                var missingTools = skill.Requirements.Tools
+                    .Where(t => !toolSet.Contains(t))
+                    .ToArray();
+                if (missingTools.Length > 0)
+                {
+                    available = false;
+                    unavailableReason = "Missing tools: " + string.Join(", ", missingTools);
+                }
+            }
 
             sb.AppendLine(
-                $"  <skill available=\"{skill.Available.ToString().ToLower()}\" always=\"{alwaysLoad.ToString().ToLower()}\">");
+                $"  <skill available=\"{available.ToString().ToLower()}\" always=\"{alwaysLoad.ToString().ToLower()}\">");
             sb.AppendLine($"    <name>{EscapeXml(skill.Name)}</name>");
             sb.AppendLine($"    <description>{EscapeXml(description)}</description>");
             sb.AppendLine($"    <location>{skill.Path}</location>");
 
             // Show missing requirements for unavailable skills
-            if (!skill.Available && skill.UnavailableReason != null)
+            if (!available && unavailableReason != null)
             {
-                sb.AppendLine($"    <requires>{EscapeXml(skill.UnavailableReason)}</requires>");
+                sb.AppendLine($"    <requires>{EscapeXml(unavailableReason)}</requires>");
             }
 
             sb.AppendLine("  </skill>");
@@ -394,6 +410,11 @@ public sealed class SkillsLoader(string workspaceRoot)
         /// Required environment variables.
         /// </summary>
         public List<string> Env { get; set; } = [];
+
+        /// <summary>
+        /// Required agent tools.
+        /// </summary>
+        public List<string> Tools { get; set; } = [];
     }
 
     /// <summary>
@@ -483,7 +504,7 @@ public sealed class SkillsLoader(string workspaceRoot)
             return null;
 
         // Check for 'requires' field with bins and env
-        var hasRequirements = metadata.ContainsKey("bins") || metadata.ContainsKey("env");
+        var hasRequirements = metadata.ContainsKey("bins") || metadata.ContainsKey("env") || metadata.ContainsKey("tools");
 
         if (!hasRequirements)
             return null;
@@ -506,6 +527,17 @@ public sealed class SkillsLoader(string workspaceRoot)
                 .Where(e => !string.IsNullOrEmpty(e)));
         }
 
-        return requirements.Bins.Count == 0 && requirements.Env.Count == 0 ? null : requirements;
+        // Parse tools (comma-separated). Tool requirements are evaluated against
+        // the per-agent tool list when building the prompt.
+        if (metadata.TryGetValue("tools", out var toolsStr))
+        {
+            requirements.Tools.AddRange(toolsStr.Split(',')
+                .Select(t => t.Trim())
+                .Where(t => !string.IsNullOrEmpty(t)));
+        }
+
+        return requirements.Bins.Count == 0 && requirements.Env.Count == 0 && requirements.Tools.Count == 0
+            ? null
+            : requirements;
     }
 }

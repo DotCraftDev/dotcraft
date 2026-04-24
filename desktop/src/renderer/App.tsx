@@ -763,7 +763,7 @@ export function App(): JSX.Element {
       const { bridgeId, method, params } = payload
       const p = (params ?? {}) as Record<string, unknown>
 
-      if (method === 'item/approval/request') {
+        if (method === 'item/approval/request') {
         const threadId = typeof p.threadId === 'string' ? p.threadId : null
         const turnId = typeof p.turnId === 'string' ? p.turnId : null
         const activeThreadId = useThreadStore.getState().activeThreadId
@@ -774,12 +774,16 @@ export function App(): JSX.Element {
             rawParams: p
           })
           return
+          }
+          useConversationStore.getState().onApprovalRequest(bridgeId, p)
+          return
         }
-        useConversationStore.getState().onApprovalRequest(bridgeId, p)
-      }
-      // Unknown server requests: respond with null to unblock AppServer
-      // (will be handled by specific cases above in future)
-    })
+        // Unknown server requests: respond with null to unblock AppServer
+        // (will be handled by specific cases above in future)
+        window.api.appServer.sendServerResponse(bridgeId, {
+          error: `Unsupported server request: ${method}`
+        })
+      })
     return unsubscribe
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

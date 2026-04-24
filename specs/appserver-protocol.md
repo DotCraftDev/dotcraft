@@ -224,6 +224,7 @@ Client                              Server
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
+| `capabilities.browserUse` | object | no | Desktop browser-use runtime capability. When present, the client can handle server-initiated `ext/browserUse/*` requests for thread-bound local browser automation. Default omitted (no browser-use support). |
 
 `capabilities.configChange` is an opt-out capability. When omitted, the server treats it as `true` and may push `workspace/configChanged` notifications. Modern clients should declare it explicitly for clarity, even when using the default behavior.
 
@@ -235,6 +236,15 @@ Client                              Server
 | `fsWriteTextFile` | boolean | Client can handle `ext/acp/fs/writeTextFile`. |
 | `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
 | `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
+
+**`browserUse` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | number | Browser-use wire contract version. Initial value is `1`. |
+| `jsRuntime` | boolean | Client can evaluate JavaScript through `ext/browserUse/evaluate`. |
+| `images` | boolean | Client can return image payloads from browser-use calls. |
+| `backend` | string | Client backend identifier, e.g. `desktop-webcontents`. |
 
 **`channelAdapter` object** (when present):
 

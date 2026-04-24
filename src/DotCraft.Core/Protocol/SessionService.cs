@@ -45,7 +45,7 @@ public sealed class SessionService(
     ApprovalStore? approvalStore = null,
     IToolProfileRegistry? toolProfileRegistry = null,
     SessionStreamDebugLogger? sessionStreamDebugLogger = null)
-    : ISessionService
+    : ISessionService, IThreadAgentRefreshService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
@@ -1334,6 +1334,13 @@ public sealed class SessionService(
         await PersistThreadWithMaterializationAsync(thread, ct);
     }
 
+    /// <inheritdoc />
+    public async Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+    }
+
     /// <inheritdoc/>
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
@@ -1692,6 +1699,22 @@ public sealed class SessionService(
         SessionThread thread,
         CancellationToken ct)
     {
+        var previousSessionKey = TracingChatClient.CurrentSessionKey;
+        TracingChatClient.CurrentSessionKey = thread.Id;
+        try
+        {
+            return await BuildAgentForThreadCoreAsync(thread, ct);
+        }
+        finally
+        {
+            TracingChatClient.CurrentSessionKey = previousSessionKey;
+        }
+    }
+
+    private async Task<AIAgent> BuildAgentForThreadCoreAsync(
+        SessionThread thread,
+        CancellationToken ct)
+    {
         var threadId = thread.Id;
         var config = thread.Configuration ?? new ThreadConfiguration();
         var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
@@ -1725,6 +1748,7 @@ public sealed class SessionService(
                 TraceCollector = baseCtx.TraceCollector,
                 LspServerManager = baseCtx.LspServerManager,
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
+                BrowserUseProxy = baseCtx.BrowserUseProxy,
                 CronTools = baseCtx.CronTools,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
                 ExternalCliSessionStore = externalCliSessionStore,
@@ -1803,6 +1827,7 @@ public sealed class SessionService(
                 McpClientManager = mcpManager,
                 LspServerManager = scopedContext.LspServerManager,
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
+                BrowserUseProxy = scopedContext.BrowserUseProxy,
                 CronTools = scopedContext.CronTools,
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
                 ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
@@ -1892,6 +1917,7 @@ public sealed class SessionService(
             LspServerManager = source.LspServerManager,
             TraceCollector = source.TraceCollector,
             AcpExtensionProxy = source.AcpExtensionProxy,
+            BrowserUseProxy = source.BrowserUseProxy,
             ExternalCliSessionStore = externalCliSessionStore ?? source.ExternalCliSessionStore,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,

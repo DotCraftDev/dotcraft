@@ -12,7 +12,8 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
     CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
     Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false,
     IReadOnlyList<string>? deferredMcpServerNames = null,
-    string? subAgentProfilesSection = null)
+    string? subAgentProfilesSection = null,
+    Func<IReadOnlyList<string>>? toolNamesProvider = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -71,7 +72,7 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
         }
 
         // 2. Available skills: show summary (agent uses ReadFile to load full content)
-        var skillsSummary = skillsLoader.BuildSkillsSummary();
+        var skillsSummary = skillsLoader.BuildSkillsSummary(toolNamesProvider?.Invoke());
         if (!string.IsNullOrWhiteSpace(skillsSummary))
         {
             parts.Add(

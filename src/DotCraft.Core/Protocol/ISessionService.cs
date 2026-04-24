@@ -206,3 +206,16 @@ public interface ISessionService
     /// </summary>
     Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 }
+
+/// <summary>
+/// Optional Session Core extension for hosts that bind thread-scoped client capabilities
+/// after the base thread lifecycle call has completed.
+/// </summary>
+public interface IThreadAgentRefreshService
+{
+    /// <summary>
+    /// Rebuilds the cached agent for a thread so dynamic, thread-bound tools are reflected
+    /// in the next turn.
+    /// </summary>
+    Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default);
+}

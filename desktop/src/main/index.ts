@@ -5,6 +5,7 @@ import {
   setViewerWorkspaceRoot
 } from './viewerFileProtocol'
 import { viewerBrowserManager } from './viewerBrowser'
+import { browserUseManager } from './browserUseManager'
 
 // Register the custom viewer scheme as privileged BEFORE app.whenReady().
 registerViewerScheme()
@@ -118,6 +119,32 @@ let finalQuitCleanupDone = false
 let finalQuitCleanupRunning = false
 let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
+
+async function handleServerRequestInMain(method: string, params: unknown): Promise<unknown | undefined> {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    throw new Error('Window is not available to handle server request')
+  }
+
+  if (method === 'ext/browserUse/evaluate') {
+    const p = (params ?? {}) as { threadId?: string; code?: string; timeoutMs?: number }
+    if (!p.threadId || typeof p.code !== 'string') {
+      return { error: 'Invalid browser-use evaluate request.', images: [], logs: [] }
+    }
+    return browserUseManager.evaluate(mainWindow, {
+      threadId: p.threadId,
+      code: p.code,
+      timeoutMs: p.timeoutMs,
+      workspacePath: currentWorkspacePath
+    })
+  }
+
+  if (method === 'ext/browserUse/reset') {
+    const p = (params ?? {}) as { threadId?: string }
+    return p.threadId ? browserUseManager.reset(p.threadId) : { ok: false }
+  }
+
+  return undefined
+}
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -639,13 +666,11 @@ async function connectViaWebSocket(
   })
 
   client.onServerRequest(async (method, params) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      return Promise.reject(
-        new Error('Window is not available to handle server request')
-      )
-    }
+    const handledInMain = await handleServerRequestInMain(method, params)
+    if (handledInMain !== undefined) return handledInMain
+    const win = mainWindow!
     const { bridgeId, promise } = createServerRequestBridge()
-    broadcastServerRequest(mainWindow, { bridgeId, method, params })
+    broadcastServerRequest(win, { bridgeId, method, params })
     return promise
   })
   const emitConnected = (result: InitializeResult): void => {
@@ -1048,13 +1073,11 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     })
 
     client.onServerRequest(async (method, params) => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        return Promise.reject(
-          new Error('Window is not available to handle server request')
-        )
-      }
+      const handledInMain = await handleServerRequestInMain(method, params)
+      if (handledInMain !== undefined) return handledInMain
+      const win = mainWindow!
       const { bridgeId, promise } = createServerRequestBridge()
-      broadcastServerRequest(mainWindow, { bridgeId, method, params })
+      broadcastServerRequest(win, { bridgeId, method, params })
       return promise
     })
 
