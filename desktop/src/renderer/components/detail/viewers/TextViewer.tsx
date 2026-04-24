@@ -10,11 +10,14 @@
  * References: orca/src/renderer/src/components/editor/MonacoEditor.tsx
  */
 import { useEffect, useState } from 'react'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { loader } from '@monaco-editor/react'
+import * as monaco from 'monaco-editor'
 import { useT } from '../../../contexts/LocaleContext'
 import { detectLanguage } from './languageDetect'
 
 const MAX_READ_BYTES = 5 * 1024 * 1024 // 5 MB
+
+loader.config({ monaco })
 
 interface TextViewerProps {
   absolutePath: string
