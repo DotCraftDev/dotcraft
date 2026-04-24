@@ -322,4 +322,4 @@ Because both `Api.Port` and `DashBoard.Port` are `8080`, they are automatically 
 - [API Mode Guide](./api_guide.md) - OpenAI-compatible API service
 - [QQ Bot Guide](./qq_bot_guide.md) - QQ Bot mode
 - [WeCom Guide](./wecom_guide.md) - WeCom Bot mode
-- [Documentation Index](./index.md) - Full documentation navigation
+- [Documentation Index](./reference.md) - Full documentation navigation

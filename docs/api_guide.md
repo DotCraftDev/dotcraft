@@ -72,7 +72,7 @@ print(response.choices[0].message.content)
 
 DotCraft 的 API 模式可以作为模型提供方，在流行的 AI 桌面应用（例如Chatbox）中聊天。
 
-![Chatbox](./images/config_model_provider.png)
+![Chatbox](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
 
 ---
 
@@ -139,4 +139,4 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 - [配置指南](./config_guide.md) - 完整配置项说明
 - [QQ 机器人指南](./qq_bot_guide.md) - QQ 机器人模式
 - [企业微信指南](./wecom_guide.md) - 企业微信机器人模式
-- [文档索引](./index.md) - 完整文档导航
+- [文档索引](./reference.md) - 完整文档导航

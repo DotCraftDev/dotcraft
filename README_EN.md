@@ -2,8 +2,9 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/dotcraft)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Docs Site](https://img.shields.io/badge/docs-site-4A7FA5.svg)](https://dotharness.github.io/dotcraft/en/)
 
-**[中文](./README_ZH.md) | English**
+**[中文](./README.md) | English**
 
 A project-scoped agent harness for persistent AI workspaces.
 
@@ -68,9 +69,9 @@ DotCraft currently supports two setup paths:
 
 ### Advanced configuration
 
-For the full configuration surface, see the [Configuration Guide](./docs/en/config_guide.md).
+For the full configuration surface, see the [Configuration Guide](https://dotharness.github.io/dotcraft/en/config_guide).
 
-For the recommended visual setup flow in the built-in Dashboard, see the [Dashboard Guide](./docs/en/dash_board_guide.md).
+For the recommended visual setup flow in the built-in Dashboard, see the [Dashboard Guide](https://dotharness.github.io/dotcraft/en/dash_board_guide).
 
 ## 🔌 Entry Points
 
@@ -111,7 +112,7 @@ TUI is for users who want a richer terminal experience. It is built on Ratatui, 
 
 ### AppServer
 
-AppServer is DotCraft's unified backend boundary for exposing capabilities over a JSON-RPC Wire Protocol via stdio or WebSocket. It is the right entry point for remote CLI, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
+AppServer is DotCraft's unified backend boundary for exposing capabilities over a JSON-RPC Wire Protocol via stdio or WebSocket. It is the right entry point for remote CLI, multi-client access, and custom integrations in any language. See the [AppServer Guide](https://dotharness.github.io/dotcraft/en/appserver_guide).
 
 ### Desktop
 
@@ -119,11 +120,11 @@ Desktop is for users who want a graphical workspace for conversations, diffs, pl
 
 ### Editors and ACP
 
-Editors and ACP are for users who want DotCraft embedded directly into development tools, including Unity, Obsidian, and JetBrains IDEs. The key idea is not a separate editor-only agent, but an ACP bridge that connects the editor to the same AppServer runtime. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
+Editors and ACP are for users who want DotCraft embedded directly into development tools, including Unity, Obsidian, and JetBrains IDEs. The key idea is not a separate editor-only agent, but an ACP bridge that connects the editor to the same AppServer runtime. Start with the [ACP Mode Guide](https://dotharness.github.io/dotcraft/en/acp_guide); for Unity specifically, see the [Unity Integration Guide](https://dotharness.github.io/dotcraft/en/unity_guide) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
 ### Social Channels
 
-QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
+QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide) and [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide).
 
 For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](./sdk/python/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
 
@@ -135,7 +136,7 @@ DotCraft currently includes integrations for Telegram, WeChat, and Feishu/Lark.
 
 ### Automations
 
-Automations are for running local tasks and GitHub-driven workflows. See the [Automations Guide](./docs/en/automations_guide.md).
+Automations are for running local tasks and GitHub-driven workflows. See the [Automations Guide](https://dotharness.github.io/dotcraft/en/automations_guide).
 
 | Desktop Automations | GitHub tracker |
 |:---:|:---:|
@@ -146,7 +147,7 @@ Automations are for running local tasks and GitHub-driven workflows. See the [Au
 
 ### Dashboard
 
-Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
+Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. See the [Dashboard Guide](https://dotharness.github.io/dotcraft/en/dash_board_guide) for details.
 
 | Usage overview | Session trace |
 |:---:|:---:|
@@ -155,38 +156,36 @@ Dashboard is DotCraft's visual inspection and configuration surface for sessions
 
 ### Sandbox Isolation
 
-Sandbox Isolation is for scenarios where Shell and File tools should run inside a controlled execution boundary with stronger host isolation. Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
+Sandbox Isolation is for scenarios where Shell and File tools should run inside a controlled execution boundary with stronger host isolation. Installation, configuration, and security details are covered in the [Configuration Guide](https://dotharness.github.io/dotcraft/en/config_guide).
 
 ## 📚 Documentation
 
+For the full docs, visit the [Official Documentation](https://dotharness.github.io/dotcraft/en/).
+
 **I want to use DotCraft directly in a repo**
 
-- [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, startup modes, Gateway
-- [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
-- [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
+- [Configuration Guide](https://dotharness.github.io/dotcraft/en/config_guide): configuration, tools, security, approvals, MCP, sandbox, startup modes, Gateway
+- [Dashboard Guide](https://dotharness.github.io/dotcraft/en/dash_board_guide): Dashboard pages, debugging, and visual configuration
+- [Automations Guide](https://dotharness.github.io/dotcraft/en/automations_guide): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
 - [Rust TUI Guide](./tui/README.md): build, launch modes, key bindings, slash commands, and theme configuration
 
 **I want to connect DotCraft to an editor or client**
 
 - [Desktop Client Guide](./desktop/README.md): Electron desktop application, build, launch, and feature overview
-- [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
-- [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
+- [ACP Mode Guide](https://dotharness.github.io/dotcraft/en/acp_guide): editor/IDE integration (JetBrains, Obsidian, and more)
+- [Unity Integration Guide](https://dotharness.github.io/dotcraft/en/unity_guide): Unity Editor extension and AI-powered scene and asset tools
 
 **I want to use DotCraft as a server or backend**
 
-- [AppServer Guide](./docs/en/appserver_guide.md): wire protocol server, WebSocket transport, remote CLI
+- [AppServer Guide](https://dotharness.github.io/dotcraft/en/appserver_guide): wire protocol server, WebSocket transport, remote CLI
 
 **I want to build bots, adapters, or extensions**
 
-- [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals
-- [WeCom Guide](./docs/en/wecom_guide.md): WeCom push notifications and bot mode
+- [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide): NapCat, permissions, and approvals
+- [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide): WeCom push notifications and bot mode
 - [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
 - [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` for WeChat, Feishu, and similar channels
-- [Hooks Guide](./docs/en/hooks_guide.md): lifecycle hooks, shell extensions, and security guards
-
-**I want to continue into the full documentation set**
-
-- [Documentation Index](./docs/en/index.md): full documentation navigation
+- [Hooks Guide](https://dotharness.github.io/dotcraft/en/hooks_guide): lifecycle hooks, shell extensions, and security guards
 
 ## 🤝 Contributing
 
