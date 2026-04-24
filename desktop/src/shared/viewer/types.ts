@@ -220,6 +220,14 @@ export interface BrowserEventPayload {
   message?: string
 }
 
+export interface BrowserUseOpenPayload {
+  threadId: string
+  tabId: string
+  initialUrl: string
+  title?: string
+  focusMode: 'first-open' | 'none'
+}
+
 export type TerminalEventType = 'data' | 'exit'
 
 export interface TerminalDataEventPayload {

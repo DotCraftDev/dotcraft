@@ -1,5 +1,6 @@
 import { BrowserWindow, WebContentsView, nativeImage, session, shell } from 'electron'
 import { createHash } from 'crypto'
+import { fileURLToPath } from 'url'
 import type { BrowserEventPayload } from '../shared/viewer/types'
 import { installViewerProtocolHandlerForSession, viewerUrlToPath } from './viewerFileProtocol'
 
@@ -14,10 +15,13 @@ interface BrowserTabRuntime {
   tabId: string
   workspacePath: string
   view: WebContentsView
+  desiredVisible: boolean
   visible: boolean
+  boundsInitialized: boolean
   currentUrl: string
   title: string
   faviconDataUrl?: string
+  allowFileScheme?: boolean
 }
 
 interface WindowRuntime {
@@ -138,7 +142,12 @@ export class ViewerBrowserManager {
     this.startPageHint = hint.trim() || this.startPageHint
   }
 
-  createTab(win: BrowserWindow, params: { tabId: string; workspacePath: string; initialUrl?: string }): BrowserSnapshot {
+  createTab(win: BrowserWindow, params: {
+    tabId: string
+    workspacePath: string
+    initialUrl?: string
+    allowFileScheme?: boolean
+  }): BrowserSnapshot {
     const runtime = this.ensureWindowRuntime(win)
     const existing = runtime.tabs.get(params.tabId)
     if (existing) return this.snapshotFromRuntime(existing)
@@ -159,9 +168,12 @@ export class ViewerBrowserManager {
       tabId: params.tabId,
       workspacePath: params.workspacePath,
       view,
+      desiredVisible: false,
       visible: false,
+      boundsInitialized: false,
       currentUrl: START_URL,
-      title: DEFAULT_START_TITLE
+      title: DEFAULT_START_TITLE,
+      allowFileScheme: params.allowFileScheme === true
     }
     runtime.tabs.set(params.tabId, tabRuntime)
     this.bindWebContentsEvents(win, tabRuntime)
@@ -210,13 +222,60 @@ export class ViewerBrowserManager {
     this.byWindowId.delete(win.id)
   }
 
+  createAutomationTab(win: BrowserWindow, params: {
+    tabId: string
+    workspacePath: string
+    initialUrl?: string
+    width?: number
+    height?: number
+    allowFileScheme?: boolean
+  }): BrowserSnapshot {
+    const snapshot = this.createTab(win, {
+      tabId: params.tabId,
+      workspacePath: params.workspacePath,
+      initialUrl: params.initialUrl,
+      allowFileScheme: params.allowFileScheme
+    })
+    const tab = this.getTab(win, params.tabId)
+    if (tab) {
+      // Keep automation pages at a useful capture size before the renderer has
+      // measured the actual detail-panel slot. This must not count as initialized
+      // UI bounds, otherwise addChildView can briefly cover the whole window.
+      tab.view.setBounds({
+        x: -10000,
+        y: -10000,
+        width: Math.max(1, Math.round(params.width ?? 1280)),
+        height: Math.max(1, Math.round(params.height ?? 900))
+      })
+    }
+    return snapshot
+  }
+
+  getTabWebContents(win: BrowserWindow, tabId: string): Electron.WebContents | null {
+    const tab = this.getTab(win, tabId)
+    if (!tab || tab.view.webContents.isDestroyed()) return null
+    return tab.view.webContents
+  }
+
+  async loadAutomationUrl(win: BrowserWindow, params: { tabId: string; url: string }): Promise<void> {
+    const tab = this.getTab(win, params.tabId)
+    if (!tab) return
+    tab.currentUrl = params.url
+    await loadOrReport({
+      tabId: params.tabId,
+      url: params.url,
+      load: () => tab.view.webContents.loadURL(params.url),
+      emit: (payload) => emitBrowserEvent(win, payload)
+    })
+  }
+
   async navigate(win: BrowserWindow, params: { tabId: string; url: string }): Promise<void> {
     const tab = this.getTab(win, params.tabId)
     if (!tab) return
     const normalized = normalizeBrowserUrl(params.url)
     if (!normalized) return
 
-    const navigationDecision = classifyBrowserUrl(normalized)
+    const navigationDecision = this.classifyUrlForTab(tab, normalized)
     if (navigationDecision === 'external-handoff') {
       await shell.openExternal(normalized)
       emitBrowserEvent(win, { tabId: params.tabId, type: 'external-handoff', url: normalized })
@@ -277,16 +336,18 @@ export class ViewerBrowserManager {
       width,
       height
     })
+    tab.boundsInitialized = true
+    if (tab.desiredVisible && !tab.visible) {
+      this.attachView(win, tab)
+    }
   }
 
   setVisible(win: BrowserWindow, params: { tabId: string; visible: boolean }): void {
     const tab = this.getTab(win, params.tabId)
     if (!tab) return
+    tab.desiredVisible = params.visible
     if (params.visible) {
-      if (!tab.visible) {
-        win.contentView.addChildView(tab.view)
-        tab.visible = true
-      }
+      if (tab.boundsInitialized) this.attachView(win, tab)
     } else {
       this.detachView(win, tab)
     }
@@ -310,9 +371,13 @@ export class ViewerBrowserManager {
     if (!tab) return
     const current = tab.currentUrl || tab.view.webContents.getURL()
     const scheme = extractScheme(current)
-    if (!scheme || !ALLOWED_SCHEMES.has(scheme)) return
+    if (!scheme || this.classifyUrlForTab(tab, current) === 'blocked') return
     if (scheme === VIEWER_SCHEME) {
       await shell.openPath(viewerUrlToPath(current))
+      return
+    }
+    if (scheme === 'file:') {
+      await shell.openPath(fileURLToPath(current))
       return
     }
     await shell.openExternal(current)
@@ -417,12 +482,12 @@ export class ViewerBrowserManager {
     })
 
     wc.on('will-navigate', (event, url) => {
-      if (this.handleSchemeBoundary(win, tab.tabId, url)) {
+      if (this.handleSchemeBoundary(win, tab, url)) {
         event.preventDefault()
       }
     })
     wc.on('will-redirect', (event, url) => {
-      if (this.handleSchemeBoundary(win, tab.tabId, url)) {
+      if (this.handleSchemeBoundary(win, tab, url)) {
         event.preventDefault()
       }
     })
@@ -430,7 +495,7 @@ export class ViewerBrowserManager {
     wc.setWindowOpenHandler((details) => {
       const normalized = normalizeBrowserUrl(details.url)
       if (!normalized) return { action: 'deny' }
-      const navigationDecision = classifyBrowserUrl(normalized)
+      const navigationDecision = this.classifyUrlForTab(tab, normalized)
       if (navigationDecision === 'allow') {
         emitBrowserEvent(win, {
           tabId: tab.tabId,
@@ -452,18 +517,24 @@ export class ViewerBrowserManager {
     })
   }
 
-  private handleSchemeBoundary(win: BrowserWindow, tabId: string, url: string): boolean {
+  private classifyUrlForTab(tab: BrowserTabRuntime, url: string): BrowserNavigationDecision {
     const scheme = extractScheme(url)
-    const navigationDecision = classifyBrowserUrl(url)
+    if (scheme === 'file:' && tab.allowFileScheme === true) return 'allow'
+    return classifyBrowserUrl(url)
+  }
+
+  private handleSchemeBoundary(win: BrowserWindow, tab: BrowserTabRuntime, url: string): boolean {
+    const scheme = extractScheme(url)
+    const navigationDecision = this.classifyUrlForTab(tab, url)
     if (navigationDecision === 'allow') return false
     if (navigationDecision === 'external-handoff') {
       void shell.openExternal(url)
-      emitBrowserEvent(win, { tabId, type: 'external-handoff', url })
+      emitBrowserEvent(win, { tabId: tab.tabId, type: 'external-handoff', url })
       return true
     }
     if (navigationDecision === 'blocked') {
       emitBrowserEvent(win, {
-        tabId,
+        tabId: tab.tabId,
         type: 'blocked-navigation',
         message: `Blocked scheme: ${scheme ?? 'unknown'}`
       })
@@ -516,6 +587,13 @@ export class ViewerBrowserManager {
       // Ignore removal races when window is tearing down.
     }
     tab.visible = false
+  }
+
+  private attachView(win: BrowserWindow, tab: BrowserTabRuntime): void {
+    if (tab.visible) return
+    if (tab.view.webContents.isDestroyed()) return
+    win.contentView.addChildView(tab.view)
+    tab.visible = true
   }
 }
 

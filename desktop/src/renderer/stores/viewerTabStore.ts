@@ -165,10 +165,12 @@ interface ViewerTabStoreActions {
   /** Opens a browser tab in the given thread. */
   openBrowser(params: {
     threadId: string
+    tabId?: string
     target?: string
     initialUrl?: string
     initialLabel?: string
     forceNew?: boolean
+    activate?: boolean
   }): string
 
   /** Opens a terminal tab in the given thread. */
@@ -295,12 +297,42 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     return newTab.id
   },
 
-  openBrowser({ threadId, target, initialUrl = 'about:blank', initialLabel = 'New Tab' }) {
+  openBrowser({
+    threadId,
+    tabId,
+    target,
+    initialUrl = 'about:blank',
+    initialLabel = 'New Tab',
+    activate = true
+  }) {
     const state = get()
     const threadState = state.getThreadState(threadId)
+    const requestedId = tabId ?? nextTabId()
+    const existing = threadState.tabs.find((tab) => tab.id === requestedId)
+    if (existing?.kind === 'browser') {
+      const updatedTabs = computeLabels(threadState.tabs.map((tab) => {
+        if (tab.id !== requestedId || tab.kind !== 'browser') return tab
+        return {
+          ...tab,
+          target: target ?? tab.target,
+          currentUrl: initialUrl,
+          title: initialLabel || tab.title,
+          label: initialLabel || tab.label
+        }
+      }))
+      set((s) => {
+        const next = new Map(s.byThread)
+        next.set(threadId, {
+          tabs: updatedTabs,
+          activeTabId: activate ? requestedId : threadState.activeTabId
+        })
+        return { byThread: next }
+      })
+      return requestedId
+    }
 
     const newTab: BrowserViewerTab = {
-      id: nextTabId(),
+      id: requestedId,
       kind: 'browser',
       target: target ?? `browser-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`,
       label: initialLabel,
@@ -313,7 +345,10 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     const newTabs = computeLabels([...threadState.tabs, newTab])
     set((s) => {
       const next = new Map(s.byThread)
-      next.set(threadId, { tabs: newTabs, activeTabId: newTab.id })
+      next.set(threadId, {
+        tabs: newTabs,
+        activeTabId: activate ? newTab.id : threadState.activeTabId
+      })
       return { byThread: next }
     })
 

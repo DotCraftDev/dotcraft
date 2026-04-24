@@ -1,10 +1,10 @@
-import { BrowserWindow, session } from 'electron'
+import { BrowserWindow } from 'electron'
 import vm from 'vm'
-import { installViewerProtocolHandlerForSession } from './viewerFileProtocol'
-import { partitionForWorkspace } from './viewerBrowser'
+import { viewerBrowserManager } from './viewerBrowser'
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 const VIEWER_SCHEME = 'dotcraft-viewer:'
+const BROWSER_USE_OPEN_CHANNEL = 'viewer:browser-use:open'
 
 export interface BrowserUseEvaluateParams {
   threadId: string
@@ -26,9 +26,37 @@ export interface BrowserUseEvaluateResult {
   error?: string
 }
 
+export interface BrowserUseOpenPayload {
+  threadId: string
+  tabId: string
+  initialUrl: string
+  title?: string
+  focusMode: 'first-open' | 'none'
+}
+
+interface BrowserUseViewerHost {
+  createAutomationTab(win: BrowserWindow, params: {
+    tabId: string
+    workspacePath: string
+    initialUrl?: string
+    width?: number
+    height?: number
+    allowFileScheme?: boolean
+  }): unknown
+  getTabWebContents(win: BrowserWindow, tabId: string): Electron.WebContents | null
+  loadAutomationUrl(win: BrowserWindow, params: { tabId: string; url: string }): Promise<void>
+  destroyTab(win: BrowserWindow, tabId: string): void
+  snapshotState(win: BrowserWindow, tabId: string): {
+    tabId: string
+    currentUrl: string
+    title: string
+    loading: boolean
+  } | null
+}
+
 interface BrowserUseTabRuntime {
   id: string
-  window: BrowserWindow
+  owner: BrowserWindow
   logs: string[]
 }
 
@@ -41,6 +69,7 @@ interface BrowserUseThreadRuntime {
   selectedTabId: string | null
   logs: string[]
   images: BrowserUseImageResult[]
+  hasFocusedFirstTab: boolean
 }
 
 export function normalizeBrowserUseUrl(input: string): string | null {
@@ -91,10 +120,15 @@ function describeResult(value: unknown): string {
   }
 }
 
+function sanitizeThreadId(threadId: string): string {
+  return threadId.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
 export class BrowserUseManager {
   private readonly runtimes = new Map<string, BrowserUseThreadRuntime>()
-  private readonly configuredPartitions = new Set<string>()
   private nextTabId = 1
+
+  constructor(private readonly viewerHost: BrowserUseViewerHost = viewerBrowserManager) {}
 
   async evaluate(owner: BrowserWindow, params: BrowserUseEvaluateParams): Promise<BrowserUseEvaluateResult> {
     const runtime = this.getOrCreateRuntime(owner, params.threadId, params.workspacePath)
@@ -123,8 +157,8 @@ export class BrowserUseManager {
   reset(threadId: string): { ok: boolean } {
     const runtime = this.runtimes.get(threadId)
     if (!runtime) return { ok: false }
-    for (const tab of runtime.tabs.values()) {
-      if (!tab.window.isDestroyed()) tab.window.close()
+    for (const tab of [...runtime.tabs.values()]) {
+      this.viewerHost.destroyTab(tab.owner, tab.id)
     }
     this.runtimes.delete(threadId)
     return { ok: true }
@@ -146,7 +180,8 @@ export class BrowserUseManager {
       tabs: new Map<string, BrowserUseTabRuntime>(),
       selectedTabId: null,
       logs: [],
-      images: []
+      images: [],
+      hasFocusedFirstTab: false
     } satisfies BrowserUseThreadRuntime
 
     const display = async (imageLike: unknown): Promise<void> => {
@@ -218,49 +253,57 @@ export class BrowserUseManager {
     runtime: BrowserUseThreadRuntime,
     initialUrl?: string
   ): Promise<BrowserUseTabRuntime> {
-    const id = `browser-use-tab-${this.nextTabId++}`
-    const partitionName = partitionForWorkspace(runtime.workspacePath || owner.getTitle())
-    const partitionSession = session.fromPartition(partitionName)
-    this.configurePartition(partitionName, partitionSession)
+    const normalizedInitial = initialUrl ? normalizeBrowserUseUrl(initialUrl) : null
+    if (initialUrl && !normalizedInitial) throw new Error(`Invalid browser URL: ${initialUrl}`)
+    if (normalizedInitial && !isBrowserUseUrlAllowed(normalizedInitial)) {
+      throw new Error(`Blocked browser-use navigation to non-local URL: ${normalizedInitial}`)
+    }
 
-    const win = new BrowserWindow({
-      show: false,
+    const id = `browser-use-${sanitizeThreadId(runtime.threadId)}-${this.nextTabId++}`
+    this.viewerHost.createAutomationTab(owner, {
+      tabId: id,
+      workspacePath: runtime.workspacePath || owner.getTitle(),
+      initialUrl: 'about:blank',
       width: 1280,
       height: 900,
-      webPreferences: {
-        session: partitionSession,
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false
-      }
+      allowFileScheme: true
     })
-    const tab: BrowserUseTabRuntime = { id, window: win, logs: [] }
+
+    const wc = this.webContentsFor(owner, id)
+    const tab: BrowserUseTabRuntime = { id, owner, logs: [] }
     runtime.tabs.set(id, tab)
 
-    win.webContents.on('console-message', (_event, _level, message) => {
+    wc.on('console-message', (_event, _level, message) => {
       tab.logs.push(message)
     })
-    win.on('closed', () => {
+    wc.once('destroyed', () => {
       runtime.tabs.delete(id)
       if (runtime.selectedTabId === id) runtime.selectedTabId = null
     })
 
-    if (initialUrl) await this.navigate(tab, initialUrl)
+    const focusMode = runtime.hasFocusedFirstTab ? 'none' : 'first-open'
+    runtime.hasFocusedFirstTab = true
+    this.emitOpen(owner, {
+      threadId: runtime.threadId,
+      tabId: id,
+      initialUrl: normalizedInitial ?? 'about:blank',
+      title: runtime.sessionName?.trim() || 'Browser Use',
+      focusMode
+    })
+
+    if (normalizedInitial) await this.navigate(tab, normalizedInitial)
     return tab
   }
 
-  private configurePartition(partitionName: string, partitionSession: Electron.Session): void {
-    if (this.configuredPartitions.has(partitionName)) return
-    installViewerProtocolHandlerForSession(partitionSession)
-    partitionSession.on('will-download', (event, item) => {
-      event.preventDefault()
-      item.cancel()
-    })
-    partitionSession.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
-    partitionSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'clipboard-sanitized-write')
-    })
-    this.configuredPartitions.add(partitionName)
+  private emitOpen(owner: BrowserWindow, payload: BrowserUseOpenPayload): void {
+    if (owner.isDestroyed() || owner.webContents.isDestroyed()) return
+    owner.webContents.send(BROWSER_USE_OPEN_CHANNEL, payload)
+  }
+
+  private webContentsFor(owner: BrowserWindow, tabId: string): Electron.WebContents {
+    const wc = this.viewerHost.getTabWebContents(owner, tabId)
+    if (!wc || wc.isDestroyed()) throw new Error(`Browser tab is no longer available: ${tabId}`)
+    return wc
   }
 
   private getSelectedTab(runtime: BrowserUseThreadRuntime): BrowserUseTabRuntime {
@@ -277,8 +320,8 @@ export class BrowserUseManager {
     return {
       id: tab.id,
       navigate: async (url: string) => this.navigate(tab, url),
-      url: async () => tab.window.webContents.getURL(),
-      title: async () => tab.window.webContents.getTitle(),
+      url: async () => this.webContentsFor(tab.owner, tab.id).getURL(),
+      title: async () => this.webContentsFor(tab.owner, tab.id).getTitle(),
       screenshot: async () => this.screenshot(tab),
       domSnapshot: async () => this.domSnapshot(tab),
       evaluate: async (expressionOrFunction: string | (() => unknown)) => this.evaluateInPage(tab, expressionOrFunction),
@@ -291,11 +334,21 @@ export class BrowserUseManager {
   }
 
   private tabSnapshot(tab: BrowserUseTabRuntime): Record<string, unknown> {
+    const snapshot = this.viewerHost.snapshotState(tab.owner, tab.id)
+    if (snapshot) {
+      return {
+        id: tab.id,
+        url: snapshot.currentUrl,
+        title: snapshot.title,
+        loading: snapshot.loading
+      }
+    }
+    const wc = this.webContentsFor(tab.owner, tab.id)
     return {
       id: tab.id,
-      url: tab.window.webContents.getURL(),
-      title: tab.window.webContents.getTitle(),
-      loading: tab.window.webContents.isLoading()
+      url: wc.getURL(),
+      title: wc.getTitle(),
+      loading: wc.isLoading()
     }
   }
 
@@ -305,12 +358,12 @@ export class BrowserUseManager {
     if (!isBrowserUseUrlAllowed(normalized)) {
       throw new Error(`Blocked browser-use navigation to non-local URL: ${normalized}`)
     }
-    await tab.window.webContents.loadURL(normalized)
+    await this.viewerHost.loadAutomationUrl(tab.owner, { tabId: tab.id, url: normalized })
     return this.tabSnapshot(tab)
   }
 
   private async screenshot(tab: BrowserUseTabRuntime): Promise<BrowserUseImageResult> {
-    const image = await tab.window.webContents.capturePage()
+    const image = await this.webContentsFor(tab.owner, tab.id).capturePage()
     return {
       mediaType: 'image/png',
       dataBase64: image.toPNG().toString('base64')
@@ -318,7 +371,7 @@ export class BrowserUseManager {
   }
 
   private async domSnapshot(tab: BrowserUseTabRuntime): Promise<string> {
-    return String(await tab.window.webContents.executeJavaScript(`
+    return String(await this.webContentsFor(tab.owner, tab.id).executeJavaScript(`
       (() => {
         const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
         const labels = Array.from(document.querySelectorAll(interesting.join(','))).slice(0, 200).map((el) => {
@@ -338,12 +391,12 @@ export class BrowserUseManager {
     const source = typeof expressionOrFunction === 'function'
       ? `(${expressionOrFunction.toString()})()`
       : String(expressionOrFunction)
-    return tab.window.webContents.executeJavaScript(source)
+    return this.webContentsFor(tab.owner, tab.id).executeJavaScript(source)
   }
 
   private async click(tab: BrowserUseTabRuntime, selector: string): Promise<void> {
     const quotedSelector = JSON.stringify(selector)
-    await tab.window.webContents.executeJavaScript(`
+    await this.webContentsFor(tab.owner, tab.id).executeJavaScript(`
       (() => {
         const selector = ${quotedSelector};
         const el = document.querySelector(selector);
@@ -354,8 +407,9 @@ export class BrowserUseManager {
   }
 
   private async type(tab: BrowserUseTabRuntime, selector: string, text: string): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
     const quotedSelector = JSON.stringify(selector)
-    await tab.window.webContents.executeJavaScript(`
+    await wc.executeJavaScript(`
       (() => {
         const selector = ${quotedSelector};
         const el = document.querySelector(selector);
@@ -363,12 +417,13 @@ export class BrowserUseManager {
         el.focus();
       })()
     `)
-    tab.window.webContents.insertText(text)
+    wc.insertText(text)
   }
 
   private async press(tab: BrowserUseTabRuntime, selector: string, key: string): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
     const quotedSelector = JSON.stringify(selector)
-    await tab.window.webContents.executeJavaScript(`
+    await wc.executeJavaScript(`
       (() => {
         const selector = ${quotedSelector};
         const el = document.querySelector(selector);
@@ -376,12 +431,13 @@ export class BrowserUseManager {
         el.focus();
       })()
     `)
-    tab.window.webContents.sendInputEvent({ type: 'keyDown', keyCode: key })
-    tab.window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key })
+    wc.sendInputEvent({ type: 'keyDown', keyCode: key })
+    wc.sendInputEvent({ type: 'keyUp', keyCode: key })
   }
 
   private waitForLoad(tab: BrowserUseTabRuntime, timeoutMs: number): Promise<void> {
-    if (!tab.window.webContents.isLoading()) return Promise.resolve()
+    const wc = this.webContentsFor(tab.owner, tab.id)
+    if (!wc.isLoading()) return Promise.resolve()
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         cleanup()
@@ -393,11 +449,11 @@ export class BrowserUseManager {
       }
       const cleanup = () => {
         clearTimeout(timeout)
-        tab.window.webContents.off('did-finish-load', done)
-        tab.window.webContents.off('did-stop-loading', done)
+        wc.off('did-finish-load', done)
+        wc.off('did-stop-loading', done)
       }
-      tab.window.webContents.once('did-finish-load', done)
-      tab.window.webContents.once('did-stop-loading', done)
+      wc.once('did-finish-load', done)
+      wc.once('did-stop-loading', done)
     })
   }
 
@@ -419,3 +475,4 @@ export class BrowserUseManager {
 }
 
 export const browserUseManager = new BrowserUseManager()
+export { BROWSER_USE_OPEN_CHANNEL }

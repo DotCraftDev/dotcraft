@@ -102,6 +102,61 @@ describe('openBrowser / updateBrowserTab', () => {
     expect(threadState.activeTabId).toBe(id)
   })
 
+  it('opens browser tab with caller-provided id for browser-use integration', () => {
+    store().onThreadSwitched(THREAD_A)
+    const id = store().openBrowser({
+      threadId: THREAD_A,
+      tabId: 'browser-use-thread-a-1',
+      target: 'browser-use-thread-a-1',
+      initialUrl: 'http://localhost:3000/',
+      initialLabel: 'Browser Use'
+    })
+
+    expect(id).toBe('browser-use-thread-a-1')
+    const threadState = store().getThreadState(THREAD_A)
+    expect(threadState.tabs).toHaveLength(1)
+    expect(threadState.activeTabId).toBe(id)
+  })
+
+  it('deduplicates caller-provided browser tab ids', () => {
+    store().onThreadSwitched(THREAD_A)
+    const first = store().openBrowser({
+      threadId: THREAD_A,
+      tabId: 'browser-use-thread-a-1',
+      initialUrl: 'http://localhost:3000/'
+    })
+    const second = store().openBrowser({
+      threadId: THREAD_A,
+      tabId: 'browser-use-thread-a-1',
+      initialUrl: 'http://localhost:3001/',
+      initialLabel: 'Updated'
+    })
+
+    const threadState = store().getThreadState(THREAD_A)
+    expect(second).toBe(first)
+    expect(threadState.tabs).toHaveLength(1)
+    const tab = threadState.tabs[0]
+    expect(tab?.kind).toBe('browser')
+    if (tab?.kind === 'browser') {
+      expect(tab.currentUrl).toBe('http://localhost:3001/')
+      expect(tab.title).toBe('Updated')
+    }
+  })
+
+  it('can register browser tab without activating it', () => {
+    store().onThreadSwitched(THREAD_A)
+    const fileId = openFile(THREAD_A, 'src/index.ts')
+    const browserId = store().openBrowser({
+      threadId: THREAD_A,
+      tabId: 'browser-use-thread-a-1',
+      initialUrl: 'http://localhost:3000/',
+      activate: false
+    })
+
+    expect(browserId).toBe('browser-use-thread-a-1')
+    expect(store().getThreadState(THREAD_A).activeTabId).toBe(fileId)
+  })
+
   it('updates browser tabs via patch and keeps browser kind stable', () => {
     store().onThreadSwitched(THREAD_A)
     const id = store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com' })

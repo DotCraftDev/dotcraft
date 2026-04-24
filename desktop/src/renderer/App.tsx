@@ -44,6 +44,7 @@ import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
+import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
@@ -949,6 +950,13 @@ export function App(): JSX.Element {
    */
   const subscribedThreadIdRef = useRef<string | null>(null)
   const { activeThreadId } = useThreadStore()
+
+  useEffect(() => {
+    const unsubscribe = window.api.workspace.viewer.browserUse.onOpen(handleBrowserUseOpen)
+    return () => {
+      unsubscribe()
+    }
+  }, [])
 
   // Keep viewerTabStore in sync with active thread, and restore/fallback
   // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).

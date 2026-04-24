@@ -5,6 +5,7 @@ import {
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
 import type {
+  BrowserUseOpenPayload,
   BrowserEventPayload,
   TerminalDataEventPayload,
   TerminalExitEventPayload
@@ -670,7 +671,7 @@ const api = {
         return ipcRenderer.invoke('workspace:viewer:to-viewer-url', params)
       },
 
-      browser: {
+        browser: {
         create(params: {
           tabId: string
           workspacePath: string
@@ -733,13 +734,20 @@ const api = {
         } | null> {
           return ipcRenderer.invoke('viewer:browser:snapshot', params)
         },
-        onEvent(listener: (event: BrowserEventPayload) => void): UnsubscribeFn {
-          const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserEventPayload) => listener(payload)
-          ipcRenderer.on('viewer:browser:event', wrapped)
-          return () => ipcRenderer.removeListener('viewer:browser:event', wrapped)
-        }
-      },
-      terminal: {
+          onEvent(listener: (event: BrowserEventPayload) => void): UnsubscribeFn {
+            const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserEventPayload) => listener(payload)
+            ipcRenderer.on('viewer:browser:event', wrapped)
+            return () => ipcRenderer.removeListener('viewer:browser:event', wrapped)
+          }
+        },
+        browserUse: {
+          onOpen(listener: (event: BrowserUseOpenPayload) => void): UnsubscribeFn {
+            const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserUseOpenPayload) => listener(payload)
+            ipcRenderer.on('viewer:browser-use:open', wrapped)
+            return () => ipcRenderer.removeListener('viewer:browser-use:open', wrapped)
+          },
+        },
+          terminal: {
         create(params: {
           tabId: string
           threadId: string

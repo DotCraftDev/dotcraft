@@ -45,6 +45,14 @@ export interface BrowserEventPayload {
   message?: string
 }
 
+export interface BrowserUseOpenPayload {
+  threadId: string
+  tabId: string
+  initialUrl: string
+  title?: string
+  focusMode: 'first-open' | 'none'
+}
+
 export interface TerminalDataEventPayload {
   tabId: string
   type: 'data'
@@ -394,10 +402,13 @@ declare global {
               canGoBack: boolean
               canGoForward: boolean
               loading: boolean
-            } | null>
-            onEvent(callback: (event: BrowserEventPayload) => void): UnsubscribeFn
-          }
-          terminal: {
+              } | null>
+              onEvent(callback: (event: BrowserEventPayload) => void): UnsubscribeFn
+            }
+            browserUse: {
+              onOpen(callback: (event: BrowserUseOpenPayload) => void): UnsubscribeFn
+            }
+            terminal: {
             create(params: {
               tabId: string
               threadId: string
