@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationTemplate
@@ -26,14 +26,14 @@ export function TemplateGalleryOverlay({
   onCreateNew
 }: Props): JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const templates = useAutomationsStore((s) => s.templates)
-  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const deleteTemplate = useAutomationsStore((s) => s.deleteTemplate)
 
   useEffect(() => {
-    if (!templatesLoaded) void fetchTemplates()
-  }, [templatesLoaded, fetchTemplates])
+    void fetchTemplates(locale)
+  }, [fetchTemplates, locale])
 
   const builtIns = templates.filter((tpl) => !tpl.isUser)
   const userTemplates = templates.filter((tpl) => tpl.isUser)

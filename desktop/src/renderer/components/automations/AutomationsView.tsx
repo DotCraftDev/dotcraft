@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationTemplate,
@@ -62,6 +62,7 @@ function SkeletonCard(): JSX.Element {
 
 export function AutomationsView(): JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const hasTasks = capabilities?.automations === true
   const hasCron = capabilities?.cronManagement === true
@@ -89,7 +90,6 @@ export function AutomationsView(): JSX.Element {
   const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
   const templates = useAutomationsStore((s) => s.templates)
-  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const [templatesCollapsed, setTemplatesCollapsed] = useState(false)
 
@@ -131,10 +131,10 @@ export function AutomationsView(): JSX.Element {
   }, [hasTasks, startPolling, stopPolling])
 
   useEffect(() => {
-    if (hasTasks && filterSource !== 'github' && !templatesLoaded) {
-      void fetchTemplates()
+    if (hasTasks && filterSource !== 'github') {
+      void fetchTemplates(locale)
     }
-  }, [hasTasks, filterSource, templatesLoaded, fetchTemplates])
+  }, [hasTasks, filterSource, locale, fetchTemplates])
 
   useEffect(() => {
     return () => {

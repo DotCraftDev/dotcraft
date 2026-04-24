@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useReviewPanelStore } from './reviewPanelStore'
+import { DEFAULT_LOCALE, type AppLocale } from '../../shared/locales/types'
 
 /** Polling interval for task list while Automations view is mounted (ms). */
 const AUTOMATIONS_POLL_MS = 15_000
@@ -124,6 +125,7 @@ interface AutomationsState {
   /** Cached built-in templates (lazy-loaded on first fetchTemplates call). */
   templates: AutomationTemplate[]
   templatesLoaded: boolean
+  templatesLocale?: AppLocale
 
   /** Full refresh (shows loading). Use for initial load and explicit user refresh. */
   fetchTasks(options?: { silent?: boolean }): Promise<void>
@@ -141,7 +143,7 @@ interface AutomationsState {
     binding: AutomationThreadBinding | null
   ): Promise<AutomationTask>
   /** Fetches and caches the built-in + user local templates. No-op if already loaded. */
-  fetchTemplates(force?: boolean): Promise<void>
+  fetchTemplates(locale?: AppLocale, force?: boolean): Promise<void>
   /** Creates or updates a user-authored template. Refreshes the cached templates list. */
   saveTemplate(input: SaveTemplateInput): Promise<AutomationTemplate>
   /** Deletes a user-authored template. Built-in ids are rejected by the server. */
@@ -160,6 +162,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   filterSource: 'all',
   templates: [],
   templatesLoaded: false,
+  templatesLocale: undefined,
 
   async fetchTasks(options?: { silent?: boolean }) {
     const silent = options?.silent === true
@@ -238,16 +241,27 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     return updated
   },
 
-  async fetchTemplates(force?: boolean) {
-    if (!force && get().templatesLoaded) return
+  async fetchTemplates(locale?: AppLocale, force?: boolean) {
+    const requestedLocale = locale ?? DEFAULT_LOCALE
+    if (
+      !force &&
+      get().templatesLoaded &&
+      get().templatesLocale === requestedLocale
+    ) {
+      return
+    }
     try {
       const result = (await window.api.appServer.sendRequest(
         'automation/template/list',
-        {}
+        { locale: requestedLocale }
       )) as { templates?: AutomationTemplate[] }
-      set({ templates: result.templates ?? [], templatesLoaded: true })
+      set({
+        templates: result.templates ?? [],
+        templatesLoaded: true,
+        templatesLocale: requestedLocale
+      })
     } catch {
-      set({ templates: [], templatesLoaded: true })
+      set({ templates: [], templatesLoaded: true, templatesLocale: requestedLocale })
     }
   },
 
