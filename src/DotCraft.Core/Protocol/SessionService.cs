@@ -80,23 +80,14 @@ public sealed class SessionService(
         if (string.IsNullOrWhiteSpace(threadId))
             return null;
 
+        var tokens = persistence.LoadContextUsageTokens(threadId);
+        return tokens is null ? null : CreateContextUsageSnapshot(tokens.Value);
+    }
+
+    private ContextUsageSnapshot CreateContextUsageSnapshot(long tokens)
+    {
         var pipeline = agentFactory.CompactionPipeline;
-        long? tokens = null;
-
-        var tracker = agentFactory.TryGetTokenTracker(threadId);
-        if (tracker is not null)
-        {
-            tokens = tracker.LastInputTokens;
-        }
-        else if (_threads.TryGetValue(threadId, out var thread))
-        {
-            tokens = EstimateCompletedHistoryTokens(thread);
-        }
-
-        if (tokens is null)
-            return null;
-
-        var threshold = pipeline.EvaluateThreshold(tokens.Value);
+        var threshold = pipeline.EvaluateThreshold(tokens);
 
         return new ContextUsageSnapshot
         {
@@ -109,32 +100,14 @@ public sealed class SessionService(
         };
     }
 
-    private static long? EstimateCompletedHistoryTokens(SessionThread thread)
+    private async Task<ContextUsageSnapshot> SaveContextUsageSnapshotAsync(
+        string threadId,
+        long tokens,
+        CancellationToken ct = default)
     {
-        var history = new List<ChatMessage>();
-        foreach (var turn in thread.Turns.OrderBy(t => t.StartedAt).ThenBy(t => t.Id, StringComparer.Ordinal))
-        {
-            foreach (var item in turn.Items)
-            {
-                if (item.Status != ItemStatus.Completed)
-                    continue;
-
-                if (item.Type == ItemType.UserMessage
-                    && item.AsUserMessage is { Text: { } userText }
-                    && !string.IsNullOrWhiteSpace(userText))
-                {
-                    history.Add(new ChatMessage(ChatRole.User, userText.Trim()));
-                }
-                else if (item.Type == ItemType.AgentMessage
-                    && item.AsAgentMessage is { Text: { } agentText }
-                    && !string.IsNullOrWhiteSpace(agentText))
-                {
-                    history.Add(new ChatMessage(ChatRole.Assistant, agentText.Trim()));
-                }
-            }
-        }
-
-        return history.Count == 0 ? null : MessageTokenEstimator.Estimate(history);
+        var normalizedTokens = Math.Max(0, tokens);
+        await persistence.SaveContextUsageTokensAsync(threadId, normalizedTokens, ct);
+        return CreateContextUsageSnapshot(normalizedTokens);
     }
 
     // =========================================================================
@@ -178,6 +151,9 @@ public sealed class SessionService(
         // runtime external channel tools may need thread-scoped injection.
         if (config != null || channelRuntimeToolProvider != null)
             _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
+
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        await SaveContextUsageSnapshotAsync(thread.Id, 0, ct);
 
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
         ThreadCreatedForBroadcast?.Invoke(thread);
@@ -1031,11 +1007,16 @@ public sealed class SessionService(
                                             inputTokens += deltaIn;
                                             outputTokens += deltaOut;
                                             tokenTracker.UpdateWithStreamingDeltas(deltaIn, deltaOut, curIn);
+                                            var contextUsage = await SaveContextUsageSnapshotAsync(
+                                                threadId,
+                                                tokenTracker.LastInputTokens,
+                                                CancellationToken.None);
                                             eventChannel.EmitUsageDelta(
                                                 deltaIn,
                                                 deltaOut,
                                                 totalInputTokens: tokenTracker.LastInputTokens,
-                                                totalOutputTokens: outputTokens);
+                                                totalOutputTokens: outputTokens,
+                                                contextUsage: contextUsage);
                                         }
                                     }
 
@@ -1138,6 +1119,10 @@ public sealed class SessionService(
                             case CompactionOutcome.Micro:
                             case CompactionOutcome.Partial:
                                 tokenTracker.Reset();
+                                await SaveContextUsageSnapshotAsync(
+                                    threadId,
+                                    status.ThresholdAfter.Tokens,
+                                    CancellationToken.None);
                                 traceCollector?.RecordContextCompaction(threadId);
                                 eventChannel.EmitSystemEvent(
                                     "compacted",
@@ -1242,6 +1227,10 @@ public sealed class SessionService(
                         if (status.Success)
                         {
                             tokenTracker?.Reset();
+                            await SaveContextUsageSnapshotAsync(
+                                threadId,
+                                status.ThresholdAfter.Tokens,
+                                CancellationToken.None);
                             traceCollector?.RecordContextCompaction(threadId);
                             eventChannel.EmitSystemEvent(
                                 "compacted",

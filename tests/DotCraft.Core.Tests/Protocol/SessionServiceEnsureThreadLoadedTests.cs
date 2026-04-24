@@ -62,7 +62,7 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateThreadAsync_DoesNotMaterializeThreadFile_UntilTurnPersists()
+    public async Task CreateThreadAsync_MaterializesThreadAndInitializesContextUsage()
     {
         var store = new ThreadStore(_tempDir);
         var persistence = new SessionPersistenceService(store);
@@ -79,7 +79,9 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
 
         var thread = await svc.CreateThreadAsync(identity);
         var fromDisk = await store.LoadThreadAsync(thread.Id);
-        Assert.Null(fromDisk);
+        Assert.NotNull(fromDisk);
+        Assert.Equal(thread.Id, fromDisk!.Id);
+        Assert.Equal(0, store.LoadContextUsageTokens(thread.Id));
 
         var listed = await svc.FindThreadsAsync(identity);
         Assert.Contains(listed, s => s.Id == thread.Id);

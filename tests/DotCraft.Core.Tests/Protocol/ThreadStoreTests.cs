@@ -180,6 +180,33 @@ public sealed class ThreadStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ContextUsageTokens_SaveLoadAndUpdate_RoundTrips()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+
+        Assert.Null(_store.LoadContextUsageTokens(thread.Id));
+
+        await _store.SaveContextUsageTokensAsync(thread.Id, 42_000);
+        Assert.Equal(42_000, _store.LoadContextUsageTokens(thread.Id));
+
+        await _store.SaveContextUsageTokensAsync(thread.Id, 17_500);
+        Assert.Equal(17_500, _store.LoadContextUsageTokens(thread.Id));
+    }
+
+    [Fact]
+    public async Task ContextUsageTokens_DeleteThread_RemovesPersistedUsage()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+        await _store.SaveContextUsageTokensAsync(thread.Id, 42_000);
+
+        _store.DeleteThread(thread.Id);
+
+        Assert.Null(_store.LoadContextUsageTokens(thread.Id));
+    }
+
+    [Fact]
     public async Task SaveThread_MultipleSavesWithMutableObject_RoundTripsFinalState()
     {
         var thread = CreateThread();

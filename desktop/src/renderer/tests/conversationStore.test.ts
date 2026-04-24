@@ -485,6 +485,23 @@ describe('context usage (token ring)', () => {
     expect(s().contextUsage).toBeNull()
   })
 
+  it('seeds contextUsage from onUsageDelta full snapshot', () => {
+    s().onUsageDelta(100, 50, 5000, 50, {
+      tokens: 5000,
+      contextWindow: 200_000,
+      autoCompactThreshold: 180_000,
+      warningThreshold: 176_000,
+      errorThreshold: 194_000,
+      percentLeft: 0.975
+    })
+
+    expect(s().inputTokens).toBe(100)
+    expect(s().outputTokens).toBe(50)
+    expect(s().contextUsage?.tokens).toBe(5000)
+    expect(s().contextUsage?.percentLeft).toBe(0.975)
+    expect(s().contextUsage?.severity).toBe('normal')
+  })
+
   it('clears contextUsage when setContextUsage(null) is called', () => {
     s().setContextUsage(baseSnapshot)
     s().setContextUsage(null)

@@ -51,8 +51,8 @@ export type ContextUsageSeverity = 'normal' | 'warning' | 'error'
 
 /**
  * Mirror of the backend `ContextUsageSnapshot` wire shape, plus a derived
- * severity bucket for UI color coding. Null when the thread has no live
- * token tracker or completed history estimate yet.
+ * severity bucket for UI color coding. Null when the thread has no persisted
+ * context usage state yet.
  */
 export interface ContextUsage {
   tokens: number
@@ -62,6 +62,15 @@ export interface ContextUsage {
   errorThreshold: number
   percentLeft: number
   severity: ContextUsageSeverity
+}
+
+interface ContextUsageSnapshotInput {
+  tokens: number
+  contextWindow: number
+  autoCompactThreshold: number
+  warningThreshold: number
+  errorThreshold: number
+  percentLeft: number
 }
 
 // ---------------------------------------------------------------------------
@@ -168,15 +177,16 @@ interface ConversationActions {
   /**
    * item/usage/delta notification.
    *
-   * `totalInputTokens` (when provided) is the current context-occupancy
-   * snapshot from `TokenTracker.LastInputTokens` and drives the token ring
+   * `totalInputTokens` (when provided) is the current persisted
+   * context-occupancy snapshot for the thread and drives the token ring
    * directly. It is not billing/cumulative turn usage.
    */
   onUsageDelta(
     inputTokens: number,
     outputTokens: number,
     totalInputTokens?: number | null,
-    totalOutputTokens?: number | null
+    totalOutputTokens?: number | null,
+    contextUsage?: ContextUsageSnapshotInput | null
   ): void
   /**
    * system/event notification. Accepts the full params from the wire so we can
@@ -363,14 +373,7 @@ function clampPercent(value: number): number {
   return value
 }
 
-function toContextUsage(snapshot: {
-  tokens: number
-  contextWindow: number
-  autoCompactThreshold: number
-  warningThreshold: number
-  errorThreshold: number
-  percentLeft: number
-}): ContextUsage {
+function toContextUsage(snapshot: ContextUsageSnapshotInput): ContextUsage {
   const tokens = Math.max(0, Math.trunc(snapshot.tokens ?? 0))
   return {
     tokens,
@@ -1375,14 +1378,16 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     }
   },
 
-  onUsageDelta(inputTokens, outputTokens, totalInputTokens, totalOutputTokens) {
+  onUsageDelta(inputTokens, outputTokens, totalInputTokens, totalOutputTokens, contextUsageSnapshot) {
     set((state) => {
       const nextInput = state.inputTokens + inputTokens
       const nextOutput = state.outputTokens + outputTokens
-      const nextContextUsage = applyTokensToContextUsage(
-        state.contextUsage,
-        typeof totalInputTokens === 'number' ? totalInputTokens : null
-      )
+      const nextContextUsage = contextUsageSnapshot
+        ? toContextUsage(contextUsageSnapshot)
+        : applyTokensToContextUsage(
+          state.contextUsage,
+          typeof totalInputTokens === 'number' ? totalInputTokens : null
+        )
       void totalOutputTokens
       return {
         inputTokens: nextInput,

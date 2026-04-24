@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useSkillsStore } from '../stores/skillsStore'
-import type { ThreadSummary } from '../types/thread'
+import type { ContextUsageSnapshotWire, ThreadSummary } from '../types/thread'
 import type { InputPart } from '../types/conversation'
 import { resolveWorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
 import { buildComposerInputParts } from '../utils/composeInputParts'
@@ -153,7 +153,10 @@ function dispatch(payload: { method: string; params: unknown }): void {
       if (!shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) break
       const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
       const totalOutput = typeof p.totalOutputTokens === 'number' ? (p.totalOutputTokens as number) : null
-      conv.onUsageDelta((p.inputTokens as number) ?? 0, (p.outputTokens as number) ?? 0, totalInput, totalOutput)
+      const contextUsage = typeof p.contextUsage === 'object' && p.contextUsage !== null
+        ? p.contextUsage as ContextUsageSnapshotWire
+        : null
+      conv.onUsageDelta((p.inputTokens as number) ?? 0, (p.outputTokens as number) ?? 0, totalInput, totalOutput, contextUsage)
       break
     }
 
@@ -786,6 +789,36 @@ describe('notification dispatch payload format', () => {
     expect(s().outputTokens).toBe(200)
     expect(s().contextUsage?.tokens).toBe(180_500)
     expect(s().contextUsage?.severity).toBe('warning')
+  })
+
+  it('uses active item/usage/delta contextUsage snapshot to create the context ring', () => {
+    expect(s().contextUsage).toBeNull()
+
+    dispatch({
+      method: 'item/usage/delta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn_active',
+        inputTokens: 500,
+        outputTokens: 50,
+        totalInputTokens: 44_000,
+        totalOutputTokens: 50,
+        contextUsage: {
+          tokens: 44_000,
+          contextWindow: 200_000,
+          autoCompactThreshold: 180_000,
+          warningThreshold: 176_000,
+          errorThreshold: 194_000,
+          percentLeft: 0.78
+        }
+      }
+    })
+
+    expect(s().inputTokens).toBe(500)
+    expect(s().outputTokens).toBe(50)
+    expect(s().contextUsage?.tokens).toBe(44_000)
+    expect(s().contextUsage?.percentLeft).toBe(0.78)
+    expect(s().contextUsage?.severity).toBe('normal')
   })
 
   it('dispatches system/event and sets systemLabel', () => {

@@ -40,7 +40,7 @@ export interface ThreadConfigurationWire {
 /**
  * Per-thread context usage snapshot piggy-backed on thread/read, thread/start,
  * and thread/resume responses. Drives the desktop context-usage ring; optional
- * because older hosts and freshly-created threads without a token tracker do
+ * because older hosts or old threads without persisted context usage state do
  * not emit one. Fields mirror the backend `ContextUsageSnapshot` record.
  */
 export interface ContextUsageSnapshotWire {

@@ -36,7 +36,7 @@ import { ToastContainer } from './components/ui/ToastContainer'
 import { SettingsView } from './components/settings/SettingsView'
 import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
-import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
+import type { ContextUsageSnapshotWire, SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
@@ -647,7 +647,10 @@ export function App(): JSX.Element {
             const output = (p.outputTokens as number) ?? 0
             const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
             const totalOutput = typeof p.totalOutputTokens === 'number' ? (p.totalOutputTokens as number) : null
-            conv.onUsageDelta(input, output, totalInput, totalOutput)
+            const contextUsage = typeof p.contextUsage === 'object' && p.contextUsage !== null
+              ? p.contextUsage as ContextUsageSnapshotWire
+              : null
+            conv.onUsageDelta(input, output, totalInput, totalOutput, contextUsage)
             break
           }
 
