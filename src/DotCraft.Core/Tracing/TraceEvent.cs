@@ -131,6 +131,8 @@ public sealed class TraceSession
 
     public string? FinalSystemPrompt { get; set; }
 
+    public string? FirstUserRequest { get; set; }
+
     public string? LastFinishReason { get; set; }
 
     public DateTimeOffset? SessionMetadataCapturedAt { get; set; }

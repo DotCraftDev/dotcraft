@@ -368,6 +368,8 @@ public sealed class TraceStore
                 break;
             case TraceEventType.Request:
                 session.RequestCount++;
+                if (string.IsNullOrWhiteSpace(session.FirstUserRequest) && !string.IsNullOrWhiteSpace(evt.Content))
+                    session.FirstUserRequest = evt.Content.Trim();
                 break;
             case TraceEventType.Response:
                 session.ResponseCount++;
@@ -642,6 +644,7 @@ public sealed class TraceStore
             ContextCompactionCount = session.ContextCompactionCount,
             ThinkingCount = session.ThinkingCount,
             FinalSystemPrompt = session.FinalSystemPrompt,
+            FirstUserRequest = session.FirstUserRequest,
             LastFinishReason = session.LastFinishReason,
             SessionMetadataCapturedAt = session.SessionMetadataCapturedAt
         };

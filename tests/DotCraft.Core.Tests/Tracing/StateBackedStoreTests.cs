@@ -66,6 +66,7 @@ public sealed class StateBackedStoreTests : IDisposable
         Assert.Equal(1, session.ToolCallCount);
         Assert.Equal(42, session.MaxToolDurationMs);
         Assert.Equal("system", session.FinalSystemPrompt);
+        Assert.Equal("hello", session.FirstUserRequest);
         Assert.Contains("ReadFile", session.ToolNames);
         Assert.Equal(4, reader.GetEvents("thread-1").Count);
 
@@ -74,6 +75,38 @@ public sealed class StateBackedStoreTests : IDisposable
         Assert.Equal(1, summary.TotalRequests);
         Assert.Equal(18, summary.TotalTokens);
         Assert.Equal(1, summary.TotalToolCalls);
+    }
+
+    [Fact]
+    public void TraceStore_Captures_FirstUserRequest_And_Does_Not_Overwrite_It()
+    {
+        var writer = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
+        writer.Record(new TraceEvent
+        {
+            SessionKey = "thread-first-request",
+            Type = TraceEventType.Request,
+            Content = "first request"
+        });
+        writer.Record(new TraceEvent
+        {
+            SessionKey = "thread-first-request",
+            Type = TraceEventType.Request,
+            Content = "second request"
+        });
+        writer.WaitForPendingPersistence();
+
+        var liveSession = writer.GetSession("thread-first-request");
+        Assert.NotNull(liveSession);
+        Assert.Equal(2, liveSession.RequestCount);
+        Assert.Equal("first request", liveSession.FirstUserRequest);
+
+        var reader = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
+        reader.LoadFromDisk();
+
+        var restoredSession = reader.GetSession("thread-first-request");
+        Assert.NotNull(restoredSession);
+        Assert.Equal(2, restoredSession.RequestCount);
+        Assert.Equal("first request", restoredSession.FirstUserRequest);
     }
 
     [Fact]

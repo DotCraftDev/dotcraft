@@ -6,39 +6,40 @@
 <title>DotCraft DashBoard</title>
 <style>
 :root {
-  --bg-primary: #0f1117;
-  --bg-secondary: #161822;
-  --bg-tertiary: #1c1e2e;
-  --bg-card: #1e2030;
-  --bg-hover: #252840;
-  --border: #2a2d42;
-  --border-active: #4a4d6a;
-  --text-primary: #e4e6f0;
-  --text-secondary: #9498b3;
-  --text-muted: #6b6f8a;
-  --accent: #7c5cfc;
-  --accent-light: #9b82fc;
-  --accent-dim: rgba(124,92,252,0.15);
-  --success: #34d399;
-  --success-dim: rgba(52,211,153,0.12);
-  --warning: #fbbf24;
-  --warning-dim: rgba(251,191,36,0.12);
-  --error: #f87171;
-  --error-dim: rgba(248,113,113,0.12);
-  --info: #60a5fa;
-  --info-dim: rgba(96,165,250,0.12);
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #242424;
+  --bg-tertiary: #2e2e2e;
+  --bg-active: #3a3a3a;
+  --bg-card: #242424;
+  --bg-hover: #2e2e2e;
+  --border: #333333;
+  --border-active: #555555;
+  --text-primary: #e5e5e5;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
+  --accent: #4A7FA5;
+  --accent-light: #5A9BC0;
+  --accent-dim: rgba(74,127,165,0.15);
+  --success: #22c55e;
+  --success-dim: rgba(34,197,94,0.12);
+  --warning: #eab308;
+  --warning-dim: rgba(234,179,8,0.12);
+  --error: #ef4444;
+  --error-dim: rgba(239,68,68,0.12);
+  --info: #3b82f6;
+  --info-dim: rgba(59,130,246,0.12);
   --cyan: #22d3ee;
   --cyan-dim: rgba(34,211,238,0.12);
-  --thinking: #c084fc;
-  --thinking-dim: rgba(192,132,252,0.12);
+  --thinking: #5A9BC0;
+  --thinking-dim: rgba(90,155,192,0.12);
   --radius: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
-  --shadow: 0 2px 12px rgba(0,0,0,0.25);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
-  --surface-2: #252840;
-  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  --shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --surface-2: #3a3a3a;
+  --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  --font-sans: 'Segoe UI Variable', 'Inter', 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Helvetica Neue', Arial, sans-serif;
   --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
   --transition-slow: 0.35s cubic-bezier(0.4,0,0.2,1);
   /* Accordion panel: matches chevron timing for consistent feel */
@@ -342,6 +343,17 @@ body {
   margin-top: 4px;
 }
 
+.session-meta-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.session-request-preview {
+  color: var(--text-secondary);
+}
+
 .session-tools-inline {
   margin-top: 6px;
   display: flex;
@@ -526,8 +538,14 @@ body {
 .btn-danger { border-color: rgba(248,113,113,0.3); color: var(--error); }
 .btn-danger:hover { background: var(--error-dim); border-color: var(--error); }
 
-.btn-accent { border-color: rgba(124,92,252,0.3); color: var(--accent-light); }
+.btn-accent { border-color: rgba(74,127,165,0.3); color: var(--accent-light); }
 .btn-accent:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+.btn-compact {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+}
 
 /* Badge */
 .badge {
@@ -742,7 +760,7 @@ body {
   transition: border-color var(--transition);
 }
 .sf-accordion:hover { border-color: var(--border-active); }
-.sf-accordion[data-open="true"] { border-color: rgba(124,92,252,0.3); }
+.sf-accordion[data-open="true"] { border-color: rgba(74,127,165,0.3); }
 
 .sf-accordion-trigger {
   width: 100%;
@@ -759,7 +777,7 @@ body {
   user-select: none;
 }
 .sf-accordion-trigger:hover { background: var(--bg-hover); }
-.sf-accordion[data-open="true"] .sf-accordion-trigger { background: rgba(124,92,252,0.05); }
+.sf-accordion[data-open="true"] .sf-accordion-trigger { background: rgba(74,127,165,0.05); }
 
 .sf-chevron {
   color: var(--text-muted);
@@ -968,7 +986,7 @@ body {
   width: 100%;
   appearance: none;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6f8a' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 32px;
@@ -1151,14 +1169,16 @@ body {
 }
 
 /* ─── Confirm Modal ──────────────────────────────────────────────────────── */
-#confirm-modal {
+#confirm-modal,
+#detail-modal {
   position: fixed; inset: 0; z-index: 999;
   background: rgba(0,0,0,0.5);
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
   transition: opacity var(--transition);
 }
-#confirm-modal.visible { opacity: 1; pointer-events: all; }
+#confirm-modal.visible,
+#detail-modal.visible { opacity: 1; pointer-events: all; }
 .modal-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1170,7 +1190,8 @@ body {
   transform: scale(0.95);
   transition: transform var(--transition);
 }
-#confirm-modal.visible .modal-card { transform: scale(1); }
+#confirm-modal.visible .modal-card,
+#detail-modal.visible .modal-card { transform: scale(1); }
 .modal-title {
   font-size: 15px; font-weight: 600; color: var(--text-primary);
   margin-bottom: 10px;
@@ -1180,6 +1201,25 @@ body {
   line-height: 1.6; margin-bottom: 20px;
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.detail-modal-card {
+  width: 760px;
+  max-width: 92vw;
+}
+.detail-pre {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ─── Skeleton Loading ───────────────────────────────────────────────────── */
 @keyframes shimmer {
@@ -1215,6 +1255,18 @@ body {
     <div class="modal-actions">
       <button class="btn" onclick="closeConfirmModal()">Cancel</button>
       <button class="btn btn-danger" id="modalConfirmBtn" onclick="confirmModalAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="detail-modal">
+  <div class="modal-card detail-modal-card">
+    <div class="modal-title" id="detailModalTitle">Details</div>
+    <div class="modal-body">
+      <pre class="detail-pre" id="detailModalBody"></pre>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDetailModal()">Close</button>
     </div>
   </div>
 </div>
@@ -1586,14 +1638,45 @@ function confirmModalAction() {
   }
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeConfirmModal();
+  if (e.key === 'Escape') {
+    closeConfirmModal();
+    closeDetailModal();
+  }
 });
 document.getElementById('confirm-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeConfirmModal();
 });
 
+function showDetailModal(title, body) {
+  document.getElementById('detailModalTitle').textContent = title;
+  document.getElementById('detailModalBody').textContent = body || 'Not captured yet.';
+  document.getElementById('detail-modal').classList.add('visible');
+}
+
+function closeDetailModal() {
+  document.getElementById('detail-modal').classList.remove('visible');
+}
+
+document.getElementById('detail-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDetailModal();
+});
+
+function showSystemPrompt(e, sessionKey) {
+  e.stopPropagation();
+  e.preventDefault();
+  const session = getSessionByKey(sessionKey);
+  showDetailModal('System prompt', session?.finalSystemPrompt || 'Not captured yet.');
+}
+
 // Session cards: use data-session-key (encodeURIComponent) + delegation — avoid broken JS from inline onclick with special characters.
 function onSessionCardAreaClick(e) {
+  const promptBtn = e.target.closest('.session-prompt-btn');
+  if (promptBtn && e.currentTarget.contains(promptBtn)) {
+    const rawPrompt = promptBtn.getAttribute('data-session-key');
+    if (rawPrompt != null) showSystemPrompt(e, decodeURIComponent(rawPrompt));
+    return;
+  }
+
   const del = e.target.closest('.session-delete-btn');
   if (del && e.currentTarget.contains(del)) {
     e.stopPropagation();
@@ -1635,6 +1718,10 @@ function truncate(text, max) {
   return text.length > max ? text.substring(0, max) + '...' : text;
 }
 
+function inlinePreview(text) {
+  return (text || '').replace(/\s+/g, ' ').trim();
+}
+
 function getSessionByKey(sessionKey) {
   return allSessions.find(s => s.sessionKey === sessionKey) || null;
 }
@@ -1660,21 +1747,24 @@ function renderToolBadges(toolNames) {
 
 function renderSessionMetadata(session, idPrefix) {
   const prompt = session.finalSystemPrompt || '';
-  const promptToggleId = `${idPrefix}-prompt`;
-  const promptPreview = prompt ? escapeHtml(truncate(prompt, 120)) : '<span style="color:var(--text-muted)">Not captured yet.</span>';
+  const firstRequest = inlinePreview(session.firstUserRequest || '');
+  const requestPreview = firstRequest
+    ? escapeHtml(truncate(firstRequest, 160))
+    : '<span style="color:var(--text-muted)">Not captured yet.</span>';
+  const requestTitle = firstRequest ? ` title="${escapeHtml(truncate(firstRequest, 500))}"` : '';
+  const encodedSessionKey = encodeURIComponent(session.sessionKey);
+  const promptButton = prompt
+    ? `<button type="button" class="btn btn-compact session-prompt-btn" data-session-key="${encodedSessionKey}" onclick="showSystemPrompt(event, decodeURIComponent('${encodedSessionKey}'))">System prompt</button>`
+    : '';
   const tools = renderToolBadges(session.toolNames || []);
 
   return `<div class="session-metadata" onclick="event.stopPropagation()">
     <div class="session-meta-line">
-      <span style="color:var(--text-secondary)">System prompt:</span> ${promptPreview}
-      ${prompt ? `<span class="collapsible-toggle" style="margin-left:8px" onclick="toggleDetail('${promptToggleId}', this)" data-label="System prompt">Full</span>` : ''}
+      <span style="color:var(--text-secondary)">User request:</span>
+      <span class="session-request-preview"${requestTitle}>${requestPreview}</span>
     </div>
-    ${prompt ? `
-      <div class="collapsible-content" id="${promptToggleId}">
-        <div class="trace-detail" style="margin-top:6px;max-height:140px">${prompt ? escapeHtml(prompt) : promptPreview}</div>
-      </div>
-    ` : ''}
-    <div class="session-meta-line">
+    <div class="session-meta-line session-meta-actions">
+      ${promptButton}
       <span style="color:var(--text-secondary)">Tools (${(session.toolNames || []).length}):</span>
     </div>
     <div class="session-tools-inline">${tools}</div>
@@ -1779,16 +1869,20 @@ async function viewSessionTraces(sessionKey) {
   selectedSession = sessionKey;
   switchPanel('traces');
   const session = getSessionByKey(sessionKey);
-  const promptPreview = session?.finalSystemPrompt ? escapeHtml(truncate(session.finalSystemPrompt, 200)) : 'Not captured';
+  const firstRequest = inlinePreview(session?.firstUserRequest || '');
+  const requestPreview = firstRequest ? escapeHtml(truncate(firstRequest, 180)) : 'Not captured';
   const toolCount = session?.toolNames ? session.toolNames.length : 0;
+  const promptButton = session?.finalSystemPrompt
+    ? `<button type="button" class="btn btn-compact" onclick="showSystemPrompt(event, decodeURIComponent('${encodeURIComponent(sessionKey)}'))">System prompt</button>`
+    : '';
   document.getElementById('tracePanelTitle').innerHTML = `
     <button class="back-btn" onclick="selectedSession=null;switchPanel('sessions')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     </button>
     <div style="display:flex;flex-direction:column;gap:4px">
       <div style="display:flex;align-items:center;gap:8px">Traces: <span style="color:var(--accent-light);font-family:var(--font-mono)">${escapeHtml(sessionKey)}</span>${renderFinishReasonBadge(session?.lastFinishReason)}</div>
-      <div style="font-size:12px;color:var(--text-muted)">System prompt: ${promptPreview}</div>
-      <div style="font-size:12px;color:var(--text-muted)">Tools: ${toolCount}</div>
+      <div style="font-size:12px;color:var(--text-muted)">User request: <span style="color:var(--text-secondary)">${requestPreview}</span></div>
+      <div style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px">Tools: ${toolCount} ${promptButton}</div>
     </div>
   `;
   await refreshTraces();

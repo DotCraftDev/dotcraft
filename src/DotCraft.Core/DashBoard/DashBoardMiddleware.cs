@@ -102,6 +102,7 @@ public static class DashBoardMiddleware
                     totalToolDurationMs = s.TotalToolDurationMs,
                     avgToolDurationMs = s.AvgToolDurationMs,
                     maxToolDurationMs = s.MaxToolDurationMs,
+                    firstUserRequest = s.FirstUserRequest,
                     finalSystemPrompt = s.FinalSystemPrompt,
                     toolNames = s.ToolNames,
                     lastFinishReason = s.LastFinishReason,
