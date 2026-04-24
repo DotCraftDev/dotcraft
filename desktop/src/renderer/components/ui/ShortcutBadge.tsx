@@ -5,11 +5,20 @@ import { formatShortcutParts } from './shortcutKeys'
 interface ShortcutBadgeProps {
   shortcut: ShortcutSpec
   platform?: string
+  tone?: 'default' | 'onAccent'
   style?: CSSProperties
 }
 
-export function ShortcutBadge({ shortcut, platform, style }: ShortcutBadgeProps): JSX.Element {
+export function ShortcutBadge({ shortcut, platform, tone = 'default', style }: ShortcutBadgeProps): JSX.Element {
   const parts = formatShortcutParts(shortcut, platform)
+  const toneVars: CSSProperties = tone === 'onAccent'
+    ? {
+        ['--shortcut-bg' as string]: 'color-mix(in srgb, var(--on-accent) 16%, transparent)',
+        ['--shortcut-border' as string]: 'color-mix(in srgb, var(--on-accent) 48%, transparent)',
+        ['--shortcut-text' as string]: 'var(--on-accent)'
+      }
+    : {}
+
   return (
     <span
       aria-hidden="true"
@@ -19,6 +28,7 @@ export function ShortcutBadge({ shortcut, platform, style }: ShortcutBadgeProps)
         alignItems: 'center',
         gap: '3px',
         flexShrink: 0,
+        ...toneVars,
         ...style
       }}
     >

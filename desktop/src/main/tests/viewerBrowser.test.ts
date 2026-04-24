@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   classifyBrowserUrl,
   loadOrReport,
   normalizeBrowserUrl,
-  partitionForWorkspace
+  partitionForWorkspace,
+  ViewerBrowserManager
 } from '../viewerBrowser'
 
 describe('normalizeBrowserUrl', () => {
@@ -28,7 +29,7 @@ describe('classifyBrowserUrl', () => {
   it('allows http/https and blocks unsupported schemes', () => {
     expect(classifyBrowserUrl('https://example.com')).toBe('allow')
     expect(classifyBrowserUrl('http://example.com')).toBe('allow')
-    expect(classifyBrowserUrl('dotcraft-viewer:///F:/workspace/index.html')).toBe('allow')
+    expect(classifyBrowserUrl('dotcraft-viewer://workspace/F%3A/workspace/index.html')).toBe('allow')
     expect(classifyBrowserUrl('file:///tmp/a.txt')).toBe('blocked')
     expect(classifyBrowserUrl('chrome://settings')).toBe('blocked')
     expect(classifyBrowserUrl('javascript:alert(1)')).toBe('blocked')
@@ -52,6 +53,25 @@ describe('partitionForWorkspace', () => {
     const upper = partitionForWorkspace('F:/DOTCRAFT/Workspace')
     const lower = partitionForWorkspace('f:/dotcraft/workspace')
     expect(upper).toBe(lower)
+  })
+})
+
+describe('ViewerBrowserManager partition configuration', () => {
+  it('installs the viewer protocol handler on browser partition sessions once', () => {
+    const handle = vi.fn()
+    const fakeSession = {
+      protocol: { handle },
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn()
+    } as unknown as Electron.Session
+    const manager = new ViewerBrowserManager()
+
+    manager.configurePartitionSession('persist:dotcraft-viewer:test', fakeSession)
+    manager.configurePartitionSession('persist:dotcraft-viewer:test', fakeSession)
+
+    expect(handle).toHaveBeenCalledTimes(1)
+    expect(handle).toHaveBeenCalledWith('dotcraft-viewer', expect.any(Function))
   })
 })
 

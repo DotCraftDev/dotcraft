@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ActionTooltip } from '../components/ui/ActionTooltip'
 import { IconButton } from '../components/ui/IconButton'
+import { ShortcutBadge } from '../components/ui/ShortcutBadge'
 import { ACTION_SHORTCUTS, formatShortcutParts } from '../components/ui/shortcutKeys'
 
 describe('shortcut formatting', () => {
@@ -52,6 +53,16 @@ describe('ActionTooltip', () => {
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('No changes to commit')
     expect(screen.getByRole('tooltip')).not.toHaveTextContent('Enter')
+  })
+})
+
+describe('ShortcutBadge', () => {
+  it('supports an on-accent tone for primary buttons', () => {
+    render(<ShortcutBadge shortcut={ACTION_SHORTCUTS.newThread} tone="onAccent" />)
+
+    const badge = screen.getByText('Ctrl').parentElement
+    expect(badge).toHaveStyle({ '--shortcut-text': 'var(--on-accent)' })
+    expect(badge).toHaveStyle({ '--shortcut-border': 'color-mix(in srgb, var(--on-accent) 48%, transparent)' })
   })
 })
 

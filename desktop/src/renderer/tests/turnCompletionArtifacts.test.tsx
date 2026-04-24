@@ -68,10 +68,10 @@ describe('turn completion artifacts', () => {
     settingsSet.mockResolvedValue(undefined)
     listEditors.mockResolvedValue([{ id: 'explorer', labelKey: 'editors.explorer', iconKey: 'explorer' }])
     launchEditor.mockResolvedValue(undefined)
-    toViewerUrl.mockResolvedValue({ url: 'dotcraft-viewer:///F:/workspace/site/index.html' })
+    toViewerUrl.mockResolvedValue({ url: 'dotcraft-viewer://workspace/F%3A/workspace/site/index.html' })
     browserCreate.mockResolvedValue({
       tabId: 'browser-tab',
-      currentUrl: 'dotcraft-viewer:///F:/workspace/site/index.html',
+      currentUrl: 'dotcraft-viewer://workspace/F%3A/workspace/site/index.html',
       title: 'index.html',
       canGoBack: false,
       canGoForward: false,
@@ -125,7 +125,7 @@ describe('turn completion artifacts', () => {
       expect(toViewerUrl).toHaveBeenCalledWith({ absolutePath: 'F:/workspace/site/index.html' })
       expect(browserCreate).toHaveBeenCalledWith(expect.objectContaining({
         workspacePath: 'F:/workspace',
-        initialUrl: 'dotcraft-viewer:///F:/workspace/site/index.html'
+        initialUrl: 'dotcraft-viewer://workspace/F%3A/workspace/site/index.html'
       }))
     })
   })

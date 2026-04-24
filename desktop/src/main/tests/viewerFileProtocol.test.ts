@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   VIEWER_SCHEME,
   buildViewerUrl,
   getViewerWorkspaceRoot,
+  installViewerProtocolHandlerForSession,
   isPathInsideWorkspace,
-  setViewerWorkspaceRoot
+  setViewerWorkspaceRoot,
+  viewerUrlToPath
 } from '../viewerFileProtocol'
 
 beforeEach(() => {
@@ -43,7 +45,7 @@ describe('setViewerWorkspaceRoot / getViewerWorkspaceRoot', () => {
 describe('buildViewerUrl', () => {
   it('returns a dotcraft-viewer:// URL', () => {
     const url = buildViewerUrl('/home/user/project/src/main.ts')
-    expect(url.startsWith(`${VIEWER_SCHEME}:///`)).toBe(true)
+    expect(url.startsWith(`${VIEWER_SCHEME}://workspace/`)).toBe(true)
   })
 
   it('uses path-like URLs so relative HTML assets can resolve', () => {
@@ -55,7 +57,7 @@ describe('buildViewerUrl', () => {
   it('normalizes Windows backslashes to forward slashes', () => {
     const url = buildViewerUrl('C:\\Users\\user\\project\\src\\index.ts')
     expect(url).not.toContain('\\')
-    expect(url).toContain('/C:/Users/user/project/src/index.ts')
+    expect(url).toContain('/C%3A/Users/user/project/src/index.ts')
   })
 
   it('handles paths with special characters', () => {
@@ -65,8 +67,43 @@ describe('buildViewerUrl', () => {
   })
 })
 
+describe('viewerUrlToPath', () => {
+  it('decodes fixed-host Windows viewer URLs without creating UNC paths', () => {
+    expect(viewerUrlToPath(`${VIEWER_SCHEME}://workspace/E%3A/workspace/index.html`)).toBe(
+      'E:/workspace/index.html'
+    )
+  })
+
+  it('decodes legacy drive-host URLs defensively', () => {
+    expect(viewerUrlToPath(`${VIEWER_SCHEME}://e/workspace/index.html`)).toBe(
+      'E:/workspace/index.html'
+    )
+  })
+
+  it('decodes legacy empty-host URLs', () => {
+    expect(viewerUrlToPath(`${VIEWER_SCHEME}:///E:/workspace/index.html`)).toBe(
+      'E:/workspace/index.html'
+    )
+  })
+})
+
 describe('isPathInsideWorkspace', () => {
   it('rejects missing workspace roots', async () => {
     await expect(isPathInsideWorkspace('/tmp/project/index.html', '')).resolves.toBe(false)
+  })
+})
+
+describe('installViewerProtocolHandlerForSession', () => {
+  it('registers the viewer protocol handler on custom sessions once', () => {
+    const handle = vi.fn()
+    const fakeSession = {
+      protocol: { handle }
+    } as unknown as Electron.Session
+
+    installViewerProtocolHandlerForSession(fakeSession)
+    installViewerProtocolHandlerForSession(fakeSession)
+
+    expect(handle).toHaveBeenCalledTimes(1)
+    expect(handle).toHaveBeenCalledWith(VIEWER_SCHEME, expect.any(Function))
   })
 })

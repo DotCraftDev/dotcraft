@@ -36,7 +36,7 @@ export function NewThreadButton(): JSX.Element {
           width: '100%',
           padding: '6px 12px',
           backgroundColor: isConnected ? 'var(--accent)' : 'var(--bg-tertiary)',
-          color: isConnected ? '#ffffff' : 'var(--text-dimmed)',
+          color: isConnected ? 'var(--on-accent)' : 'var(--text-dimmed)',
           border: 'none',
           borderRadius: '6px',
           fontSize: '13px',
@@ -70,7 +70,7 @@ export function NewThreadButton(): JSX.Element {
         {showShortcut && (
           <ShortcutBadge
             shortcut={ACTION_SHORTCUTS.newThread}
-            style={{ ['--shortcut-bg' as string]: 'color-mix(in srgb, #fff 18%, transparent)' }}
+            tone="onAccent"
           />
         )}
       </button>
