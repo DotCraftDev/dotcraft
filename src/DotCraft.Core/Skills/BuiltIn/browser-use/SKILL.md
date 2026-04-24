@@ -1,11 +1,15 @@
 ---
-description: "Use the DotCraft Desktop embedded browser to inspect and operate local web UIs."
+description: "Use the DotCraft Desktop embedded browser to inspect and operate local or approved web targets."
 tools: BrowserJs
 ---
 
 # Browser Use
 
-Use this skill when you need to inspect, navigate, test, or automate a local browser target such as `localhost`, `127.0.0.1`, `::1`, `file://`, or `dotcraft-viewer:`.
+Use this skill when you need to inspect, navigate, test, or automate a browser target in DotCraft Desktop.
+
+Prefer this skill for local development and workspace targets such as `localhost`, `127.0.0.1`, `::1`, `file://`, or `dotcraft-viewer:`.
+
+External `http` and `https` URLs can also be opened when the Desktop Browser Use settings allow them. External navigation may ask the user for approval, allowed domains may open without asking, and blocked domains will fail.
 
 Call `BrowserJs` with JavaScript. The runtime exposes:
 
@@ -42,4 +46,4 @@ await display(image);
 return snapshot;
 ```
 
-The browser automation runtime is intentionally local-first. Remote `http` and `https` origins that are not local addresses are blocked in this version.
+If navigation is denied or blocked, explain that Browser Use access is controlled by Desktop settings and ask the user to approve the request or update the allowed/blocked domain lists. Do not try to bypass the Desktop Browser Use policy.
