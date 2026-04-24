@@ -9,6 +9,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useT } from '../../../contexts/LocaleContext'
 import { buildViewerUrlRenderer } from '../../../utils/viewerUrl'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { ActionTooltip } from '../../ui/ActionTooltip'
 
 interface ImageViewerProps {
   absolutePath: string
@@ -160,30 +161,32 @@ function ToolbarButton({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '24px',
-        height: '24px',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--text-secondary)',
-        cursor: 'pointer',
-        borderRadius: '3px',
-        padding: 0
-      }}
-      onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-      }}
-    >
-      {children}
-    </button>
+    <ActionTooltip label={title} placement="bottom">
+      <button
+        onClick={onClick}
+        aria-label={title}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '24px',
+          height: '24px',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          borderRadius: '3px',
+          padding: 0
+        }}
+        onMouseEnter={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+        }}
+      >
+        {children}
+      </button>
+    </ActionTooltip>
   )
 }

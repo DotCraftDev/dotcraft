@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ThinkingIndicatorProps {
   /** Elapsed reasoning time in seconds */
@@ -29,24 +30,24 @@ export function ThinkingIndicator({
   return (
     <div style={{ marginBottom: '6px' }}>
       {/* Summary line */}
-      <button
-        onClick={() => !streaming && setExpanded((v) => !v)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          background: 'none',
-          border: 'none',
-          cursor: streaming ? 'default' : 'pointer',
-          padding: '2px 0',
-          color: 'var(--text-dimmed)',
-          fontSize: '12px'
-        }}
-        aria-expanded={expanded}
-        title={streaming ? 'Agent is thinking...' : 'Click to expand reasoning'}
-      >
+      <ActionTooltip label={streaming ? 'Agent is thinking...' : 'Click to expand reasoning'} placement="top">
+        <button
+          onClick={() => !streaming && setExpanded((v) => !v)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'none',
+            border: 'none',
+            cursor: streaming ? 'default' : 'pointer',
+            padding: '2px 0',
+            color: 'var(--text-dimmed)',
+            fontSize: '12px'
+          }}
+          aria-expanded={expanded}
+        >
         <span
           style={{
             display: 'inline-block',
@@ -75,7 +76,8 @@ export function ThinkingIndicator({
             aria-hidden="true"
           />
         )}
-      </button>
+        </button>
+      </ActionTooltip>
 
       {/* Expanded reasoning text */}
       {expanded && reasoning && (

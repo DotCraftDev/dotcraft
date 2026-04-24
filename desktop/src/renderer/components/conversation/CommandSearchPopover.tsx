@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Sparkle, Terminal } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import type { CustomCommandInfo } from '../../hooks/useCustomCommandCatalog'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 export interface SlashSkillInfo {
   name: string
@@ -136,62 +137,63 @@ export function CommandSearchPopover({
       {!loading &&
         filteredCommands.map((cmd) => {
           const index = entries.findIndex((entry) => entry.type === 'command' && entry.command.name === cmd.name)
+          const description = cmd.description || t('slashSearch.noDescription')
           return (
-            <button
-              key={cmd.name}
-              type="button"
-              role="option"
-              aria-selected={index === highlight}
-              onMouseEnter={() => {
-                setHighlight(index)
-              }}
-              onClick={() => {
-                onSelectCommand(cmd.name)
-              }}
-              style={{
-                display: 'flex',
-                width: '100%',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '7px 12px',
-                border: 'none',
-                background: index === highlight ? 'var(--bg-active)' : 'transparent',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                textAlign: 'left'
-              }}
-            >
-              <span
+            <ActionTooltip key={cmd.name} label={description} wrapperStyle={{ display: 'block', width: '100%' }}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === highlight}
+                onMouseEnter={() => {
+                  setHighlight(index)
+                }}
+                onClick={() => {
+                  onSelectCommand(cmd.name)
+                }}
                 style={{
-                  display: 'inline-flex',
+                  display: 'flex',
+                  width: '100%',
                   alignItems: 'center',
-                  gap: '4px',
-                  borderRadius: '5px',
-                  padding: '1px 6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
-                  color: 'var(--accent)',
-                  whiteSpace: 'nowrap'
+                  gap: '8px',
+                  padding: '7px 12px',
+                  border: 'none',
+                  background: index === highlight ? 'var(--bg-active)' : 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
                 }}
               >
-                <Terminal size={11} strokeWidth={2} aria-hidden />
-                {highlightMatch(cmd.name.replace(/^\/+/, ''), query)}
-              </span>
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
-                title={cmd.description}
-              >
-                {cmd.description || t('slashSearch.noDescription')}
-              </span>
-            </button>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    borderRadius: '5px',
+                    padding: '1px 6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
+                    color: 'var(--accent)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <Terminal size={11} strokeWidth={2} aria-hidden />
+                  {highlightMatch(cmd.name.replace(/^\/+/, ''), query)}
+                </span>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {description}
+                </span>
+              </button>
+            </ActionTooltip>
           )
         })}
       {!loading && filteredSkills.length > 0 && (
@@ -200,62 +202,63 @@ export function CommandSearchPopover({
       {!loading &&
         filteredSkills.map((skill) => {
           const index = entries.findIndex((entry) => entry.type === 'skill' && entry.skill.name === skill.name)
+          const description = skill.description || t('slashSearch.noDescription')
           return (
-            <button
-              key={skill.name}
-              type="button"
-              role="option"
-              aria-selected={index === highlight}
-              onMouseEnter={() => {
-                setHighlight(index)
-              }}
-              onClick={() => {
-                onSelectSkill?.(skill.name)
-              }}
-              style={{
-                display: 'flex',
-                width: '100%',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '7px 12px',
-                border: 'none',
-                background: index === highlight ? 'var(--bg-active)' : 'transparent',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                textAlign: 'left'
-              }}
-            >
-              <span
+            <ActionTooltip key={skill.name} label={description} wrapperStyle={{ display: 'block', width: '100%' }}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === highlight}
+                onMouseEnter={() => {
+                  setHighlight(index)
+                }}
+                onClick={() => {
+                  onSelectSkill?.(skill.name)
+                }}
                 style={{
-                  display: 'inline-flex',
+                  display: 'flex',
+                  width: '100%',
                   alignItems: 'center',
-                  gap: '4px',
-                  borderRadius: '5px',
-                  padding: '1px 6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  background: 'color-mix(in srgb, var(--success) 16%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
-                  color: 'var(--success)',
-                  whiteSpace: 'nowrap'
+                  gap: '8px',
+                  padding: '7px 12px',
+                  border: 'none',
+                  background: index === highlight ? 'var(--bg-active)' : 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  textAlign: 'left'
                 }}
               >
-                <Sparkle size={11} strokeWidth={2} aria-hidden />
-                {highlightMatch(skill.name, query)}
-              </span>
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
-                title={skill.description}
-              >
-                {skill.description || t('slashSearch.noDescription')}
-              </span>
-            </button>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    borderRadius: '5px',
+                    padding: '1px 6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    background: 'color-mix(in srgb, var(--success) 16%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
+                    color: 'var(--success)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <Sparkle size={11} strokeWidth={2} aria-hidden />
+                  {highlightMatch(skill.name, query)}
+                </span>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {description}
+                </span>
+              </button>
+            </ActionTooltip>
           )
         })}
     </div>

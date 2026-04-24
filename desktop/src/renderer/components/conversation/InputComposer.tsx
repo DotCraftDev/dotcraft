@@ -479,6 +479,7 @@ export function InputComposer({
               }}
               agentLabel={t('composer.mode.agent')}
               planLabel={t('composer.mode.plan')}
+              shortcut={ACTION_SHORTCUTS.toggleMode}
               title={t('composer.modeTitle', {
                 mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
               })}

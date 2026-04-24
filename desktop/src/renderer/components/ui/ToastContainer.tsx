@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useToastStore, type Toast, type ToastType } from '../../stores/toastStore'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
+import { ActionTooltip } from './ActionTooltip'
 
 /** Distance from viewport right; toast sits below titleBarOverlay so caption buttons do not cover it. */
 const TOAST_EDGE_INSET_PX = 8
@@ -78,10 +79,11 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): JSX.Element {
   const borderColor = typeToColor(toast.type)
 
   return (
-    <div
-      role="alert"
-      onClick={handleDismiss}
-      style={{
+    <ActionTooltip label="Click to dismiss" placement="left" wrapperStyle={{ pointerEvents: 'auto', maxWidth: '100%' }}>
+      <div
+        role="alert"
+        onClick={handleDismiss}
+        style={{
         pointerEvents: 'auto',
         padding: '10px 14px',
         borderRadius: '8px',
@@ -101,8 +103,7 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): JSX.Element {
         maxWidth: '100%',
         wordBreak: 'break-word'
       }}
-      title="Click to dismiss"
-    >
+      >
       <span style={{ color: borderColor, flexShrink: 0, fontSize: '14px', marginTop: '1px' }}>
         {typeToIcon(toast.type)}
       </span>
@@ -121,7 +122,8 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): JSX.Element {
       ) : (
         <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
       )}
-    </div>
+      </div>
+    </ActionTooltip>
   )
 }
 

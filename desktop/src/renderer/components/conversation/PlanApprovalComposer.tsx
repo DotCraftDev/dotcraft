@@ -6,6 +6,8 @@ import { acceptPlanSentinelFor } from '../../utils/planAcceptSentinel'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
 import { ComposerShell } from './ComposerShell'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 interface PlanApprovalComposerProps {
   threadId: string
@@ -165,26 +167,27 @@ export function PlanApprovalComposer({
         footerLeading={<div />}
         footerAction={(
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button
-              type="button"
-              onClick={() => dismissPlanApproval(turnId)}
-              aria-label={t('planApproval.escKey')}
-              title={t('planApproval.escKey')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--text-dimmed)',
-                fontSize: '12px',
-                cursor: 'pointer',
-                padding: 0
-              }}
-            >
-              <span style={kbdChipStyle}>Esc</span>
-              <span>{t('planApproval.dismissHint')}</span>
-            </button>
+            <ActionTooltip label={t('planApproval.escKey')} shortcut={ACTION_SHORTCUTS.cancel} placement="top">
+              <button
+                type="button"
+                onClick={() => dismissPlanApproval(turnId)}
+                aria-label={t('planApproval.escKey')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-dimmed)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+              >
+                <span style={kbdChipStyle}>Esc</span>
+                <span>{t('planApproval.dismissHint')}</span>
+              </button>
+            </ActionTooltip>
             <button
               type="button"
               onClick={() => {

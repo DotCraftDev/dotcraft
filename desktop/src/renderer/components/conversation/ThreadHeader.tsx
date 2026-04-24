@@ -114,24 +114,28 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
             }}
           />
         ) : (
-          <h1
-            onDoubleClick={startRename}
-            title={t('threadHeader.renameTitle')}
-            style={{
-              flex: 1,
-              margin: 0,
-              fontSize: '14px',
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              cursor: 'default',
-              userSelect: 'none'
-            }}
+          <ActionTooltip
+            label={t('threadHeader.renameTitle')}
+            placement="bottom"
+            wrapperStyle={{ flex: 1, minWidth: 0 }}
           >
-            {threadName}
-          </h1>
+            <h1
+              onDoubleClick={startRename}
+              style={{
+                margin: 0,
+                fontSize: '14px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'default',
+                userSelect: 'none'
+              }}
+            >
+              {threadName}
+            </h1>
+          </ActionTooltip>
         )}
 
         {/* Open button */}

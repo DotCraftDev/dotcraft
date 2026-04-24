@@ -1,6 +1,7 @@
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { ArrowLeft } from 'lucide-react'
+import { ActionTooltip } from './ActionTooltip'
 
 interface BackToAppButtonProps {
   onClick?: () => void
@@ -23,13 +24,15 @@ export function BackToAppButton({ onClick, labelKey = 'common.backToApp' }: Back
     setActiveMainView('conversation')
   }
 
+  const label = t(labelKey)
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      title={t(labelKey)}
-      aria-label={t(labelKey)}
-      style={{
+    <ActionTooltip label={label} placement="bottom">
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-label={label}
+        style={{
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -55,6 +58,7 @@ export function BackToAppButton({ onClick, labelKey = 'common.backToApp' }: Back
       }}
     >
       <ArrowLeft size={22} strokeWidth={2.2} aria-hidden="true" />
-    </button>
+      </button>
+    </ActionTooltip>
   )
 }

@@ -910,6 +910,7 @@ export function ConversationWelcome({
                     }}
                     agentLabel={t('composer.mode.agent')}
                     planLabel={t('composer.mode.plan')}
+                    shortcut={ACTION_SHORTCUTS.toggleMode}
                     title={t('composer.modeTitle', {
                       mode: welcomeMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
                     })}

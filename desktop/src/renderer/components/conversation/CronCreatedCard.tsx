@@ -5,6 +5,7 @@ import { parseCronCreatedResult } from '../../utils/cronToolDisplay'
 import { formatNextRun } from '../../utils/cronNextRunDisplay'
 import { useUIStore } from '../../stores/uiStore'
 import { useCronStore } from '../../stores/cronStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface CronCreatedCardProps {
   item: ConversationItem
@@ -75,15 +76,16 @@ export function CronCreatedCard({ item, locale }: CronCreatedCardProps): JSX.Ele
         </span>
         <span style={{ flex: 1 }} />
         {canOpen && (
-          <button
-            type="button"
-            onClick={openInAutomations}
-            style={viewButtonStyle}
-            title={translate(locale, 'cron.card.viewInAutomations')}
-            aria-label={translate(locale, 'cron.card.viewInAutomations')}
-          >
-            {translate(locale, 'cron.card.view')}
-          </button>
+          <ActionTooltip label={translate(locale, 'cron.card.viewInAutomations')} placement="top">
+            <button
+              type="button"
+              onClick={openInAutomations}
+              style={viewButtonStyle}
+              aria-label={translate(locale, 'cron.card.viewInAutomations')}
+            >
+              {translate(locale, 'cron.card.view')}
+            </button>
+          </ActionTooltip>
         )}
       </div>
 

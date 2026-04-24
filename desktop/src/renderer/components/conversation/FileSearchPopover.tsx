@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 const DEBOUNCE_MS = 80
 
@@ -146,9 +147,11 @@ export function FileSearchPopover({
           {t('fileSearch.hint')}
         </div>
       )}
-      {files.map((f, i) => (
+      {files.map((f, i) => {
+        const dirLabel = f.dir || '.'
+        return (
+        <ActionTooltip key={f.relativePath} label={dirLabel} wrapperStyle={{ display: 'block', width: '100%' }}>
         <button
-          key={f.relativePath}
           type="button"
           role="option"
           aria-selected={i === highlight}
@@ -182,12 +185,13 @@ export function FileSearchPopover({
               whiteSpace: 'nowrap',
               maxWidth: '140px'
             }}
-            title={f.dir}
           >
-            {f.dir || '.'}
+            {dirLabel}
           </span>
         </button>
-      ))}
+        </ActionTooltip>
+        )
+      })}
     </div>
   )
 }

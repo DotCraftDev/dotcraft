@@ -12,6 +12,7 @@ import { useViewerTabStore } from '../../../stores/viewerTabStore'
 import { useUIStore } from '../../../stores/uiStore'
 import { useConversationStore } from '../../../stores/conversationStore'
 import type { BrowserEventPayload } from '../../../../shared/viewer/types'
+import { ActionTooltip } from '../../ui/ActionTooltip'
 
 interface BrowserViewerTabProps {
   tabId: string
@@ -405,33 +406,35 @@ function ToolbarButton({
   children: ReactNode
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        width: '24px',
-        height: '24px',
-        border: 'none',
-        borderRadius: '4px',
-        background: 'transparent',
-        color: disabled ? 'var(--text-disabled, rgba(255,255,255,0.3))' : 'var(--text-secondary)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: disabled ? 'default' : 'pointer',
-        padding: 0
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return
-        ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-      }}
-    >
-      {children}
-    </button>
+    <ActionTooltip label={title} disabledReason={disabled ? title : undefined} placement="bottom">
+      <button
+        type="button"
+        aria-label={title}
+        onClick={onClick}
+        disabled={disabled}
+        style={{
+          width: '24px',
+          height: '24px',
+          border: 'none',
+          borderRadius: '4px',
+          background: 'transparent',
+          color: disabled ? 'var(--text-disabled, rgba(255,255,255,0.3))' : 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: disabled ? 'default' : 'pointer',
+          padding: 0
+        }}
+        onMouseEnter={(e) => {
+          if (disabled) return
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+        }}
+      >
+        {children}
+      </button>
+    </ActionTooltip>
   )
 }

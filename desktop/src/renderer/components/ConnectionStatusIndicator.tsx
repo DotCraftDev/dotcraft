@@ -2,6 +2,7 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useT } from '../contexts/LocaleContext'
 import { connectionStatusLabel } from '../utils/connectionStatusLabel'
 import { SIDEBAR_NAV_ICON_SLOT } from './sidebar/sidebarNavRowStyles'
+import { ActionTooltip } from './ui/ActionTooltip'
 
 const STATUS_CONFIG = {
   connecting: {
@@ -34,16 +35,16 @@ export function ConnectionStatusIndicator(): JSX.Element {
   const label = connectionStatusLabel(status, errorMessage, t)
 
   return (
-    <div
-      style={{
+    <ActionTooltip label={label} placement="top" wrapperStyle={{ minWidth: 0, flex: 1 }}>
+      <div
+        style={{
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
         minWidth: 0,
         flex: 1
       }}
-      title={label}
-    >
+      >
       <span style={SIDEBAR_NAV_ICON_SLOT}>
         <span
           style={{
@@ -77,6 +78,7 @@ export function ConnectionStatusIndicator(): JSX.Element {
           50% { opacity: 0.4; }
         }
       `}</style>
-    </div>
+      </div>
+    </ActionTooltip>
   )
 }

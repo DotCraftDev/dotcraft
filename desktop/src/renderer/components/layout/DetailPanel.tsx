@@ -148,12 +148,11 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         {systemTabs.map((tab) => {
           const isActive = isSystemTab && activeSystemId === tab.id
           return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveDetailTab(tab.id)}
-              title={tab.label}
-              aria-label={tab.label}
-              style={{
+            <ActionTooltip key={tab.id} label={tab.label} placement="bottom" wrapperStyle={{ height: '100%' }}>
+              <button
+                onClick={() => setActiveDetailTab(tab.id)}
+                aria-label={tab.label}
+                style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '5px',
@@ -191,7 +190,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                   {tab.badge}
                 </span>
               )}
-            </button>
+              </button>
+            </ActionTooltip>
           )
         })}
 

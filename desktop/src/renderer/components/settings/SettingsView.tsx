@@ -19,6 +19,7 @@ import { SelectionCard, ResolvedPill } from '../ui/SelectionCard'
 import { PillSwitch } from '../ui/PillSwitch'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
+import { ActionTooltip } from '../ui/ActionTooltip'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import {
   EditableKeyValueList,
@@ -2930,8 +2931,12 @@ export function SettingsView({
                           {items.map((ch) => {
                             const selected = visibleChannels.includes(ch.name)
                             return (
-                              <button
+                              <ActionTooltip
                                 key={ch.name}
+                                label={t('settings.channelIconTitle', { name: ch.name })}
+                                placement="top"
+                              >
+                              <button
                                 type="button"
                                 role="checkbox"
                                 aria-checked={selected}
@@ -2952,7 +2957,6 @@ export function SettingsView({
                                     ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))'
                                     : 'var(--bg-secondary)'
                                 }}
-                                title={t('settings.channelIconTitle', { name: ch.name })}
                                 aria-label={t('settings.channelIconTitle', { name: ch.name })}
                               >
                                 <ChannelIconBadge
@@ -2963,6 +2967,7 @@ export function SettingsView({
                                   framed={false}
                                 />
                               </button>
+                              </ActionTooltip>
                             )
                           })}
                         </div>

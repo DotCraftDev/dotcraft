@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import type { FileDiff } from '../../types/toolCall'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ChangesFileListProps {
   files: FileDiff[]
@@ -152,14 +153,14 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
       </span>
 
       {/* Hover action */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          if (isReverted) onReapply()
-          else onRevert()
-        }}
-        title={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')}
-        style={{
+      <ActionTooltip label={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')} placement="right">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isReverted) onReapply()
+            else onRevert()
+          }}
+          style={{
           padding: '1px 6px',
           fontSize: '10px',
           borderRadius: '3px',
@@ -171,7 +172,8 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
         }}
       >
         {isReverted ? t('changesFile.reapply') : t('changesFile.revert')}
-      </button>
+        </button>
+      </ActionTooltip>
     </div>
   )
 }

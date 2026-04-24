@@ -14,6 +14,7 @@ import { AUTOMATION_TASK_DRAG_MIME } from '../automations/TaskCard'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { useDragDropStore } from '../../stores/dragDropStore'
 import { addToast } from '../../stores/toastStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -237,19 +238,19 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     }
   }
 
+  const rowTooltipLabel = dimmedTarget
+    ? t('auto.dnd.archivedCannotBind')
+    : thread.displayName ?? displayName
+
   return (
     <>
+      <ActionTooltip label={rowTooltipLabel} wrapperStyle={{ display: 'block', width: '100%' }}>
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(e) => void handleDrop(e)}
-        title={
-          dimmedTarget
-            ? t('auto.dnd.archivedCannotBind')
-            : thread.displayName ?? undefined
-        }
         data-testid={`thread-entry-${thread.id}`}
         style={{
           display: 'flex',
@@ -518,16 +519,16 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {relativeTime}
             </span>
-            <button
-              type="button"
-              title={t('threadEntry.archive')}
-              aria-label={t('threadEntry.archive')}
-              onClick={(e) => {
-                e.stopPropagation()
-                beginInlineArchiveConfirm()
-              }}
-              onFocus={() => setArchiveButtonFocused(true)}
-              style={{
+            <ActionTooltip label={t('threadEntry.archive')} placement="right">
+              <button
+                type="button"
+                aria-label={t('threadEntry.archive')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  beginInlineArchiveConfirm()
+                }}
+                onFocus={() => setArchiveButtonFocused(true)}
+                style={{
                 width: '28px',
                 height: '28px',
                 padding: 0,
@@ -557,18 +558,19 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               }}
             >
               <Archive size={14} strokeWidth={2} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              tabIndex={showArchiveConfirm ? 0 : -1}
-              title={t('threadEntry.archiveConfirm')}
-              aria-label={t('threadEntry.archiveConfirm')}
-              onClick={(e) => {
-                e.stopPropagation()
-                void performArchiveThread()
-              }}
-              onFocus={() => setArchiveButtonFocused(true)}
-              style={{
+              </button>
+            </ActionTooltip>
+            <ActionTooltip label={t('threadEntry.archiveConfirm')} placement="right">
+              <button
+                type="button"
+                tabIndex={showArchiveConfirm ? 0 : -1}
+                aria-label={t('threadEntry.archiveConfirm')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void performArchiveThread()
+                }}
+                onFocus={() => setArchiveButtonFocused(true)}
+                style={{
                 height: '24px',
                 padding: '0 6px',
                 border: '1px solid rgba(248,81,73,0.35)',
@@ -595,10 +597,12 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               }}
             >
               {t('threadEntry.archiveConfirm')}
-            </button>
+              </button>
+            </ActionTooltip>
           </div>
         )}
       </div>
+      </ActionTooltip>
 
       {contextMenu && (
         <ThreadEntryContextMenu

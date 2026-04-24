@@ -67,7 +67,6 @@ export function ContextUsageRing(): JSX.Element | null {
       tabIndex={0}
       role="img"
       aria-label={t('contextRing.ariaLabel', { percent: ringData.percentUsed })}
-      title={t('contextRing.title', { percent: ringData.percentUsed })}
       style={{
         position: 'relative',
         display: 'inline-flex',

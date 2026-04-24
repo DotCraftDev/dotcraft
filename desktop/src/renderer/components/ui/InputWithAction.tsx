@@ -7,6 +7,7 @@ import type {
   ReactNode,
   Ref
 } from 'react'
+import { ActionTooltip } from './ActionTooltip'
 
 /**
  * Unified text input + trailing action button, rendered as a single
@@ -69,16 +70,21 @@ export function InputWithAction({
         aria-describedby={ariaDescribedby}
         style={innerInputStyle(mono)}
       />
-      <button
-        type="button"
-        aria-label={actionLabel}
-        title={actionLabel}
-        disabled={isActionDisabled}
-        onClick={onAction}
-        style={inlineActionStyle(isActionDisabled)}
+      <ActionTooltip
+        label={actionLabel}
+        disabledReason={isActionDisabled ? actionLabel : undefined}
+        placement="top"
       >
-        {actionIcon}
-      </button>
+        <button
+          type="button"
+          aria-label={actionLabel}
+          disabled={isActionDisabled}
+          onClick={onAction}
+          style={inlineActionStyle(isActionDisabled)}
+        >
+          {actionIcon}
+        </button>
+      </ActionTooltip>
     </div>
   )
 }

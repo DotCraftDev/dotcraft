@@ -126,10 +126,14 @@ describe('mode shortcut', () => {
     renderWithLocale(<ConversationWelcome workspacePath="F:\\dotcraft" />)
 
     const textbox = screen.getByRole('textbox')
-    expect(screen.getByRole('button', { name: 'Agent' })).toHaveAttribute(
-      'title',
-      'Mode: Agent. Click or press Shift+Tab to toggle.'
-    )
+    const modeButton = screen.getByRole('button', { name: 'Agent' })
+    expect(modeButton).not.toHaveAttribute('title')
+
+    fireEvent.mouseEnter(modeButton.parentElement as HTMLElement)
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Mode: Agent')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Shift')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Tab')
 
     fireEvent.keyDown(textbox, { key: 'Tab', shiftKey: true })
 

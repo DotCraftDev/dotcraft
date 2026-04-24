@@ -5,6 +5,7 @@ import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { addToast } from '../../stores/toastStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface CommitDialogProps {
   workspacePath: string
@@ -354,28 +355,32 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
           }}
         >
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t('commit.messageLabel')}</span>
-          <button
-            type="button"
-            onClick={() => {
-              void handleSuggestFromChanges()
-            }}
-            disabled={
-              generating ||
-              committing ||
-              success ||
-              !isConnected ||
-              writtenFiles.length === 0 ||
-              !threadId.trim()
-            }
-            aria-label={t('commit.generateButton')}
-            title={
+          <ActionTooltip
+            label={t('commit.generateTitle.connected')}
+            disabledReason={
               !isConnected
                 ? t('commit.generateTitle.disconnected')
                 : writtenFiles.length === 0
                   ? t('commit.generateTitle.noFiles')
-                  : t('commit.generateTitle.connected')
+                  : undefined
             }
-            style={{
+            placement="top"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                void handleSuggestFromChanges()
+              }}
+              disabled={
+                generating ||
+                committing ||
+                success ||
+                !isConnected ||
+                writtenFiles.length === 0 ||
+                !threadId.trim()
+              }
+              aria-label={t('commit.generateButton')}
+              style={{
               width: '28px',
               height: '28px',
               borderRadius: '6px',
@@ -397,7 +402,8 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             {generating
               ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
               : <Sparkles size={14} />}
-          </button>
+            </button>
+          </ActionTooltip>
         </div>
 
         <textarea

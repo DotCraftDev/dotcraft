@@ -11,6 +11,7 @@ import { SchedulePicker } from './SchedulePicker'
 import { ThreadPickerOverlay } from './ThreadPickerOverlay'
 import { TemplateGalleryOverlay } from './TemplateGalleryOverlay'
 import { PillSwitch } from '../ui/PillSwitch'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 type DialogTab = 'task' | 'template'
 
@@ -1068,6 +1069,7 @@ function TargetPill({
 
   return (
     <div style={{ position: 'relative' }}>
+      <ActionTooltip label={label}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -1088,10 +1090,10 @@ function TargetPill({
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap'
         }}
-        title={label}
       >
         {label} ▾
       </button>
+      </ActionTooltip>
       {open && (
         <div
           style={{
