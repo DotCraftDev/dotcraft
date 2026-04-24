@@ -843,7 +843,7 @@ export function App(): JSX.Element {
         useUIStore.getState().goToNewChat()
       }
 
-      // Ctrl+K: focus thread search
+      // Ctrl+K: open thread search
       if (ctrl && e.key === 'k') {
         e.preventDefault()
         const focusFn = (window as Window & { __sidebarSearchFocus?: () => void }).__sidebarSearchFocus

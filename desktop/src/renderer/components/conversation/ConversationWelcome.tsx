@@ -32,6 +32,8 @@ import {
   composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 interface ConversationWelcomeProps {
@@ -930,16 +932,21 @@ export function ConversationWelcome({
                       modelApplying || starting || modelLoading
                     )}
                   />
-                  <button
-                    type="button"
-                    onClick={() => { void sendFromWelcome() }}
-                    disabled={!canSend}
-                    title={t('welcome.sendTitle')}
-                    aria-label={t('welcome.sendAria')}
-                    style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                  <ActionTooltip
+                    label={t('welcome.sendAria')}
+                    shortcut={canSend ? ACTION_SHORTCUTS.send : undefined}
+                    placement="top"
                   >
-                    <SendIcon />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => { void sendFromWelcome() }}
+                      disabled={!canSend}
+                      aria-label={t('welcome.sendAria')}
+                      style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                    >
+                      <SendIcon />
+                    </button>
+                  </ActionTooltip>
                 </div>
               }
             />

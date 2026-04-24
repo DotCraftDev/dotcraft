@@ -1,133 +1,292 @@
-import { useRef, useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Monitor, Search } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
+import type { ThreadSummary } from '../../types/thread'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ShortcutBadge } from '../ui/ShortcutBadge'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
+import {
+  SIDEBAR_NAV_BORDER_INACTIVE,
+  SIDEBAR_NAV_ICON_SLOT,
+  SIDEBAR_NAV_LABEL,
+  SIDEBAR_NAV_ROW_OUTER
+} from './sidebarNavRowStyles'
 
 interface ThreadSearchProps {
-  /** Ref for external focus control (e.g. Ctrl+K shortcut) */
-  inputRef?: React.RefObject<HTMLInputElement | null>
+  workspaceName: string
 }
 
 /**
- * Thread search input with 150ms debounce and Escape-to-clear.
- * Spec §9.4
+ * Codex-style sidebar search entry. The actual search input lives in a centered
+ * dialog so the sidebar stays visually quiet.
  */
-export function ThreadSearch({ inputRef: externalRef }: ThreadSearchProps): JSX.Element {
+export function ThreadSearch({ workspaceName }: ThreadSearchProps): JSX.Element {
   const t = useT()
-  const { searchQuery, setSearchQuery } = useThreadStore()
-  const internalRef = useRef<HTMLInputElement>(null)
-  const ref = externalRef ?? internalRef
-  const [localValue, setLocalValue] = useState(searchQuery)
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [open, setOpen] = useState(false)
 
-  // Sync external searchQuery reset back to local value
   useEffect(() => {
-    setLocalValue(searchQuery)
-  }, [searchQuery])
-
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>): void {
-    const value = e.target.value
-    setLocalValue(value)
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      setSearchQuery(value)
-    }, 150)
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Escape') {
-      setLocalValue('')
-      setSearchQuery('')
-      ;(e.currentTarget as HTMLInputElement).blur()
-    }
-  }
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
+    const openSearch = (): void => setOpen(true)
+    ;(window as Window & { __sidebarSearchFocus?: () => void }).__sidebarSearchFocus = openSearch
     return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      delete (window as Window & { __sidebarSearchFocus?: () => void }).__sidebarSearchFocus
     }
   }, [])
 
   return (
+    <>
+      <div style={{ padding: '0 0 4px', flexShrink: 0 }}>
+        <ActionTooltip
+          label={t('threadSearch.open')}
+          shortcut={ACTION_SHORTCUTS.search}
+          wrapperStyle={{ display: 'block', width: '100%' }}
+        >
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label={t('threadSearch.open')}
+            style={{
+              ...SIDEBAR_NAV_ROW_OUTER,
+              ...SIDEBAR_NAV_BORDER_INACTIVE,
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              transition: 'background-color 120ms ease, color 120ms ease'
+            }}
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+            }}
+          >
+            <span style={SIDEBAR_NAV_ICON_SLOT}>
+              <Search size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+            </span>
+            <span style={SIDEBAR_NAV_LABEL}>{t('threadSearch.open')}</span>
+          </button>
+        </ActionTooltip>
+      </div>
+
+      {open && (
+        <ThreadSearchDialog
+          workspaceName={workspaceName}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+interface ThreadSearchDialogProps {
+  workspaceName: string
+  onClose: () => void
+}
+
+function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps): JSX.Element {
+  const t = useT()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState('')
+  const [highlighted, setHighlighted] = useState(0)
+  const threadList = useThreadStore((s) => s.threadList)
+  const setActiveThreadId = useThreadStore((s) => s.setActiveThreadId)
+  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
+
+  const visibleThreads = useMemo(() => {
+    const visible = threadList
+      .filter((thread) => thread.status !== 'archived')
+      .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime())
+
+    const trimmed = query.trim().toLowerCase()
+    const filtered = trimmed
+      ? visible.filter((thread) => (thread.displayName ?? '').toLowerCase().includes(trimmed))
+      : visible
+
+    return filtered.slice(0, 9)
+  }, [query, threadList])
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    setHighlighted(0)
+  }, [query])
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      const ctrl = event.ctrlKey || event.metaKey
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setHighlighted((current) => Math.max(0, Math.min(visibleThreads.length - 1, current + 1)))
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setHighlighted((current) => Math.max(0, current - 1))
+        return
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        openThread(visibleThreads[highlighted])
+        return
+      }
+
+      if (ctrl && /^[1-9]$/.test(event.key)) {
+        event.preventDefault()
+        openThread(visibleThreads[Number(event.key) - 1])
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [highlighted, onClose, visibleThreads])
+
+  function openThread(thread: ThreadSummary | undefined): void {
+    if (!thread) return
+    setActiveThreadId(thread.id)
+    setActiveMainView('conversation')
+    onClose()
+  }
+
+  const title = query.trim()
+    ? t('threadSearchDialog.matches')
+    : t('threadSearchDialog.recent')
+
+  return createPortal(
     <div
+      role="presentation"
       style={{
-        padding: '4px 12px 10px',
-        flexShrink: 0
+        position: 'fixed',
+        inset: 0,
+        zIndex: 900,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        paddingTop: '18vh',
+        background: 'color-mix(in srgb, var(--bg-primary) 58%, transparent)',
+        backdropFilter: 'blur(2px)'
+      }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div style={{ position: 'relative' }}>
-        <span
-          style={{
-            position: 'absolute',
-            left: '8px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            color: 'var(--text-dimmed)',
-            lineHeight: 0,
-            pointerEvents: 'none',
-            display: 'flex',
-            alignItems: 'center'
-          }}
-          aria-hidden="true"
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-            <line x1="10.2" y1="10.2" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </span>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('threadSearchDialog.aria')}
+        style={{
+          width: 'min(780px, calc(100vw - 48px))',
+          border: '1px solid var(--border-default)',
+          borderRadius: '28px',
+          background: 'var(--bg-secondary)',
+          boxShadow: '0 28px 80px rgba(0, 0, 0, 0.28)',
+          padding: '16px 8px 10px'
+        }}
+      >
         <input
-          ref={ref as React.RefObject<HTMLInputElement>}
-          type="text"
-          value={localValue}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder={t('threadSearch.placeholder')}
-          aria-label={t('threadSearch.aria')}
+          ref={inputRef}
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder={t('threadSearchDialog.placeholder')}
+          aria-label={t('threadSearchDialog.placeholder')}
           style={{
             width: '100%',
-            padding: '5px 28px 5px 26px',
-            backgroundColor: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-default)',
-            borderRadius: '6px',
-            color: 'var(--text-primary)',
-            fontSize: '13px',
+            height: '30px',
+            border: 'none',
             outline: 'none',
-            boxSizing: 'border-box',
-            transition: 'border-color 100ms ease'
-          }}
-          onFocus={(e) => {
-            ;(e.currentTarget as HTMLInputElement).style.borderColor = 'var(--border-active)'
-          }}
-          onBlur={(e) => {
-            ;(e.currentTarget as HTMLInputElement).style.borderColor = 'var(--border-default)'
+            background: 'transparent',
+            color: 'var(--text-primary)',
+            fontSize: '16px',
+            padding: '0 12px',
+            boxSizing: 'border-box'
           }}
         />
-        {localValue && (
-          <button
-            onClick={() => {
-              setLocalValue('')
-              setSearchQuery('')
-              ref.current?.focus()
-            }}
+
+        <div
+          style={{
+            padding: '12px 12px 6px',
+            color: 'var(--text-dimmed)',
+            fontSize: '13px',
+            fontWeight: 500
+          }}
+        >
+          {title}
+        </div>
+
+        <div style={{ display: 'grid', gap: '2px' }}>
+          {visibleThreads.map((thread, index) => {
+            const selected = highlighted === index
+            return (
+              <button
+                key={thread.id}
+                type="button"
+                onClick={() => openThread(thread)}
+                onMouseEnter={() => setHighlighted(index)}
+                style={{
+                  width: '100%',
+                  minHeight: '42px',
+                  border: 'none',
+                  borderRadius: '18px',
+                  display: 'grid',
+                  gridTemplateColumns: '24px minmax(0, 1fr) auto auto',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '0 12px',
+                  background: selected ? 'var(--bg-tertiary)' : 'transparent',
+                  color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '15px'
+                }}
+              >
+                <Monitor size={17} strokeWidth={1.8} aria-hidden />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {thread.displayName ?? t('sidebar.newConversation')}
+                </span>
+                <span
+                  style={{
+                    color: 'var(--text-dimmed)',
+                    fontSize: '14px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '140px'
+                  }}
+                >
+                  {workspaceName}
+                </span>
+                <ShortcutBadge shortcut={['Mod', String(index + 1)]} />
+              </button>
+            )
+          })}
+        </div>
+
+        {visibleThreads.length === 0 && (
+          <div
             style={{
-              position: 'absolute',
-              right: '6px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
+              padding: '18px 12px 20px',
               color: 'var(--text-dimmed)',
-              fontSize: '14px',
-              lineHeight: 1,
-              padding: '2px'
+              fontSize: '14px'
             }}
-            aria-label={t('threadSearch.clear')}
           >
-            ×
-          </button>
+            {t('threadSearchDialog.empty')}
+          </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

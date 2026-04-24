@@ -141,6 +141,18 @@
   --transition-fade: 100ms linear;
   --transition-message: 150ms ease-out;
 
+  /* Floating action tooltip */
+  --tooltip-bg: var(--bg-secondary);
+  --tooltip-border: var(--border-default);
+  --tooltip-text: var(--text-primary);
+  --tooltip-muted: var(--text-secondary);
+  --tooltip-shadow: var(--shadow-lg);
+  --tooltip-radius: 8px;
+  --shortcut-bg: var(--bg-tertiary);
+  --shortcut-border: var(--border-default);
+  --shortcut-text: var(--text-secondary);
+  --z-tooltip: 1000;
+
   /* Conversation + detail panel top chrome (aligned horizontal rule) */
   --chrome-header-height: 44px;
 
@@ -448,6 +460,46 @@ kbd {
 
 .dc-input-with-action > button:active:not(:disabled) {
   background: var(--bg-active);
+}
+
+/* Action tooltip + keyboard shortcut keycaps */
+.dc-action-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 6px 8px;
+  border: 1px solid var(--tooltip-border);
+  border-radius: var(--tooltip-radius);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  box-shadow: var(--tooltip-shadow);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.dc-action-tooltip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dc-shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--shortcut-border);
+  border-radius: 5px;
+  background: var(--shortcut-bg);
+  color: var(--shortcut-text);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #000 18%, transparent);
 }
 
 /* ─── Accessibility: global focus-visible outline ─── */

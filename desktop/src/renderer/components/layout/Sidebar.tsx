@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { connectionStatusLabel } from '../../utils/connectionStatusLabel'
 import { useUIStore } from '../../stores/uiStore'
@@ -18,6 +18,8 @@ import {
 import { SettingsIcon } from '../ui/AppIcons'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { MessageSquare, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 interface SidebarProps {
   workspaceName: string
@@ -47,15 +49,6 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
     capabilities?.automations === true || capabilities?.cronManagement === true
   const automationsDisabledTitle =
     !automationsAvailable ? t('sidebar.automationsDisabled') : undefined
-  const searchRef = useRef<HTMLInputElement>(null)
-
-  // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
-  // a forwarded ref or an event)
-  if (typeof window !== 'undefined') {
-    ;(window as Window & { __sidebarSearchFocus?: () => void }).__sidebarSearchFocus = () =>
-      searchRef.current?.focus()
-  }
-
   if (sidebarCollapsed) {
     return (
       <CollapsedSidebar
@@ -79,7 +72,7 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
 
       <NewThreadButton />
 
-      <ThreadSearch inputRef={searchRef} />
+      <ThreadSearch workspaceName={workspaceName} />
 
       {/* Thread list -- fills remaining space */}
       <ThreadList />
@@ -141,12 +134,11 @@ function SidebarNavRow({
   disabled,
   title
 }: SidebarNavRowProps): JSX.Element {
-  return (
+  const button = (
     <button
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
-      title={title}
       style={{
         ...SIDEBAR_NAV_ROW_OUTER,
         cursor: disabled ? 'default' : 'pointer',
@@ -166,6 +158,18 @@ function SidebarNavRow({
       <span style={SIDEBAR_NAV_ICON_SLOT}>{icon}</span>
       <span style={{ ...SIDEBAR_NAV_LABEL, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
     </button>
+  )
+
+  if (!title) return button
+
+  return (
+    <ActionTooltip
+      label={label}
+      disabledReason={disabled ? title : undefined}
+      wrapperStyle={{ display: 'block', width: '100%' }}
+    >
+      {button}
+    </ActionTooltip>
   )
 }
 
@@ -242,128 +246,148 @@ function CollapsedSidebar({ onExpand }: CollapsedSidebarProps): JSX.Element {
       }}
     >
       {/* Logo doubles as expand button — swaps to panel-open icon on hover */}
-      <button
-        onClick={onExpand}
-        title={t('sidebar.expand')}
-        aria-label={t('sidebar.expand')}
-        onMouseEnter={() => setLogoHovered(true)}
-        onMouseLeave={() => setLogoHovered(false)}
-        style={{
-          ...iconButtonStyle,
-          width: '36px',
-          height: '36px',
-          borderRadius: '8px',
-          marginBottom: '2px',
-          color: logoHovered ? 'var(--text-primary)' : 'var(--text-secondary)'
-        }}
+      <ActionTooltip label={t('sidebar.expandAria')} shortcut={ACTION_SHORTCUTS.toggleSidebar} placement="right">
+        <button
+          onClick={onExpand}
+          aria-label={t('sidebar.expandAria')}
+          onMouseEnter={() => setLogoHovered(true)}
+          onMouseLeave={() => setLogoHovered(false)}
+          style={{
+            ...iconButtonStyle,
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            marginBottom: '2px',
+            color: logoHovered ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
       >
-        {logoHovered ? <PanelLeftOpenIcon /> : <DotCraftLogo size={24} />}
-      </button>
+          {logoHovered ? <PanelLeftOpenIcon /> : <DotCraftLogo size={24} />}
+        </button>
+      </ActionTooltip>
 
       {/* New thread icon */}
-      <button
-        title={t('sidebar.newThread')}
-        onClick={handleNewThread}
-        disabled={status !== 'connected'}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: 'var(--accent)',
-          color: '#ffffff',
-          fontSize: '18px',
-          fontWeight: 700,
-          opacity: status !== 'connected' ? 0.5 : 1
-        }}
-        aria-label={t('sidebar.newThread')}
+      <ActionTooltip
+        label={t('sidebar.newThreadLabel')}
+        shortcut={status === 'connected' ? ACTION_SHORTCUTS.newThread : undefined}
+        disabledReason={
+          status !== 'connected'
+            ? t('connection.statusTitle', {
+              status: connectionStatusLabel(status, errorMessage, t)
+            })
+            : undefined
+        }
+        placement="right"
       >
-        +
-      </button>
+        <button
+          onClick={handleNewThread}
+          disabled={status !== 'connected'}
+          style={{
+            ...iconButtonStyle,
+            backgroundColor: 'var(--accent)',
+            color: '#ffffff',
+            fontSize: '18px',
+            fontWeight: 700,
+            opacity: status !== 'connected' ? 0.5 : 1
+          }}
+          aria-label={t('sidebar.newThreadLabel')}
+        >
+          +
+        </button>
+      </ActionTooltip>
 
       {/* Thread dots: first letter of each recent thread */}
       {recentThreads.map((thread) => {
         const letter = (thread.displayName ?? 'N')[0].toUpperCase()
         return (
-          <button
+          <ActionTooltip
             key={thread.id}
-            title={thread.displayName ?? t('sidebar.newConversation')}
-            onClick={() => {
-              setActiveThreadId(thread.id)
-              setActiveMainView('conversation')
-            }}
-            style={{
-              ...iconButtonStyle,
-              fontSize: '11px',
-              fontWeight: 600,
-              backgroundColor: 'var(--bg-tertiary)'
-            }}
-            aria-label={thread.displayName ?? t('sidebar.newConversation')}
+            label={thread.displayName ?? t('sidebar.newConversation')}
+            placement="right"
           >
-            {letter}
-          </button>
+            <button
+              onClick={() => {
+                setActiveThreadId(thread.id)
+                setActiveMainView('conversation')
+              }}
+              style={{
+                ...iconButtonStyle,
+                fontSize: '11px',
+                fontWeight: 600,
+                backgroundColor: 'var(--bg-tertiary)'
+              }}
+              aria-label={thread.displayName ?? t('sidebar.newConversation')}
+            >
+              {letter}
+            </button>
+          </ActionTooltip>
         )
       })}
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      <button
-        type="button"
-        title={t('sidebar.channels')}
-        onClick={() => setActiveMainView('channels')}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: activeMainView === 'channels' ? 'var(--bg-tertiary)' : 'transparent',
-          color: activeMainView === 'channels' ? 'var(--accent)' : 'var(--text-secondary)'
-        }}
-        aria-label={t('sidebar.channels')}
+      <CollapsedNavTooltip label={t('sidebar.channels')}>
+        <button
+          type="button"
+          onClick={() => setActiveMainView('channels')}
+          style={{
+            ...iconButtonStyle,
+            backgroundColor: activeMainView === 'channels' ? 'var(--bg-tertiary)' : 'transparent',
+            color: activeMainView === 'channels' ? 'var(--accent)' : 'var(--text-secondary)'
+          }}
+          aria-label={t('sidebar.channels')}
+        >
+          <ChannelsIcon />
+        </button>
+      </CollapsedNavTooltip>
+      <CollapsedNavTooltip
+        label={t('sidebar.automations')}
+        disabledReason={!collapsedAutomationsAvailable ? t('sidebar.automationsDisabled') : undefined}
       >
-        <ChannelsIcon />
-      </button>
-      <button
-        type="button"
-        title={
-          collapsedAutomationsAvailable
-            ? t('sidebar.automations')
-            : t('sidebar.automationsDisabled')
-        }
-        onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
-        disabled={!collapsedAutomationsAvailable}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: activeMainView === 'automations' ? 'var(--bg-tertiary)' : 'transparent',
-          color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)',
-          opacity: collapsedAutomationsAvailable ? 1 : 0.4
-        }}
-        aria-label={t('sidebar.automations')}
-      >
-        <AutomationsIcon />
-      </button>
-      <button
-        type="button"
-        title={t('sidebar.skills')}
-        onClick={() => setActiveMainView('skills')}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: activeMainView === 'skills' ? 'var(--bg-tertiary)' : 'transparent',
-          color: activeMainView === 'skills' ? 'var(--accent)' : 'var(--text-secondary)'
-        }}
-        aria-label={t('sidebar.skills')}
-      >
-        <SkillsIcon />
-      </button>
+        <button
+          type="button"
+          onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
+          disabled={!collapsedAutomationsAvailable}
+          style={{
+            ...iconButtonStyle,
+            backgroundColor: activeMainView === 'automations' ? 'var(--bg-tertiary)' : 'transparent',
+            color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)',
+            opacity: collapsedAutomationsAvailable ? 1 : 0.4
+          }}
+          aria-label={t('sidebar.automations')}
+        >
+          <AutomationsIcon />
+        </button>
+      </CollapsedNavTooltip>
+      <CollapsedNavTooltip label={t('sidebar.skills')}>
+        <button
+          type="button"
+          onClick={() => setActiveMainView('skills')}
+          style={{
+            ...iconButtonStyle,
+            backgroundColor: activeMainView === 'skills' ? 'var(--bg-tertiary)' : 'transparent',
+            color: activeMainView === 'skills' ? 'var(--accent)' : 'var(--text-secondary)'
+          }}
+          aria-label={t('sidebar.skills')}
+        >
+          <SkillsIcon />
+        </button>
+      </CollapsedNavTooltip>
 
       {/* Settings icon button */}
-      <button
-        onClick={() => setActiveMainView('settings')}
-        title={t('sidebar.settingsShortcut')}
-        aria-label={t('sidebar.openSettingsAria')}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: activeMainView === 'settings' ? 'var(--bg-tertiary)' : 'transparent',
-          color: activeMainView === 'settings' ? 'var(--accent)' : 'var(--text-secondary)'
-        }}
-      >
-        <SettingsIcon />
-      </button>
+      <ActionTooltip label={t('sidebar.openSettingsAria')} shortcut={ACTION_SHORTCUTS.settings} placement="right">
+        <button
+          onClick={() => setActiveMainView('settings')}
+          aria-label={t('sidebar.openSettingsAria')}
+          style={{
+            ...iconButtonStyle,
+            backgroundColor: activeMainView === 'settings' ? 'var(--bg-tertiary)' : 'transparent',
+            color: activeMainView === 'settings' ? 'var(--accent)' : 'var(--text-secondary)'
+          }}
+        >
+          <SettingsIcon />
+        </button>
+      </ActionTooltip>
 
       {/* Connection status dot */}
       <div
@@ -410,48 +434,69 @@ function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
   const [hovered, setHovered] = useState(false)
 
   return (
-    <button
-      type="button"
-      onClick={onCollapse}
-      title={t('sidebar.collapseTitle')}
-      aria-label={t('sidebar.collapseAria')}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '10px 14px',
-        background: 'transparent',
-        border: 'none',
-        width: '100%',
-        cursor: 'pointer',
-        flexShrink: 0,
-        color: hovered ? 'var(--text-primary)' : 'var(--text-secondary)',
-        transition: 'color 120ms ease'
-      }}
+    <ActionTooltip
+      label={t('sidebar.collapseAria')}
+      shortcut={ACTION_SHORTCUTS.toggleSidebar}
+      wrapperStyle={{ display: 'block', width: '100%' }}
     >
-      {/* On hover, swap logo for panel-close icon; logo stays otherwise */}
-      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', width: 24, height: 24, justifyContent: 'center' }}>
-        {hovered ? <PanelLeftCloseIcon /> : <DotCraftLogo size={24} />}
-      </span>
-      <span
+      <button
+        type="button"
+        onClick={onCollapse}
+        aria-label={t('sidebar.collapseAria')}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
-          fontSize: '14px',
-          fontWeight: 700,
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.3px',
-          flex: 1,
-          textAlign: 'left'
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 14px',
+          background: 'transparent',
+          border: 'none',
+          width: '100%',
+          cursor: 'pointer',
+          flexShrink: 0,
+          color: hovered ? 'var(--text-primary)' : 'var(--text-secondary)',
+          transition: 'color 120ms ease'
         }}
       >
-        DotCraft
-      </span>
-    </button>
+        {/* On hover, swap logo for panel-close icon; logo stays otherwise */}
+        <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', width: 24, height: 24, justifyContent: 'center' }}>
+          {hovered ? <PanelLeftCloseIcon /> : <DotCraftLogo size={24} />}
+        </span>
+        <span
+          style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+            letterSpacing: '-0.3px',
+            flex: 1,
+            textAlign: 'left'
+          }}
+        >
+          DotCraft
+        </span>
+      </button>
+    </ActionTooltip>
   )
 }
 
 // ---------------------------------------------------------------------------
+
+function CollapsedNavTooltip({
+  label,
+  disabledReason,
+  children
+}: {
+  label: string
+  disabledReason?: string
+  children: JSX.Element
+}): JSX.Element {
+  return (
+    <ActionTooltip label={label} disabledReason={disabledReason} placement="right">
+      {children}
+    </ActionTooltip>
+  )
+}
 
 const iconButtonStyle: React.CSSProperties = {
   width: '32px',

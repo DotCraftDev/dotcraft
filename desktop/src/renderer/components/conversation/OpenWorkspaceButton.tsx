@@ -6,6 +6,7 @@ import {
   ExplorerIcon,
   TerminalBashIcon
 } from '../ui/AppIcons'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface OpenWorkspaceButtonProps {
   workspacePath: string
@@ -171,52 +172,63 @@ export function OpenWorkspaceButton({ workspacePath }: OpenWorkspaceButtonProps)
   return (
     <div ref={wrapRef} style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
       <div style={splitWrapStyle}>
-        <button
-          type="button"
-          style={{
-            ...openButtonStyle,
-            borderRight: '1px solid var(--border-default)',
-            borderTopRightRadius: 0,
-            borderBottomRightRadius: 0
-          }}
-          title={t('threadHeader.openTitle', { path: workspacePath })}
-          aria-label={primaryAriaLabel}
-          disabled={loading}
-          onMouseDown={(event) => {
-            if (event.button !== 0) {
-              event.preventDefault()
-            }
-          }}
-          onClick={() => { void handleLaunch(primaryEditor.id) }}
+        <ActionTooltip
+          label={t('threadHeader.openTitle', { path: workspacePath })}
+          disabledReason={loading ? t('quickOpen.loading') : undefined}
+          placement="bottom"
         >
-          <span style={iconWrapStyle}>
-            {renderIcon(primaryEditor, editorIconSize)}
-          </span>
-        </button>
-        <button
-          type="button"
-          aria-label={t('threadHeader.openMenuAria')}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          disabled={loading || orderedEditors.length === 0}
-          onMouseDown={(event) => {
-            if (event.button !== 0) {
-              event.preventDefault()
-            }
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault()
-          }}
-          onClick={() => setOpen((current) => !current)}
-          style={{
-            ...openButtonStyle,
-            paddingInline: '6px',
-            borderTopLeftRadius: 0,
-            borderBottomLeftRadius: 0
-          }}
+          <button
+            type="button"
+            style={{
+              ...openButtonStyle,
+              borderRight: '1px solid var(--border-default)',
+              borderTopRightRadius: 0,
+              borderBottomRightRadius: 0
+            }}
+            aria-label={primaryAriaLabel}
+            disabled={loading}
+            onMouseDown={(event) => {
+              if (event.button !== 0) {
+                event.preventDefault()
+              }
+            }}
+            onClick={() => { void handleLaunch(primaryEditor.id) }}
+          >
+            <span style={iconWrapStyle}>
+              {renderIcon(primaryEditor, editorIconSize)}
+            </span>
+          </button>
+        </ActionTooltip>
+        <ActionTooltip
+          label={t('threadHeader.openMenuAria')}
+          disabledReason={loading ? t('quickOpen.loading') : undefined}
+          placement="bottom"
         >
-          <ChevronDownIcon size={13} />
-        </button>
+          <button
+            type="button"
+            aria-label={t('threadHeader.openMenuAria')}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            disabled={loading || orderedEditors.length === 0}
+            onMouseDown={(event) => {
+              if (event.button !== 0) {
+                event.preventDefault()
+              }
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault()
+            }}
+            onClick={() => setOpen((current) => !current)}
+            style={{
+              ...openButtonStyle,
+              paddingInline: '6px',
+              borderTopLeftRadius: 0,
+              borderBottomLeftRadius: 0
+            }}
+          >
+            <ChevronDownIcon size={13} />
+          </button>
+        </ActionTooltip>
       </div>
 
       {open && orderedEditors.length > 0 && (
