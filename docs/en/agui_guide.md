@@ -104,4 +104,4 @@ With this configuration, `http://127.0.0.1:8080/v1/chat/completions` serves the 
 - [Configuration Guide](./config_guide.md) - Complete configuration reference
 - [API Mode Guide](./api_guide.md) - OpenAI-compatible API mode
 - [DashBoard Guide](./dash_board_guide.md) - Built-in Web debugging UI
-- [Documentation Index](./index.md) - Full documentation navigation
+- [Documentation Index](./reference.md) - Full documentation navigation

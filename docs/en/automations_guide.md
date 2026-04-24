@@ -77,7 +77,7 @@ Create a folder named after the task id under the tasks root, containing `task.m
 
 **task.md** — YAML front matter defines task metadata:
 
-```markdown
+````markdown
 ---
 id: "my-task-001"
 title: "Implement feature X"
@@ -89,7 +89,7 @@ agent_summary: null
 ---
 
 Describe what the agent should do. Free-form Markdown.
-```
+````
 
 **workflow.md** — YAML front matter + Liquid prompt template:
 
@@ -160,7 +160,7 @@ Add to `.craft/config.json`:
 
 Place `WORKFLOW.md` (issues) and/or `PR_WORKFLOW.md` (PRs) in the workspace root. Each file has YAML front matter and a Liquid template:
 
-```markdown
+````markdown
 ---
 tracker:
   active_states: ["Todo", "In Progress"]
@@ -181,7 +181,7 @@ You are assigned to issue {{ work_item.identifier }}: **{{ work_item.title }}**
    git add -A && git commit -m "fix: <description> (closes {{ work_item.identifier }})" && git push
    ```
 3. When done, call the `CompleteIssue` tool with a brief summary.
-```
+````
 
 ### Step 3: Set up a GitHub Token
 

@@ -79,7 +79,7 @@ print(response.choices[0].message.content)
 
 DotCraft's API mode can act as a model provider, chatting in popular AI desktop applications such as Chatbox.
 
-![Chatbox](../images/config_model_provider.png)
+![Chatbox](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
 
 ---
 
@@ -146,4 +146,4 @@ For complete Python usage examples, see the [`Samples/python/`](../../Samples/py
 - [Configuration Guide](./config_guide.md) - Complete configuration reference
 - [QQ Bot Guide](./qq_bot_guide.md) - QQ Bot mode
 - [WeCom Guide](./wecom_guide.md) - WeCom Bot mode
-- [Documentation Index](./index.md) - Full documentation navigation
+- [Documentation Index](./reference.md) - Full documentation navigation

@@ -104,4 +104,4 @@ AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多
 - [配置指南](./config_guide.md) - 完整配置项说明
 - [API 模式指南](./api_guide.md) - OpenAI 兼容 API 模式
 - [DashBoard 指南](./dash_board_guide.md) - 内置 Web 调试界面
-- [文档索引](./index.md) - 完整文档导航
+- [文档索引](./reference.md) - 完整文档导航
