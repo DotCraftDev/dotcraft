@@ -28,6 +28,7 @@ describe('classifyBrowserUrl', () => {
   it('allows http/https and blocks unsupported schemes', () => {
     expect(classifyBrowserUrl('https://example.com')).toBe('allow')
     expect(classifyBrowserUrl('http://example.com')).toBe('allow')
+    expect(classifyBrowserUrl('dotcraft-viewer:///F:/workspace/index.html')).toBe('allow')
     expect(classifyBrowserUrl('file:///tmp/a.txt')).toBe('blocked')
     expect(classifyBrowserUrl('chrome://settings')).toBe('blocked')
     expect(classifyBrowserUrl('javascript:alert(1)')).toBe('blocked')

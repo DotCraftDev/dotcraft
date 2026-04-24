@@ -18,7 +18,8 @@
  */
 import { protocol, net } from 'electron'
 import { promises as fs } from 'fs'
-import { pathToFileURL } from 'url'
+import * as path from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
 
 export const VIEWER_SCHEME = 'dotcraft-viewer'
 
@@ -49,10 +50,7 @@ export function registerViewerScheme(): void {
 export function installViewerProtocolHandler(): void {
   protocol.handle(VIEWER_SCHEME, async (request) => {
     try {
-      // URL format: dotcraft-viewer:///encodeURIComponent(absPath)
-      const url = new URL(request.url)
-      const encoded = url.pathname.replace(/^\/+/, '')
-      const absPath = decodeURIComponent(encoded)
+      const absPath = fileURLToPath(request.url.replace(`${VIEWER_SCHEME}:`, 'file:'))
 
       if (!absPath) {
         return new Response(null, { status: 400 })
@@ -60,6 +58,11 @@ export function installViewerProtocolHandler(): void {
 
       const root = currentWorkspaceRoot
       if (!root) {
+        return new Response(null, { status: 403 })
+      }
+
+      const insideWorkspace = await isPathInsideWorkspace(absPath, root)
+      if (!insideWorkspace) {
         return new Response(null, { status: 403 })
       }
 
@@ -85,11 +88,24 @@ export function getViewerWorkspaceRoot(): string {
   return currentWorkspaceRoot
 }
 
+export async function isPathInsideWorkspace(targetPath: string, workspaceRoot: string): Promise<boolean> {
+  if (!workspaceRoot) return false
+  try {
+    const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot))
+    const resolvedTarget = await fs.realpath(path.resolve(targetPath))
+    const rel = path.relative(resolvedRoot, resolvedTarget)
+    return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel))
+  } catch {
+    return false
+  }
+}
+
 /**
  * Builds a `dotcraft-viewer://` URL for the given absolute file path.
  * The absolute path must be workspace-scoped before calling this.
  */
 export function buildViewerUrl(absolutePath: string): string {
-  return `${VIEWER_SCHEME}:///${encodeURIComponent(absolutePath.replace(/\\/g, '/'))}`
+  const fileUrl = pathToFileURL(path.resolve(absolutePath)).toString()
+  return fileUrl.replace(/^file:/, `${VIEWER_SCHEME}:`)
 }
 

@@ -1,10 +1,12 @@
 import { BrowserWindow, WebContentsView, nativeImage, session, shell } from 'electron'
 import { createHash } from 'crypto'
+import { fileURLToPath } from 'url'
 import type { BrowserEventPayload } from '../shared/viewer/types'
 
 const BROWSER_EVENT_CHANNEL = 'viewer:browser:event'
 const START_URL = 'about:blank'
-const ALLOWED_SCHEMES = new Set(['http:', 'https:'])
+const VIEWER_SCHEME = 'dotcraft-viewer:'
+const ALLOWED_SCHEMES = new Set(['http:', 'https:', VIEWER_SCHEME])
 const EXTERNAL_HANDOFF_SCHEMES = new Set(['mailto:', 'tel:'])
 const DEFAULT_START_TITLE = 'DotCraft Browser'
 
@@ -309,6 +311,10 @@ export class ViewerBrowserManager {
     const current = tab.currentUrl || tab.view.webContents.getURL()
     const scheme = extractScheme(current)
     if (!scheme || !ALLOWED_SCHEMES.has(scheme)) return
+    if (scheme === VIEWER_SCHEME) {
+      await shell.openPath(fileURLToPath(current.replace(/^dotcraft-viewer:/, 'file:')))
+      return
+    }
     await shell.openExternal(current)
   }
 

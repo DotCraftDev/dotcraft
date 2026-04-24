@@ -302,6 +302,7 @@ declare global {
         openExternal(url: string): Promise<void>
         listEditors(): Promise<EditorInfo[]>
         launchEditor(id: EditorId, cwd: string): Promise<void>
+        showItemInFolder(path: string): Promise<void>
       }
       file: {
         writeFile(absPath: string, content: string): Promise<void>
@@ -354,6 +355,7 @@ declare global {
             absolutePath: string
             limitBytes?: number
           }): Promise<{ text: string; truncated: boolean; encoding: string }>
+          toViewerUrl(params: { absolutePath: string }): Promise<{ url: string }>
           browser: {
             create(params: {
               tabId: string

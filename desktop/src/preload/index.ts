@@ -485,6 +485,10 @@ const api = {
 
     launchEditor(id: EditorId, cwd: string): Promise<void> {
       return ipcRenderer.invoke('editors:launch', id, cwd)
+    },
+
+    showItemInFolder(path: string): Promise<void> {
+      return ipcRenderer.invoke('shell:show-item-in-folder', path)
     }
   },
 
@@ -660,6 +664,10 @@ const api = {
         limitBytes?: number
       }): Promise<{ text: string; truncated: boolean; encoding: string }> {
         return ipcRenderer.invoke('workspace:viewer:read-text', params)
+      },
+
+      toViewerUrl(params: { absolutePath: string }): Promise<{ url: string }> {
+        return ipcRenderer.invoke('workspace:viewer:to-viewer-url', params)
       },
 
       browser: {

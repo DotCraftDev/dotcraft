@@ -7,6 +7,7 @@ import { ErrorBlock } from './ErrorBlock'
 import { CancelledNotice } from './CancelledNotice'
 import { SubAgentProgressBlock } from './SubAgentProgressBlock'
 import { TurnCompletionSummary } from './TurnCompletionSummary'
+import { TurnArtifacts } from './TurnArtifacts'
 import { ApprovalCard } from './ApprovalCard'
 import { SystemNoticeBlock } from './SystemNoticeBlock'
 import { planToolRunRender } from '../../utils/toolCallAggregation'
@@ -225,9 +226,12 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         <CancelledNotice reason={turn.cancelReason} />
       )}
 
-      {/* Turn completion summary (file changes) */}
+      {/* Turn completion artifacts and file changes */}
       {turn.status === 'completed' && (
-        <TurnCompletionSummary turnId={turn.id} />
+        <>
+          <TurnArtifacts turnId={turn.id} />
+          <TurnCompletionSummary turnId={turn.id} />
+        </>
       )}
     </div>
   )
