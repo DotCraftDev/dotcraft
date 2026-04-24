@@ -2,10 +2,10 @@ import { useEffect } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useFileChangeActions } from '../../hooks/useFileChangeActions'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { ChangesFileList } from './ChangesFileList'
 import { DiffViewer } from './DiffViewer'
-import { reconstructOriginalContent, reconstructNewContent } from '../../utils/diffReconstruct'
 
 interface ChangesTabProps {
   workspacePath: string
@@ -20,11 +20,10 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
   const t = useT()
   const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
-  const revertFile = useConversationStore((s) => s.revertFile)
-  const reapplyFile = useConversationStore((s) => s.reapplyFile)
   const selectedFile = useUIStore((s) => s.selectedChangedFile)
   const selectFile = useUIStore((s) => s.selectChangedFile)
   const confirm = useConfirmDialog()
+  const { revertFileDiff, reapplyFileDiff } = useFileChangeActions(workspacePath)
 
   const files = Array.from(changedFiles.values())
   const writtenFiles = files.filter((f) => f.status === 'written')
@@ -45,29 +44,19 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
   const selectedDiff = selectedFile ? changedFiles.get(selectedFile) ?? null : null
 
   async function handleRevert(diff: typeof files[0]): Promise<void> {
-    const absPath = toAbsPath(diff.filePath, workspacePath)
     try {
-      if (diff.isNewFile) {
-        await window.api.file.deleteFile(absPath)
-      } else {
-        const original = reconstructOriginalContent(diff)
-        await window.api.file.writeFile(absPath, original)
-      }
+      await revertFileDiff(diff)
     } catch (err) {
       console.error('Revert failed:', err)
     }
-    revertFile(diff.filePath)
   }
 
   async function handleReapply(diff: typeof files[0]): Promise<void> {
-    const absPath = toAbsPath(diff.filePath, workspacePath)
     try {
-      const newContent = reconstructNewContent(diff)
-      await window.api.file.writeFile(absPath, newContent)
+      await reapplyFileDiff(diff)
     } catch (err) {
       console.error('Re-apply failed:', err)
     }
-    reapplyFile(diff.filePath)
   }
 
   async function handleRevertAll(): Promise<void> {
@@ -199,13 +188,4 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
       </div>
     </div>
   )
-}
-
-function toAbsPath(filePath: string, workspacePath: string): string {
-  // If filePath is already absolute, return as-is
-  if (filePath.startsWith('/') || /^[A-Za-z]:\\/.test(filePath)) return filePath
-  // Join workspace + relative path
-  const ws = workspacePath.replace(/\\/g, '/')
-  const rel = filePath.replace(/\\/g, '/')
-  return `${ws}/${rel}`.replace(/\/\//g, '/')
 }

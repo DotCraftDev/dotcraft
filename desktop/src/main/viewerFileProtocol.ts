@@ -10,19 +10,28 @@
  * Usage:
  *  1. Call `registerViewerScheme()` synchronously before `app.whenReady()` to
  *     register the privileged scheme.
- *  2. Call `installViewerProtocolHandler()` inside `app.whenReady()`.
- *  3. Call `setViewerWorkspaceRoot(path)` whenever the workspace changes.
- *  4. Call `setViewerWorkspaceRoot('')` on workspace cleared / app quit.
+ *  2. Call `installViewerProtocolHandler()` inside `app.whenReady()` for the
+ *     default session.
+ *  3. Call `installViewerProtocolHandlerForSession(session)` for any custom
+ *     partition that needs to load viewer URLs.
+ *  4. Call `setViewerWorkspaceRoot(path)` whenever the workspace changes.
+ *  5. Call `setViewerWorkspaceRoot('')` on workspace cleared / app quit.
  *
- * URL format: `dotcraft-viewer:///<encodeURIComponent(absolutePath)>`
+ * URL format: `dotcraft-viewer://workspace/absolute/path/with/encoded/segments`
+ * On Windows the drive colon is encoded as a path segment, for example:
+ * `dotcraft-viewer://workspace/E%3A/workspace/index.html`.
  */
 import { protocol, net } from 'electron'
 import { promises as fs } from 'fs'
+import * as path from 'path'
 import { pathToFileURL } from 'url'
 
 export const VIEWER_SCHEME = 'dotcraft-viewer'
+const VIEWER_HOST = 'workspace'
 
 let currentWorkspaceRoot = ''
+let defaultProtocolHandlerInstalled = false
+const installedSessionProtocols = new WeakSet<object>()
 
 /**
  * Must be called before `app.whenReady()` to mark the scheme as privileged.
@@ -47,32 +56,45 @@ export function registerViewerScheme(): void {
  * Installs the protocol.handle handler. Must be called after `app.whenReady()`.
  */
 export function installViewerProtocolHandler(): void {
-  protocol.handle(VIEWER_SCHEME, async (request) => {
-    try {
-      // URL format: dotcraft-viewer:///encodeURIComponent(absPath)
-      const url = new URL(request.url)
-      const encoded = url.pathname.replace(/^\/+/, '')
-      const absPath = decodeURIComponent(encoded)
+  if (defaultProtocolHandlerInstalled) return
+  defaultProtocolHandlerInstalled = true
+  protocol.handle(VIEWER_SCHEME, handleViewerFileRequest)
+}
 
-      if (!absPath) {
-        return new Response(null, { status: 400 })
-      }
+export function installViewerProtocolHandlerForSession(targetSession: Electron.Session): void {
+  const targetProtocol = targetSession.protocol
+  if (installedSessionProtocols.has(targetProtocol)) return
+  installedSessionProtocols.add(targetProtocol)
+  targetProtocol.handle(VIEWER_SCHEME, handleViewerFileRequest)
+}
 
-      const root = currentWorkspaceRoot
-      if (!root) {
-        return new Response(null, { status: 403 })
-      }
+export async function handleViewerFileRequest(request: Request): Promise<Response> {
+  try {
+    const absPath = viewerUrlToPath(request.url)
 
-      const stat = await fs.stat(absPath)
-      if (!stat.isFile()) {
-        return new Response(null, { status: 403 })
-      }
-
-      return net.fetch(pathToFileURL(absPath).toString())
-    } catch {
-      return new Response(null, { status: 500 })
+    if (!absPath) {
+      return new Response(null, { status: 400 })
     }
-  })
+
+    const root = currentWorkspaceRoot
+    if (!root) {
+      return new Response(null, { status: 403 })
+    }
+
+    const insideWorkspace = await isPathInsideWorkspace(absPath, root)
+    if (!insideWorkspace) {
+      return new Response(null, { status: 403 })
+    }
+
+    const stat = await fs.stat(absPath)
+    if (!stat.isFile()) {
+      return new Response(null, { status: 403 })
+    }
+
+    return net.fetch(pathToFileURL(absPath).toString())
+  } catch {
+    return new Response(null, { status: 500 })
+  }
 }
 
 /** Update the allowed workspace root. Pass '' to deny all requests. */
@@ -85,11 +107,77 @@ export function getViewerWorkspaceRoot(): string {
   return currentWorkspaceRoot
 }
 
+export async function isPathInsideWorkspace(targetPath: string, workspaceRoot: string): Promise<boolean> {
+  if (!workspaceRoot) return false
+  try {
+    const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot))
+    const resolvedTarget = await fs.realpath(path.resolve(targetPath))
+    const rel = path.relative(resolvedRoot, resolvedTarget)
+    return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel))
+  } catch {
+    return false
+  }
+}
+
 /**
  * Builds a `dotcraft-viewer://` URL for the given absolute file path.
  * The absolute path must be workspace-scoped before calling this.
  */
 export function buildViewerUrl(absolutePath: string): string {
-  return `${VIEWER_SCHEME}:///${encodeURIComponent(absolutePath.replace(/\\/g, '/'))}`
+  const normalized = normalizeAbsolutePathForViewerUrl(absolutePath)
+  return `${VIEWER_SCHEME}://${VIEWER_HOST}${encodeViewerPath(normalized)}`
+}
+
+/**
+ * Converts a `dotcraft-viewer://` URL back to a local absolute path.
+ * Also accepts legacy URLs created before the fixed host was introduced.
+ */
+export function viewerUrlToPath(viewerUrl: string): string {
+  const parsed = new URL(viewerUrl)
+  if (parsed.protocol !== `${VIEWER_SCHEME}:`) {
+    throw new Error('Invalid viewer URL scheme')
+  }
+
+  const decodedPath = decodeViewerPath(parsed.pathname)
+
+  if (parsed.hostname === VIEWER_HOST || parsed.hostname === '') {
+    return stripWindowsPathLeadingSlash(decodedPath)
+  }
+
+  if (/^[a-z]$/i.test(parsed.hostname)) {
+    return `${parsed.hostname.toUpperCase()}:${decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`}`
+  }
+
+  throw new Error('Invalid viewer URL host')
+}
+
+function normalizeAbsolutePathForViewerUrl(absolutePath: string): string {
+  const normalizedSeparators = absolutePath.replace(/\\/g, '/')
+  if (normalizedSeparators.startsWith('/') || /^[a-zA-Z]:\//.test(normalizedSeparators)) {
+    return normalizedSeparators
+  }
+  return path.resolve(absolutePath).replace(/\\/g, '/')
+}
+
+function encodeViewerPath(absolutePath: string): string {
+  const withLeadingSlash = absolutePath.startsWith('/') ? absolutePath : `/${absolutePath}`
+  return withLeadingSlash
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
+function decodeViewerPath(urlPathname: string): string {
+  return urlPathname
+    .split('/')
+    .map((segment) => decodeURIComponent(segment))
+    .join('/')
+}
+
+function stripWindowsPathLeadingSlash(decodedPath: string): string {
+  if (/^\/[a-zA-Z]:\//.test(decodedPath)) {
+    return decodedPath.slice(1)
+  }
+  return decodedPath
 }
 

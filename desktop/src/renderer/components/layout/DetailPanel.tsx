@@ -8,6 +8,8 @@ import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
 import { AddTabPopup } from '../detail/AddTabPopup'
 import type { ViewerContentClass } from '../../../shared/viewer/types'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 interface DetailPanelProps {
   workspacePath?: string
@@ -265,100 +267,108 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               >
                 {tab.label}
               </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleCloseViewerTab(tab.id)
-                }}
-                aria-label={`${t('viewer.close')} ${tab.label}`}
-                title={t('viewer.close')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '3px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  padding: 0,
-                  flexShrink: 0,
-                  opacity: isActive ? 1 : 0
-                }}
-                onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.1))'
-                  ;(e.currentTarget as HTMLButtonElement).style.opacity = '1'
-                }}
-                onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.opacity = isActive ? '1' : '0'
-                }}
+              <ActionTooltip label={t('viewer.close')} placement="bottom">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCloseViewerTab(tab.id)
+                  }}
+                  aria-label={`${t('viewer.close')} ${tab.label}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '16px',
+                    height: '16px',
+                    borderRadius: '3px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    padding: 0,
+                    flexShrink: 0,
+                    opacity: isActive ? 1 : 0
+                  }}
+                  onMouseEnter={(e) => {
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.1))'
+                    ;(e.currentTarget as HTMLButtonElement).style.opacity = '1'
+                  }}
+                  onMouseLeave={(e) => {
+                    ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                    ;(e.currentTarget as HTMLButtonElement).style.opacity = isActive ? '1' : '0'
+                  }}
               >
-                <X size={10} aria-hidden style={{ display: 'block' }} />
-              </button>
+                  <X size={10} aria-hidden style={{ display: 'block' }} />
+                </button>
+              </ActionTooltip>
             </div>
           )
         })}
 
         {/* Add tab (+) button */}
-        <button
-          ref={addButtonRef}
-          onClick={() => setAddPopupOpen((v) => !v)}
-          aria-label={t('detailPanel.addTab')}
-          title={t('detailPanel.addTab')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            padding: '0 6px',
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            flexShrink: 0
-          }}
+        <ActionTooltip label={t('detailPanel.addTab')} placement="bottom" wrapperStyle={{ height: '100%' }}>
+          <button
+            ref={addButtonRef}
+            onClick={() => setAddPopupOpen((v) => !v)}
+            aria-label={t('detailPanel.addTab')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              padding: '0 6px',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              flexShrink: 0
+            }}
         >
-          <Plus size={14} aria-hidden style={{ display: 'block' }} />
-        </button>
+            <Plus size={14} aria-hidden style={{ display: 'block' }} />
+          </button>
+        </ActionTooltip>
 
         <div style={{ flex: 1 }} />
 
         {/* Close panel button — ghost icon, mirrors ThreadHeader's open-panel button */}
-        <button
-          onClick={toggleDetailPanel}
-          title={t('detailPanel.closeTitle')}
-          aria-label={t('detailPanel.closeAria')}
-          style={{
-            alignSelf: 'center',
-            width: '28px',
-            height: '28px',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-            border: 'none',
-            borderRadius: '6px',
-            backgroundColor: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            flexShrink: 0,
-            marginRight: '4px',
-            transition: 'background-color 100ms ease, color 100ms ease'
-          }}
-          onMouseEnter={(e) => {
-            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
-          }}
-          onMouseLeave={(e) => {
-            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
-          }}
+        <ActionTooltip
+          label={t('detailPanel.closeAria')}
+          shortcut={ACTION_SHORTCUTS.toggleDetailPanel}
+          placement="bottom"
+          wrapperStyle={{ alignSelf: 'center' }}
         >
-          <PanelRightClose size={16} aria-hidden />
-        </button>
+          <button
+            onClick={toggleDetailPanel}
+            aria-label={t('detailPanel.closeAria')}
+            style={{
+              alignSelf: 'center',
+              width: '28px',
+              height: '28px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              border: 'none',
+              borderRadius: '6px',
+              backgroundColor: 'transparent',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              marginRight: '4px',
+              transition: 'background-color 100ms ease, color 100ms ease'
+            }}
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+            }}
+        >
+            <PanelRightClose size={16} aria-hidden />
+          </button>
+        </ActionTooltip>
       </div>
 
       {/* ── Panel body ──

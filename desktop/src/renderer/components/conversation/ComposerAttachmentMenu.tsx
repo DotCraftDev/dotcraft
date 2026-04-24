@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type JSX } from 'react'
 import { FileText, ImagePlus, Plus } from 'lucide-react'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ComposerAttachmentMenuProps {
   title: string
@@ -67,33 +68,34 @@ export function ComposerAttachmentMenu({
         }}
       />
 
-      <button
-        type="button"
-        aria-label={ariaLabel}
-        title={title}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        disabled={disabled}
-        onClick={() => {
-          if (disabled) return
-          setOpen((current) => !current)
-        }}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2px',
-          borderRadius: '8px',
-          border: 'none',
-          background: 'transparent',
-          color: disabled ? 'var(--text-dimmed)' : 'var(--text-secondary)',
-          cursor: disabled ? 'default' : 'pointer',
-          lineHeight: 1
-        }}
+      <ActionTooltip label={title} placement="top">
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          disabled={disabled}
+          onClick={() => {
+            if (disabled) return
+            setOpen((current) => !current)
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '2px',
+            borderRadius: '8px',
+            border: 'none',
+            background: 'transparent',
+            color: disabled ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+            cursor: disabled ? 'default' : 'pointer',
+            lineHeight: 1
+          }}
       >
-        <Plus size={16} strokeWidth={2} aria-hidden />
-      </button>
+          <Plus size={16} strokeWidth={2} aria-hidden />
+        </button>
+      </ActionTooltip>
 
       {open && !disabled && (
         <div

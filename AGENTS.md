@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Quick reference for coding agents in this repository.
-For full development norms (code style, module rules, tool naming, bilingual docs), read `.cursor/skills/dev-guide/SKILL.md`.
+For full development norms (code style, module rules, tool naming, bilingual docs), read `dev-guide` skill.
 
 ## Project
 
@@ -46,7 +46,7 @@ Prerequisite: .NET 10 SDK (preview).
 
 ## Go Deeper
 
-- Development norms: `.cursor/skills/dev-guide/SKILL.md`
+- Development norms: `dev-guide` skill
 - Large feature workflow: `feature-workflow` skill
 - Protocol specs: `specs/session-core.md`, `specs/appserver-protocol.md`, `specs/external-channel-adapter.md`
 - Client docs: `tui/README.md`, `desktop/README.md`

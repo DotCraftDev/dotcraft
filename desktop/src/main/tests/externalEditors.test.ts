@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'events'
+import { shell } from 'electron'
 
 const accessMock = vi.hoisted(() => vi.fn())
+const statMock = vi.hoisted(() => vi.fn())
 const execFileMock = vi.hoisted(() => vi.fn())
 const spawnMock = vi.hoisted(() => vi.fn())
 const getFileIconMock = vi.hoisted(() => vi.fn())
 
 vi.mock('fs/promises', () => ({
-  access: accessMock
+  access: accessMock,
+  stat: statMock
 }))
 
 vi.mock('child_process', () => ({
@@ -53,14 +57,20 @@ describe('externalEditors icon extraction', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clearEditorDetectionCache()
-    spawnMock.mockReturnValue({
-      unref: vi.fn()
+    statMock.mockRejectedValue(new Error('missing'))
+    spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      queueMicrotask(() => child.emit('spawn'))
+      return child
     })
   })
 
   it('adds iconDataUrl for detected editors with executable paths', async () => {
     const cursorExecutable = process.platform === 'win32' ? 'C:\\Tools\\Cursor.exe' : '/usr/bin/cursor'
-    const explorerExecutable = process.platform === 'win32' ? 'C:\\Windows\\explorer.exe' : ''
+    const explorerExecutable = process.platform === 'win32'
+      ? `${process.env.SystemRoot ?? 'C:\\Windows'}\\explorer.exe`
+      : ''
     setupWhereCommand({
       cursor: cursorExecutable,
       'cursor.cmd': cursorExecutable,
@@ -113,7 +123,7 @@ describe('externalEditors icon extraction', () => {
     expect(cursor?.iconDataUrl).toBeUndefined()
     const explorer = result.find((entry) => entry.id === 'explorer')
     if (process.platform === 'win32') {
-      expect(explorer?.iconDataUrl).toBe('data:image/png;base64,C:\\Windows\\explorer.exe')
+      expect(explorer?.iconDataUrl).toBe(`data:image/png;base64,${process.env.SystemRoot ?? 'C:\\Windows'}\\explorer.exe`)
     } else {
       expect(explorer?.iconDataUrl).toBeUndefined()
     }
@@ -165,6 +175,9 @@ describe('externalEditors icon extraction', () => {
       isEmpty: () => true,
       toDataURL: () => ''
     })
+    statMock.mockImplementation(async (targetPath: string) => ({
+      isDirectory: () => targetPath === 'F:\\workspace with spaces'
+    }))
 
     await launchEditor('cursor', 'F:\\workspace with spaces')
 
@@ -179,6 +192,82 @@ describe('externalEditors icon extraction', () => {
       detached: true,
       stdio: 'ignore'
     })
+  })
+
+  it('uses the parent directory as cwd when launching a file target', async () => {
+    const cursorExecutable = process.platform === 'win32' ? 'C:\\Tools\\Cursor.exe' : '/usr/bin/cursor'
+    const filePath = process.platform === 'win32'
+      ? 'F:\\workspace\\README.md'
+      : '/workspace/README.md'
+    const parentPath = process.platform === 'win32'
+      ? 'F:\\workspace'
+      : '/workspace'
+    setupWhereCommand({
+      cursor: cursorExecutable,
+      'cursor.cmd': cursorExecutable,
+      'Cursor.exe': cursorExecutable
+    })
+    accessMock.mockImplementation(async (targetPath: string) => {
+      if (targetPath === cursorExecutable) return
+      if (process.platform === 'win32' && targetPath === `${process.env.SystemRoot ?? 'C:\\Windows'}\\explorer.exe`) return
+      throw new Error('missing')
+    })
+    statMock.mockImplementation(async (targetPath: string) => ({
+      isDirectory: () => targetPath === parentPath
+    }))
+    getFileIconMock.mockResolvedValue({
+      isEmpty: () => true,
+      toDataURL: () => ''
+    })
+
+    await launchEditor('cursor', filePath)
+
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    const [_command, args, options] = spawnMock.mock.calls[0]
+    expect(args).toEqual([filePath])
+    expect(options).toMatchObject({ cwd: parentPath })
+  })
+
+  it('rejects when the spawned editor emits an error', async () => {
+    const cursorExecutable = process.platform === 'win32' ? 'C:\\Tools\\Cursor.exe' : '/usr/bin/cursor'
+    const filePath = process.platform === 'win32'
+      ? 'F:\\workspace\\README.md'
+      : '/workspace/README.md'
+    setupWhereCommand({
+      cursor: cursorExecutable,
+      'cursor.cmd': cursorExecutable,
+      'Cursor.exe': cursorExecutable
+    })
+    accessMock.mockImplementation(async (targetPath: string) => {
+      if (targetPath === cursorExecutable) return
+      if (process.platform === 'win32' && targetPath === 'C:\\Windows\\explorer.exe') return
+      throw new Error('missing')
+    })
+    statMock.mockResolvedValue({ isDirectory: () => false })
+    getFileIconMock.mockResolvedValue({
+      isEmpty: () => true,
+      toDataURL: () => ''
+    })
+    spawnMock.mockImplementationOnce(() => {
+      const child = new EventEmitter() as EventEmitter & { unref: () => void }
+      child.unref = vi.fn()
+      queueMicrotask(() => child.emit('error', new Error('spawn failed')))
+      return child
+    })
+
+    await expect(launchEditor('cursor', filePath)).rejects.toThrow('spawn failed')
+  })
+
+  it('opens file targets directly with the default OS handler for explorer', async () => {
+    const filePath = process.platform === 'win32'
+      ? 'F:\\workspace\\README.md'
+      : '/workspace/README.md'
+    statMock.mockResolvedValue({ isDirectory: () => false })
+
+    await launchEditor('explorer', filePath)
+
+    expect(shell.openPath).toHaveBeenCalledWith(filePath)
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('prefers git-bash.exe icon when where git-bash resolves to cmd shim', async () => {

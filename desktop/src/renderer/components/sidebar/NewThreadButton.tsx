@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useUIStore } from '../../stores/uiStore'
+import { ShortcutBadge } from '../ui/ShortcutBadge'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 /**
  * Primary action button that opens welcome composer for a new chat.
@@ -11,8 +14,10 @@ export function NewThreadButton(): JSX.Element {
   const t = useT()
   const status = useConnectionStore((s) => s.status)
   const goToNewChat = useUIStore((s) => s.goToNewChat)
+  const [active, setActive] = useState(false)
 
   const isConnected = status === 'connected'
+  const showShortcut = isConnected && active
 
   function handleClick(): void {
     if (!isConnected) return
@@ -24,13 +29,14 @@ export function NewThreadButton(): JSX.Element {
       <button
         onClick={handleClick}
         disabled={!isConnected}
-        title={t('sidebar.newThread')}
         aria-label={t('sidebar.newThread')}
+        onFocus={() => setActive(true)}
+        onBlur={() => setActive(false)}
         style={{
           width: '100%',
           padding: '6px 12px',
           backgroundColor: isConnected ? 'var(--accent)' : 'var(--bg-tertiary)',
-          color: isConnected ? '#ffffff' : 'var(--text-dimmed)',
+          color: isConnected ? 'var(--on-accent)' : 'var(--text-dimmed)',
           border: 'none',
           borderRadius: '6px',
           fontSize: '13px',
@@ -38,22 +44,35 @@ export function NewThreadButton(): JSX.Element {
           cursor: isConnected ? 'pointer' : 'default',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
           gap: '6px',
           transition: 'background-color 150ms ease'
         }}
         onMouseEnter={(e) => {
+          setActive(true)
           if (isConnected) {
             ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--accent-hover)'
           }
         }}
         onMouseLeave={(e) => {
+          setActive(false)
           if (isConnected) {
             ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--accent)'
           }
         }}
       >
-        <span aria-hidden="true">+</span>
-        {t('sidebar.newThreadLabel')}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <span aria-hidden="true">+</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {t('sidebar.newThreadLabel')}
+          </span>
+        </span>
+        {showShortcut && (
+          <ShortcutBadge
+            shortcut={ACTION_SHORTCUTS.newThread}
+            tone="onAccent"
+          />
+        )}
       </button>
     </div>
   )

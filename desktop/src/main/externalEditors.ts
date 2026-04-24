@@ -1,6 +1,6 @@
-import { access } from 'fs/promises'
+import { access, stat } from 'fs/promises'
 import * as path from 'path'
-import { execFile, spawn } from 'child_process'
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'child_process'
 import { app, shell } from 'electron'
 
 export type EditorId =
@@ -24,7 +24,12 @@ export interface EditorInfo {
 
 interface EditorDescriptor extends EditorInfo {
   command: string
-  args: (cwd: string) => string[]
+  args: (targetPath: string, cwd: string) => string[]
+}
+
+interface ResolvedLaunchTarget {
+  targetPath: string
+  cwd: string
 }
 
 let cachedEditors: EditorDescriptor[] | null = null
@@ -175,7 +180,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
     labelKey: 'editors.explorer',
     iconKey: 'explorer',
     command: 'explorer.exe',
-    args: (cwd) => ['/e,', cwd]
+    args: (targetPath) => ['/e,', targetPath]
   }
   result.push(explorer)
 
@@ -192,7 +197,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
       labelKey: 'editors.cursor',
       iconKey: 'editor-generic',
       command: cursorCommand,
-      args: (cwd) => [cwd]
+      args: (targetPath) => [targetPath]
     })
   }
 
@@ -209,7 +214,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
       labelKey: 'editors.vscode',
       iconKey: 'editor-generic',
       command: vscodeCommand,
-      args: (cwd) => [cwd]
+      args: (targetPath) => [targetPath]
     })
   }
 
@@ -220,7 +225,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
       labelKey: 'editors.vs',
       iconKey: 'editor-generic',
       command: visualStudio,
-      args: (cwd) => [cwd]
+      args: (targetPath) => [targetPath]
     })
   }
 
@@ -259,7 +264,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
         labelKey: entry.labelKey,
         iconKey: 'editor-generic',
         command: found,
-        args: (cwd) => [cwd]
+        args: (targetPath) => [targetPath]
       })
     }
   }
@@ -271,7 +276,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
       labelKey: 'editors.githubDesktop',
       iconKey: 'editor-generic',
       command: githubDesktop,
-      args: (cwd) => [cwd]
+      args: (_targetPath, cwd) => [cwd]
     })
   }
 
@@ -289,7 +294,7 @@ async function detectWindowsEditors(): Promise<EditorDescriptor[]> {
       labelKey: 'editors.gitBash',
       iconKey: 'terminal',
       command: gitBashCandidates,
-      args: (cwd) => ['--cd=' + cwd]
+      args: (_targetPath, cwd) => ['--cd=' + cwd]
     })
   }
 
@@ -319,7 +324,7 @@ async function detectUnixEditors(): Promise<EditorDescriptor[]> {
       labelKey: candidate.labelKey,
       iconKey: 'editor-generic',
       command: found,
-      args: (cwd) => [cwd]
+      args: (targetPath) => [targetPath]
     })
   }
   return result
@@ -354,9 +359,10 @@ function getCachedEditorById(editorId: EditorId): EditorDescriptor | null {
   return cachedEditors.find((entry) => entry.id === editorId) ?? null
 }
 
-export async function launchEditor(editorId: EditorId, cwd: string): Promise<void> {
+export async function launchEditor(editorId: EditorId, targetPath: string): Promise<void> {
+  const target = await resolveLaunchTarget(targetPath)
   if (editorId === 'explorer') {
-    await shell.openPath(cwd)
+    await shell.openPath(target.targetPath)
     return
   }
   if (!cachedEditors) {
@@ -366,23 +372,62 @@ export async function launchEditor(editorId: EditorId, cwd: string): Promise<voi
   if (!descriptor) {
     throw new Error(`Unsupported editor id: ${editorId}`)
   }
-  const spawnArgs = descriptor.args(cwd)
+  const spawnArgs = descriptor.args(target.targetPath, target.cwd)
   const isWindowsShellScript =
     process.platform === 'win32' && /\.(cmd|bat)$/i.test(descriptor.command)
-  const child = isWindowsShellScript
-    ? spawn(`"${descriptor.command}"`, spawnArgs.map(quoteWinArg), {
-      detached: true,
-      stdio: 'ignore',
-      cwd,
-      shell: true,
-      windowsVerbatimArguments: true
-    })
-    : spawn(descriptor.command, spawnArgs, {
-      detached: true,
-      stdio: 'ignore',
-      cwd
-    })
-  child.unref()
+  await spawnDetached(
+    isWindowsShellScript ? `"${descriptor.command}"` : descriptor.command,
+    isWindowsShellScript ? spawnArgs.map(quoteWinArg) : spawnArgs,
+    isWindowsShellScript
+      ? {
+        detached: true,
+        stdio: 'ignore',
+        cwd: target.cwd,
+        shell: true,
+        windowsVerbatimArguments: true
+      }
+      : {
+        detached: true,
+        stdio: 'ignore',
+        cwd: target.cwd
+      }
+  )
+}
+
+async function resolveLaunchTarget(targetPath: string): Promise<ResolvedLaunchTarget> {
+  const resolved = path.resolve(targetPath)
+  try {
+    const targetStat = await stat(resolved)
+    if (targetStat.isDirectory()) {
+      return { targetPath: resolved, cwd: resolved }
+    }
+    return { targetPath: resolved, cwd: path.dirname(resolved) }
+  } catch {
+    return { targetPath: resolved, cwd: path.dirname(resolved) }
+  }
+}
+
+function spawnDetached(command: string, args: string[], options: SpawnOptions): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let child: ChildProcess
+    try {
+      child = spawn(command, args, options)
+    } catch (error) {
+      reject(error)
+      return
+    }
+
+    let settled = false
+    const settle = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      callback()
+    }
+
+    child.once('error', (error) => settle(() => reject(error)))
+    child.once('spawn', () => settle(resolve))
+    child.unref()
+  })
 }
 
 function quoteWinArg(arg: string): string {

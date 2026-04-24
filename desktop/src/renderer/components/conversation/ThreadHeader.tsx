@@ -7,6 +7,8 @@ import { useUIStore } from '../../stores/uiStore'
 import { CommitDialog } from '../detail/CommitDialog'
 import { CommitIcon } from '../ui/AppIcons'
 import { OpenWorkspaceButton } from './OpenWorkspaceButton'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 interface ThreadHeaderProps {
   threadName: string
@@ -136,40 +138,49 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
         <OpenWorkspaceButton workspacePath={workspacePath} />
 
         {/* Commit button */}
-        <button
-          onClick={() => setCommitOpen(true)}
-          disabled={!hasWrittenFiles}
-          title={hasWrittenFiles ? t('threadHeader.commitTitle') : t('threadHeader.noCommitTitle')}
-          style={{
-            ...headerButtonStyle,
-            opacity: hasWrittenFiles ? 1 : 0.4,
-            cursor: hasWrittenFiles ? 'pointer' : 'default'
-          }}
-          aria-label={t('threadHeader.commitTitle')}
+        <ActionTooltip
+          label={t('threadHeader.commitTitle')}
+          disabledReason={!hasWrittenFiles ? t('threadHeader.noCommitTitle') : undefined}
         >
-          <CommitIcon size={13} />
-          {t('threadHeader.commit')}
-        </button>
+          <button
+            onClick={() => setCommitOpen(true)}
+            disabled={!hasWrittenFiles}
+            style={{
+              ...headerButtonStyle,
+              opacity: hasWrittenFiles ? 1 : 0.4,
+              cursor: hasWrittenFiles ? 'pointer' : 'default'
+            }}
+            aria-label={t('threadHeader.commitTitle')}
+          >
+            <CommitIcon size={13} />
+            {t('threadHeader.commit')}
+          </button>
+        </ActionTooltip>
 
         {/* Panel toggle — only visible when panel is hidden (open-panel action).
             Closing is handled by the panel's own rightmost button. */}
         {!detailPanelPreferredVisible && (
-          <button
-            onClick={toggleDetailPanel}
-            title={t('threadHeader.panelToggleShow')}
-            aria-label={t('threadHeader.panelToggleShow')}
-            style={iconButtonStyle}
-            onMouseEnter={(e) => {
-              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
-            }}
-            onMouseLeave={(e) => {
-              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
-            }}
+          <ActionTooltip
+            label={t('threadHeader.panelToggleShowLabel')}
+            shortcut={ACTION_SHORTCUTS.toggleDetailPanel}
+            placement="bottom"
           >
-            <PanelRightOpen size={16} aria-hidden />
-          </button>
+            <button
+              onClick={toggleDetailPanel}
+              aria-label={t('threadHeader.panelToggleShowLabel')}
+              style={iconButtonStyle}
+              onMouseEnter={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+              }}
+              onMouseLeave={(e) => {
+                ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+              }}
+            >
+              <PanelRightOpen size={16} aria-hidden />
+            </button>
+          </ActionTooltip>
         )}
       </div>
 

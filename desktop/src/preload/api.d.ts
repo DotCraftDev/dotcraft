@@ -301,7 +301,8 @@ declare global {
         /** Opens allowed URLs in the OS default handler (validated in main process). */
         openExternal(url: string): Promise<void>
         listEditors(): Promise<EditorInfo[]>
-        launchEditor(id: EditorId, cwd: string): Promise<void>
+        launchEditor(id: EditorId, targetPath: string): Promise<void>
+        showItemInFolder(path: string): Promise<void>
       }
       file: {
         writeFile(absPath: string, content: string): Promise<void>
@@ -354,6 +355,7 @@ declare global {
             absolutePath: string
             limitBytes?: number
           }): Promise<{ text: string; truncated: boolean; encoding: string }>
+          toViewerUrl(params: { absolutePath: string }): Promise<{ url: string }>
           browser: {
             create(params: {
               tabId: string

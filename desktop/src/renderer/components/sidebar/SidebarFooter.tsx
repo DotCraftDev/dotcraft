@@ -8,6 +8,8 @@ import {
   SIDEBAR_NAV_ROW_OUTER
 } from './sidebarNavRowStyles'
 import { SettingsIcon } from '../ui/AppIcons'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
@@ -30,38 +32,43 @@ export function SidebarFooter(): JSX.Element {
         gap: '2px'
       }}
     >
-      <button
-        type="button"
-        onClick={() => setActiveMainView('settings')}
-        title={t('sidebar.settingsShortcut')}
-        aria-label={t('sidebar.openSettingsAria')}
-        style={{
-          ...SIDEBAR_NAV_ROW_OUTER,
-          ...(settingsActive ? { borderLeft: '3px solid var(--accent)' } : SIDEBAR_NAV_BORDER_INACTIVE),
-          background: settingsActive ? 'var(--bg-tertiary)' : 'transparent',
-          color: settingsActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-          cursor: 'pointer'
-        }}
-        onMouseEnter={(e) => {
-          if (!settingsActive) {
-            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!settingsActive) {
-            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
-          }
-        }}
+      <ActionTooltip
+        label={t('sidebar.openSettingsAria')}
+        shortcut={ACTION_SHORTCUTS.settings}
+        wrapperStyle={{ display: 'block', width: '100%' }}
       >
-        <span style={SIDEBAR_NAV_ICON_SLOT}>
-          <span style={{ display: 'block', flexShrink: 0 }}>
-            <SettingsIcon />
+        <button
+          type="button"
+          onClick={() => setActiveMainView('settings')}
+          aria-label={t('sidebar.openSettingsAria')}
+          style={{
+            ...SIDEBAR_NAV_ROW_OUTER,
+            ...(settingsActive ? { borderLeft: '3px solid var(--accent)' } : SIDEBAR_NAV_BORDER_INACTIVE),
+            background: settingsActive ? 'var(--bg-tertiary)' : 'transparent',
+            color: settingsActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            if (!settingsActive) {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!settingsActive) {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+            }
+          }}
+        >
+          <span style={SIDEBAR_NAV_ICON_SLOT}>
+            <span style={{ display: 'block', flexShrink: 0 }}>
+              <SettingsIcon />
+            </span>
           </span>
-        </span>
-        <span style={SIDEBAR_NAV_LABEL}>{t('sidebarFooter.settings')}</span>
-      </button>
+          <span style={SIDEBAR_NAV_LABEL}>{t('sidebarFooter.settings')}</span>
+        </button>
+      </ActionTooltip>
 
       <div
         style={{

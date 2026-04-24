@@ -31,6 +31,7 @@ import {
   readTextFile,
   listViewerFiles
 } from './viewerIpc'
+import { buildViewerUrl } from './viewerFileProtocol'
 import { viewerBrowserManager } from './viewerBrowser'
 import { viewerTerminalManager } from './viewerTerminal'
 import {
@@ -456,7 +457,7 @@ export interface IpcHandlerCallbacks {
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  * - `shell:open-external`         (renderer -> main, invoke) -> opens allowed URL in OS handler
  * - `editors:list`                (renderer -> main, invoke) -> returns detected editor targets
- * - `editors:launch`              (renderer -> main, invoke) -> opens workspace path with editor target
+ * - `editors:launch`              (renderer -> main, invoke) -> opens workspace target with editor
  */
 function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
   return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)
@@ -811,6 +812,12 @@ export function registerIpcHandlers(
     await launchEditor(editorId, resolved)
   })
 
+  handleSafe('shell:show-item-in-folder', async (_event, targetPath: string) => {
+    const locale = mainLocale(callbacks)
+    const resolved = assertPathWithinWorkspace(targetPath, workspacePath, locale)
+    shell.showItemInFolder(resolved)
+  })
+
   // Renderer -> Main: write a file to disk (used for revert/re-apply)
   handleSafe('file:write', async (_event, absPath: string, content: string) => {
     const resolved = assertPathWithinWorkspace(absPath, workspacePath, mainLocale(callbacks))
@@ -1070,6 +1077,17 @@ export function registerIpcHandlers(
         throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
       }
       return readTextFile(params.absolutePath, workspacePath, params.limitBytes)
+    }
+  )
+
+  handleSafe(
+    'workspace:viewer:to-viewer-url',
+    async (_event, params: { absolutePath: string }): Promise<{ url: string }> => {
+      if (!workspacePath) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      const resolved = assertPathWithinWorkspace(params.absolutePath, workspacePath, mainLocale(callbacks))
+      return { url: buildViewerUrl(resolved) }
     }
   )
 

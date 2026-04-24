@@ -83,6 +83,10 @@ import {
   resolveProxySettings
 } from './proxyRuntime'
 import {
+  ensureMacProxyOAuthCallbackForwarder,
+  stopMacProxyOAuthCallbackForwarders
+} from './proxyOAuthCallbackForwarder'
+import {
   registerGuardedProxyManagerStatusHandlers,
   runIfCurrentProxyManager
 } from './proxyManagerStatus'
@@ -442,6 +446,7 @@ async function teardownRuntime(
   }
   appServerManager?.shutdown()
   proxyManager?.shutdown()
+  stopMacProxyOAuthCallbackForwarders()
   if (hadProxy && workspacePathAtTeardown) {
     await scheduleWorkspaceProxyOverrideCleanup(workspacePathAtTeardown, {
       proxyPort: proxyAtTeardown.port,
@@ -771,6 +776,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
     getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath),
     getProxyStatus: () => proxyStatus,
     startProxyOAuth: async (provider: ProxyOAuthProvider) => {
+      const runtime = resolveExistingProxyRuntimeSettings(sharedSettings)
       const response = await fetchProxyManagementJson<{ url?: string; state?: string; status?: string; error?: string }>(
         sharedSettings,
         buildProxyOAuthPath(provider)
@@ -778,6 +784,12 @@ function buildCallbacks(): IpcHandlerCallbacks {
       if (!response.url) {
         throw new Error(response.error || 'OAuth URL was not returned by CLIProxyAPI')
       }
+      await ensureMacProxyOAuthCallbackForwarder({
+        provider,
+        proxyPort: runtime.port,
+        authDir: runtime.authDir,
+        oauthUrl: response.url
+      })
       await openExternalHttpUrl(response.url)
       return { url: response.url, state: response.state }
     },

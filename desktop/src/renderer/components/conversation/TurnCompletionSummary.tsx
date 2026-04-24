@@ -1,177 +1,187 @@
-import { memo } from 'react'
+import { memo, useMemo, useState, type MouseEvent } from 'react'
+import { ChevronDown, ChevronUp, Undo2 } from 'lucide-react'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useFileChangeActions } from '../../hooks/useFileChangeActions'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
+import type { FileDiff } from '../../types/toolCall'
+import { InlineDiffView } from './InlineDiffView'
 
 interface TurnCompletionSummaryProps {
   turnId: string
 }
 
-/**
- * Shows a post-turn summary of all files changed during the turn.
- *
- * Variants:
- *   - Compact (1–2 files): single line summary
- *   - Expanded (3+ files): header + per-file rows with Revert button
- *
- * Spec §M4-12 through M4-16.
- */
 export const TurnCompletionSummary = memo(function TurnCompletionSummary({ turnId }: TurnCompletionSummaryProps): JSX.Element | null {
+  const t = useT()
+  const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
-  const revertFilesForTurn = useConversationStore((s) => s.revertFilesForTurn)
+  const workspacePath = useConversationStore((s) => s.workspacePath)
+  const confirm = useConfirmDialog()
+  const { revertFileDiffs } = useFileChangeActions(workspacePath)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
-  const turnFiles = Array.from(changedFiles.values()).filter((f) => {
-    const ids = f.turnIds?.length ? f.turnIds : [f.turnId]
-    return ids.includes(turnId)
-  })
+  const turnFiles = useMemo(() => {
+    return Array.from(changedFiles.values()).filter((f) => turnIncludesFile(f, turnId))
+  }, [changedFiles, turnId])
+
   if (turnFiles.length === 0) return null
 
+  const writtenFiles = turnFiles.filter((file) => file.status === 'written')
   const totalAdd = turnFiles.reduce((sum, f) => sum + f.additions, 0)
   const totalDel = turnFiles.reduce((sum, f) => sum + f.deletions, 0)
-  const hasReverted = turnFiles.every((f) => f.status === 'reverted')
+  const hasReverted = writtenFiles.length === 0
 
-  // ── Compact variant (1–2 files) ──────────────────────────────────────────
-  if (turnFiles.length <= 2) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '6px',
-          padding: '4px 6px',
-          borderRadius: '4px',
-          background: 'var(--bg-secondary)',
-          fontSize: '12px',
-          color: 'var(--text-secondary)',
-          marginTop: '4px'
-        }}
-      >
-        <span style={{ color: 'var(--info)', fontSize: '11px' }}>◈</span>
-        <span>
-          {turnFiles.map((f, i) => (
-            <span key={f.filePath}>
-              {i > 0 && <span style={{ color: 'var(--text-dimmed)' }}>, </span>}
-              <FilePathLink filePath={f.filePath} />
-              <span style={{ color: 'var(--text-dimmed)', marginLeft: '4px' }}>
-                <FileStats additions={f.additions} deletions={f.deletions} status={f.status} />
-              </span>
-            </span>
-          ))}
-        </span>
-      </div>
-    )
+  function toggleFile(filePath: string): void {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(filePath)) next.delete(filePath)
+      else next.add(filePath)
+      return next
+    })
   }
 
-  // ── Expanded variant (3+ files) ───────────────────────────────────────────
+  async function handleUndo(): Promise<void> {
+    if (writtenFiles.length === 0) return
+    const confirmed = await confirm({
+      title: t('turnChanges.undoTitle'),
+      message: t('turnChanges.undoMessage', {
+        count: writtenFiles.length,
+        plural: locale === 'zh-Hans' ? '' : writtenFiles.length === 1 ? '' : 's'
+      }),
+      confirmLabel: t('turnChanges.undoConfirm'),
+      danger: true
+    })
+    if (!confirmed) return
+    try {
+      await revertFileDiffs(writtenFiles)
+    } catch (err) {
+      console.error('Undo turn changes failed:', err)
+    }
+  }
+
   return (
     <div
       style={{
-        borderRadius: '4px',
+        borderRadius: '8px',
         border: '1px solid var(--border-default)',
-        background: 'var(--bg-secondary)',
+        background: 'var(--bg-primary)',
         overflow: 'hidden',
-        marginTop: '4px',
-        fontSize: '12px'
+        marginTop: '8px',
+        fontSize: '13px'
       }}
     >
-      {/* Header */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '5px 8px',
-          background: 'var(--bg-tertiary)',
-          borderBottom: '1px solid var(--border-default)',
-          color: 'var(--text-secondary)'
+          padding: '9px 12px',
+          background: 'var(--bg-secondary)',
+          color: 'var(--text-primary)'
         }}
       >
-        <span style={{ color: 'var(--info)', fontSize: '11px' }}>◈</span>
         <span style={{ flex: 1 }}>
-          {turnFiles.length} files changed
+          {t('turnChanges.summaryLine', {
+            count: turnFiles.length,
+            plural: locale === 'zh-Hans' ? '' : turnFiles.length === 1 ? '' : 's'
+          })}
         </span>
-        <span style={{ display: 'flex', gap: '4px', color: 'var(--text-dimmed)' }}>
+        <span style={{ display: 'inline-flex', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
           {totalAdd > 0 && <span style={{ color: 'var(--success)' }}>+{totalAdd}</span>}
           {totalDel > 0 && <span style={{ color: 'var(--error)' }}>-{totalDel}</span>}
         </span>
-        {/* Revert button — state-only in M4; actual file revert in M6 */}
-        {!hasReverted && (
-          <button
-            onClick={() => revertFilesForTurn(turnId)}
-            style={{
-              padding: '2px 8px',
-              borderRadius: '3px',
-              border: '1px solid var(--border-default)',
-              background: 'transparent',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontSize: '11px'
-            }}
-          >
-            Revert
-          </button>
-        )}
-        {hasReverted && (
-          <span style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>Reverted</span>
-        )}
-      </div>
-
-      {/* Per-file rows */}
-      {turnFiles.map((file, idx) => (
-        <div
-          key={file.filePath}
+        <button
+          type="button"
+          disabled={hasReverted}
+          aria-label={hasReverted ? t('turnChanges.reverted') : t('turnChanges.undo')}
+          onClick={() => { void handleUndo() }}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '8px',
-            padding: '3px 8px',
-            borderBottom: idx < turnFiles.length - 1 ? '1px solid var(--border-default)' : 'none',
-            color: 'var(--text-secondary)'
+            gap: '5px',
+            border: 'none',
+            background: 'transparent',
+            color: hasReverted ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+            cursor: hasReverted ? 'default' : 'pointer',
+            padding: '2px 4px',
+            fontSize: '12px'
           }}
         >
-          {/* Status dot */}
-          <span
-            title={file.status}
-            style={{
-              width: '7px',
-              height: '7px',
-              borderRadius: '50%',
-              background: file.status === 'reverted' ? 'var(--text-dimmed)' : 'var(--info)',
-              flexShrink: 0
-            }}
-          />
-          {/* File path */}
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <FilePathLink filePath={file.filePath} />
-            {file.isNewFile && (
-              <span style={{ color: 'var(--text-dimmed)', marginLeft: '4px', fontSize: '11px' }}>new</span>
+          {hasReverted ? t('turnChanges.reverted') : t('turnChanges.undo')}
+          {!hasReverted && <Undo2 size={14} strokeWidth={1.8} aria-hidden />}
+        </button>
+      </div>
+
+      {turnFiles.map((file, idx) => {
+        const isExpanded = expanded.has(file.filePath)
+        return (
+          <div key={file.filePath}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => toggleFile(file.filePath)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  toggleFile(file.filePath)
+                }
+              }}
+              style={{
+                width: '100%',
+                minHeight: '42px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                border: 'none',
+                borderTop: idx === 0 ? 'none' : '1px solid var(--border-default)',
+                background: isExpanded ? 'var(--bg-tertiary)' : 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontSize: '13px'
+              }}
+            >
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <FilePathLink filePath={file.filePath} />
+                {file.isNewFile && (
+                  <span style={{ color: 'var(--text-dimmed)', marginLeft: '6px', fontSize: '11px' }}>
+                    {t('changesFile.newBadge')}
+                  </span>
+                )}
+              </span>
+              <FileStats additions={file.additions} deletions={file.deletions} status={file.status} />
+              <span style={{ color: 'var(--text-secondary)', width: '16px', display: 'inline-flex', justifyContent: 'center' }}>
+                {isExpanded ? <ChevronUp size={15} strokeWidth={1.8} /> : <ChevronDown size={15} strokeWidth={1.8} />}
+              </span>
+            </div>
+            {isExpanded && (
+              <div style={{ borderTop: '1px solid var(--border-default)', background: 'var(--bg-primary)' }}>
+                <InlineDiffView diff={file} />
+              </div>
             )}
-          </span>
-          {/* +/- counts */}
-          <FileStats additions={file.additions} deletions={file.deletions} status={file.status} />
-        </div>
-      ))}
+          </div>
+        )
+      })}
     </div>
   )
 })
-
-// ── Helper components ────────────────────────────────────────────────────────
 
 interface FilePathLinkProps {
   filePath: string
 }
 
 function FilePathLink({ filePath }: FilePathLinkProps): JSX.Element {
-  function handleClick(): void {
+  function handleClick(event: MouseEvent<HTMLButtonElement>): void {
+    event.stopPropagation()
     useUIStore.getState().showChangesForFile(filePath)
   }
 
-  const filename = filePath.split(/[\\/]/).pop() ?? filePath
-
   return (
     <button
+      type="button"
       onClick={handleClick}
-      title={filePath}
       style={{
         background: 'none',
         border: 'none',
@@ -179,12 +189,16 @@ function FilePathLink({ filePath }: FilePathLinkProps): JSX.Element {
         color: 'var(--text-primary)',
         cursor: 'pointer',
         fontFamily: 'var(--font-mono)',
-        fontSize: '11px',
-        textDecoration: 'underline',
-        textDecorationColor: 'var(--text-dimmed)'
+        fontSize: '12px',
+        textAlign: 'left',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        verticalAlign: 'bottom'
       }}
     >
-      {filename}
+      {filePath}
     </button>
   )
 }
@@ -198,7 +212,7 @@ interface FileStatsProps {
 function FileStats({ additions, deletions, status }: FileStatsProps): JSX.Element {
   const dim = status === 'reverted'
   return (
-    <span style={{ display: 'flex', gap: '4px', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+    <span style={{ display: 'inline-flex', gap: '6px', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
       {additions > 0 && (
         <span style={{ color: dim ? 'var(--text-dimmed)' : 'var(--success)' }}>+{additions}</span>
       )}
@@ -207,4 +221,9 @@ function FileStats({ additions, deletions, status }: FileStatsProps): JSX.Elemen
       )}
     </span>
   )
+}
+
+function turnIncludesFile(file: FileDiff, turnId: string): boolean {
+  const ids = file.turnIds?.length ? file.turnIds : [file.turnId]
+  return ids.includes(turnId)
 }

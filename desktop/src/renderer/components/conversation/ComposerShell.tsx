@@ -1,5 +1,6 @@
 import type { CSSProperties, DragEventHandler, JSX, ReactNode } from 'react'
 import { Square } from 'lucide-react'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 type ComposerActionButtonTone = 'enabled' | 'disabled'
 
@@ -116,38 +117,39 @@ export function ComposerModeSwitch({
   const activeTone = value === 'agent' ? 'var(--success)' : 'var(--info)'
 
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={activeLabel}
-      title={title}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '6px',
-        padding: '2px 6px',
-        borderRadius: '8px',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--text-secondary)',
-        cursor: 'pointer',
-        fontSize: '12px',
-        fontWeight: 600,
-        outline: 'none'
-      }}
-    >
-      <span
-        aria-hidden
+    <ActionTooltip label={title ?? activeLabel} placement="top">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={activeLabel}
         style={{
-          width: '7px',
-          height: '7px',
-          borderRadius: '999px',
-          background: activeTone,
-          flexShrink: 0
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '2px 6px',
+          borderRadius: '8px',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          fontSize: '12px',
+          fontWeight: 600,
+          outline: 'none'
         }}
-      />
-      {activeLabel}
-    </button>
+    >
+        <span
+          aria-hidden
+          style={{
+            width: '7px',
+            height: '7px',
+            borderRadius: '999px',
+            background: activeTone,
+            flexShrink: 0
+          }}
+        />
+        {activeLabel}
+      </button>
+    </ActionTooltip>
   )
 }
 

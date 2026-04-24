@@ -32,6 +32,8 @@ import {
   composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
@@ -500,28 +502,34 @@ export function InputComposer({
             />
             {!isWaitingApproval ? (
               isRunning ? (
-                <button
-                  type="button"
-                  onClick={stopTurn}
-                  title={t('composer.stopTitle')}
-                  aria-label={t('composer.stopAria')}
-                  style={composerSendButtonStyle('enabled')}
+                <ActionTooltip label={t('composer.stopTitle')} placement="top">
+                  <button
+                    type="button"
+                    onClick={stopTurn}
+                    aria-label={t('composer.stopAria')}
+                    style={composerSendButtonStyle('enabled')}
                 >
-                  <StopIcon />
-                </button>
+                    <StopIcon />
+                  </button>
+                </ActionTooltip>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void sendMessage()
-                  }}
-                  disabled={!canSend}
-                  title={t('composer.sendTitleAlt')}
-                  aria-label={t('composer.sendAriaAlt')}
-                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                <ActionTooltip
+                  label={t('composer.sendAriaAlt')}
+                  shortcut={canSend ? ACTION_SHORTCUTS.send : undefined}
+                  placement="top"
                 >
-                  <SendIcon />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void sendMessage()
+                    }}
+                    disabled={!canSend}
+                    aria-label={t('composer.sendAriaAlt')}
+                    style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
+                  >
+                    <SendIcon />
+                  </button>
+                </ActionTooltip>
               )
             ) : null}
           </div>

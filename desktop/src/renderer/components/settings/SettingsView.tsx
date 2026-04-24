@@ -205,6 +205,32 @@ function isAuthenticatedProxyAuthFile(file: ProxyAuthFileSummary, provider?: Pro
     (provider === undefined || file.provider === provider)
 }
 
+function getProxyOAuthCallbackPort(provider: ProxyOAuthProvider): number | null {
+  switch (provider) {
+    case 'codex':
+      return 1455
+    case 'claude':
+      return 54545
+    case 'gemini':
+      return 8085
+    default:
+      return null
+  }
+}
+
+function appendProxyOAuthDiagnostics(
+  message: string,
+  provider: ProxyOAuthProvider,
+  authDir: string
+): string {
+  const callbackPort = getProxyOAuthCallbackPort(provider)
+  const authDirText = authDir.trim() || 'default app data proxy auths'
+  const details = callbackPort == null
+    ? `authDir: ${authDirText}`
+    : `callbackPort: ${callbackPort}; authDir: ${authDirText}; localhost/IPv6 callback may be unreachable on macOS`
+  return `${message} (${details})`
+}
+
 function getReadyProxyProviders(files: ProxyAuthFileSummary[]): Set<ProxyOAuthProvider> {
   return new Set(
     files.filter((file) => isAuthenticatedProxyAuthFile(file)).map((file) => file.provider)
@@ -1581,7 +1607,11 @@ export function SettingsView({
       await new Promise((resolve) => window.setTimeout(resolve, PROXY_OAUTH_POLL_INTERVAL_MS))
     }
 
-    const timeoutMessage = t('settings.proxy.oauthStatusTimeout')
+    const timeoutMessage = appendProxyOAuthDiagnostics(
+      t('settings.proxy.oauthStatusTimeout'),
+      provider,
+      proxyAuthDir
+    )
     const readyProviders = await refreshProxyProviderStatuses({
       fallbackStatus: 'keep',
       preservePending: true

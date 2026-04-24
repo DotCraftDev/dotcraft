@@ -1,10 +1,16 @@
 import type { ButtonHTMLAttributes, CSSProperties, JSX, ReactNode } from 'react'
+import { ActionTooltip } from './ActionTooltip'
+import type { ShortcutSpec } from './shortcutKeys'
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   icon: ReactNode
   label: string
   size?: number
   active?: boolean
+  tooltipLabel?: string
+  shortcut?: ShortcutSpec
+  tooltipPlacement?: 'top' | 'bottom' | 'left' | 'right'
+  disabledReason?: string
 }
 
 export function IconButton({
@@ -14,12 +20,15 @@ export function IconButton({
   active = false,
   disabled = false,
   style,
+  tooltipLabel,
+  shortcut,
+  tooltipPlacement,
+  disabledReason,
   ...props
 }: IconButtonProps): JSX.Element {
-  return (
+  const button = (
     <button
       type="button"
-      title={label}
       aria-label={label}
       disabled={disabled}
       style={{
@@ -30,6 +39,19 @@ export function IconButton({
     >
       {icon}
     </button>
+  )
+
+  if (!tooltipLabel && !shortcut && !disabledReason) return button
+
+  return (
+    <ActionTooltip
+      label={tooltipLabel ?? label}
+      shortcut={shortcut}
+      placement={tooltipPlacement}
+      disabledReason={disabled ? disabledReason : undefined}
+    >
+      {button}
+    </ActionTooltip>
   )
 }
 
