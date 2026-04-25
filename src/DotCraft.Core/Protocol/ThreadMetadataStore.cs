@@ -1,6 +1,5 @@
 using System.Text.Json;
 using DotCraft.State;
-using Microsoft.Data.Sqlite;
 
 namespace DotCraft.Protocol;
 

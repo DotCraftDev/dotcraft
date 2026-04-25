@@ -152,6 +152,16 @@ public sealed record QueuedTurnInput
 }
 
 /// <summary>
+/// Result returned when a queued input is promoted to current-turn guidance.
+/// </summary>
+public sealed record TurnSteerResult
+{
+    public string TurnId { get; init; } = string.Empty;
+
+    public IReadOnlyList<QueuedTurnInput> QueuedInputs { get; init; } = [];
+}
+
+/// <summary>
 /// Payload for AgentMessage items (final, after streaming).
 /// </summary>
 public sealed record AgentMessagePayload

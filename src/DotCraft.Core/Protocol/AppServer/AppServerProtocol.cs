@@ -776,6 +776,8 @@ public sealed class TurnSteerParams
 
     public string ExpectedTurnId { get; set; } = string.Empty;
 
+    public string QueuedInputId { get; set; } = string.Empty;
+
     public List<SessionWireInputPart> Input { get; set; } = [];
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -785,6 +787,8 @@ public sealed class TurnSteerParams
 public sealed class TurnSteerResponse
 {
     public string TurnId { get; set; } = string.Empty;
+
+    public List<QueuedTurnInput> QueuedInputs { get; set; } = [];
 }
 
 // ───── turn/interrupt ─────

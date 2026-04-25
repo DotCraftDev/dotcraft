@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text;
 using DotCraft.Abstractions;
 using DotCraft.Memory;
 using DotCraft.Protocol;

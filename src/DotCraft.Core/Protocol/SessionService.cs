@@ -605,6 +605,83 @@ public sealed class SessionService(
                 await TryRebuildAndSaveSessionAsync(agent, threadId);
             }
 
+            async Task<ChatMessage?> TryDrainGuidanceMessageAsync(CancellationToken drainCt)
+            {
+                var queueIndex = thread.QueuedInputs.FindIndex(q =>
+                    string.Equals(q.Status, "guidancePending", StringComparison.Ordinal) &&
+                    string.Equals(q.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal));
+                if (queueIndex < 0)
+                    return null;
+
+                var queued = thread.QueuedInputs[queueIndex];
+                var contentParts = await ResolveQueuedInputPartsAsync(queued.MaterializedInputParts.ToList(), drainCt);
+                if (contentParts.Count == 0)
+                    return null;
+
+                var nativeParts = queued.NativeInputParts.ToList();
+                var materializedParts = queued.MaterializedInputParts.ToList();
+                var displayText = !string.IsNullOrWhiteSpace(queued.DisplayText)
+                    ? queued.DisplayText
+                    : SessionWireMapper.BuildDisplayText(nativeParts);
+                var images = ExtractUserMessageImages(contentParts);
+                var item = new SessionItem
+                {
+                    Id = SessionIdGenerator.NewItemId(NextItemSeq()),
+                    TurnId = turn.Id,
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    Payload = new UserMessagePayload
+                    {
+                        Text = displayText,
+                        DeliveryMode = "guidance",
+                        NativeInputParts = nativeParts,
+                        MaterializedInputParts = materializedParts,
+                        SenderId = queued.Sender?.SenderId,
+                        SenderName = queued.Sender?.SenderName,
+                        SenderRole = queued.Sender?.SenderRole,
+                        ChannelName = turn.OriginChannel,
+                        ChannelContext = turn.Initiator?.ChannelContext,
+                        GroupId = queued.Sender?.GroupId ?? turn.Initiator?.GroupId,
+                        Images = images.Count > 0 ? images : null
+                    }
+                };
+
+                turn.Items.Add(item);
+                thread.QueuedInputs.RemoveAt(queueIndex);
+                thread.LastActiveAt = DateTimeOffset.UtcNow;
+                eventChannel.EmitItemStarted(item);
+                eventChannel.EmitItemCompleted(item);
+                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                PublishQueueUpdated(thread);
+                return new ChatMessage(ChatRole.User, contentParts);
+            }
+
+            async Task RestoreUndrainedGuidanceAsync()
+            {
+                var restored = false;
+                for (var i = 0; i < thread.QueuedInputs.Count; i++)
+                {
+                    var queued = thread.QueuedInputs[i];
+                    if (!string.Equals(queued.Status, "guidancePending", StringComparison.Ordinal) ||
+                        !string.Equals(queued.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    thread.QueuedInputs[i] = queued with { Status = "queued" };
+                    restored = true;
+                }
+
+                if (!restored)
+                    return;
+
+                thread.LastActiveAt = DateTimeOffset.UtcNow;
+                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                PublishQueueUpdated(thread);
+            }
+
             try
             {
                 // Step 5a: Acquire SessionGate
@@ -759,6 +836,13 @@ public sealed class SessionService(
                     });
                 try
                 {
+                    using var guidanceScope = TurnGuidanceRuntimeScope.Set(new TurnGuidanceRuntimeContext
+                    {
+                        ThreadId = threadId,
+                        TurnId = turn.Id,
+                        TryDrainGuidanceMessageAsync = TryDrainGuidanceMessageAsync
+                    });
+
                     await foreach (var update in agent.RunStreamingAsync(userMessage, session)
                         .WithCancellation(executionCt))
                     {
@@ -1187,6 +1271,8 @@ public sealed class SessionService(
                 gateLock.Dispose();
                 gateLock = null;
 
+                await RestoreUndrainedGuidanceAsync();
+
                 // Steps 5n-5r: Complete Turn
                 turn.Status = TurnStatus.Completed;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
@@ -1216,6 +1302,7 @@ public sealed class SessionService(
                 // Explicit CancelTurn call
                 FinalizeStreamingAgentMessage();
                 FinalizeStreamingReasoning();
+                await RestoreUndrainedGuidanceAsync();
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Cancelled by request");
@@ -1227,6 +1314,7 @@ public sealed class SessionService(
                 // Caller cancellation
                 FinalizeStreamingAgentMessage();
                 FinalizeStreamingReasoning();
+                await RestoreUndrainedGuidanceAsync();
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Caller cancelled");
@@ -1299,6 +1387,7 @@ public sealed class SessionService(
                     }
                 }
 
+                await RestoreUndrainedGuidanceAsync();
                 FailTurn(turn, eventChannel, reactiveMessage);
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
@@ -1408,18 +1497,17 @@ public sealed class SessionService(
     }
 
     /// <inheritdoc/>
-    public async Task<string> SteerTurnAsync(
+    public async Task<TurnSteerResult> SteerTurnAsync(
         string threadId,
         string expectedTurnId,
-        IList<AIContent> content,
-        SenderContext? sender = null,
+        string queuedInputId,
         CancellationToken ct = default,
-        SessionInputSnapshot? inputSnapshot = null)
+        SenderContext? sender = null)
     {
         if (string.IsNullOrWhiteSpace(expectedTurnId))
             throw new InvalidOperationException("expectedTurnId must not be empty.");
-        if (content.Count == 0 && inputSnapshot?.MaterializedInputParts is not { Count: > 0 })
-            throw new InvalidOperationException("Input must not be empty.");
+        if (string.IsNullOrWhiteSpace(queuedInputId))
+            throw new InvalidOperationException("queuedInputId must not be empty.");
 
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         if (thread.Status != ThreadStatus.Active)
@@ -1430,43 +1518,29 @@ public sealed class SessionService(
         if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Expected active turn id '{expectedTurnId}' but found '{turn.Id}'.");
 
-        var nativeParts = inputSnapshot?.NativeInputParts?.ToList()
-            ?? content.Select(c => c.ToWireInputPart()).ToList();
-        var materializedParts = inputSnapshot?.MaterializedInputParts?.ToList()
-            ?? nativeParts;
-        var displayText = inputSnapshot?.DisplayText
-            ?? SessionWireMapper.BuildDisplayText(nativeParts);
-        var item = new SessionItem
-        {
-            Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
-            TurnId = turn.Id,
-            Type = ItemType.UserMessage,
-            Status = ItemStatus.Completed,
-            CreatedAt = DateTimeOffset.UtcNow,
-            CompletedAt = DateTimeOffset.UtcNow,
-            Payload = new UserMessagePayload
-            {
-                Text = displayText,
-                DeliveryMode = "guidance",
-                NativeInputParts = nativeParts,
-                MaterializedInputParts = materializedParts,
-                SenderId = sender?.SenderId,
-                SenderName = sender?.SenderName,
-                SenderRole = sender?.SenderRole,
-                ChannelName = turn.OriginChannel,
-                ChannelContext = turn.Initiator?.ChannelContext,
-                GroupId = sender?.GroupId ?? turn.Initiator?.GroupId
-            }
-        };
+        var queueIndex = thread.QueuedInputs.FindIndex(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        if (queueIndex < 0)
+            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
 
-        turn.Items.Add(item);
+        var queued = thread.QueuedInputs[queueIndex];
+        if (!string.Equals(queued.Status, "queued", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Queued input '{queuedInputId}' is not queued (current status: {queued.Status}).");
+
+        thread.QueuedInputs[queueIndex] = queued with
+        {
+            Status = "guidancePending",
+            ReadyAfterTurnId = turn.Id,
+            Sender = sender ?? queued.Sender
+        };
         thread.LastActiveAt = DateTimeOffset.UtcNow;
         await PersistThreadWithMaterializationAsync(thread, ct);
+        PublishQueueUpdated(thread);
 
-        var broker = GetOrCreateBroker(threadId);
-        broker.PublishItemEvent(SessionEventType.ItemStarted, turn.Id, item);
-        broker.PublishItemEvent(SessionEventType.ItemCompleted, turn.Id, item);
-        return turn.Id;
+        return new TurnSteerResult
+        {
+            TurnId = turn.Id,
+            QueuedInputs = thread.QueuedInputs.ToList()
+        };
     }
 
     /// <inheritdoc/>
@@ -1566,13 +1640,14 @@ public sealed class SessionService(
         try
         {
             thread = await GetOrLoadThreadAsync(threadId, ct);
-            if (thread.QueuedInputs.Count == 0)
+            var queueIndex = thread.QueuedInputs.FindIndex(q => string.Equals(q.Status, "queued", StringComparison.Ordinal));
+            if (queueIndex < 0)
                 return;
             if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
                 return;
 
-            queued = thread.QueuedInputs[0];
-            thread.QueuedInputs.RemoveAt(0);
+            queued = thread.QueuedInputs[queueIndex];
+            thread.QueuedInputs.RemoveAt(queueIndex);
             thread.LastActiveAt = DateTimeOffset.UtcNow;
             await PersistThreadWithMaterializationAsync(thread, ct);
             PublishQueueUpdated(thread);

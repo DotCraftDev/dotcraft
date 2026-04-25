@@ -233,7 +233,7 @@ Fields:
 - `Sender` (SenderContext, nullable)
   - Optional sender identity for group sessions.
 - `Status` (string)
-  - `"queued"` in v1.
+  - `"queued"` for normal FIFO execution or `"guidancePending"` after the user promotes the input into current-Turn guidance.
 - `CreatedAt` (UTC timestamp)
 - `ReadyAfterTurnId` (string, nullable)
   - Active Turn ID observed when the input was queued.
@@ -859,16 +859,15 @@ Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
 Removes a queued input without starting a Turn.
 
 ```
-Task<string> SteerTurnAsync(
+Task<TurnSteerResult> SteerTurnAsync(
     string threadId,
     string expectedTurnId,
-    IList<AIContent> content,
-    SenderContext? sender = null,
+    string queuedInputId,
     CancellationToken ct = default,
-    SessionInputSnapshot? inputSnapshot = null)
+    SenderContext? sender = null)
 ```
 
-Appends a `UserMessage` item with `DeliveryMode = "guidance"` to the active Turn after validating that `expectedTurnId` still matches the current active Turn. Full model-loop injection occurs only at safe execution boundaries; implementations that still use a black-box tool loop may persist and broadcast the guidance item before deeper execution-loop integration is complete.
+Marks the referenced queued input as `guidancePending` after validating that `expectedTurnId` still matches the current active Turn. The active execution loop drains pending guidance only at safe model/tool boundaries, appends a `UserMessage` item with `DeliveryMode = "guidance"` at insertion time, removes the queued input, and injects the input into the current model history. If the Turn ends before insertion, pending guidance is restored to `queued`.
 
 The adapter starts a turn and immediately consumes the returned async stream. Callback-style consumption is a helper-layer concern (for example, wrapping the stream in a local event handler), not part of the `ISessionService` contract.
 

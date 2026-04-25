@@ -718,13 +718,12 @@ internal sealed class FakeSessionService : ISessionService
         return thread.QueuedInputs.ToList();
     }
 
-    public Task<string> SteerTurnAsync(
+    public Task<TurnSteerResult> SteerTurnAsync(
         string threadId,
         string expectedTurnId,
-        IList<AIContent> content,
-        SenderContext? sender = null,
+        string queuedInputId,
         CancellationToken ct = default,
-        SessionInputSnapshot? inputSnapshot = null) =>
+        SenderContext? sender = null) =>
         throw new NotSupportedException("Use FakeSessionService for lifecycle tests only.");
 
     public async Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default)

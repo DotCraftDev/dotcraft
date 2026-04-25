@@ -15,7 +15,6 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using OpenAI.Chat;
-using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace DotCraft.Agents;
 
@@ -307,7 +306,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
-        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient
+        // => StreamingToolCallPreviewChatClient => SteerableFunctionInvokingChatClient => TracingChatClient
         var chatClientBuilder = new ChatClientBuilder(ctx.ChatClient.AsIChatClient());
         if (_traceCollector != null)
         {
@@ -316,7 +315,7 @@ public sealed class AgentFactory : IAsyncDisposable
         }
         chatClientBuilder.Use(innerClient =>
         {
-            var fic = new FunctionInvokingChatClient(innerClient)
+            var fic = new SteerableFunctionInvokingChatClient(innerClient)
             {
                 MaximumIterationsPerRequest = _config.MaxToolCallRounds,
                 AllowConcurrentInvocation = true
@@ -408,7 +407,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
-        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
+        // => StreamingToolCallPreviewChatClient => SteerableFunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         chatClientBuilder.Use(innerClient => new ToolCallFilteringChatClient(innerClient));
         if (_traceCollector != null)
@@ -417,7 +416,7 @@ public sealed class AgentFactory : IAsyncDisposable
         }
         chatClientBuilder.Use(innerClient =>
         {
-            var fic = new FunctionInvokingChatClient(innerClient)
+            var fic = new SteerableFunctionInvokingChatClient(innerClient)
             {
                 MaximumIterationsPerRequest = _config.MaxToolCallRounds,
                 AllowConcurrentInvocation = true

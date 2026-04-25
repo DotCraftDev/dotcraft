@@ -332,21 +332,18 @@ export function InputComposer({
     const activeTurnId = state.activeTurnId
     const queued = state.queuedInputs.find((item) => item.id === queuedInputId)
     if (!activeTurnId || !queued) return
-    const input = queued.nativeInputParts?.length
-      ? queued.nativeInputParts
-      : queued.materializedInputParts ?? []
-    if (input.length === 0) return
+    if (queued.status === 'guidancePending') return
     try {
-      await window.api.appServer.sendRequest('turn/steer', {
+      const res = await window.api.appServer.sendRequest('turn/steer', {
         threadId,
         expectedTurnId: activeTurnId,
-        input
-      })
-      await removeQueuedInput(queuedInputId)
+        queuedInputId
+      }) as { queuedInputs?: unknown[] }
+      useConversationStore.getState().setQueuedInputs((res.queuedInputs ?? []) as QueuedTurnInput[])
     } catch (err) {
       addToast(err instanceof Error ? err.message : String(err), 'error')
     }
-  }, [removeQueuedInput, threadId])
+  }, [threadId])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -625,6 +622,7 @@ function QueuedInputList({
     >
       {queuedInputs.map((item) => {
         const label = summarizeQueuedInput(item)
+        const isGuidancePending = item.status === 'guidancePending'
         return (
           <div
             key={item.id}
@@ -647,7 +645,7 @@ function QueuedInputList({
                 width: '7px',
                 height: '7px',
                 borderRadius: '999px',
-                background: 'var(--warning)'
+                background: isGuidancePending ? 'var(--accent)' : 'var(--warning)'
               }}
             />
             <span
@@ -664,9 +662,14 @@ function QueuedInputList({
             <button
               type="button"
               onClick={() => onSteer(item.id)}
-              style={queuedTextButtonStyle}
+              disabled={isGuidancePending}
+              style={{
+                ...queuedTextButtonStyle,
+                opacity: isGuidancePending ? 0.55 : 1,
+                cursor: isGuidancePending ? 'default' : 'pointer'
+              }}
             >
-              {t('composer.queueGuide')}
+              {isGuidancePending ? t('composer.queueGuidancePending') : t('composer.queueGuide')}
             </button>
             <button
               type="button"

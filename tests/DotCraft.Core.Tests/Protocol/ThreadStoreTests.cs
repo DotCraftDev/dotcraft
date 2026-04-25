@@ -316,6 +316,31 @@ public sealed class ThreadStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task QueuedInputStatusUpdate_IsPersistedAppendOnly()
+    {
+        var thread = CreateThread();
+        var queued = CreateQueuedInput(thread.Id, "guide me");
+        thread.QueuedInputs.Add(queued);
+        await _store.SaveThreadAsync(thread);
+
+        thread.QueuedInputs[0] = queued with
+        {
+            Status = "guidancePending",
+            ReadyAfterTurnId = "turn_active"
+        };
+        thread.LastActiveAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+
+        Assert.NotNull(loaded);
+        var reloaded = Assert.Single(loaded.QueuedInputs);
+        Assert.Equal("guidancePending", reloaded.Status);
+        Assert.Equal("turn_active", reloaded.ReadyAfterTurnId);
+    }
+
+    [Fact]
     public async Task GuidanceUserItem_DoesNotReplaceOriginalTurnInputOnColdReload()
     {
         var thread = CreateThread();

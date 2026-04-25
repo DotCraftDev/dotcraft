@@ -343,13 +343,12 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return thread.QueuedInputs.ToList();
     }
 
-    public async Task<string> SteerTurnAsync(
+    public async Task<TurnSteerResult> SteerTurnAsync(
         string threadId,
         string expectedTurnId,
-        IList<AIContent> content,
-        SenderContext? sender = null,
+        string queuedInputId,
         CancellationToken ct = default,
-        SessionInputSnapshot? inputSnapshot = null)
+        SenderContext? sender = null)
     {
         var thread = await GetOrLoadAsync(threadId, ct);
         var turn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
@@ -357,25 +356,17 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
             throw new InvalidOperationException("Active turn mismatch.");
 
-        var parts = inputSnapshot?.NativeInputParts?.ToList() ?? content.Select(c => c.ToWireInputPart()).ToList();
-        turn.Items.Add(new SessionItem
+        var index = thread.QueuedInputs.FindIndex(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        if (index < 0)
+            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+        thread.QueuedInputs[index] = thread.QueuedInputs[index] with
         {
-            Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
-            TurnId = turn.Id,
-            Type = ItemType.UserMessage,
-            Status = ItemStatus.Completed,
-            CreatedAt = DateTimeOffset.UtcNow,
-            CompletedAt = DateTimeOffset.UtcNow,
-            Payload = new UserMessagePayload
-            {
-                Text = inputSnapshot?.DisplayText ?? SessionWireMapper.BuildDisplayText(parts),
-                DeliveryMode = "guidance",
-                NativeInputParts = parts,
-                MaterializedInputParts = inputSnapshot?.MaterializedInputParts?.ToList() ?? parts
-            }
-        });
+            Status = "guidancePending",
+            ReadyAfterTurnId = turn.Id,
+            Sender = sender ?? thread.QueuedInputs[index].Sender
+        };
         await _store.SaveThreadAsync(thread, ct);
-        return turn.Id;
+        return new TurnSteerResult { TurnId = turn.Id, QueuedInputs = thread.QueuedInputs.ToList() };
     }
 
     // -------------------------------------------------------------------------

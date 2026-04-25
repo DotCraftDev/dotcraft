@@ -1200,24 +1200,18 @@ public sealed class AppServerRequestHandler(
         var p = GetParams<TurnSteerParams>(msg);
         if (string.IsNullOrWhiteSpace(p.ExpectedTurnId))
             throw AppServerErrors.InvalidParams("'expectedTurnId' is required.");
-        var materializedInput = await PrepareTurnInputAsync(p.Input, ct);
+        if (string.IsNullOrWhiteSpace(p.QueuedInputId))
+            throw AppServerErrors.InvalidParams("'queuedInputId' is required.");
 
         using var channelScope = CreateChannelScope(p.Sender);
         await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
-        var turnId = await sessionService.SteerTurnAsync(
+        var result = await sessionService.SteerTurnAsync(
             p.ThreadId,
             p.ExpectedTurnId,
-            materializedInput.Content,
-            p.Sender,
+            p.QueuedInputId,
             ct,
-            new SessionInputSnapshot
-            {
-                NativeInputParts = materializedInput.NativeInputParts,
-                MaterializedInputParts = materializedInput.MaterializedInputParts,
-                DisplayText = materializedInput.DisplayText,
-                DeliveryMode = "guidance"
-            });
-        return new TurnSteerResponse { TurnId = turnId };
+            p.Sender);
+        return new TurnSteerResponse { TurnId = result.TurnId, QueuedInputs = result.QueuedInputs.ToList() };
     }
 
     private async Task<object?> HandleTurnInterruptAsync(AppServerIncomingMessage msg, CancellationToken ct)

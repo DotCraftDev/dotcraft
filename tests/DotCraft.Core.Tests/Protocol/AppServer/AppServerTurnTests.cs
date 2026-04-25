@@ -528,7 +528,7 @@ public sealed class AppServerTurnTests : IDisposable
     }
 
     [Fact]
-    public async Task TurnSteer_AppendsGuidanceUserItem()
+    public async Task TurnSteer_MarksQueuedInputGuidancePending()
     {
         var thread = await _h.Service.CreateThreadAsync(_h.Identity);
         thread.Turns.Add(new SessionTurn
@@ -538,22 +538,30 @@ public sealed class AppServerTurnTests : IDisposable
             Status = TurnStatus.Running,
             StartedAt = DateTimeOffset.UtcNow
         });
+        var queued = await _h.Service.EnqueueTurnInputAsync(
+            thread.Id,
+            [new TextContent("Use this hint")],
+            inputSnapshot: new SessionInputSnapshot
+            {
+                NativeInputParts = [new SessionWireInputPart { Type = "text", Text = "Use this hint" }],
+                MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = "Use this hint" }],
+                DisplayText = "Use this hint"
+            });
 
         var msg = _h.BuildRequest(AppServerMethods.TurnSteer, new
         {
             threadId = thread.Id,
             expectedTurnId = "turn_001",
-            input = new[] { new { type = "text", text = "Use this hint" } }
+            queuedInputId = queued.Id
         });
         await _h.ExecuteRequestAsync(msg);
 
         var doc = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(doc);
         Assert.Equal("turn_001", doc.RootElement.GetProperty("result").GetProperty("turnId").GetString());
-
-        var item = Assert.Single(thread.Turns[0].Items);
-        Assert.Equal("guidance", item.AsUserMessage?.DeliveryMode);
-        Assert.Equal("Use this hint", item.AsUserMessage?.Text);
+        var resultQueued = Assert.Single(doc.RootElement.GetProperty("result").GetProperty("queuedInputs").EnumerateArray());
+        Assert.Equal("guidancePending", resultQueued.GetProperty("status").GetString());
+        Assert.Empty(thread.Turns[0].Items);
     }
 
     // -------------------------------------------------------------------------

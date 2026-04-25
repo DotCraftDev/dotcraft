@@ -136,15 +136,14 @@ public interface ISessionService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Adds user guidance to the active turn.
+    /// Marks one queued input as same-turn guidance for the active turn.
     /// </summary>
-    Task<string> SteerTurnAsync(
+    Task<TurnSteerResult> SteerTurnAsync(
         string threadId,
         string expectedTurnId,
-        IList<AIContent> content,
-        SenderContext? sender = null,
+        string queuedInputId,
         CancellationToken ct = default,
-        SessionInputSnapshot? inputSnapshot = null);
+        SenderContext? sender = null);
 
     /// <summary>
     /// Resolves a pending approval request within a WaitingApproval Turn.

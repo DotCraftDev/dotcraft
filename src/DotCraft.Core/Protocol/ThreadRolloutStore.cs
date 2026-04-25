@@ -206,6 +206,25 @@ internal sealed class ThreadRolloutStore
             });
         }
 
+        foreach (var currentQueued in currentQueue)
+        {
+            var previousQueued = previousQueue.FirstOrDefault(q => string.Equals(q.Id, currentQueued.Id, StringComparison.Ordinal));
+            if (previousQueued == null || string.Equals(previousQueued.Status, currentQueued.Status, StringComparison.Ordinal))
+                continue;
+
+            records.Add(new ThreadRolloutRecord
+            {
+                Kind = "queued_input_updated",
+                Timestamp = current.LastActiveAt,
+                QueuedInputUpdated = new QueuedInputUpdatedPayload
+                {
+                    ThreadId = current.Id,
+                    QueuedInput = currentQueued,
+                    LastActiveAt = current.LastActiveAt
+                }
+            });
+        }
+
         if (previous == null || previous.Status != current.Status || previous.LastActiveAt != current.LastActiveAt)
         {
             records.Add(new ThreadRolloutRecord
@@ -436,6 +455,13 @@ internal sealed class ThreadRolloutStore
                     thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, record.QueuedInputRemoved.QueuedInputId, StringComparison.Ordinal));
                     thread.LastActiveAt = record.QueuedInputRemoved.LastActiveAt;
                     break;
+
+                case "queued_input_updated" when thread != null && record.QueuedInputUpdated != null:
+                    var updateIndex = thread.QueuedInputs.FindIndex(q => string.Equals(q.Id, record.QueuedInputUpdated.QueuedInput.Id, StringComparison.Ordinal));
+                    if (updateIndex >= 0)
+                        thread.QueuedInputs[updateIndex] = record.QueuedInputUpdated.QueuedInput;
+                    thread.LastActiveAt = record.QueuedInputUpdated.LastActiveAt;
+                    break;
             }
         }
 
@@ -488,6 +514,8 @@ internal sealed class ThreadRolloutRecord
     public QueuedInputAddedPayload? QueuedInputAdded { get; init; }
 
     public QueuedInputRemovedPayload? QueuedInputRemoved { get; init; }
+
+    public QueuedInputUpdatedPayload? QueuedInputUpdated { get; init; }
 }
 
 internal sealed class ThreadOpenedPayload
@@ -579,6 +607,15 @@ internal sealed class QueuedInputRemovedPayload
     public string ThreadId { get; init; } = string.Empty;
 
     public string QueuedInputId { get; init; } = string.Empty;
+
+    public DateTimeOffset LastActiveAt { get; init; }
+}
+
+internal sealed class QueuedInputUpdatedPayload
+{
+    public string ThreadId { get; init; } = string.Empty;
+
+    public QueuedTurnInput QueuedInput { get; init; } = new();
 
     public DateTimeOffset LastActiveAt { get; init; }
 }

@@ -861,7 +861,7 @@ Tag semantics:
 | `materializedInputParts` | InputPart[] | Model-visible materialized snapshot. |
 | `displayText` | string | Human-readable summary for queue UI. |
 | `sender` | SenderContext? | Optional sender identity. |
-| `status` | string | `"queued"` in v1. |
+| `status` | string | `"queued"` or `"guidancePending"`. |
 | `createdAt` | string | UTC timestamp. |
 | `readyAfterTurnId` | string? | Active turn observed when the input was queued. |
 
@@ -986,7 +986,7 @@ Remove one queued input without starting a Turn.
 
 ### 5.2.3 `turn/steer`
 
-Append a user guidance request to the current active Turn. This is not the default send path; clients should call it only when the user explicitly promotes a queued message into guidance.
+Promote a queued input into a pending guidance request for the current active Turn. This is not the default send path; clients should call it only when the user explicitly promotes a queued message into guidance.
 
 **Direction**: client → server (request)
 
@@ -996,12 +996,12 @@ Append a user guidance request to the current active Turn. This is not the defau
 |-------|------|----------|-------------|
 | `threadId` | string | yes | Target active thread. |
 | `expectedTurnId` | string | yes | Active Turn ID observed by the client. The server rejects the request if it no longer matches. |
-| `input` | InputPart[] | yes | Same input model as `turn/start`; at least one part required. |
+| `queuedInputId` | string | yes | Queued input ID to promote. The server uses the persisted queued input snapshot as the source of truth. |
 | `sender` | SenderContext | no | Sender identity for group sessions. |
 
-**Result**: `{ "turnId": "<active-turn-id>" }`
+**Result**: `{ "turnId": "<active-turn-id>", "queuedInputs": QueuedTurnInput[] }`
 
-The server persists and broadcasts a `userMessage` item with `deliveryMode = "guidance"`. Implementations that own the tool/model loop should inject this input at the next safe boundary; implementations still using a black-box function-invoking loop may expose the persisted guidance item before full mid-turn model injection is available.
+The server first marks the queued input as `guidancePending` and broadcasts `thread/queue/updated`; clients should keep the queue row visible in that state. When the model/tool loop reaches the next safe boundary, the server appends a `userMessage` item with `deliveryMode = "guidance"`, injects the input into the active Turn's model history, removes the queued input, and broadcasts `thread/queue/updated` again. If the Turn ends before insertion, the pending item returns to `queued`.
 
 ### 5.3 `workspace/commitMessage/suggest`
 
