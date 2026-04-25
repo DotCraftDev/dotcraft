@@ -124,9 +124,7 @@ Editors and ACP are for users who want DotCraft embedded directly into developme
 
 ### Social Channels
 
-QQ / WeCom connect through TypeScript external channels. For setup details, see the [QQ Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-qq) and [WeCom Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-wecom).
-
-For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python) and [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript).
+For social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python) and [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript).
 
 DotCraft currently includes integrations for Telegram, WeChat, Feishu/Lark, QQ, and WeCom.
 

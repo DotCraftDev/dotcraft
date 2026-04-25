@@ -2,10 +2,8 @@
 
 REM Parse optional module exclusion flags
 set MODULE_PROPS=
-set SKIP_WE_COM=0
 :parse_args
 if "%~1"=="" goto :args_done
-if /i "%~1"=="--no-wecom" set SKIP_WE_COM=1
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false
 if /i "%~1"=="--no-agui"         set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleAGUI=false
@@ -143,7 +141,7 @@ mkdir resources\modules\channel-feishu
 mkdir resources\modules\channel-weixin
 mkdir resources\modules\channel-telegram
 mkdir resources\modules\channel-qq
-if "%SKIP_WE_COM%"=="0" mkdir resources\modules\channel-wecom
+mkdir resources\modules\channel-wecom
 copy /Y "..\sdk\typescript\packages\channel-feishu\manifest.json" "resources\modules\channel-feishu\manifest.json"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-feishu manifest.json for Desktop build.
@@ -216,7 +214,6 @@ if %ERRORLEVEL% neq 0 (
     cd ..
     goto :failure
 )
-if "%SKIP_WE_COM%"=="1" goto :after_wecom_stage
 copy /Y "..\sdk\typescript\packages\channel-wecom\manifest.json" "resources\modules\channel-wecom\manifest.json"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-wecom manifest.json for Desktop build.
@@ -235,7 +232,6 @@ if %ERRORLEVEL% neq 0 (
     cd ..
     goto :failure
 )
-:after_wecom_stage
 if exist dist (
     rmdir /s /q dist
 )

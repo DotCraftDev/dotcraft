@@ -2,10 +2,8 @@
 
 REM Parse optional module exclusion flags
 set MODULE_PROPS=
-set SKIP_WE_COM=0
 :parse_args
 if "%~1"=="" goto :args_done
-if /i "%~1"=="--no-wecom" set SKIP_WE_COM=1
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false
 if /i "%~1"=="--no-agui"         set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleAGUI=false
@@ -76,7 +74,7 @@ if not exist "desktop\resources\modules\channel-feishu" mkdir "desktop\resources
 if not exist "desktop\resources\modules\channel-weixin" mkdir "desktop\resources\modules\channel-weixin"
 if not exist "desktop\resources\modules\channel-telegram" mkdir "desktop\resources\modules\channel-telegram"
 if not exist "desktop\resources\modules\channel-qq" mkdir "desktop\resources\modules\channel-qq"
-if "%SKIP_WE_COM%"=="0" if not exist "desktop\resources\modules\channel-wecom" mkdir "desktop\resources\modules\channel-wecom"
+if not exist "desktop\resources\modules\channel-wecom" mkdir "desktop\resources\modules\channel-wecom"
 
 if exist "sdk\typescript\packages\channel-feishu\manifest.json" (
     copy /Y "sdk\typescript\packages\channel-feishu\manifest.json" "desktop\resources\modules\channel-feishu\manifest.json" >nul
@@ -110,14 +108,12 @@ if exist "sdk\typescript\packages\channel-qq\manifest.json" (
     echo WARNING: channel-qq manifest.json not found. Run sdk\typescript build first.
 )
 
-if "%SKIP_WE_COM%"=="0" (
 if exist "sdk\typescript\packages\channel-wecom\manifest.json" (
     copy /Y "sdk\typescript\packages\channel-wecom\manifest.json" "desktop\resources\modules\channel-wecom\manifest.json" >nul
     copy /Y "sdk\typescript\packages\channel-wecom\package.json" "desktop\resources\modules\channel-wecom\package.json" >nul
     xcopy /E /I /Y "sdk\typescript\packages\channel-wecom\dist" "desktop\resources\modules\channel-wecom\dist" >nul
 ) else (
     echo WARNING: channel-wecom manifest.json not found. Run sdk\typescript build first.
-)
 )
 
 echo.
