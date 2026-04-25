@@ -17,7 +17,6 @@ using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
 using DotCraft.Tools;
-using DotCraft.WeCom;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -1427,19 +1426,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public void WeComChannelService_ChannelTools_RestoreLegacyNames_AndCurrentChatRequirement()
-    {
-        var tools = GetStaticChannelTools(typeof(WeComChannelService));
-
-        Assert.Equal(
-            ["WeComSendVoice", "WeComSendFile"],
-            tools.Select(t => t.Name).ToArray());
-        Assert.All(tools, t => Assert.True(t.RequiresChatContext));
-        Assert.Equal("🎤", tools[0].Display?.Icon);
-        Assert.Equal("📁", tools[1].Display?.Icon);
-    }
-
-    [Fact]
     public void ExternalChannelHost_AcceptsWebSocketAdapterAttach_MatchesTransport()
     {
         var subprocess = CreateHost("telegram");
@@ -1684,13 +1670,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         typeof(ExternalChannelHost)
             .GetField("_connection", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(host, connection);
-    }
-
-    private static IReadOnlyList<ChannelToolDescriptor> GetStaticChannelTools(Type channelServiceType)
-    {
-        var field = channelServiceType.GetField("ChannelTools", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return Assert.IsAssignableFrom<IReadOnlyList<ChannelToolDescriptor>>(field!.GetValue(null));
     }
 
     private AgentFactory CreateAgentFactoryForSessionTests()
