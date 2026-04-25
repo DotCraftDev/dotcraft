@@ -1,358 +1,130 @@
-# DotCraft QQ Bot Guide
+# DotCraft QQ External Channel Guide
 
-This document describes how to configure DotCraft to connect to a QQ bot, enabling it to serve as an intelligent assistant in QQ group chats and private messages.
+QQ has been migrated from the built-in C# module to the TypeScript external channel `@dotcraft/channel-qq`. The adapter connects to DotCraft through AppServer WebSocket, then exposes a OneBot v11 reverse WebSocket endpoint for NapCat or another OneBot implementation.
+
+The old `QQBot` config section is no longer used. Configure `ExternalChannels.qq` and `.craft/qq.json` instead.
 
 ## Prerequisites
 
 | Requirement | Description |
 |-------------|-------------|
-| A QQ account | QQ number for the bot (recommended to use an alt account) |
-| NapCat | QQ protocol framework for logging into QQ |
-| DotCraft | Compiled DotCraft executable |
-| LLM API Key | OpenAI-compatible API Key (e.g., OpenAI, DeepSeek, etc.) |
+| QQ account | QQ number for the bot, preferably an alternate account |
+| OneBot v11 implementation | NapCat is recommended for logging into QQ and connecting to reverse WebSocket |
+| DotCraft AppServer | WebSocket mode must be enabled |
+| QQ external channel package | Packaged under `resources/modules/channel-qq`; in development under `sdk/typescript/packages/channel-qq` |
 
-> **Note**: Using third-party QQ protocol frameworks carries account risks (bans, etc.). Please evaluate the risks yourself.
+> Third-party QQ protocol frameworks carry account risk. Evaluate that risk before use.
 
----
+## DotCraft Config
 
-## Step 1: Install NapCat
-
-NapCat is currently the most active OneBot V11 protocol implementation, based on the NTQQ kernel.
-
-### Windows Users (Recommended: One-Click Package)
-
-1. Go to [NapCat Releases](https://github.com/NapNeko/NapCatQQ/releases) and download the latest version
-2. Download **`NapCat.Shell.Windows.OneKey.zip`** (Windows one-click package, includes QQ, no additional installation needed)
-3. Extract to any directory
-4. Run `launcher.bat` to start
-
-### Linux Users
-
-**Method 1: One-Click Install Script**
-
-```bash
-curl -o napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh && sudo bash napcat.sh
-```
-
-**Method 2: Docker Deployment**
-
-```bash
-docker run -d \
-  -e ACCOUNT=your_qq_number \
-  -e WSR_ENABLE=true \
-  -e WS_URLS='["ws://127.0.0.1:6700/"]' \
-  -e WEBUI_TOKEN='your-webui-password' \
-  -p 6099:6099 \
-  --name napcat \
-  --restart=always \
-  mlikiowa/napcat-docker:latest
-```
-
-- `ACCOUNT`: Bot QQ number
-- `WS_URLS`: DotCraft's WebSocket address (reverse WS)
-- `6099`: NapCat WebUI management page port
-
-### macOS Users
-
-Go to [NapCat Releases](https://github.com/NapNeko/NapCatQQ/releases) and download the macOS DMG version.
-
----
-
-## Step 2: Configure DotCraft
-
-Add QQ bot configuration in your DotCraft workspace's `config.json`:
+Enable AppServer WebSocket and register the QQ external channel in `.craft/config.json`:
 
 ```json
 {
-    "ApiKey": "your-llm-api-key",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1",
-    "QQBot": {
-        "Enabled": true,
-        "Host": "127.0.0.1",
-        "Port": 6700,
-        "AccessToken": "",
-        "AdminUsers": [123456789],
-        "WhitelistedUsers": [111111111, 222222222],
-        "WhitelistedGroups": [333333333],
-        "ApprovalTimeoutSeconds": 60
+  "AppServer": {
+    "Mode": "WebSocket",
+    "WebSocket": {
+      "Host": "127.0.0.1",
+      "Port": 9100,
+      "Token": ""
     }
+  },
+  "ExternalChannels": [
+    {
+      "Name": "qq",
+      "Enabled": true,
+      "Transport": "Websocket"
+    }
+  ]
 }
 ```
 
-### Basic Configuration
+## QQ Channel Config
 
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `QQBot.Enabled` | Enable QQ bot mode | `false` |
-| `QQBot.Host` | WebSocket server listen address | `127.0.0.1` |
-| `QQBot.Port` | WebSocket server listen port | `6700` |
-| `QQBot.AccessToken` | Auth token (optional, must match NapCat) | empty |
+Create `.craft/qq.json`:
 
-> If NapCat and DotCraft run on the same machine, keep Host as `127.0.0.1`.
+```json
+{
+  "dotcraft": {
+    "wsUrl": "ws://127.0.0.1:9100/ws",
+    "token": ""
+  },
+  "qq": {
+    "host": "127.0.0.1",
+    "port": 6700,
+    "accessToken": "",
+    "adminUsers": [123456789],
+    "whitelistedUsers": [],
+    "whitelistedGroups": [],
+    "approvalTimeoutMs": 60000,
+    "requireMentionInGroups": true
+  }
+}
+```
 
-### Permission Configuration
+| Config | Description | Default |
+|--------|-------------|---------|
+| `dotcraft.wsUrl` | DotCraft AppServer WebSocket URL | `ws://127.0.0.1:9100/ws` |
+| `dotcraft.token` | AppServer WebSocket token | empty |
+| `qq.host` | OneBot reverse WebSocket listen host | `127.0.0.1` |
+| `qq.port` | OneBot reverse WebSocket listen port | `6700` |
+| `qq.accessToken` | OneBot auth token, must match NapCat | empty |
+| `qq.adminUsers` | Admin QQ number list | `[]` |
+| `qq.whitelistedUsers` | Whitelisted QQ user list | `[]` |
+| `qq.whitelistedGroups` | Whitelisted QQ group list | `[]` |
+| `qq.approvalTimeoutMs` | Approval timeout in milliseconds | `60000` |
+| `qq.requireMentionInGroups` | Require @mention in group chats | `true` |
 
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `QQBot.AdminUsers` | Admin QQ number list (highest permissions) | `[]` |
-| `QQBot.WhitelistedUsers` | Whitelisted user QQ number list (basic permissions) | `[]` |
-| `QQBot.WhitelistedGroups` | Whitelisted group number list (group members auto-get basic permissions) | `[]` |
-| `QQBot.ApprovalTimeoutSeconds` | Operation approval timeout (seconds), auto-reject on timeout | `60` |
+If `adminUsers`, `whitelistedUsers`, and `whitelistedGroups` are all empty, the adapter will not respond to any QQ user. Configure at least one admin.
 
----
+## Configure NapCat
 
-## Step 3: Configure NapCat to Connect to DotCraft
+Create a WebSocket client (reverse WS) in the NapCat WebUI:
 
-After NapCat starts, configure it via the WebUI in your browser:
+1. Set URL to `ws://127.0.0.1:6700/`.
+2. Set Token to the same value as `qq.accessToken`.
+3. Select `array` as the message format.
 
-1. Open browser and visit `http://127.0.0.1:6099`
-2. Enter WebUI Token to log in
-3. Scan QR code with mobile QQ to log in the bot account
-4. Go to **Network Configuration** page
-5. Click **New** -> Select **WebSocket Client** (reverse WS)
-6. Fill in configuration:
-   - **URL**: `ws://127.0.0.1:6700/` (matching DotCraft's Host:Port)
-   - **Token**: If DotCraft has AccessToken configured, enter the same value here
-   - **Message Format**: Select `array` (**required**, do not select `string`)
-7. Click **Save**
+If NapCat runs in Docker or on another machine, replace `127.0.0.1` with an address that can reach the QQ adapter.
 
-> If deploying NapCat via Docker, replace `127.0.0.1` in the URL with the IP of the machine running DotCraft or the Docker network address.
+## Start
 
----
+The desktop app discovers the packaged `qq-standard` external channel from module resources and can start it from channel management.
 
-## Step 4: Start DotCraft
+In development:
 
 ```bash
-./DotCraft
+cd sdk/typescript
+npm run build --workspace @dotcraft/channel-qq
+dotcraft-channel-qq --workspace E:\dotcraft
 ```
 
-After starting, you will see output like:
+Or from the package directory:
 
+```bash
+cd sdk/typescript/packages/channel-qq
+npm run build
+npm start -- --workspace E:\dotcraft
 ```
-QQ Bot mode enabled
-OneBot reverse WebSocket server started on ws://127.0.0.1:6700/
-QQ Bot listening on ws://127.0.0.1:6700/
-Press Ctrl+C to stop...
-```
-
-When NapCat successfully connects, you will see:
-
-```
-[QQ] Client connected: <connection-id> from <ip:port>
-[QQ] OneBot lifecycle event: sub_type=connect
-```
-
----
 
 ## Usage
 
-### Group Chat Mode
+- Group chats only respond to @mentions by default.
+- Private messages go directly to a per-user thread.
+- Each QQ group or private user maps to an independent DotCraft thread.
+- When an admin triggers an operation that needs approval, the adapter sends an approval prompt in QQ. Reply with `approve`, `yes`, `y`, `同意`, or `允许` to approve; reply with `reject`, `deny`, `no`, `n`, or `拒绝` to reject.
 
-- The bot **only replies to messages that @mention it**
-- In group chat, `@bot hello` will trigger a reply
-- Unauthorized users @mentioning the bot will be silently ignored
+## QQ Runtime Tools
 
-### Private Chat Mode
+The migrated channel keeps the legacy QQ tool names for explicit cross-target delivery:
 
-- The bot **only replies to authorized users'** private messages
-- Unauthorized users' private messages will be ignored
+| Tool | Target | Sources |
+|------|--------|---------|
+| `QQSendGroupVoice` | QQ group | Local path, HTTP URL, `base64://...` |
+| `QQSendPrivateVoice` | QQ user | Local path, HTTP URL, `base64://...` |
+| `QQSendGroupVideo` | QQ group | Local path, HTTP URL |
+| `QQSendPrivateVideo` | QQ user | Local path, HTTP URL |
+| `QQUploadGroupFile` | QQ group | Local absolute path |
+| `QQUploadPrivateFile` | QQ user | Local absolute path |
 
-### Session Management
-
-- Each QQ session (group number or private chat user) has independent context
-- Session data is automatically saved in the DotCraft workspace's `.craft/sessions/` directory
-
-### Channel-Native Runtime Tools
-
-QQ Bot mode now participates in the unified channel runtime. In addition to normal chat replies, the agent can call QQ-specific media tools exposed by the runtime:
-
-| Tool | Target Model | Supported Source Forms |
-|------|--------------|------------------------|
-| `QQSendGroupVoice` | Explicit QQ group | Local path, HTTP URL, `base64://...` |
-| `QQSendPrivateVoice` | Explicit QQ user | Local path, HTTP URL, `base64://...` |
-| `QQSendGroupVideo` | Explicit QQ group | Local path, HTTP URL |
-| `QQSendPrivateVideo` | Explicit QQ user | Local path, HTTP URL |
-| `QQUploadGroupFile` | Explicit QQ group | Local absolute path |
-| `QQUploadPrivateFile` | Explicit QQ user | Local absolute path |
-
-These are channel-native runtime tools, not generic file tools. They are designed for explicit cross-target delivery such as "send this report to group 123456" or "upload this file to user 10001".
-
-Practical notes:
-- Voice tools accept either a local file, an HTTP URL, or a `base64://` payload.
-- Video tools accept local files and HTTP URLs.
-- File upload tools require a local absolute path because they map to the OneBot upload APIs.
-- QQ runtime media tools do not require "current chat" context; the caller must provide the target group or user explicitly.
-
----
-
-## Permissions & Security
-
-### User Roles
-
-DotCraft classifies QQ users into three roles:
-
-| Role | Source | Permission Scope |
-|------|--------|------------------|
-| **Admin** | QQ numbers in `AdminUsers` list | Highest permissions, can execute write operations (requires approval) |
-| **Whitelisted** | QQ numbers in `WhitelistedUsers` list, or members of groups in `WhitelistedGroups` list | Basic permissions, can chat and read files |
-| **Unauthorized** | Not in any of the above lists | Bot does not respond |
-
-### Operation Tiers
-
-Different roles can perform different operation levels:
-
-| Operation Tier | Operations | Whitelisted | Admin |
-|----------------|-----------|-------------|-------|
-| Tier 0 | Pure conversation (no tool calls) | Allowed | Allowed |
-| Tier 1 | Read workspace files, Web requests | Allowed | Allowed |
-| Tier 2 | Write workspace files, execute Shell commands | Rejected | Requires approval |
-| Tier 3 | Write files outside workspace, execute commands outside workspace | Rejected | Rejected |
-
-### Shell Command Security Rules
-
-The bot performs **cross-platform path static analysis** on Shell commands, detecting the following path forms:
-- **Unix**: Absolute paths (`/etc`), home directory (`~/.ssh`), environment variables (`$HOME`, `${HOME}`)
-- **Windows**: Drive paths (`C:\`, `D:\Users`), environment variables (`%USERPROFILE%`, `%APPDATA%`), UNC paths (`\\server\share`)
-
-Trigger rules:
-- When `Tools.Shell.RequireApprovalOutsideWorkspace = false`: Such commands are directly rejected
-- When `Tools.Shell.RequireApprovalOutsideWorkspace = true`: Only admins can execute after approval, other roles are directly rejected
-- Blacklisted paths (e.g., `~/.ssh`, `/etc/shadow`) are always rejected (regardless of approval)
-
-Examples:
-- `ls /etc`, `dir C:\`, `cat ~/.ssh/id_rsa`, `type %USERPROFILE%\secret.txt` -> Triggers detection
-- `ls ./src`, `echo test > NUL` -> Does not trigger (within workspace / safe device whitelist)
-
-### Operation Approval Flow
-
-When an admin triggers a Tier 2 operation, DotCraft requests approval via QQ message:
-
-1. The bot sends an approval request in the current session (in group chat, it @mentions the admin):
-   ```
-   Warning: Operation Approval Request
-   File operation: write
-   Path: ./src/main.cs
-
-   Please reply: approve / reject (auto-reject after 60s timeout)
-   ```
-2. The admin replies with any of the following keywords to complete the approval:
-   - **Approve**: `approve`, `yes`, `y`
-   - **Reject**: `reject`, `no`, `n`, `deny`
-3. Auto-reject on timeout (default 60 seconds, adjustable via `ApprovalTimeoutSeconds`)
-
-### Configuration Examples
-
-**Minimum permissions** (recommended): Only allow specific admin to operate
-
-```json
-{
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789]
-    }
-}
-```
-
-**Group public config**: Allow all group members to use basic features
-
-```json
-{
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789],
-        "WhitelistedGroups": [987654321, 111222333]
-    }
-}
-```
-
-**Mixed config**: Specified group whitelist + additional user whitelist
-
-```json
-{
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789],
-        "WhitelistedUsers": [111111111, 222222222],
-        "WhitelistedGroups": [333333333],
-        "ApprovalTimeoutSeconds": 120
-    }
-}
-```
-
-> **Note**: If `AdminUsers`, `WhitelistedUsers`, and `WhitelistedGroups` are all empty, the bot will not respond to anyone. Please configure at least one admin.
-
----
-
-## Complete Deployment Example
-
-Here is a complete deployment flow on a Linux server:
-
-```bash
-# 1. Install NapCat (Docker method)
-docker run -d \
-  -e ACCOUNT=123456789 \
-  -e WSR_ENABLE=true \
-  -e WS_URLS='["ws://host.docker.internal:6700/"]' \
-  -e WEBUI_TOKEN='my-secret-token' \
-  -p 6099:6099 \
-  --name napcat \
-  --restart=always \
-  --add-host=host.docker.internal:host-gateway \
-  mlikiowa/napcat-docker:latest
-
-# 2. Visit http://server-ip:6099 and scan QR code to log in QQ
-
-# 3. Configure DotCraft (ensure QQBot.Enabled = true in config.json)
-
-# 4. Start DotCraft
-./DotCraft
-```
-
----
-
-## Configuration Templates
-
-### Minimal Configuration
-
-```json
-{
-    "ApiKey": "sk-xxx",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1",
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789]
-    }
-}
-```
-
-### Full Configuration
-
-```json
-{
-    "ApiKey": "sk-xxx",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1",
-    "QQBot": {
-        "Enabled": true,
-        "Host": "127.0.0.1",
-        "Port": 6700,
-        "AccessToken": "your-optional-token",
-        "AdminUsers": [123456789],
-        "WhitelistedUsers": [111111111, 222222222],
-        "WhitelistedGroups": [333333333, 444444444],
-        "ApprovalTimeoutSeconds": 60
-    },
-    "Security": {
-        "BlacklistedPaths": [
-            "~/.ssh",
-            "/etc/shadow"
-        ]
-    }
-}
-```
+These tools are exposed by the TypeScript adapter through external channel capabilities and no longer depend on the old built-in QQ assembly.

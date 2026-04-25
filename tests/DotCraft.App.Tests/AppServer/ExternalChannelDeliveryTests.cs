@@ -13,7 +13,6 @@ using DotCraft.Processes;
 using DotCraft.Protocol;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
-using DotCraft.QQ;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
@@ -1425,50 +1424,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         var payload = Assert.IsType<ExternalChannelToolCallPayload>(turn.Items[0].Payload);
         Assert.False(payload.Success);
         Assert.Equal("ExternalChannelToolTimeout", payload.ErrorCode);
-    }
-
-    [Fact]
-    public void QQChannelService_ChannelTools_RestoreLegacyNames_AndCrossTargetSemantics()
-    {
-        var tools = GetStaticChannelTools(typeof(QQChannelService));
-
-        Assert.Equal(
-            [
-                "QQSendGroupVoice",
-                "QQSendPrivateVoice",
-                "QQSendGroupVideo",
-                "QQSendPrivateVideo",
-                "QQUploadGroupFile",
-                "QQUploadPrivateFile"
-            ],
-            tools.Select(t => t.Name).ToArray());
-        Assert.All(tools, t => Assert.False(t.RequiresChatContext));
-        Assert.Equal("🎤", tools[0].Display?.Icon);
-        Assert.Equal("📁", tools[4].Display?.Icon);
-
-        var method = typeof(QQChannelService).GetMethod("TryCreateToolRequest", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        object?[] args =
-        [
-            "QQSendGroupVoice",
-            new JsonObject
-            {
-                ["groupId"] = 123456,
-                ["file"] = "base64://aGVsbG8="
-            },
-            null,
-            null
-        ];
-
-        var ok = Assert.IsType<bool>(method!.Invoke(null, args));
-        Assert.True(ok);
-        Assert.Equal("group:123456", Assert.IsType<string>(args[2]));
-
-        var message = Assert.IsType<ChannelOutboundMessage>(args[3]);
-        Assert.Equal("audio", message.Kind);
-        Assert.Equal("dataBase64", message.Source?.Kind);
-        Assert.Equal("aGVsbG8=", message.Source?.DataBase64);
     }
 
     [Fact]

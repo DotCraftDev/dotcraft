@@ -95,12 +95,12 @@ Add the `WeComBot` config section in `config.json`:
 
 | Condition | Runtime Mode |
 |-----------|-------------|
-| `QQBot.Enabled = true` | QQ Bot mode |
+| `ExternalChannels` contains enabled `qq` | QQ external channel |
 | `WeComBot.Enabled = true` | WeCom Bot mode |
 | `Api.Enabled = true` | API mode |
 | Other | CLI mode |
 
-> **Note**: By default (`Gateway.Enabled = false`), these modes are mutually exclusive and only the highest-priority enabled mode runs. To run QQ Bot, WeCom Bot, and API simultaneously, enable [Gateway mode](./config_guide.md#gateway-multi-channel-concurrent-mode).
+> **Note**: By default (`Gateway.Enabled = false`), these modes are mutually exclusive and only the highest-priority enabled mode runs. To run QQ, WeCom Bot, and API simultaneously, register QQ as an external channel and use Gateway mode for concurrent channels.
 
 ### 1.4 Permissions & Approval
 
@@ -457,20 +457,16 @@ When `Heartbeat.NotifyAdmin` is enabled and a WeCom bot session has been establi
 }
 ```
 
-### Enable Both QQ Bot and WeCom Bot (Gateway)
+### Enable Both QQ External Channel and WeCom Bot
 
 ```json
 {
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
-    "Gateway": {
-        "Enabled": true
-    },
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789]
-    },
+    "AppServer": { "Mode": "WebSocket" },
+    "ExternalChannels": [
+        { "Name": "qq", "Enabled": true, "Transport": "Websocket" }
+    ],
     "WeComBot": {
         "Enabled": true,
         "Port": 9000,

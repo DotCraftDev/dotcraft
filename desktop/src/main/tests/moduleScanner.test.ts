@@ -131,4 +131,52 @@ describe('scanModules', () => {
       ])
     )
   })
+
+  it('discovers qq-standard manifests as desktop social modules', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-modules-'))
+    const moduleDir = join(tempRoot, 'channel-qq')
+    await mkdir(moduleDir, { recursive: true })
+    await writeFile(
+      join(moduleDir, 'manifest.json'),
+      JSON.stringify(
+        {
+          moduleId: 'qq-standard',
+          channelName: 'qq',
+          displayName: 'QQ',
+          packageName: '@dotcraft/channel-qq',
+          configFileName: 'qq.json',
+          supportedTransports: ['websocket'],
+          requiresInteractiveSetup: false,
+          variant: 'standard',
+          configDescriptors: [
+            {
+              key: 'qq.port',
+              displayLabel: 'OneBot Listen Port',
+              description: 'Port for the OneBot reverse WebSocket server.',
+              required: false,
+              dataKind: 'number',
+              masked: false,
+              interactiveSetupOnly: false
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    )
+
+    const modules = await scanModules({ modulesDirectory: tempRoot }, true)
+    expect(modules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          moduleId: 'qq-standard',
+          channelName: 'qq',
+          displayName: 'QQ',
+          configFileName: 'qq.json',
+          requiresInteractiveSetup: false
+        })
+      ])
+    )
+  })
 })

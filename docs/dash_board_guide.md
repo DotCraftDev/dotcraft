@@ -186,12 +186,12 @@ DashBoard 提供以下 REST API，均以 `/api/` 为前缀：
 ```json
 [
     {
-        "key": "QQBot",
-        "displayName": "QQ Bot",
+        "key": "WeComBot",
+        "displayName": "WeCom Bot",
         "order": 200,
         "fields": [
             { "name": "Enabled", "type": "boolean", "default": false },
-            { "name": "Port", "type": "number", "default": 6700, "min": 1, "max": 65535 },
+            { "name": "Port", "type": "number", "default": 9000, "min": 1, "max": 65535 },
             { "name": "AccessToken", "type": "string", "sensitive": true }
         ]
     }

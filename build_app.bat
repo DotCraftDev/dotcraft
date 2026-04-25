@@ -4,7 +4,6 @@ REM Parse optional module exclusion flags
 set MODULE_PROPS=
 :parse_args
 if "%~1"=="" goto :args_done
-if /i "%~1"=="--no-qq"    set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleQQ=false
 if /i "%~1"=="--no-wecom" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleWeCom=false
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false

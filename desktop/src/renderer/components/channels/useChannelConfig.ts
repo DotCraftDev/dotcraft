@@ -2,13 +2,6 @@ import { useCallback, useMemo, useState } from 'react'
 import type { ChannelId } from './channelDefs'
 import { parseJsonRecordConfig } from '../../../shared/jsonConfig'
 
-export interface QQChannelConfig {
-  Enabled: boolean
-  Host: string
-  Port: number
-  AccessToken: string
-}
-
 export interface WeComRobotConfig {
   Path: string
   Token: string
@@ -23,12 +16,10 @@ export interface WeComChannelConfig {
 }
 
 export interface ChannelsConfigState {
-  qq: QQChannelConfig
   wecom: WeComChannelConfig
 }
 
 const DEFAULT_CONFIGS: ChannelsConfigState = {
-  qq: { Enabled: false, Host: '127.0.0.1', Port: 6700, AccessToken: '' },
   wecom: { Enabled: false, Host: '0.0.0.0', Port: 9000, Robots: [] }
 }
 
@@ -59,7 +50,6 @@ function asBoolean(v: unknown, fallback = false): boolean {
 }
 
 function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
-  const qq = asRecord(root.QQBot)
   const wecom = asRecord(root.WeComBot)
   const robotsRaw = Array.isArray(wecom.Robots) ? wecom.Robots : []
   const robots: WeComRobotConfig[] = robotsRaw
@@ -71,12 +61,6 @@ function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
     }))
 
   return {
-    qq: {
-      Enabled: asBoolean(qq.Enabled, DEFAULT_CONFIGS.qq.Enabled),
-      Host: asString(qq.Host, DEFAULT_CONFIGS.qq.Host),
-      Port: asNumber(qq.Port, DEFAULT_CONFIGS.qq.Port),
-      AccessToken: asString(qq.AccessToken, DEFAULT_CONFIGS.qq.AccessToken)
-    },
     wecom: {
       Enabled: asBoolean(wecom.Enabled, DEFAULT_CONFIGS.wecom.Enabled),
       Host: asString(wecom.Host, DEFAULT_CONFIGS.wecom.Host),
@@ -108,14 +92,6 @@ function mergeChannelConfig(
   config: ChannelsConfigState
 ): Record<string, unknown> {
   const next = { ...root }
-
-  if (channelId === 'qq') {
-    next.QQBot = {
-      ...asRecord(next.QQBot),
-      ...config.qq
-    }
-    return next
-  }
 
   if (channelId === 'wecom') {
     next.WeComBot = {

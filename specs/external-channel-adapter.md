@@ -83,7 +83,7 @@ The WebSocket Transport (appserver-protocol.md §15) must be implemented before 
 │                                                                             │
 │  ┌──────────────────────────────────────────┐                              │
 │  │  Native Channels (C#, in-process)        │                              │
-│  │  QQChannelService, WeComChannelService   │──┐                           │
+│  │  WeComChannelService                     │──┐                           │
 │  └──────────────────────────────────────────┘  │                           │
 │                                                 ▼                           │
 │  ┌──────────────────────────────────────────┐  ┌──────────────────────┐   │
@@ -122,7 +122,7 @@ The WebSocket Transport (appserver-protocol.md §15) must be implemented before 
 | `IChannelService` | Implemented directly | Wrapped by `ExternalChannelHost` |
 | Approval flow | `QQApprovalService`, `WeComApprovalService` | Adapter-side via `item/approval/request` |
 | Lifecycle managed by | `GatewayHost` | `GatewayHost` via `ExternalChannelHost` |
-| Platform SDK | In-process (e.g. `QQBotClient`) | Out-of-process (subprocess or networked) |
+| Platform SDK | In-process channel client | Out-of-process (subprocess or networked) |
 
 From `GatewayHost`'s perspective, native channels and external channels are both `IChannelService` instances. The Gateway does not distinguish between them.
 

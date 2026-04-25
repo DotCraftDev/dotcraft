@@ -24,7 +24,6 @@
 
   <!-- Optional module switches (set to false to exclude from build) -->
   <PropertyGroup>
-    <IncludeModuleQQ Condition="'$(IncludeModuleQQ)' == ''">true</IncludeModuleQQ>
     <IncludeModuleWeCom Condition="'$(IncludeModuleWeCom)' == ''">true</IncludeModuleWeCom>
     <IncludeModuleUnity Condition="'$(IncludeModuleUnity)' == ''">true</IncludeModuleUnity>
     <IncludeModuleAGUI Condition="'$(IncludeModuleAGUI)' == ''">true</IncludeModuleAGUI>
@@ -50,7 +49,6 @@
   <ItemGroup>
     <ProjectReference Include="..\DotCraft.Core\DotCraft.Core.csproj" />
     <ProjectReference Include="..\DotCraft.Automations\DotCraft.Automations.csproj" />
-    <ProjectReference Include="..\DotCraft.QQ\DotCraft.QQ.csproj" Condition="'$(IncludeModuleQQ)' == 'true'" />
     <ProjectReference Include="..\DotCraft.Unity\DotCraft.Unity.csproj" Condition="'$(IncludeModuleUnity)' == 'true'" />
     <ProjectReference Include="..\DotCraft.WeCom\DotCraft.WeCom.csproj" Condition="'$(IncludeModuleWeCom)' == 'true'" />
     <ProjectReference Include="..\DotCraft.AGUI\DotCraft.AGUI.csproj" Condition="'$(IncludeModuleAGUI)' == 'true'" />

@@ -37,15 +37,20 @@ This design allows sensitive information like API Keys to be placed in global co
 {
     "Model": "deepseek-chat",
     "EndPoint": "https://api.deepseek.com/v1",
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789]
-    }
+    "AppServer": {
+        "Mode": "WebSocket"
+    },
+    "ExternalChannels": [
+        {
+            "Name": "qq",
+            "Enabled": true,
+            "Transport": "Websocket"
+        }
+    ]
 }
 ```
 
-In this case, DotCraft will use the `ApiKey` from global config, but the `Model`, `EndPoint`, and `QQBot` settings from workspace config.
+In this case, DotCraft will use the `ApiKey` from global config, but the `Model`, `EndPoint`, and external channel settings from workspace config.
 
 ---
 
@@ -227,22 +232,20 @@ When enabled, each Agent session automatically creates and reuses a sandbox cont
 
 ---
 
-## QQ Bot Configuration
+## QQ External Channel Configuration
 
-For detailed QQ Bot configuration, see [QQ Bot Guide](./qq_bot_guide.md).
+QQ is provided by the TypeScript external channel `@dotcraft/channel-qq`. The old `QQBot` config section is no longer used.
 
-Quick reference:
+For details, see [QQ External Channel Guide](./qq_bot_guide.md). The workspace config registers the channel through `ExternalChannels`, while channel-specific OneBot and permission settings live in `.craft/qq.json`.
 
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `QQBot.Enabled` | Enable QQ bot mode | `false` |
-| `QQBot.Host` | WebSocket listen address | `127.0.0.1` |
-| `QQBot.Port` | WebSocket listen port | `6700` |
-| `QQBot.AccessToken` | Auth token (must match NapCat) | empty |
-| `QQBot.AdminUsers` | Admin QQ number list | `[]` |
-| `QQBot.WhitelistedUsers` | Whitelisted user QQ number list | `[]` |
-| `QQBot.WhitelistedGroups` | Whitelisted group number list | `[]` |
-| `QQBot.ApprovalTimeoutSeconds` | Operation approval timeout (seconds) | `60` |
+```json
+{
+    "AppServer": { "Mode": "WebSocket" },
+    "ExternalChannels": [
+        { "Name": "qq", "Enabled": true, "Transport": "Websocket" }
+    ]
+}
+```
 
 ---
 
@@ -538,7 +541,7 @@ Built-in commands: `/code-review`, `/explain`, `/summarize`.
 
 ## Gateway Multi-Channel Concurrent Mode
 
-Gateway mode allows QQ Bot, WeCom Bot, API, AG-UI, Automations, and other services to run concurrently in the same process.
+Gateway mode allows WeCom Bot, API, AG-UI, Automations, external channels, and other services to run concurrently in the same process.
 
 **Explicit start**: Gateway no longer auto-takes over startup. Use `dotcraft gateway` when you want a dedicated host for concurrent channels and automations.
 
@@ -552,7 +555,7 @@ Gateway mode allows QQ Bot, WeCom Bot, API, AG-UI, Automations, and other servic
 **Enable example**:
 ```json
 {
-    "QQBot": { "Enabled": true, "Port": 6700 },
+    "ExternalChannels": [{ "Name": "qq", "Enabled": true, "Transport": "Websocket" }],
     "WeComBot": { "Enabled": true, "Port": 9000 },
     "Api": { "Enabled": true, "Port": 8080 },
     "DashBoard": { "Enabled": true, "Port": 8080 }

@@ -4,7 +4,6 @@ REM Parse optional module exclusion flags
 set MODULE_PROPS=
 :parse_args
 if "%~1"=="" goto :args_done
-if /i "%~1"=="--no-qq"    set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleQQ=false
 if /i "%~1"=="--no-wecom" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleWeCom=false
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false
@@ -142,6 +141,7 @@ if exist resources\modules (
 mkdir resources\modules\channel-feishu
 mkdir resources\modules\channel-weixin
 mkdir resources\modules\channel-telegram
+mkdir resources\modules\channel-qq
 copy /Y "..\sdk\typescript\packages\channel-feishu\manifest.json" "resources\modules\channel-feishu\manifest.json"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-feishu manifest.json for Desktop build.
@@ -193,6 +193,24 @@ if %ERRORLEVEL% neq 0 (
 xcopy /E /I /Y "..\sdk\typescript\packages\channel-telegram\dist" "resources\modules\channel-telegram\dist" >nul
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-telegram dist artifacts for Desktop build.
+    cd ..
+    goto :failure
+)
+copy /Y "..\sdk\typescript\packages\channel-qq\manifest.json" "resources\modules\channel-qq\manifest.json"
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-qq manifest.json for Desktop build.
+    cd ..
+    goto :failure
+)
+copy /Y "..\sdk\typescript\packages\channel-qq\package.json" "resources\modules\channel-qq\package.json"
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-qq package.json for Desktop build.
+    cd ..
+    goto :failure
+)
+xcopy /E /I /Y "..\sdk\typescript\packages\channel-qq\dist" "resources\modules\channel-qq\dist" >nul
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-qq dist artifacts for Desktop build.
     cd ..
     goto :failure
 )

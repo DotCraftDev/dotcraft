@@ -4,7 +4,6 @@ REM Parse optional module exclusion flags
 set MODULE_PROPS=
 :parse_args
 if "%~1"=="" goto :args_done
-if /i "%~1"=="--no-qq"    set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleQQ=false
 if /i "%~1"=="--no-wecom" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleWeCom=false
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false
@@ -75,6 +74,7 @@ echo.
 if not exist "desktop\resources\modules\channel-feishu" mkdir "desktop\resources\modules\channel-feishu"
 if not exist "desktop\resources\modules\channel-weixin" mkdir "desktop\resources\modules\channel-weixin"
 if not exist "desktop\resources\modules\channel-telegram" mkdir "desktop\resources\modules\channel-telegram"
+if not exist "desktop\resources\modules\channel-qq" mkdir "desktop\resources\modules\channel-qq"
 
 if exist "sdk\typescript\packages\channel-feishu\manifest.json" (
     copy /Y "sdk\typescript\packages\channel-feishu\manifest.json" "desktop\resources\modules\channel-feishu\manifest.json" >nul
@@ -98,6 +98,14 @@ if exist "sdk\typescript\packages\channel-telegram\manifest.json" (
     xcopy /E /I /Y "sdk\typescript\packages\channel-telegram\dist" "desktop\resources\modules\channel-telegram\dist" >nul
 ) else (
     echo WARNING: channel-telegram manifest.json not found. Run sdk\typescript build first.
+)
+
+if exist "sdk\typescript\packages\channel-qq\manifest.json" (
+    copy /Y "sdk\typescript\packages\channel-qq\manifest.json" "desktop\resources\modules\channel-qq\manifest.json" >nul
+    copy /Y "sdk\typescript\packages\channel-qq\package.json" "desktop\resources\modules\channel-qq\package.json" >nul
+    xcopy /E /I /Y "sdk\typescript\packages\channel-qq\dist" "desktop\resources\modules\channel-qq\dist" >nul
+) else (
+    echo WARNING: channel-qq manifest.json not found. Run sdk\typescript build first.
 )
 
 echo.

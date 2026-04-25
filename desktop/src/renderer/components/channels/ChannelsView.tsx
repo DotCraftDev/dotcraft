@@ -7,7 +7,6 @@ import { IconButton } from '../ui/IconButton'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
-import { QQConfigForm } from './QQConfigForm'
 import { WeComConfigForm } from './WeComConfigForm'
 import { ModuleConfigForm } from './ModuleConfigForm'
 import { useChannelConfig } from './useChannelConfig'
@@ -177,7 +176,7 @@ function deriveNativeStatus(
   const connected = fallbackConnected?.has(def.channelListName.toLowerCase()) ?? false
   if (connected) return 'connected'
 
-  const configEnabled = channelId === 'qq' ? config.qq.Enabled : config.wecom.Enabled
+  const configEnabled = config.wecom.Enabled
   return configEnabled ? 'enabledNotConnected' : 'notConfigured'
 }
 
@@ -272,7 +271,7 @@ export function ChannelsView(): JSX.Element {
   const t = useT()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [workspacePath, setWorkspacePath] = useState('')
-  const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>('native:qq')
+  const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>('native:wecom')
   const [channelStatusMap, setChannelStatusMap] = useState<Map<string, ChannelStatusWire> | null>(null)
   const [fallbackConnected, setFallbackConnected] = useState<Set<string> | null>(null)
   const [statusError, setStatusError] = useState(false)
@@ -473,7 +472,7 @@ export function ChannelsView(): JSX.Element {
         if (selected) {
           setExternalDraft(cloneExternalChannel(selected))
         } else {
-          setSelectedChannelKey('native:qq')
+          setSelectedChannelKey('native:wecom')
           setExternalDraft(createEmptyExternalChannel())
         }
       }
@@ -820,7 +819,7 @@ export function ChannelsView(): JSX.Element {
     try {
       await window.api.appServer.sendRequest('externalChannel/remove', { name })
       await reloadExternalChannels()
-      setSelectedChannelKey('native:qq')
+      setSelectedChannelKey('native:wecom')
       setExternalDraft(createEmptyExternalChannel())
       addToast(t('channels.external.removed'), 'success')
     } catch (err) {
@@ -893,7 +892,7 @@ export function ChannelsView(): JSX.Element {
       : undefined
   useEffect(() => {
     if (selectedModuleId && !selectedModule) {
-      setSelectedChannelKey('native:qq')
+      setSelectedChannelKey('native:wecom')
     }
   }, [selectedModuleId, selectedModule])
 
@@ -1160,20 +1159,6 @@ export function ChannelsView(): JSX.Element {
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
           {loading && (
             <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('channels.loading')}</div>
-          )}
-
-          {!loading && selectedDef && selectedNativeId === 'qq' && (
-            <div style={{ maxWidth: '640px' }}>
-              <QQConfigForm
-                value={config.qq}
-                saving={savingChannelId === 'qq'}
-                logoPath={selectedDef.logoPath ?? ''}
-                status={statusById.get('qq') ?? 'notConfigured'}
-                statusLabel={t(statusLabelKey(statusById.get('qq') ?? 'notConfigured'))}
-                onChange={(next) => setChannelConfig('qq', next)}
-                onSave={() => void handleSave('qq')}
-              />
-            </div>
           )}
 
           {!loading && selectedDef && selectedNativeId === 'wecom' && (

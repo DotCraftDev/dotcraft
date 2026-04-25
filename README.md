@@ -29,7 +29,7 @@
 
 ## 🚀 快速开始
 
-使用 DotCraft 最推荐的 Desktop 桌面应用最为第一入口。
+使用 DotCraft 最推荐的 Desktop 桌面应用作为第一入口。
 
 ![Desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png)
 

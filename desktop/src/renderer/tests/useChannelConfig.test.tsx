@@ -14,12 +14,12 @@ function HookHarness({ workspacePath }: { workspacePath: string }): JSX.Element 
       <button onClick={() => void reload()}>reload</button>
       <button
         onClick={() => {
-          void saveChannel('qq').catch((err) => {
+          void saveChannel('wecom').catch((err) => {
             setSaveError(err instanceof Error ? err.message : String(err))
           })
         }}
       >
-        save-qq
+        save-wecom
       </button>
       <pre data-testid="error">{error ?? ''}</pre>
       <pre data-testid="save-error">{saveError}</pre>
@@ -46,12 +46,6 @@ describe('useChannelConfig', () => {
     fileReadFile.mockResolvedValue(
       '\uFEFF' +
         JSON.stringify({
-          QQBot: {
-            Enabled: true,
-            Host: '127.0.0.1',
-            Port: 6700,
-            AccessToken: 'token'
-          },
           WeComBot: {
             Enabled: true,
             Host: '0.0.0.0',
@@ -66,10 +60,7 @@ describe('useChannelConfig', () => {
 
     await waitFor(() => {
       const parsed = JSON.parse(screen.getByTestId('config').textContent ?? '{}') as Record<string, unknown>
-      const qq = parsed.qq as Record<string, unknown>
       const wecom = parsed.wecom as Record<string, unknown>
-      expect(qq.Enabled).toBe(true)
-      expect(qq.AccessToken).toBe('token')
       expect(wecom.Enabled).toBe(true)
       expect(Array.isArray(wecom.Robots)).toBe(true)
       expect((wecom.Robots as unknown[]).length).toBe(1)
@@ -85,14 +76,14 @@ describe('useChannelConfig', () => {
     await waitFor(() => {
       expect(screen.getByTestId('error').textContent).not.toBe('')
     })
-    expect(screen.getByTestId('config').textContent).toContain('"qq"')
+    expect(screen.getByTestId('config').textContent).toContain('"wecom"')
   })
 
   it('saveChannel rejects invalid JSON and does not write the config file', async () => {
     fileReadFile.mockResolvedValue('{invalid-json')
 
     render(<HookHarness workspacePath="E:/repo" />)
-    fireEvent.click(screen.getByRole('button', { name: 'save-qq' }))
+    fireEvent.click(screen.getByRole('button', { name: 'save-wecom' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('save-error').textContent).not.toBe('')
@@ -104,7 +95,7 @@ describe('useChannelConfig', () => {
     fileReadFile.mockResolvedValue('[]')
 
     render(<HookHarness workspacePath="E:/repo" />)
-    fireEvent.click(screen.getByRole('button', { name: 'save-qq' }))
+    fireEvent.click(screen.getByRole('button', { name: 'save-wecom' }))
 
     await waitFor(() => {
       expect(fileWriteFile).toHaveBeenCalledTimes(1)
@@ -112,11 +103,11 @@ describe('useChannelConfig', () => {
 
     const [, written] = fileWriteFile.mock.calls[0] as [string, string]
     expect(JSON.parse(written)).toEqual({
-      QQBot: {
+      WeComBot: {
         Enabled: false,
-        Host: '127.0.0.1',
-        Port: 6700,
-        AccessToken: ''
+        Host: '0.0.0.0',
+        Port: 9000,
+        Robots: []
       }
     })
   })
