@@ -18,7 +18,7 @@
 - 按钮式审批卡片
 - `turn/completed` 后发送静态回复卡片
 - 图片消息下载后以 `localImage` 形式转发给 DotCraft
-- 可选注册的 docx + wiki 工具：创建/读取/更新/插入/删除/媒体嵌入/列出/查询/迁移/重命名
+- 可选注册的 docx + wiki 工具：创建/读取/更新/插入/删除/媒体嵌入/列出/查询/移动/重命名
 - 公共 `FeishuClient.sendTextMessage(...)` 与 `replyToMessage(...)`
 
 ## 当前不覆盖
@@ -158,7 +158,7 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - 新增媒体工具 `FeishuEmbedDocxMedia`：上传本地图片/文件并嵌入 docx（后续步骤失败时会尝试回滚）
 - 新增标题工具：`FeishuUpdateDocxTitle` 与知识库节点重命名 `FeishuRenameWikiNode`
 - 新增 docx 评论工具：`FeishuListDocxComments`、`FeishuBatchQueryDocxComments`、`FeishuListDocxCommentReplies`、`FeishuAddDocxComment`、`FeishuAddDocxCommentReply`、`FeishuResolveDocxComment`
-- **不支持**旧版 `/doc/<token>` 云文档 URL：docx v1 API 只覆盖 `/docx/...`。请在飞书里打开文件，复制新的 `/docx/<token>` 链接；旧链接会返回 `UnsupportedLegacyDoc` 错误码。
+- Docx URL 请使用 `/docx/<token>` 格式；如果从飞书界面复制链接，请确认链接指向 docx 文档。
 - Wiki 工具（`spaceIdOrUrl`）支持三种输入：纯数字 `space_id`、`/wiki/settings/<space_id>` 链接、以及 wiki 节点 URL/token；当传节点 URL/token 且未显式给父节点时，会自动调用 `getWikiNode` 反查 `space_id` 并把该节点作为默认父节点
 - `FeishuMoveDocxToWiki` 对齐官方 Lark CLI：当接口返回 `task_id`（异步路径）时，工具会以 `30 × 2s`（约 60 秒窗口）轮询 `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move`。成功时返回 `ready=true` 并携带解析后的 `wikiToken`；超时返回 `ready=false, timedOut=true, taskId`，由调用方稍后用该 `taskId` 继续查询。传 `waitForCompletion: false` 可跳过轮询，直接拿到 `taskId`。
 - `FeishuMoveWikiNode` 用于在同一或不同知识库之间移动已有节点。必填 `nodeTokenOrUrl`，并至少传 `targetParentTokenOrUrl` / `targetSpaceIdOrUrl` 其中之一；若两者都传，工具会校验它们属于同一个空间，否则抛出 `InconsistentWikiTarget`。
@@ -194,8 +194,8 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 | 列出知识库子节点 `listWikiNodes` | `GET /open-apis/wiki/v2/spaces/{space_id}/nodes` | `wiki:wiki` 或 `wiki:wiki:readonly` | 否 |
 | 列出知识库空间 `listWikiSpaces` | `GET /open-apis/wiki/v2/spaces` | `wiki:wiki` 或 `wiki:wiki:readonly` 或 `wiki:space:retrieve` | 否 |
 | 查询知识库空间 `getWikiSpace` | `GET /open-apis/wiki/v2/spaces/{space_id}` | `wiki:wiki` 或 `wiki:wiki:readonly` 或 `wiki:space:read` | 否 |
-| 迁移 docx 到知识库 `moveDocxToWiki` | `POST /open-apis/wiki/v2/spaces/{space_id}/nodes/move_docs_to_wiki` | `wiki:wiki`（并且源文档需具备编辑权限） | 否 |
-| 查询知识库迁移任务 `getWikiMoveTask` | `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move` | `wiki:wiki` 或 `wiki:wiki:readonly` | 否 |
+| 移动 docx 到知识库 `moveDocxToWiki` | `POST /open-apis/wiki/v2/spaces/{space_id}/nodes/move_docs_to_wiki` | `wiki:wiki`（并且源文档需具备编辑权限） | 否 |
+| 查询知识库移动任务 `getWikiMoveTask` | `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move` | `wiki:wiki` 或 `wiki:wiki:readonly` | 否 |
 | 移动知识库节点 `moveWikiNode` | `POST /open-apis/wiki/v2/spaces/{space_id}/nodes/{node_token}/move` | `wiki:wiki`（并且源节点与目标父节点都需具备编辑权限） | 否 |
 | 后续模板复制 | `POST /open-apis/drive/v1/files/{file_token}/copy` | `docs:document:copy` 或 `drive:drive` | 否 |
 
@@ -218,17 +218,10 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 
 1. 在飞书 Web 端打开目标知识库空间（或具体父节点），进入「成员管理 / Members」。
 2. 搜索当前应用名，把应用机器人添加为「可编辑 / 可管理」角色。需要整个空间可写就加在空间层；仅需对某个子树生效，可只加在节点层。
-3. 对 `FeishuMoveDocxToWiki`：被迁移的源 docx 也必须让机器人有读写权限——请把机器人加到源文档协作者列表。
+3. 对 `FeishuMoveDocxToWiki`：源 docx 也必须让机器人有读写权限——请把机器人加到源文档协作者列表。
 4. 再次运行工具，`code=131006` 应当消失。若错误码变成 `99991672`，说明 OpenAPI scope 缺失（回到上文权限矩阵对照补齐）；若变成 `131008`，表示节点存在但处于锁定/归档态，请在飞书 UI 中确认节点状态。
 
 参考文档：[飞书 wiki.spaces.get_node](https://open.feishu.cn/document/server-docs/docs/wiki-v2/space-node/get_node)。
-
-## 历史消息 API 的非目标
-
-- 不负责定时轮询或调度编排
-- 不负责 checkpoint 持久化
-- 不负责冷却或审计策略
-- 不保证租户已开通所需权限
 
 ## 认证 / 登录模型
 

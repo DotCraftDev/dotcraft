@@ -1,7 +1,5 @@
 # DotCraft Settings Lifecycle Guide
 
-**[中文](../settings-lifecycle.md) | English**
-
 This guide explains the three-tier settings lifecycle in Desktop, how API Proxy lock behavior works for LLM fields, and how to tell whether a change is already applied or still pending.
 
 ## 1. Three-Tier Settings Model
@@ -49,15 +47,7 @@ Use these signals to interpret state:
 - **Pending**: restart-required hints are shown, which means config changed on disk but runtime has not switched yet.
 - **Per-group dirty state**: if only one group changed, only that group's action is required; a global save is not needed.
 
-## 5. Migration and Release Notes
-
-User-visible outcomes from the M1-M4 series:
-
-- Settings moved from a shared footer Save/Cancel pattern to per-group actions (Apply / Restart / Apply & Restart).
-- The LLM group now enforces proxy-aware lock semantics for `ApiKey` and `EndPoint`.
-- AppServer now emits `workspace/configChanged`, enabling region-based incremental refresh in clients.
-
-### FAQ
+## FAQ
 
 **Q: I changed Model, why did nothing happen immediately?**  
 A: `Model` is Tier C (process restart). The change is persisted first, and becomes active after AppServer restart.

@@ -123,13 +123,7 @@ instance.onStatusChange((status, error) => {
 await instance.start();
 ```
 
-## 7) Migration Notes
-
-- Legacy `adapter_config.json` and `weixin.dataDir` are deprecated
-- No automatic state migration from old `dataDir` paths is performed
-- Existing users should re-authenticate once under the new module-scoped state path
-
-## 8) Development Notes
+## Development Notes
 
 - Build all TypeScript packages:
   - `cd sdk/typescript && npm run build:all`

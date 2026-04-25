@@ -1,7 +1,5 @@
 # TypeScript Channel Module Host Integration
 
-**English | [中文](../typescript-channel-module-host-integration.md)**
-
 This guide describes how a host (Desktop, CLI tool, or any supervisor process) integrates TypeScript external channel modules using the `dotcraft-wire` module contract.
 
 ## 1. Overview

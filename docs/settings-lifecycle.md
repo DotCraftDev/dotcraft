@@ -1,7 +1,5 @@
 # DotCraft 设置生效层级指南
 
-**中文 | [English](./en/settings-lifecycle.md)**
-
 本文档说明 Desktop 设置中的三层生效模型、API Proxy 对 LLM 字段的锁定行为，以及如何判断配置是已生效还是待生效。
 
 ## 1. 三层生效模型
@@ -49,15 +47,7 @@ Desktop 将设置项按生效方式划分为三类：
 - **待生效**：出现需要重启的提示，表示配置已落盘但运行态尚未切换。
 - **按分组脏状态**：仅变更了某一分组时，只需要处理该分组对应动作，不必全局保存。
 
-## 5. 迁移与版本说明
-
-本系列变更（M1-M4）对用户的主要影响：
-
-- 设置界面从统一底部 Save/Cancel 迁移为按分组动作（Apply / Restart / Apply & Restart）。
-- LLM 分组强化了 `ApiKey` / `EndPoint` 与 Proxy 的联动锁定语义。
-- AppServer 新增 `workspace/configChanged` 通知，客户端可按 region 增量刷新相关数据。
-
-### 常见问题
+## 常见问题
 
 **问：我改了 Model，为什么没有立即生效？**  
 答：`Model` 属于 Tier C（进程重启）。写入配置后需要重启 AppServer 才会反映到运行态。
