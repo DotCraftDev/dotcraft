@@ -287,6 +287,9 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return Task.CompletedTask;
     }
 
+    public Task CleanBackgroundTerminalsAsync(string threadId, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
     public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
     {
         if (numTurns <= 0)

@@ -12,6 +12,7 @@ using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Skills;
+using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -51,7 +52,8 @@ public sealed class AppServerRequestHandler(
     Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
     SessionStreamDebugLogger? streamDebugLogger = null,
     IReadOnlyList<ConfigSchemaSection>? configSchema = null,
-    IAppConfigMonitor? appConfigMonitor = null)
+    IAppConfigMonitor? appConfigMonitor = null,
+    IBackgroundTerminalService? backgroundTerminalService = null)
 {
     private readonly CommandRegistry _commandRegistry = commandRegistry
                                                         ?? CommandRegistry.CreateDefault(
@@ -103,6 +105,11 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.TurnQueueRemove,
         AppServerMethods.TurnSteer,
         AppServerMethods.TurnInterrupt,
+        AppServerMethods.TerminalList,
+        AppServerMethods.TerminalRead,
+        AppServerMethods.TerminalWrite,
+        AppServerMethods.TerminalStop,
+        AppServerMethods.TerminalClean,
         AppServerMethods.WorkspaceCommitMessageSuggest,
         AppServerMethods.WelcomeSuggestions,
         AppServerMethods.WorkspaceConfigSchema,
@@ -211,6 +218,11 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.TurnQueueRemove => HandleTurnQueueRemoveAsync(msg, ct),
                 AppServerMethods.TurnSteer => HandleTurnSteerAsync(msg, ct),
                 AppServerMethods.TurnInterrupt => HandleTurnInterruptAsync(msg, ct),
+                AppServerMethods.TerminalList => HandleTerminalListAsync(msg, ct),
+                AppServerMethods.TerminalRead => HandleTerminalReadAsync(msg, ct),
+                AppServerMethods.TerminalWrite => HandleTerminalWriteAsync(msg, ct),
+                AppServerMethods.TerminalStop => HandleTerminalStopAsync(msg, ct),
+                AppServerMethods.TerminalClean => HandleTerminalCleanAsync(msg, ct),
                 AppServerMethods.CronList => HandleCronListAsync(msg, ct),
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
                 AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
@@ -273,6 +285,7 @@ public sealed class AppServerRequestHandler(
             ApprovalFlow = true,
             ModeSwitch = true,
             ConfigOverride = true,
+            BackgroundTerminals = backgroundTerminalService != null,
             CronManagement = cronService != null,
             HeartbeatManagement = heartbeatService != null,
             SkillsManagement = skillsLoader != null,
@@ -1232,6 +1245,67 @@ public sealed class AppServerRequestHandler(
         await sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
         return new { };
     }
+
+    private async Task<object?> HandleTerminalListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var service = RequireBackgroundTerminals();
+        var p = GetParams<TerminalListParams>(msg);
+        var sessions = await service.ListAsync(p.ThreadId, ct);
+        return new { terminals = sessions };
+    }
+
+    private async Task<object?> HandleTerminalReadAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var service = RequireBackgroundTerminals();
+        var p = GetParams<TerminalReadParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.SessionId))
+            throw AppServerErrors.InvalidParams("'sessionId' is required.");
+
+        var terminal = await service.ReadAsync(p.SessionId, p.WaitMs ?? 0, p.MaxOutputChars, ct);
+        return new { terminal };
+    }
+
+    private async Task<object?> HandleTerminalWriteAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var service = RequireBackgroundTerminals();
+        var p = GetParams<TerminalWriteParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.SessionId))
+            throw AppServerErrors.InvalidParams("'sessionId' is required.");
+
+        var terminal = await service.WriteStdinAsync(
+            p.SessionId,
+            p.Input,
+            p.YieldTimeMs ?? 1000,
+            p.MaxOutputChars,
+            ct);
+        return new { terminal };
+    }
+
+    private async Task<object?> HandleTerminalStopAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var service = RequireBackgroundTerminals();
+        var p = GetParams<TerminalStopParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.SessionId))
+            throw AppServerErrors.InvalidParams("'sessionId' is required.");
+
+        var terminal = await service.StopAsync(p.SessionId, ct);
+        return new { terminal };
+    }
+
+    private async Task<object?> HandleTerminalCleanAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var service = RequireBackgroundTerminals();
+        var p = GetParams<TerminalCleanParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ThreadId))
+            throw AppServerErrors.InvalidParams("'threadId' is required.");
+
+        await sessionService.CleanBackgroundTerminalsAsync(p.ThreadId, ct);
+        var terminals = await service.ListAsync(p.ThreadId, ct);
+        return new { terminals };
+    }
+
+    private IBackgroundTerminalService RequireBackgroundTerminals()
+        => backgroundTerminalService ?? throw AppServerErrors.MethodNotFound("terminal/*");
 
     private async Task<object?> HandleWorkspaceCommitMessageSuggestAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {

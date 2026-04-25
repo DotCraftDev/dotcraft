@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using DotCraft.Protocol;
 using DotCraft.Security;
+using DotCraft.Tools.BackgroundTerminals;
 
 namespace DotCraft.Tools;
 
@@ -29,6 +30,8 @@ public sealed class ShellTools
 
     private readonly ShellCommandInspector _inspector;
 
+    private readonly IBackgroundTerminalService? _backgroundTerminals;
+
     public ShellTools(
         string workingDirectory,
         int timeoutSeconds = 60,
@@ -36,7 +39,8 @@ public sealed class ShellTools
         int maxOutputLength = 10000,
         IEnumerable<string>? denyPatterns = null,
         IApprovalService? approvalService = null,
-        PathBlacklist? blacklist = null)
+        PathBlacklist? blacklist = null,
+        IBackgroundTerminalService? backgroundTerminals = null)
     {
         _workingDirectory = Path.GetFullPath(workingDirectory);
         _timeoutSeconds = timeoutSeconds;
@@ -44,6 +48,7 @@ public sealed class ShellTools
         _maxOutputLength = maxOutputLength;
         _approvalService = approvalService;
         _blacklist = blacklist;
+        _backgroundTerminals = backgroundTerminals;
         _inspector = new ShellCommandInspector(_workingDirectory);
 
         var defaultDenyPatterns = new[]
@@ -70,7 +75,12 @@ public sealed class ShellTools
     [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
     public async Task<string> Exec(
         [Description("The shell command to execute.")] string command,
-        [Description("Optional working directory for the command.")] string? workingDir = null)
+        [Description("Optional working directory for the command.")] string? workingDir = null,
+        [Description("Run the command in the background and return a session ID for later ReadBackgroundTerminal, WriteStdin, or StopBackgroundTerminal calls.")] bool runInBackground = false,
+        [Description("Milliseconds to wait for initial output before returning when runInBackground is true.")] int? yieldTimeMs = null,
+        [Description("Maximum output characters to return in this tool result.")] int? maxOutputChars = null,
+        [Description("Keep stdin open so WriteStdin can send input to the running process. This is pipe-based, not a full PTY.")] bool interactive = false,
+        [Description("Optional shell override. On Windows use 'powershell' or 'cmd'; on Unix provide a shell path such as /bin/bash.")] string? shell = null)
     {
         var cwd = !string.IsNullOrWhiteSpace(workingDir)
             ? Path.GetFullPath(workingDir)
@@ -79,6 +89,16 @@ public sealed class ShellTools
         var guardError = await GuardCommandAsync(command, cwd);
         if (guardError != null)
             return guardError;
+
+        if (_backgroundTerminals != null)
+            return await ExecWithBackgroundTerminalServiceAsync(
+                command,
+                cwd,
+                runInBackground,
+                yieldTimeMs,
+                maxOutputChars,
+                interactive,
+                shell);
 
         CommandExecutionTracker? commandExecution = null;
         try
@@ -211,6 +231,175 @@ public sealed class ShellTools
             commandExecution?.Complete(error, status: "failed", exitCode: null);
             return error;
         }
+    }
+
+    [Description("Write input to a running background terminal session, or pass an empty input string to poll for recent output.")]
+    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
+    public async Task<string> WriteStdin(
+        [Description("Background terminal session ID returned by Exec.")] string sessionId,
+        [Description("Characters to write to stdin. Include newlines when the process expects Enter.")] string input = "",
+        [Description("Milliseconds to wait after writing before returning output.")] int? yieldTimeMs = null,
+        [Description("Maximum output characters to return.")] int? maxOutputChars = null)
+    {
+        if (_backgroundTerminals == null)
+            return "Error: Background terminals are not available.";
+
+        try
+        {
+            var snapshot = await _backgroundTerminals.WriteStdinAsync(
+                sessionId,
+                input,
+                yieldTimeMs ?? 1000,
+                maxOutputChars ?? _maxOutputLength);
+            return FormatSnapshot(snapshot);
+        }
+        catch (Exception ex)
+        {
+            return $"Error writing to background terminal: {ex.Message}";
+        }
+    }
+
+    [Description("Read output and status from a background terminal session.")]
+    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
+    public async Task<string> ReadBackgroundTerminal(
+        [Description("Background terminal session ID returned by Exec.")] string sessionId,
+        [Description("Optional milliseconds to wait before reading.")] int? waitMs = null,
+        [Description("Maximum output characters to return.")] int? maxOutputChars = null)
+    {
+        if (_backgroundTerminals == null)
+            return "Error: Background terminals are not available.";
+
+        try
+        {
+            var snapshot = await _backgroundTerminals.ReadAsync(
+                sessionId,
+                waitMs ?? 0,
+                maxOutputChars ?? _maxOutputLength);
+            return FormatSnapshot(snapshot);
+        }
+        catch (Exception ex)
+        {
+            return $"Error reading background terminal: {ex.Message}";
+        }
+    }
+
+    [Description("List background terminal sessions for the current thread.")]
+    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
+    public async Task<string> ListBackgroundTerminals()
+    {
+        if (_backgroundTerminals == null)
+            return "Error: Background terminals are not available.";
+
+        var threadId = CommandExecutionRuntimeScope.Current?.ThreadId;
+        var sessions = await _backgroundTerminals.ListAsync(threadId);
+        if (sessions.Count == 0)
+            return "No background terminals.";
+
+        return string.Join(Environment.NewLine + Environment.NewLine, sessions.Select(FormatSnapshot));
+    }
+
+    [Description("Stop a running background terminal session.")]
+    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
+    public async Task<string> StopBackgroundTerminal(
+        [Description("Background terminal session ID returned by Exec.")] string sessionId)
+    {
+        if (_backgroundTerminals == null)
+            return "Error: Background terminals are not available.";
+
+        try
+        {
+            var snapshot = await _backgroundTerminals.StopAsync(sessionId);
+            return FormatSnapshot(snapshot);
+        }
+        catch (Exception ex)
+        {
+            return $"Error stopping background terminal: {ex.Message}";
+        }
+    }
+
+    private async Task<string> ExecWithBackgroundTerminalServiceAsync(
+        string command,
+        string cwd,
+        bool runInBackground,
+        int? yieldTimeMs,
+        int? maxOutputChars,
+        bool interactive,
+        string? shell)
+    {
+        CommandExecutionTracker? commandExecution = null;
+        try
+        {
+            commandExecution = CommandExecutionTracker.Begin(command, cwd, source: "host");
+            var runtime = CommandExecutionRuntimeScope.Current;
+            var snapshot = await _backgroundTerminals!.StartAsync(new BackgroundTerminalStartRequest
+            {
+                ThreadId = runtime?.ThreadId ?? "workspace",
+                TurnId = runtime?.TurnId,
+                Command = command,
+                WorkingDirectory = cwd,
+                Source = "host",
+                RunInBackground = runInBackground,
+                Interactive = interactive,
+                Shell = shell,
+                TimeoutSeconds = _timeoutSeconds,
+                YieldTimeMs = yieldTimeMs ?? 1000,
+                MaxOutputChars = maxOutputChars ?? _maxOutputLength
+            });
+
+            var toolResult = runInBackground || snapshot.Status == BackgroundTerminalStatus.Running
+                ? FormatSnapshot(snapshot)
+                : FormatForegroundSnapshot(snapshot);
+            var status = snapshot.Status == BackgroundTerminalStatus.Running
+                ? "backgrounded"
+                : snapshot.Status == BackgroundTerminalStatus.Completed
+                    ? "completed"
+                    : snapshot.Status == BackgroundTerminalStatus.Killed || snapshot.Status == BackgroundTerminalStatus.TimedOut
+                        ? "cancelled"
+                        : "failed";
+            commandExecution?.Complete(
+                toolResult,
+                status,
+                snapshot.ExitCode,
+                snapshot.SessionId,
+                snapshot.OutputPath,
+                snapshot.OriginalOutputChars,
+                snapshot.Truncated,
+                snapshot.BackgroundReason);
+            return toolResult;
+        }
+        catch (Exception ex)
+        {
+            var error = $"Error executing command: {ex.Message}";
+            commandExecution?.Complete(error, status: "failed", exitCode: null);
+            return error;
+        }
+    }
+
+    private static string FormatSnapshot(BackgroundTerminalSnapshot snapshot)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Session ID: {snapshot.SessionId}");
+        sb.AppendLine($"Status: {snapshot.Status}");
+        sb.AppendLine($"Command: {snapshot.Command}");
+        sb.AppendLine($"Working directory: {snapshot.WorkingDirectory}");
+        sb.AppendLine($"Output path: {snapshot.OutputPath}");
+        if (snapshot.ExitCode != null)
+            sb.AppendLine($"Exit code: {snapshot.ExitCode}");
+        if (snapshot.Status == BackgroundTerminalStatus.Running)
+            sb.AppendLine("The command is still running in the background.");
+        if (snapshot.Truncated)
+            sb.AppendLine($"Output truncated from {snapshot.OriginalOutputChars} chars.");
+        sb.AppendLine();
+        sb.Append(snapshot.Output);
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatForegroundSnapshot(BackgroundTerminalSnapshot snapshot)
+    {
+        var output = string.IsNullOrWhiteSpace(snapshot.Output) ? "(no output)" : snapshot.Output;
+        if (snapshot.ExitCode is { } exitCode and not 0)
+            return output + Environment.NewLine + $"Exit code: {exitCode}";
+        return output;
     }
 
     /// <summary>

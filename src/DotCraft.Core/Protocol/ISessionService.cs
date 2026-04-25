@@ -162,6 +162,11 @@ public interface ISessionService
     Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default);
 
     /// <summary>
+    /// Terminates all background terminal processes owned by the given Thread.
+    /// </summary>
+    Task CleanBackgroundTerminalsAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
     /// Drops one or more turns from the end of a Thread.
     /// This modifies conversation history only; it does not revert filesystem changes made by tools.
     /// </summary>

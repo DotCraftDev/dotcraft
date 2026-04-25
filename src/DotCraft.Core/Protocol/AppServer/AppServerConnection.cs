@@ -204,6 +204,12 @@ public sealed class AppServerConnection
         _clientCapabilities?.CommandExecutionStreaming == true;
 
     /// <summary>
+    /// Returns true when the client declared background terminal notification support.
+    /// </summary>
+    public bool SupportsBackgroundTerminals =>
+        _clientCapabilities?.BackgroundTerminals == true;
+
+    /// <summary>
     /// Returns <c>true</c> if the client wants workspace/configChanged notifications.
     /// Defaults to true when not specified by the client.
     /// </summary>

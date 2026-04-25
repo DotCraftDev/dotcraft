@@ -5,6 +5,7 @@ using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
+using DotCraft.Tools.BackgroundTerminals;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 
@@ -44,7 +45,8 @@ internal sealed class AppServerTestHarness : IDisposable
         SkillsLoader? skillsLoader = null,
         McpClientManager? mcpClientManager = null,
         IWelcomeSuggestionService? welcomeSuggestionService = null,
-        WireBrowserUseProxy? wireBrowserUseProxy = null)
+        WireBrowserUseProxy? wireBrowserUseProxy = null,
+        IBackgroundTerminalService? backgroundTerminalService = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -71,7 +73,8 @@ internal sealed class AppServerTestHarness : IDisposable
             appConfigMonitor: Monitor,
             skillsLoader: skillsLoader,
             mcpClientManager: mcpClientManager,
-            wireBrowserUseProxy: wireBrowserUseProxy);
+            wireBrowserUseProxy: wireBrowserUseProxy,
+            backgroundTerminalService: backgroundTerminalService);
 
         Identity = new SessionIdentity
         {

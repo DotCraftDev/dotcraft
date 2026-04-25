@@ -85,8 +85,13 @@ public sealed class CoreToolProvider : IAgentToolProvider
             requireOutside,
             context.Config.Tools.Shell.MaxOutputLength,
             approvalService: context.ApprovalService,
-            blacklist: context.PathBlacklist);
+            blacklist: context.PathBlacklist,
+            backgroundTerminals: context.BackgroundTerminalService);
         tools.Add(AIFunctionFactory.Create(shellTools.Exec));
+        tools.Add(AIFunctionFactory.Create(shellTools.WriteStdin));
+        tools.Add(AIFunctionFactory.Create(shellTools.ReadBackgroundTerminal));
+        tools.Add(AIFunctionFactory.Create(shellTools.ListBackgroundTerminals));
+        tools.Add(AIFunctionFactory.Create(shellTools.StopBackgroundTerminal));
 
         // Web tools
         var webTools = new WebTools(

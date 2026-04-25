@@ -220,6 +220,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.commandExecutionStreaming` | boolean | no | Whether the client can consume `commandExecution` items and `item/commandExecution/outputDelta` notifications. Default `false`. |
+| `capabilities.backgroundTerminals` | boolean | no | Whether the client can consume `terminal/*` background terminal notifications. Default `false`. |
 | `capabilities.configChange` | boolean | no | Whether the client wants `workspace/configChanged` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
@@ -3316,6 +3317,62 @@ When `sessionReset` is `true` (for `/new`), clients should switch their active t
 ### 19.6 Capability Advertisement
 
 Clients must check `capabilities.commandManagement` before calling `command/list` or `command/execute`.
+
+---
+
+## 19A. Background Terminal Methods
+
+### 19A.1 Scope
+
+These methods expose server-managed host shell processes that may continue after an `Exec` tool call returns. They are pipe-based in v1: clients can read output, write stdin, stop a session, list sessions, and clean all sessions for a thread. Full PTY/curses behavior and sandbox process persistence are outside this version.
+
+Clients must check `capabilities.backgroundTerminals` before calling `terminal/*` methods. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 19A.2 `BackgroundTerminal` Wire DTO
+
+```json
+{
+  "sessionId": "term_abcd1234",
+  "threadId": "thread_001",
+  "turnId": "turn_001",
+  "callId": "call_abc",
+  "command": "npm run dev",
+  "workingDirectory": "C:/repo",
+  "source": "host",
+  "status": "running",
+  "output": "...",
+  "outputPath": "C:/repo/.craft/terminals/thread_001/term_abcd1234.log",
+  "exitCode": null,
+  "startedAt": "2026-04-25T00:00:00Z",
+  "completedAt": null,
+  "wallTimeMs": 1000,
+  "originalOutputChars": 42,
+  "truncated": false,
+  "backgroundReason": "runInBackground"
+}
+```
+
+`status` is one of `running`, `completed`, `failed`, `killed`, `timedOut`, or `lost`.
+
+### 19A.3 Requests
+
+- `terminal/list` params: `{ "threadId"?: string | null }`, result: `{ "terminals": BackgroundTerminal[] }`
+- `terminal/read` params: `{ "sessionId": string, "waitMs"?: number, "maxOutputChars"?: number }`, result: `{ "terminal": BackgroundTerminal }`
+- `terminal/write` params: `{ "sessionId": string, "input": string, "yieldTimeMs"?: number, "maxOutputChars"?: number }`, result: `{ "terminal": BackgroundTerminal }`
+- `terminal/stop` params: `{ "sessionId": string }`, result: `{ "terminal": BackgroundTerminal }`
+- `terminal/clean` params: `{ "threadId": string }`, result: `{ "terminals": BackgroundTerminal[] }`
+
+### 19A.4 Notifications
+
+Servers that have a client-declared `backgroundTerminals` capability may emit:
+
+- `terminal/started`
+- `terminal/outputDelta`
+- `terminal/completed`
+- `terminal/stalled`
+- `terminal/cleaned`
+
+Notifications use the same terminal snapshot shape. `terminal/outputDelta` additionally carries the output delta text.
 
 ---
 

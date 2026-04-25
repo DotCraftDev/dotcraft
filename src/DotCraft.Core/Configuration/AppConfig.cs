@@ -415,6 +415,44 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Min = 0, Hint = "characters")]
         public int MaxOutputLength { get; set; } = 10000;
+
+        /// <summary>
+        /// Background terminal/session management settings for host shell commands.
+        /// </summary>
+        public ShellBackgroundConfig Background { get; set; } = new();
+    }
+
+    [ConfigSection("Tools.Shell.Background", DisplayName = "Tools > Shell > Background", Order = 22)]
+    public sealed class ShellBackgroundConfig
+    {
+        public bool Enabled { get; set; } = true;
+
+        [ConfigField(Min = 0, Hint = "milliseconds")]
+        public int DefaultYieldTimeMs { get; set; } = 1000;
+
+        [ConfigField(Min = 1, Hint = "milliseconds")]
+        public int MaxYieldTimeMs { get; set; } = 30000;
+
+        [ConfigField(Min = 1)]
+        public int MaxSessionsPerThread { get; set; } = 8;
+
+        [ConfigField(Min = 1)]
+        public int MaxSessionsPerWorkspace { get; set; } = 32;
+
+        [ConfigField(Min = 0, Hint = "seconds")]
+        public int IdleTimeoutSeconds { get; set; } = 1800;
+
+        [ConfigField(Min = 1, Hint = "bytes")]
+        public long OutputMaxBytes { get; set; } = 64L * 1024 * 1024;
+
+        [ConfigField(Min = 0, Hint = "days")]
+        public int OutputRetentionDays { get; set; } = 7;
+
+        [ConfigField(Min = 0, Hint = "seconds")]
+        public int StallWatchdogSeconds { get; set; } = 45;
+
+        [ConfigField(Min = 1, Hint = "characters")]
+        public int DefaultReadMaxOutputChars { get; set; } = 10000;
     }
 
     [ConfigSection("Tools.Web", DisplayName = "Tools > Web", Order = 22)]

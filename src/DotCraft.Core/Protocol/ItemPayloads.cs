@@ -212,11 +212,21 @@ public sealed record CommandExecutionPayload
     public string Source { get; init; } = "host";
 
     /// <summary>
-    /// "inProgress", "completed", "failed", or "cancelled".
+    /// "inProgress", "completed", "failed", "cancelled", "backgrounded", "killed", or "lost".
     /// </summary>
     public string Status { get; init; } = "inProgress";
 
     public string AggregatedOutput { get; init; } = string.Empty;
+
+    public string? SessionId { get; init; }
+
+    public string? OutputPath { get; init; }
+
+    public int? OriginalOutputChars { get; init; }
+
+    public bool? Truncated { get; init; }
+
+    public string? BackgroundReason { get; init; }
 
     public int? ExitCode { get; init; }
 

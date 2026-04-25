@@ -74,6 +74,11 @@ public sealed class AppServerClientCapabilities
     /// </summary>
     public bool? CommandExecutionStreaming { get; set; }
 
+    /// <summary>
+    /// Whether the client can consume background terminal management notifications.
+    /// </summary>
+    public bool? BackgroundTerminals { get; set; }
+
     /// <summary>Exact notification method names to suppress for this connection.</summary>
     public List<string>? OptOutNotificationMethods { get; set; }
 
@@ -446,6 +451,12 @@ public sealed class AppServerServerCapabilities
     public bool ConfigOverride { get; set; } = true;
 
     /// <summary>
+    /// Server supports background terminal management methods (terminal/list/read/write/stop/clean).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BackgroundTerminals { get; set; }
+
+    /// <summary>
     /// Server supports cron management methods (cron/list, cron/remove, cron/enable).
     /// False when the cron service is not configured. See spec Section 16.
     /// </summary>
@@ -792,6 +803,44 @@ public sealed class TurnInterruptParams
     public string ThreadId { get; set; } = string.Empty;
 
     public string TurnId { get; set; } = string.Empty;
+}
+
+// ───── terminal/* ─────
+
+public sealed class TerminalListParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ThreadId { get; set; }
+}
+
+public sealed class TerminalReadParams
+{
+    public string SessionId { get; set; } = string.Empty;
+
+    public int? WaitMs { get; set; }
+
+    public int? MaxOutputChars { get; set; }
+}
+
+public sealed class TerminalWriteParams
+{
+    public string SessionId { get; set; } = string.Empty;
+
+    public string Input { get; set; } = string.Empty;
+
+    public int? YieldTimeMs { get; set; }
+
+    public int? MaxOutputChars { get; set; }
+}
+
+public sealed class TerminalStopParams
+{
+    public string SessionId { get; set; } = string.Empty;
+}
+
+public sealed class TerminalCleanParams
+{
+    public string ThreadId { get; set; } = string.Empty;
 }
 
 // ───── command/* (spec Section 19) ─────
@@ -2123,6 +2172,11 @@ public static class AppServerMethods
     public const string TurnQueueRemove = "turn/queue/remove";
     public const string TurnSteer = "turn/steer";
     public const string TurnInterrupt = "turn/interrupt";
+    public const string TerminalList = "terminal/list";
+    public const string TerminalRead = "terminal/read";
+    public const string TerminalWrite = "terminal/write";
+    public const string TerminalStop = "terminal/stop";
+    public const string TerminalClean = "terminal/clean";
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
@@ -2170,6 +2224,11 @@ public static class AppServerMethods
     public const string ItemToolCallArgumentsDelta = "item/toolCall/argumentsDelta";
     public const string ItemCompleted = "item/completed";
     public const string ItemApprovalResolved = "item/approval/resolved";
+    public const string TerminalStarted = "terminal/started";
+    public const string TerminalOutputDelta = "terminal/outputDelta";
+    public const string TerminalCompleted = "terminal/completed";
+    public const string TerminalStalled = "terminal/stalled";
+    public const string TerminalCleaned = "terminal/cleaned";
 
     // Server → Client request (bidirectional approval)
     public const string ItemApprovalRequest = "item/approval/request";

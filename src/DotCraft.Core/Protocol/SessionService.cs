@@ -11,6 +11,7 @@ using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
 using DotCraft.Logging;
+using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -44,7 +45,8 @@ public sealed class SessionService(
     ILogger<SessionService>? logger = null,
     ApprovalStore? approvalStore = null,
     IToolProfileRegistry? toolProfileRegistry = null,
-    SessionStreamDebugLogger? sessionStreamDebugLogger = null)
+    SessionStreamDebugLogger? sessionStreamDebugLogger = null,
+    IBackgroundTerminalService? backgroundTerminalService = null)
     : ISessionService, IThreadAgentRefreshService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
@@ -257,6 +259,8 @@ public sealed class SessionService(
         _threadAgents.TryRemove(threadId, out _);
         _threadModeManagers.TryRemove(threadId, out _);
         _threadExternalChannelToolNames.TryRemove(threadId, out _);
+        if (backgroundTerminalService != null)
+            await backgroundTerminalService.CleanThreadAsync(threadId, ct);
         await PersistThreadStatusAsync(thread, ct);
         GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
     }
@@ -308,6 +312,8 @@ public sealed class SessionService(
             _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
             if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
                 await mcpManager.DisposeAsync();
+            if (backgroundTerminalService != null)
+                await backgroundTerminalService.CleanThreadAsync(normalizedThreadId, ct);
 
             ThreadDeletedForBroadcast?.Invoke(normalizedThreadId);
         }
@@ -1468,6 +1474,15 @@ public sealed class SessionService(
     }
 
     /// <inheritdoc/>
+    public async Task CleanBackgroundTerminalsAsync(string threadId, CancellationToken ct = default)
+    {
+        if (backgroundTerminalService == null)
+            return;
+
+        await backgroundTerminalService.CleanThreadAsync(threadId, ct);
+    }
+
+    /// <inheritdoc/>
     public async Task<QueuedTurnInput> EnqueueTurnInputAsync(
         string threadId,
         IList<AIContent> content,
@@ -2275,6 +2290,7 @@ public sealed class SessionService(
                 SkillsLoader = scopedSkills,
                 ApprovalService = baseCtx.ApprovalService,
                 PathBlacklist = new PathBlacklist([]),
+                BackgroundTerminalService = baseCtx.BackgroundTerminalService,
                 TraceCollector = baseCtx.TraceCollector,
                 LspServerManager = baseCtx.LspServerManager,
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
@@ -2353,6 +2369,7 @@ public sealed class SessionService(
                 SkillsLoader = scopedContext.SkillsLoader,
                 ApprovalService = scopedContext.ApprovalService,
                 PathBlacklist = scopedContext.PathBlacklist,
+                BackgroundTerminalService = scopedContext.BackgroundTerminalService,
                 TraceCollector = scopedContext.TraceCollector,
                 McpClientManager = mcpManager,
                 LspServerManager = scopedContext.LspServerManager,
@@ -2442,6 +2459,7 @@ public sealed class SessionService(
             SkillsLoader = source.SkillsLoader,
             ApprovalService = source.ApprovalService,
             PathBlacklist = source.PathBlacklist,
+            BackgroundTerminalService = source.BackgroundTerminalService,
             CronTools = source.CronTools,
             McpClientManager = source.McpClientManager,
             LspServerManager = source.LspServerManager,

@@ -404,12 +404,22 @@ Delta payload (during streaming):
   "command": string,              // Shell command text
   "workingDirectory": string,     // Effective working directory
   "source": string,               // "host" or "sandbox"
-  "status": string,               // "inProgress", "completed", "failed", or "cancelled"
+  "status": string,               // "inProgress", "completed", "failed", "cancelled", "backgrounded", "killed", or "lost"
   "aggregatedOutput": string,     // Full accumulated output shown to the user
+  "sessionId": string | null,     // Background terminal id when the command continues after tool return
+  "outputPath": string | null,    // Host-local output log for background terminal sessions
+  "originalOutputChars": number | null,
+  "truncated": boolean | null,
+  "backgroundReason": string | null,
   "exitCode": number | null,      // Process exit code when available
   "durationMs": number | null     // Total wall-clock duration when available
 }
 ```
+
+When an `Exec`-style tool returns while its process is still alive, the
+`CommandExecution` Item is completed with `status = "backgrounded"`. Later
+process lifecycle changes are represented by the background terminal runtime,
+not by appending deltas to an already completed Turn.
 
 #### ApprovalRequest
 
@@ -1490,7 +1500,7 @@ QQ and WeCom use `ActiveRunRegistry` to track and cancel in-flight runs. Under S
 
 Bidirectional capabilities are outside the session model.
 
-The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns.
+The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns. Background terminals follow the same boundary: Session Core records the observable `CommandExecution` Item for the originating tool call, while terminal listing, reading, stdin writes, stopping, and cleanup are exposed by tool/provider or AppServer capabilities.
 
 The design rule is simple:
 
