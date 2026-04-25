@@ -32,9 +32,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'Automations', link: '/automations_guide' },
       { text: 'Hooks', link: '/hooks_guide' },
       { text: 'External CLI 子代理', link: '/external_cli_subagents_guide' },
-      { text: 'Unity 集成', link: '/unity_guide' },
-      { text: 'QQ 机器人', link: '/qq_bot_guide' },
-      { text: '企业微信', link: '/wecom_guide' }
+      { text: 'Unity 集成', link: '/unity_guide' }
     ]
   },
   {
@@ -59,7 +57,9 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'TypeScript SDK', link: '/sdk/typescript' },
       { text: 'Feishu Adapter', link: '/sdk/typescript-feishu' },
       { text: 'Telegram Adapter', link: '/sdk/typescript-telegram' },
-      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' }
+      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/sdk/typescript-wecom' }
     ]
   }
 ]
@@ -89,9 +89,7 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Automations', link: '/en/automations_guide' },
       { text: 'Hooks', link: '/en/hooks_guide' },
       { text: 'External CLI Subagents', link: '/en/external_cli_subagents_guide' },
-      { text: 'Unity Integration', link: '/en/unity_guide' },
-      { text: 'QQ Bot', link: '/en/qq_bot_guide' },
-      { text: 'WeCom', link: '/en/wecom_guide' }
+      { text: 'Unity Integration', link: '/en/unity_guide' }
     ]
   },
   {
@@ -116,7 +114,9 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
       { text: 'Feishu Adapter', link: '/en/sdk/typescript-feishu' },
       { text: 'Telegram Adapter', link: '/en/sdk/typescript-telegram' },
-      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' }
+      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/en/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/en/sdk/typescript-wecom' }
     ]
   }
 ]
@@ -131,7 +131,11 @@ const zhNav: DefaultTheme.NavItem[] = [
       { text: 'SDK 总览', link: '/sdk/' },
       { text: 'Python SDK', link: '/sdk/python' },
       { text: 'TypeScript SDK', link: '/sdk/typescript' },
-      { text: '频道适配器', link: '/sdk/typescript-feishu' }
+      { text: 'Feishu Adapter', link: '/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/sdk/typescript-wecom' }
     ]
   }
 ]
@@ -146,7 +150,11 @@ const enNav: DefaultTheme.NavItem[] = [
       { text: 'SDK Overview', link: '/en/sdk/' },
       { text: 'Python SDK', link: '/en/sdk/python' },
       { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
-      { text: 'Channel Adapters', link: '/en/sdk/typescript-feishu' }
+      { text: 'Feishu Adapter', link: '/en/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/en/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/en/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/en/sdk/typescript-wecom' }
     ]
   }
 ]

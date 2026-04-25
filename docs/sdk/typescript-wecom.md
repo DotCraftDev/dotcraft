@@ -1,8 +1,19 @@
-# DotCraft 企业微信外部渠道指南
+# DotCraft 企业微信渠道适配器
 
-企业微信（WeCom）已经从内置 C# `WeComBot` 模块迁移为 TypeScript 外部渠道 `@dotcraft/channel-wecom`。新的适配器通过 AppServer WebSocket 连接 DotCraft，并在本地启动企业微信机器人 HTTP(S) 回调服务。
+`@dotcraft/channel-wecom` 通过 WebSocket 外部渠道协议将企业微信接入 DotCraft。适配器连接 DotCraft AppServer，并在本地启动企业微信机器人 HTTP(S) 回调服务。
 
-旧的 `WeComBot` 配置段不再作为运行入口，请改用 `ExternalChannels.wecom` 和 `.craft/wecom.json`。个人微信 `@dotcraft/channel-weixin` 与企业微信 `@dotcraft/channel-wecom` 是两个独立渠道。
+个人微信 `@dotcraft/channel-weixin` 与企业微信 `@dotcraft/channel-wecom` 是两个独立渠道。
+
+## 功能概览
+
+- 通过 WebSocket 连接 DotCraft AppServer
+- 启动企业微信 HTTP(S) 回调服务
+- 支持 XML 消息推送 API 和 JSON 智能机器人 API 回调格式
+- 支持文本、图片、语音转文本、文件、附件、图文混排和事件消息
+- 图片和图文混排图片会下载为临时本地图片并作为多模态输入提交
+- 会话按 `userId + chatId` 隔离
+- 支持企业微信会话内审批
+- 提供语音和文件 Runtime 工具
 
 ## 前置条件
 
@@ -10,10 +21,10 @@
 |------|------|
 | 企业微信机器人 | 自建应用或智能机器人，需配置回调 URL、Token、EncodingAESKey |
 | DotCraft AppServer | 需要启用 WebSocket 模式 |
-| WeCom 外部渠道包 | 发布包中位于 `resources/modules/channel-wecom`，开发环境中位于 `sdk/typescript/packages/channel-wecom` |
+| WeCom 渠道包 | 发布包中位于 `resources/modules/channel-wecom`，开发环境中位于 `sdk/typescript/packages/channel-wecom` |
 | 公网回调地址 | 企业微信必须能访问适配器回调 URL；生产环境建议通过反向代理提供 HTTPS |
 
-## DotCraft 配置
+## 1）工作区配置（`.craft/config.json`）
 
 在工作区 `.craft/config.json` 中启用 AppServer WebSocket，并注册 WeCom 外部渠道：
 
@@ -29,16 +40,16 @@
   },
   "ExternalChannels": {
     "wecom": {
-      "Enabled": true,
-      "Transport": "Websocket"
+      "enabled": true,
+      "transport": "websocket"
     }
   }
 }
 ```
 
-## WeCom 渠道配置
+## 2）适配器配置（`.craft/wecom.json`）
 
-创建 `.craft/wecom.json`：
+在目标工作区创建 `.craft/wecom.json`：
 
 ```json
 {
@@ -65,6 +76,8 @@
 }
 ```
 
+字段说明：
+
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `dotcraft.wsUrl` | DotCraft AppServer WebSocket 地址 | `ws://127.0.0.1:9100/ws` |
@@ -87,7 +100,7 @@
 | `token` | 是 | 企业微信后台配置的 Token |
 | `aesKey` | 是 | EncodingAESKey，通常 43 位，不含等号 |
 
-## 企业微信后台配置
+## 3）企业微信后台配置
 
 在企业微信管理后台配置接收消息：
 
@@ -97,16 +110,16 @@
 
 如果通过 Nginx/Caddy 等反向代理暴露 HTTPS，适配器仍可监听本地 HTTP。
 
-## 启动方式
+## 4）启动
 
-桌面版会从打包资源中识别 `wecom-standard` 外部渠道，可在渠道管理界面启动。
+Desktop 会从打包资源中识别 `wecom-standard` 外部渠道，可在渠道管理界面启动。
 
 开发环境可以直接运行：
 
 ```bash
 cd sdk/typescript
 npm run build --workspace @dotcraft/channel-wecom
-dotcraft-channel-wecom --workspace E:\dotcraft
+npx dotcraft-channel-wecom --workspace F:\dotcraft
 ```
 
 也可以在包目录下运行：
@@ -114,29 +127,24 @@ dotcraft-channel-wecom --workspace E:\dotcraft
 ```bash
 cd sdk/typescript/packages/channel-wecom
 npm run build
-npm start -- --workspace E:\dotcraft
+npm start -- --workspace F:\dotcraft
 ```
 
-## 功能保持
+## 使用说明
 
-- 支持 XML 消息推送 API 和 JSON 智能机器人 API 回调格式。
-- 支持文本、图片、语音转文本、文件、附件、图文混排和事件消息。
-- 图片和图文混排图片会下载为临时本地图片并作为多模态输入提交。
-- 文件和附件保持旧行为：回复诊断信息，不直接提交给 Agent。
+- 文件和附件会回复诊断信息，不直接提交给 Agent。
 - 会话按 `userId + chatId` 隔离，`channelContext` 为 `chat:<ChatId>`。
 - 支持 `/new`、`/help`、Heartbeat、Cron 等通用命令和投递链路。
-- 审批关键词保持：`同意`、`同意全部`、`拒绝`、`yes`、`yes all`、`no` 等。
+- 审批关键词包括 `同意`、`同意全部`、`拒绝`、`yes`、`yes all`、`no`。
 
-## WeCom Runtime 工具
-
-迁移后仍保留原有 WeCom 专用工具名：
+## Runtime 工具
 
 | 工具 | 作用 | 备注 |
 |------|------|------|
 | `WeComSendVoice(filePath)` | 向当前企业微信聊天发送语音 | 仅支持 AMR，本地绝对路径，先上传临时素材 |
 | `WeComSendFile(filePath)` | 向当前企业微信聊天发送文件 | 本地绝对路径，先上传临时素材 |
 
-这些工具由 TypeScript 适配器通过 external channel capabilities 暴露，不再依赖旧的内置 WeCom 程序集。
+这些工具由适配器通过 external channel capabilities 暴露。工具名保持 PascalCase。
 
 ## Cron 和 Heartbeat
 
@@ -145,23 +153,3 @@ npm start -- --workspace E:\dotcraft
 | `"wecom"` | `"chat:<ChatId>"` 或 `"<ChatId>"` | 企业微信会话 | 该 ChatId 已有消息进入，适配器缓存了 webhook |
 
 建议在企业微信会话中创建 Cron 任务，让任务自动关联当前 ChatId。若目标 chatId 尚未建立 webhook 缓存，投递会失败并返回 `No WeCom webhook is available for target ...`。
-
-## 旧配置迁移
-
-| 旧 `WeComBot` | 新 `.craft/wecom.json` |
-|---------------|------------------------|
-| `Host` | `wecom.host` |
-| `Port` | `wecom.port` |
-| `AdminUsers` | `wecom.adminUsers` |
-| `WhitelistedUsers` | `wecom.whitelistedUsers` |
-| `WhitelistedChats` | `wecom.whitelistedChats` |
-| `ApprovalTimeoutSeconds` | `wecom.approvalTimeoutMs`，单位从秒改为毫秒 |
-| `Robots[].Path` | `wecom.robots[].path` |
-| `Robots[].Token` | `wecom.robots[].token` |
-| `Robots[].AesKey` | `wecom.robots[].aesKey` |
-
-## 参考文档
-
-- [企业微信群机器人配置说明](https://developer.work.weixin.qq.com/document/path/99110)
-- [企业微信智能机器人接口文档](https://developer.work.weixin.qq.com/document/path/100719)
-- [DotCraft 配置指南](./config_guide.md)

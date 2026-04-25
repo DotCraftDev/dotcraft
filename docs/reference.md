@@ -16,10 +16,6 @@
 
 [SDK](./sdk/index.md) - Python SDK、TypeScript SDK 与外部频道适配器
 
-[QQ 机器人使用指南](./qq_bot_guide.md) - NapCat/OneBot V11、权限与审批
-
-[企业微信指南](./wecom_guide.md) - WeComBot 机器人模式、权限审批与投递
-
 [ACP 模式指南](./acp_guide.md) - Agent Client Protocol 编辑器/IDE 集成（JetBrains、Obsidian 等）
 
 [Unity 集成指南](./unity_guide.md) - Unity 编辑器扩展与 AI 驱动的场景和资源工具
@@ -31,3 +27,7 @@
 [DashBoard 调试工具指南](./dash_board_guide.md) - 内置 Web 调试界面、Trace 数据查看
 
 [设置生效层级指南](./settings-lifecycle.md) - 三层生效模型、Proxy 锁、AppServer 重启语义
+
+[QQ 渠道适配器](./sdk/typescript-qq.md) - NapCat / OneBot v11、权限与审批
+
+[企业微信渠道适配器](./sdk/typescript-wecom.md) - 企业微信回调、权限审批与投递

@@ -27,6 +27,7 @@ export interface ModuleManifest {
   moduleId: string;
   channelName: string;
   displayName: string;
+  localizedDisplayName?: Partial<Record<"en" | "zh-Hans", string>>;
   packageName: string;
   configFileName: string;
   supportedTransports: ModuleTransport[];

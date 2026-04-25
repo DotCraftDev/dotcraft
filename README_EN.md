@@ -124,11 +124,11 @@ Editors and ACP are for users who want DotCraft embedded directly into developme
 
 ### Social Channels
 
-QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide) and [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide).
+QQ / WeCom connect through TypeScript external channels. For setup details, see the [QQ Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-qq) and [WeCom Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-wecom).
 
 For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python) and [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript).
 
-DotCraft currently includes integrations for Telegram, WeChat, and Feishu/Lark.
+DotCraft currently includes integrations for Telegram, WeChat, Feishu/Lark, QQ, and WeCom.
 
 | Telegram (Python SDK) | WeChat (TypeScript SDK) |
 |:---:|:---:|
@@ -181,8 +181,8 @@ For the full docs, visit the [Official Documentation](https://dotharness.github.
 
 **I want to build bots, adapters, or extensions**
 
-- [QQ Bot Guide](https://dotharness.github.io/dotcraft/en/qq_bot_guide): NapCat, permissions, and approvals
-- [WeCom Guide](https://dotharness.github.io/dotcraft/en/wecom_guide): WeCom push notifications and bot mode
+- [QQ Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-qq): NapCat, permissions, and approvals
+- [WeCom Channel Adapter](https://dotharness.github.io/dotcraft/en/sdk/typescript-wecom): WeCom callbacks, approvals, and delivery
 - [Python SDK](https://dotharness.github.io/dotcraft/en/sdk/python): build external adapters with `dotcraft-wire` and the Telegram reference example
 - [TypeScript SDK](https://dotharness.github.io/dotcraft/en/sdk/typescript): build external adapters with `dotcraft-wire` for WeChat, Feishu, and similar channels
 - [Hooks Guide](https://dotharness.github.io/dotcraft/en/hooks_guide): lifecycle hooks, shell extensions, and security guards

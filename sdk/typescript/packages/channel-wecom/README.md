@@ -18,8 +18,8 @@ Enable AppServer WebSocket and the external channel in `.craft/config.json`:
   },
   "ExternalChannels": {
     "wecom": {
-      "Enabled": true,
-      "Transport": "Websocket"
+      "enabled": true,
+      "transport": "websocket"
     }
   }
 }

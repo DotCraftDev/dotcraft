@@ -32,6 +32,10 @@ describe('scanModules', () => {
           moduleId: 'feishu-standard',
           channelName: 'feishu',
           displayName: '飞书',
+          localizedDisplayName: {
+            en: 'Feishu',
+            'zh-Hans': '飞书'
+          },
           packageName: '@dotcraft/channel-feishu',
           configFileName: 'feishu.json',
           supportedTransports: ['websocket'],
@@ -67,6 +71,10 @@ describe('scanModules', () => {
     const modules = await scanModules({ modulesDirectory: tempRoot }, true)
     const module = modules.find((entry) => entry.moduleId === 'feishu-standard')
     expect(module).toBeDefined()
+    expect(module?.localizedDisplayName).toEqual({
+      en: 'Feishu',
+      'zh-Hans': '飞书'
+    })
     expect(module?.configDescriptors).toEqual([
       expect.objectContaining({
         key: 'feishu.brand',

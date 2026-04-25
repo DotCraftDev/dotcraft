@@ -11,11 +11,11 @@
 TypeScript 外部渠道能力由以下包构成：
 
 - `dotcraft-wire`（共享 SDK：Wire 客户端、适配器基类、模块契约类型）
-- `@dotcraft/channel-feishu`（飞书 / Lark 一方模块包）
-- `@dotcraft/channel-weixin`（微信一方模块包）
-- `@dotcraft/channel-telegram`（Telegram 一方模块包）
-- `@dotcraft/channel-qq`（QQ 一方模块包）
-- `@dotcraft/channel-wecom`（企业微信一方模块包）
+- `@dotcraft/channel-feishu`（飞书 / Lark 一方渠道包）
+- `@dotcraft/channel-weixin`（微信一方渠道包）
+- `@dotcraft/channel-telegram`（Telegram 一方渠道包）
+- `@dotcraft/channel-qq`（QQ 一方渠道包）
+- `@dotcraft/channel-wecom`（企业微信一方渠道包）
 
 宿主侧模块加载与生命周期集成说明见：
 

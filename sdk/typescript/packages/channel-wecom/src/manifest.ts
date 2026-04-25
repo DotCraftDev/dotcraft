@@ -5,6 +5,10 @@ export const manifest: ModuleManifest = {
   moduleId: "wecom-standard",
   channelName: "wecom",
   displayName: "WeCom",
+  localizedDisplayName: {
+    en: "WeCom",
+    "zh-Hans": "企业微信",
+  },
   packageName: "@dotcraft/channel-wecom",
   configFileName: "wecom.json",
   supportedTransports: ["websocket"],
@@ -24,4 +28,3 @@ export const manifest: ModuleManifest = {
     supportsConfigOverrideFlag: true,
   },
 };
-

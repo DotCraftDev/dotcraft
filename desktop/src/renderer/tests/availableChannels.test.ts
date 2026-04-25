@@ -5,10 +5,11 @@ describe('mergeAvailableChannels', () => {
   it('adds built-in social module channels that are missing from channel/list', () => {
     const merged = mergeAvailableChannels(
       [
-        { name: 'qq', category: 'social' },
         { name: 'acp', category: 'builtin' }
       ],
       [
+        { channelName: 'qq' },
+        { channelName: 'wecom' },
         { channelName: 'weixin' },
         { channelName: 'feishu' },
         { channelName: 'telegram' },
@@ -17,8 +18,9 @@ describe('mergeAvailableChannels', () => {
     )
 
     expect(merged).toEqual([
-      { name: 'qq', category: 'social' },
       { name: 'acp', category: 'builtin' },
+      { name: 'qq', category: 'social' },
+      { name: 'wecom', category: 'social' },
       { name: 'weixin', category: 'social' },
       { name: 'feishu', category: 'social' },
       { name: 'telegram', category: 'social' }

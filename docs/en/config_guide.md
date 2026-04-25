@@ -40,13 +40,12 @@ This design allows sensitive information like API Keys to be placed in global co
     "AppServer": {
         "Mode": "WebSocket"
     },
-    "ExternalChannels": [
-        {
-            "Name": "qq",
-            "Enabled": true,
-            "Transport": "Websocket"
+    "ExternalChannels": {
+        "qq": {
+            "enabled": true,
+            "transport": "websocket"
         }
-    ]
+    }
 }
 ```
 
@@ -115,7 +114,7 @@ Controls the Reasoning/Thinking behavior of the LLM provider. Providers or model
 
 ### File Access Blacklist
 
-Configure forbidden paths via `Security.BlacklistedPaths`. The blacklist is **globally effective**, blocking access in both CLI mode and QQ Bot mode.
+Configure forbidden paths via `Security.BlacklistedPaths`. The blacklist is **globally effective**, blocking access from CLI, Desktop, and external channels.
 
 ```json
 {
@@ -232,39 +231,34 @@ When enabled, each Agent session automatically creates and reuses a sandbox cont
 
 ---
 
-## QQ External Channel Configuration
+## QQ / WeCom External Channel Configuration
 
-QQ is provided by the TypeScript external channel `@dotcraft/channel-qq`. The old `QQBot` config section is no longer used.
-
-For details, see [QQ External Channel Guide](./qq_bot_guide.md). The workspace config registers the channel through `ExternalChannels`, while channel-specific OneBot and permission settings live in `.craft/qq.json`.
+QQ and WeCom are provided by TypeScript external channels. Register channels in workspace config through `ExternalChannels`; put platform connection settings, permission allowlists, and approval timeouts in `.craft/qq.json` and `.craft/wecom.json`.
 
 ```json
 {
-    "AppServer": { "Mode": "WebSocket" },
-    "ExternalChannels": [
-        { "Name": "qq", "Enabled": true, "Transport": "Websocket" }
-    ]
+    "AppServer": {
+        "Mode": "WebSocket",
+        "WebSocket": {
+            "Host": "127.0.0.1",
+            "Port": 9100,
+            "Token": ""
+        }
+    },
+    "ExternalChannels": {
+        "qq": {
+            "enabled": true,
+            "transport": "websocket"
+        },
+        "wecom": {
+            "enabled": true,
+            "transport": "websocket"
+        }
+    }
 }
 ```
 
----
-
-## WeCom Bot Configuration
-
-For detailed WeCom Bot configuration, see [WeCom Guide](./wecom_guide.md).
-
-Quick reference:
-
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `WeComBot.Enabled` | Enable WeCom bot mode | `false` |
-| `WeComBot.Host` | HTTP service listen address | `0.0.0.0` |
-| `WeComBot.Port` | HTTP service listen port | `9000` |
-| `WeComBot.AdminUsers` | Admin user ID list (WeCom UserId) | `[]` |
-| `WeComBot.WhitelistedUsers` | Whitelisted user ID list (WeCom UserId) | `[]` |
-| `WeComBot.WhitelistedChats` | Whitelisted chat ID list (WeCom ChatId) | `[]` |
-| `WeComBot.ApprovalTimeoutSeconds` | Operation approval timeout (seconds) | `60` |
-| `WeComBot.Robots` | Bot configuration list (Path/Token/AesKey) | `[]` |
+For details, see [QQ Channel Adapter](./sdk/typescript-qq.md) and [WeCom Channel Adapter](./sdk/typescript-wecom.md).
 
 **Note**: `dotcraft` always starts the CLI. To run multiple channels at the same time, start the dedicated Gateway host with `dotcraft gateway`.
 
@@ -278,7 +272,7 @@ Heartbeat periodically reads the `.craft/HEARTBEAT.md` file and automatically ex
 |-------------|-------------|---------|
 | `Heartbeat.Enabled` | Enable heartbeat service | `false` |
 | `Heartbeat.IntervalSeconds` | Check interval (seconds) | `1800` |
-| `Heartbeat.NotifyAdmin` | In QQ mode, whether to privately notify admins with results | `true` |
+| `Heartbeat.NotifyAdmin` | Whether social channels notify admins with heartbeat results | `true` |
 
 ---
 
@@ -345,7 +339,7 @@ ACP ([Agent Client Protocol](https://agentclientprotocol.com/)) mode allows DotC
 |-------------|-------------|---------|
 | `Acp.Enabled` | Enable ACP mode | `false` |
 
-ACP mode communicates via stdin/stdout using JSON-RPC 2.0 protocol. Start it explicitly with `dotcraft acp`. In Gateway mode, QQ Bot, WeCom Bot, API, AG-UI, Automations, and other enabled channel services can run concurrently.
+ACP mode communicates via stdin/stdout using JSON-RPC 2.0 protocol. Start it explicitly with `dotcraft acp`. In Gateway mode, external channels, API, AG-UI, Automations, and other enabled services can run concurrently.
 
 ---
 
@@ -541,7 +535,7 @@ Built-in commands: `/code-review`, `/explain`, `/summarize`.
 
 ## Gateway Multi-Channel Concurrent Mode
 
-Gateway mode allows WeCom Bot, API, AG-UI, Automations, external channels, and other services to run concurrently in the same process.
+Gateway mode allows external channels, API, AG-UI, Automations, and related services to run concurrently in the same process.
 
 **Explicit start**: Gateway no longer auto-takes over startup. Use `dotcraft gateway` when you want a dedicated host for concurrent channels and automations.
 
@@ -555,8 +549,10 @@ Gateway mode allows WeCom Bot, API, AG-UI, Automations, external channels, and o
 **Enable example**:
 ```json
 {
-    "ExternalChannels": [{ "Name": "qq", "Enabled": true, "Transport": "Websocket" }],
-    "WeComBot": { "Enabled": true, "Port": 9000 },
+    "ExternalChannels": {
+        "qq": { "enabled": true, "transport": "websocket" },
+        "wecom": { "enabled": true, "transport": "websocket" }
+    },
     "Api": { "Enabled": true, "Port": 8080 },
     "DashBoard": { "Enabled": true, "Port": 8080 }
 }

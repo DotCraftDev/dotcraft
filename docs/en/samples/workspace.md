@@ -130,11 +130,11 @@ Fields you will most likely want to change in the template:
 
 1. Start NapCat first
 2. Start DotCraft
-3. Make sure your QQ-related module config is enabled and points at the correct service endpoints
+3. Make sure your QQ external channel config is enabled and points at the correct service endpoints
 
 ## Optional: QQ / NapCat
 
-This sample does not require QQ integration. Only use this step if you are testing a QQ bot workflow.
+This sample does not require QQ integration. Only use this step if you are testing a QQ external channel workflow.
 
 Linux example:
 
@@ -142,7 +142,7 @@ Linux example:
 screen -dmS napcat bash -c "napcat"
 ```
 
-You still need to configure the relevant QQ module separately in your DotCraft config.
+You still need to configure the QQ external channel separately in your DotCraft config.
 
 ## Optional: Tool Sandbox
 
@@ -242,4 +242,4 @@ Change either `DashBoard.Port` or `Tools.Sandbox.Domain` so they do not collide.
 - [Project README](https://github.com/DotHarness/dotcraft/blob/master/README.md)
 - [Configuration Guide](../config_guide)
 - [Dashboard Guide](../dash_board_guide)
-- [QQ Bot Guide](../qq_bot_guide)
+- [QQ Channel Adapter](../sdk/typescript-qq)

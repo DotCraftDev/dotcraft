@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { addToast } from '../../stores/toastStore'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { FolderIcon, RefreshIcon } from '../ui/AppIcons'
 import { IconButton } from '../ui/IconButton'
 import { BackToAppButton } from '../ui/BackToAppButton'
-import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
-import { WeComConfigForm } from './WeComConfigForm'
 import { ModuleConfigForm } from './ModuleConfigForm'
-import { useChannelConfig } from './useChannelConfig'
 import {
   ExternalChannelConfigForm,
   type ExternalChannelConfigWire
@@ -34,7 +31,7 @@ interface ChannelInfoWire {
   name: string
 }
 
-type SelectedChannelKey = `native:${ChannelId}` | `module:${string}` | `external:${string}`
+type SelectedChannelKey = `module:${string}` | `external:${string}` | null
 
 interface ExternalChannelViewModel {
   name: string
@@ -156,30 +153,6 @@ function deriveModuleStatus(
   return 'notConfigured'
 }
 
-function deriveNativeStatus(
-  channelId: ChannelId,
-  statusMap: Map<string, ChannelStatusWire> | null,
-  fallbackConnected: Set<string> | null,
-  config: ReturnType<typeof useChannelConfig>['config']
-): ChannelConnectionState {
-  const def = CHANNEL_DEFS.find((d) => d.id === channelId)
-  if (!def) return 'notConfigured'
-
-  if (statusMap !== null) {
-    const s = statusMap.get(def.channelListName.toLowerCase())
-    if (!s) return 'notConfigured'
-    if (s.running) return 'connected'
-    if (s.enabled) return 'enabledNotConnected'
-    return 'notConfigured'
-  }
-
-  const connected = fallbackConnected?.has(def.channelListName.toLowerCase()) ?? false
-  if (connected) return 'connected'
-
-  const configEnabled = config.wecom.Enabled
-  return configEnabled ? 'enabledNotConnected' : 'notConfigured'
-}
-
 function deriveExternalStatus(
   name: string,
   enabled: boolean,
@@ -267,11 +240,18 @@ function seedConfigWithDescriptorDefaults(
   return nextConfig
 }
 
+function resolveModuleDisplayName(
+  module: Pick<DiscoveredModule, 'displayName' | 'localizedDisplayName'>,
+  locale: 'en' | 'zh-Hans'
+): string {
+  return module.localizedDisplayName?.[locale] ?? module.displayName
+}
+
 export function ChannelsView(): JSX.Element {
+  const locale = useLocale()
   const t = useT()
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const [workspacePath, setWorkspacePath] = useState('')
-  const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>('native:wecom')
+  const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>(null)
   const [channelStatusMap, setChannelStatusMap] = useState<Map<string, ChannelStatusWire> | null>(null)
   const [fallbackConnected, setFallbackConnected] = useState<Set<string> | null>(null)
   const [statusError, setStatusError] = useState(false)
@@ -295,34 +275,16 @@ export function ChannelsView(): JSX.Element {
   const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
   const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
   const moduleConnectedSnapshotRef = useRef<Record<string, boolean>>({})
-  const selectedNativeId = selectedChannelKey.startsWith('native:')
-    ? (selectedChannelKey.slice('native:'.length) as ChannelId)
-    : null
-  const selectedModuleId = selectedChannelKey.startsWith('module:')
+  const selectedModuleId = selectedChannelKey?.startsWith('module:')
     ? selectedChannelKey.slice('module:'.length)
     : null
-  const selectedExternalName = selectedChannelKey.startsWith('external:')
+  const selectedExternalName = selectedChannelKey?.startsWith('external:')
     ? selectedChannelKey.slice('external:'.length)
     : null
 
   const externalManagementEnabled = capabilities?.externalChannelManagement === true
 
-  const {
-    config,
-    loading,
-    error,
-    savingChannelId,
-    setChannelConfig,
-    reload,
-    saveChannel
-  } = useChannelConfig(workspacePath)
-
   useEffect(() => {
-    window.api.window
-      .getWorkspacePath()
-      .then((path) => setWorkspacePath(path))
-      .catch(() => {})
-
     window.api.settings
       .get()
       .then((settings) => {
@@ -353,11 +315,6 @@ export function ChannelsView(): JSX.Element {
       window.removeEventListener('focus', onFocus)
     }
   }, [])
-
-  useEffect(() => {
-    if (!workspacePath) return
-    void reload()
-  }, [workspacePath, reload])
 
   useEffect(() => {
     let cancelled = false
@@ -464,7 +421,7 @@ export function ChannelsView(): JSX.Element {
       const selectedName =
         selectedExternalNameOverride !== undefined
           ? selectedExternalNameOverride
-          : selectedChannelKey.startsWith('external:')
+          : selectedChannelKey?.startsWith('external:')
             ? selectedChannelKey.slice('external:'.length)
             : null
       if (selectedName && selectedName !== '__new__') {
@@ -472,7 +429,7 @@ export function ChannelsView(): JSX.Element {
         if (selected) {
           setExternalDraft(cloneExternalChannel(selected))
         } else {
-          setSelectedChannelKey('native:wecom')
+          setSelectedChannelKey(null)
           setExternalDraft(createEmptyExternalChannel())
         }
       }
@@ -527,7 +484,10 @@ export function ChannelsView(): JSX.Element {
     const unsubscribe = window.api.modules.onRescanSummary((payload: ModulesRescanSummaryPayload) => {
       if (payload.changedRunningModuleIds.length === 0) return
       const labels = payload.changedRunningModuleIds
-        .map((moduleId) => moduleById.get(moduleId)?.displayName ?? moduleId)
+        .map((moduleId) => {
+          const module = moduleById.get(moduleId)
+          return module ? resolveModuleDisplayName(module, locale) : moduleId
+        })
         .slice(0, 3)
       const labelText = labels.join(', ')
       const hasMore = payload.changedRunningModuleIds.length > labels.length
@@ -541,7 +501,7 @@ export function ChannelsView(): JSX.Element {
     return () => {
       unsubscribe()
     }
-  }, [moduleById, t])
+  }, [locale, moduleById, t])
 
   useEffect(() => {
     let disposed = false
@@ -667,21 +627,6 @@ export function ChannelsView(): JSX.Element {
     }, delay)
     return () => clearTimeout(timer)
   }, [moduleQrState])
-
-  async function handleSave(channelId: ChannelId): Promise<void> {
-    try {
-      await saveChannel(channelId)
-      addToast(t('channels.savedRestart'), 'success')
-      await reload()
-    } catch (err) {
-      addToast(
-        t('channels.saveFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    }
-  }
 
   async function handleSaveModule(selectedModule: DiscoveredModule): Promise<void> {
     setSavingModule(true)
@@ -819,7 +764,7 @@ export function ChannelsView(): JSX.Element {
     try {
       await window.api.appServer.sendRequest('externalChannel/remove', { name })
       await reloadExternalChannels()
-      setSelectedChannelKey('native:wecom')
+      setSelectedChannelKey(null)
       setExternalDraft(createEmptyExternalChannel())
       addToast(t('channels.external.removed'), 'success')
     } catch (err) {
@@ -833,14 +778,6 @@ export function ChannelsView(): JSX.Element {
       setDeletingExternal(false)
     }
   }
-
-  const statusById = useMemo(() => {
-    const statusMap = new Map<ChannelId, ChannelConnectionState>()
-    for (const channel of CHANNEL_DEFS) {
-      statusMap.set(channel.id, deriveNativeStatus(channel.id, channelStatusMap, fallbackConnected, config))
-    }
-    return statusMap
-  }, [config, channelStatusMap, fallbackConnected])
 
   const externalStatusByName = useMemo(() => {
     const map = new Map<string, ChannelConnectionState>()
@@ -876,7 +813,6 @@ export function ChannelsView(): JSX.Element {
     return enabledByChannel
   }, [externalChannels])
 
-  const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
   const selectedModule = selectedModuleId ? moduleById.get(selectedModuleId) ?? null : null
   const selectedModuleGroup = selectedModule
     ? moduleGroups.find(
@@ -890,11 +826,34 @@ export function ChannelsView(): JSX.Element {
     selectedModule && selectedModule.channelName
       ? moduleLogoPath(selectedModule.channelName)
       : undefined
+  const fallbackChannelKey = useMemo<SelectedChannelKey>(() => {
+    const firstModuleId = moduleGroups[0]?.activeModuleId
+    if (firstModuleId) return `module:${firstModuleId}`
+    const firstExternalName = externalChannelCards[0]?.name
+    return firstExternalName ? `external:${firstExternalName}` : null
+  }, [moduleGroups, externalChannelCards])
+
   useEffect(() => {
     if (selectedModuleId && !selectedModule) {
-      setSelectedChannelKey('native:wecom')
+      setSelectedChannelKey(null)
     }
   }, [selectedModuleId, selectedModule])
+
+  useEffect(() => {
+    if (selectedChannelKey !== null || fallbackChannelKey === null) return
+    setSelectedChannelKey(fallbackChannelKey)
+    if (fallbackChannelKey.startsWith('module:')) {
+      const moduleId = fallbackChannelKey.slice('module:'.length)
+      const module = moduleById.get(moduleId)
+      if (module) void loadModuleConfig(module)
+      return
+    }
+    if (fallbackChannelKey.startsWith('external:')) {
+      const name = fallbackChannelKey.slice('external:'.length)
+      const channel = externalChannelCards.find((item) => item.name === name)
+      if (channel) setExternalDraft(cloneExternalChannel(channel.draft))
+    }
+  }, [selectedChannelKey, fallbackChannelKey, moduleById, externalChannelCards])
 
   const selectedModuleQrPhase: ModuleQrPhase = useMemo(() => {
     if (!selectedModule || !selectedModule.requiresInteractiveSetup) return 'idle'
@@ -1004,27 +963,7 @@ export function ChannelsView(): JSX.Element {
             overflowY: 'auto'
           }}
         >
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-            Native
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {CHANNEL_DEFS.map((channel) => {
-              const status = statusById.get(channel.id) ?? 'notConfigured'
-              return (
-                <ChannelCard
-                  key={channel.id}
-                  logoPath={channel.logoPath}
-                  label={t(channel.nameKey)}
-                  status={status}
-                  statusLabel={t(statusLabelKey(status))}
-                  active={selectedChannelKey === `native:${channel.id}`}
-                  onClick={() => setSelectedChannelKey(`native:${channel.id}`)}
-                />
-              )
-            })}
-          </div>
-
-          <div style={{ marginTop: 18 }}>
+          <div>
             <div
               style={{
                 display: 'flex',
@@ -1075,7 +1014,7 @@ export function ChannelsView(): JSX.Element {
                   <ChannelCard
                     key={group.channelName}
                     logoPath={moduleLogoPath(module.channelName)}
-                    label={module.displayName}
+                    label={resolveModuleDisplayName(module, locale)}
                     badgeText={group.modules.length > 1 ? `${group.modules.length}` : undefined}
                     status={status}
                     statusLabel={t(moduleStatusLabelKey(status))}
@@ -1157,25 +1096,11 @@ export function ChannelsView(): JSX.Element {
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          {loading && (
+          {modulesLoading && selectedChannelKey === null && (
             <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('channels.loading')}</div>
           )}
 
-          {!loading && selectedDef && selectedNativeId === 'wecom' && (
-            <div style={{ maxWidth: '640px' }}>
-              <WeComConfigForm
-                value={config.wecom}
-                saving={savingChannelId === 'wecom'}
-                logoPath={selectedDef.logoPath ?? ''}
-                status={statusById.get('wecom') ?? 'notConfigured'}
-                statusLabel={t(statusLabelKey(statusById.get('wecom') ?? 'notConfigured'))}
-                onChange={(next) => setChannelConfig('wecom', next)}
-                onSave={() => void handleSave('wecom')}
-              />
-            </div>
-          )}
-
-          {!loading && selectedModuleId && selectedModule && (
+          {selectedModuleId && selectedModule && (
             <ModuleConfigForm
               module={selectedModule}
               variantModules={selectedModuleVariants}
@@ -1215,7 +1140,7 @@ export function ChannelsView(): JSX.Element {
             />
           )}
 
-          {!loading && selectedExternalName && (
+          {selectedExternalName && (
             <div style={{ maxWidth: '640px' }}>
               {!externalManagementEnabled ? (
                 <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>
@@ -1267,11 +1192,9 @@ export function ChannelsView(): JSX.Element {
             </div>
           )}
 
-          {(error || statusError || externalError || modulesError) && (
+          {(statusError || externalError || modulesError) && (
             <div style={{ marginTop: '16px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {error
-                ? t('channels.loadFailed', { error })
-                : modulesError
+              {modulesError
                   ? t('channels.loadFailed', { error: modulesError })
                 : externalError
                   ? t('channels.loadFailed', { error: externalError })

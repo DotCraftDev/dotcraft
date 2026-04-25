@@ -18,8 +18,8 @@ DotCraft 企业微信外部渠道适配器。它通过 DotCraft AppServer WebSoc
   },
   "ExternalChannels": {
     "wecom": {
-      "Enabled": true,
-      "Transport": "Websocket"
+      "enabled": true,
+      "transport": "websocket"
     }
   }
 }
@@ -53,4 +53,3 @@ DotCraft 企业微信外部渠道适配器。它通过 DotCraft AppServer WebSoc
 ```
 
 企业微信后台的回调 URL 指向 `http://your-server:9000/dotcraft`。生产环境通常在前面放置反向代理和 HTTPS 证书。
-

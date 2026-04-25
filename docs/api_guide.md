@@ -137,6 +137,6 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 ## 相关文档
 
 - [配置指南](./config_guide.md) - 完整配置项说明
-- [QQ 机器人指南](./qq_bot_guide.md) - QQ 机器人模式
-- [企业微信指南](./wecom_guide.md) - 企业微信机器人模式
+- [QQ 渠道适配器](./sdk/typescript-qq.md) - QQ 外部渠道
+- [企业微信渠道适配器](./sdk/typescript-wecom.md) - 企业微信外部渠道
 - [文档索引](./reference.md) - 完整文档导航
