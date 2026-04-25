@@ -288,4 +288,84 @@ describe('BrowserUseManager JavaScript runtime', () => {
       url: 'https://example.com/'
     }))
   })
+
+  it('uses allow-once approval for initial URL without prompting twice', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+    const updateSettings = vi.fn()
+    manager.setPolicyHost({
+      getSettings: () => ({ browserUse: { approvalMode: 'alwaysAsk', allowedDomains: [] } }),
+      updateSettings
+    })
+
+    const pending = manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
+    })
+
+    await vi.waitFor(() => {
+      expect(owner.webContents.send).toHaveBeenCalledWith('viewer:browser-use:approval-request', expect.objectContaining({
+        domain: 'example.com'
+      }))
+    })
+    const payload = (owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as { requestId: string }
+    expect(manager.handleApprovalResponse({ requestId: payload.requestId, action: 'allowOnce' })).toBe(true)
+
+    const result = await pending
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('https://example.com/')
+    expect(updateSettings).not.toHaveBeenCalled()
+    const approvalRequests = (owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([channel]) => channel === 'viewer:browser-use:approval-request'
+    )
+    expect(approvalRequests).toHaveLength(1)
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, expect.objectContaining({
+      url: 'https://example.com/'
+    }))
+  })
+
+  it('still requires approval for explicit navigation after initial allow-once', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+    manager.setPolicyHost({
+      getSettings: () => ({ browserUse: { approvalMode: 'alwaysAsk', allowedDomains: [] } }),
+      updateSettings: vi.fn()
+    })
+
+    const pending = manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.new("https://example.com");
+        await tab.navigate("https://another.example");
+        return await tab.url();
+      `
+    })
+
+    await vi.waitFor(() => {
+      expect(owner.webContents.send).toHaveBeenCalledWith('viewer:browser-use:approval-request', expect.objectContaining({
+        domain: 'example.com'
+      }))
+    })
+    const firstPayload = (owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as { requestId: string }
+    expect(manager.handleApprovalResponse({ requestId: firstPayload.requestId, action: 'allowOnce' })).toBe(true)
+
+    await vi.waitFor(() => {
+      expect((owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([channel]) => channel === 'viewer:browser-use:approval-request'
+      )).toHaveLength(2)
+    })
+    const secondPayload = (owner.webContents.send as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([channel, payload]) => channel === 'viewer:browser-use:approval-request' && payload.domain === 'another.example'
+    )?.[1] as { requestId: string } | undefined
+    expect(secondPayload).toBeDefined()
+    expect(manager.handleApprovalResponse({ requestId: secondPayload!.requestId, action: 'allowOnce' })).toBe(true)
+
+    const result = await pending
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('https://another.example/')
+  })
 })

@@ -330,7 +330,7 @@ export class BrowserUseManager {
       focusMode
     })
 
-    if (normalizedInitial) await this.navigate(tab, normalizedInitial)
+    if (normalizedInitial) await this.navigate(tab, normalizedInitial, { skipPolicyCheck: true })
     return tab
   }
 
@@ -391,11 +391,17 @@ export class BrowserUseManager {
     }
   }
 
-  private async navigate(tab: BrowserUseTabRuntime, url: string): Promise<Record<string, unknown>> {
+  private async navigate(
+    tab: BrowserUseTabRuntime,
+    url: string,
+    options: { skipPolicyCheck?: boolean } = {}
+  ): Promise<Record<string, unknown>> {
     const normalized = normalizeBrowserUseUrl(url)
     if (!normalized) throw new Error(`Invalid browser URL: ${url}`)
-    const runtime = this.getRuntimeForTab(tab)
-    await this.ensureNavigationAllowed(tab.owner, runtime, tab.id, normalized)
+    if (options.skipPolicyCheck !== true) {
+      const runtime = this.getRuntimeForTab(tab)
+      await this.ensureNavigationAllowed(tab.owner, runtime, tab.id, normalized)
+    }
     await this.viewerHost.loadAutomationUrl(tab.owner, { tabId: tab.id, url: normalized })
     return this.tabSnapshot(tab)
   }
