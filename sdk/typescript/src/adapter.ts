@@ -348,7 +348,7 @@ export abstract class ChannelAdapter {
           senderName: opts.userName,
           ...(opts.senderExtra ?? {}),
         };
-        if (channelContext && !opts.omitSenderGroupId) sender.groupId = channelContext;
+        if (channelContext && !opts.omitSenderGroupId && sender.groupId === undefined) sender.groupId = channelContext;
         const parts = trimmedText.split(/\s+/);
         try {
           const commandResult = await this.client.commandExecute({
@@ -585,7 +585,7 @@ export abstract class ChannelAdapter {
       senderName: opts.userName,
       ...senderExtra,
     };
-    if (channelContext && !opts.omitSenderGroupId) sender.groupId = channelContext;
+    if (channelContext && !opts.omitSenderGroupId && sender.groupId === undefined) sender.groupId = channelContext;
 
     const trimmedText = opts.text.trim();
     if (trimmedText.startsWith("/") && !opts.skipCommand) {

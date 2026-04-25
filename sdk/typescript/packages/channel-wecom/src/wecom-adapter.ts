@@ -364,7 +364,7 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
       userName: from.name || from.alias || from.userId,
       text,
       channelContext,
-      senderExtra: { senderRole: role },
+      senderExtra: { senderRole: role, groupId: chatId },
       inputParts,
     });
   }

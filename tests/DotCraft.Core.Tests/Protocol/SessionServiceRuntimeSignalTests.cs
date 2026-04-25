@@ -127,6 +127,58 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitInputAsync_AppendsSenderRuntimeContext_AndPersistsInitiator()
+    {
+        var chatClient = new RecordingChatClient("ok");
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(new SessionIdentity
+        {
+            ChannelName = "qq",
+            UserId = "10001",
+            ChannelContext = "group:123456",
+            WorkspacePath = _tempDir
+        });
+
+        await DrainAsync(svc.SubmitInputAsync(
+            thread.Id,
+            [new TextContent("hello")],
+            new SenderContext
+            {
+                SenderId = "10001",
+                SenderName = "Alice",
+                SenderRole = "admin",
+                GroupId = "123456"
+            }));
+
+        var userMessage = Assert.Single(chatClient.LastMessages, message => message.Role == ChatRole.User);
+        var modelInput = string.Concat(userMessage.Contents.OfType<TextContent>().Select(content => content.Text));
+        Assert.Contains("[Runtime Context]", modelInput);
+        Assert.Contains("Channel: qq", modelInput);
+        Assert.Contains("Channel Context: group:123456", modelInput);
+        Assert.Contains("Sender QQ: 10001", modelInput);
+        Assert.Contains("Sender Name: Alice", modelInput);
+        Assert.Contains("QQ Group ID: 123456", modelInput);
+
+        var persistedThread = await svc.GetThreadAsync(thread.Id);
+        var turn = Assert.Single(persistedThread.Turns);
+        Assert.Equal("qq", turn.Initiator?.ChannelName);
+        Assert.Equal("10001", turn.Initiator?.UserId);
+        Assert.Equal("Alice", turn.Initiator?.UserName);
+        Assert.Equal("group:123456", turn.Initiator?.ChannelContext);
+        Assert.Equal("123456", turn.Initiator?.GroupId);
+
+        Assert.NotNull(turn.Input);
+        var payload = turn.Input!.AsUserMessage;
+        Assert.NotNull(payload);
+        Assert.Equal("10001", payload!.SenderId);
+        Assert.Equal("Alice", payload.SenderName);
+        Assert.Equal("admin", payload.SenderRole);
+        Assert.Equal("group:123456", payload.ChannelContext);
+        Assert.Equal("123456", payload.GroupId);
+    }
+
+    [Fact]
     public async Task CancelTurnAsync_EmitsTurnStartedThenCancelled()
     {
         IChatClient chatClient = new BlockingChatClient();

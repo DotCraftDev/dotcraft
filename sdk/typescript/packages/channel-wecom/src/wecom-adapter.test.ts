@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { parseWeComApprovalDecision } from "./approval.js";
 import { WeComPermissionService } from "./permission.js";
+import { WeComAdapter } from "./wecom-adapter.js";
 import { WE_COM_SEND_FILE_TOOL, WE_COM_SEND_VOICE_TOOL, WeComMediaTools } from "./wecom-media-tools.js";
 import { parseWeComMessage, parseWeComParameters, WeComChatType } from "./wecom-types.js";
 
@@ -56,4 +57,36 @@ test("WeComMediaTools preserves legacy tool names and current-chat requirement",
   assert.ok(tools.every((tool) => tool.requiresChatContext === true));
   assert.equal((tools[0]?.display as Record<string, unknown> | undefined)?.icon, "🎤");
   assert.equal((tools[1]?.display as Record<string, unknown> | undefined)?.icon, "📁");
+});
+
+test("WeComAdapter passes chat id as sender groupId", async () => {
+  const adapter = new WeComAdapter() as unknown as {
+    permission: WeComPermissionService;
+    handleMessage: (opts: Record<string, unknown>) => Promise<void>;
+    runInboundMessage: (
+      text: string,
+      from: { userId: string; name: string; alias?: string },
+      pusher: { getChatId: () => string },
+      inputParts: Record<string, unknown>[],
+    ) => Promise<void>;
+  };
+  let captured: Record<string, unknown> | null = null;
+  adapter.permission = new WeComPermissionService({ adminUsers: ["u1"] });
+  adapter.handleMessage = async (opts: Record<string, unknown>) => {
+    captured = opts;
+  };
+
+  await adapter.runInboundMessage(
+    "hello",
+    { userId: "u1", name: "User One" },
+    { getChatId: () => "chat-1" },
+    [],
+  );
+
+  const opts = captured as Record<string, unknown> | null;
+  assert.ok(opts);
+  assert.equal(opts["userId"], "u1");
+  assert.equal(opts["userName"], "User One");
+  assert.equal(opts["channelContext"], "chat:chat-1");
+  assert.deepEqual(opts["senderExtra"], { senderRole: "admin", groupId: "chat-1" });
 });

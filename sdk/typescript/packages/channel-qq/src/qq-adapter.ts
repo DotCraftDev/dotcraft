@@ -324,7 +324,11 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
       userName: getSenderName(evt),
       text: rawText || "[image]",
       channelContext,
-      senderExtra: { senderRole: role },
+      senderExtra: {
+        senderRole: role,
+        ...(isGroup && groupId !== undefined ? { groupId: String(groupId) } : {}),
+      },
+      omitSenderGroupId: !isGroup,
       inputParts: inputParts.length > 0 ? inputParts : undefined,
     });
   }
