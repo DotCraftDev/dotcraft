@@ -31,6 +31,11 @@ public static class SessionIdGenerator
     /// </summary>
     public static string NewItemId(int sequence) => $"item_{sequence:D3}";
 
+    /// <summary>
+    /// Generates a queued turn input ID.
+    /// </summary>
+    public static string NewQueuedInputId() => $"queued_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}_{GenerateRandom(6)}";
+
     private static string GenerateRandom(int length)
     {
         var chars = new char[length];

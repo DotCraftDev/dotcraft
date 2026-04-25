@@ -6,7 +6,8 @@ import type {
   ThreadMode,
   ApprovalDecision,
   ApprovalState,
-  PendingComposerMessage
+  PendingComposerMessage,
+  QueuedTurnInput
 } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
@@ -116,6 +117,8 @@ interface ConversationState {
   systemLabel: string | null
   /** Queued follow-up message (sent when current turn completes) */
   pendingMessage: PendingComposerMessage | null
+  /** Server-persisted FIFO inputs queued behind the active turn. */
+  queuedInputs: QueuedTurnInput[]
   /** Current agent operating mode */
   threadMode: ThreadMode
   /** Workspace root path (for cumulative diff disk reads) */
@@ -206,6 +209,7 @@ interface ConversationActions {
     percentLeft: number
   } | null): void
   setPendingMessage(msg: PendingComposerMessage | null): void
+  setQueuedInputs(inputs: QueuedTurnInput[]): void
   setThreadMode(mode: ThreadMode): void
   /** Add an optimistic (locally-created) turn before server confirms */
   addOptimisticTurn(turn: ConversationTurn): void
@@ -275,6 +279,7 @@ const initialState: ConversationState = {
   outputTokens: 0,
   systemLabel: null,
   pendingMessage: null,
+  queuedInputs: [],
   threadMode: 'agent',
   workspacePath: '',
   changedFiles: new Map<string, FileDiff>(),
@@ -1428,6 +1433,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
   setPendingMessage(msg) {
     set({ pendingMessage: msg })
+  },
+
+  setQueuedInputs(inputs) {
+    set({ queuedInputs: inputs })
   },
 
   setThreadMode(mode) {

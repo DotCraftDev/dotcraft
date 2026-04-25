@@ -739,6 +739,54 @@ public sealed class TurnStartParams
     public JsonElement? Messages { get; set; }
 }
 
+// ───── turn/enqueue ─────
+
+public sealed class TurnEnqueueParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public List<SessionWireInputPart> Input { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SenderContext? Sender { get; set; }
+}
+
+public sealed class TurnEnqueueResponse
+{
+    public QueuedTurnInput QueuedInput { get; set; } = new();
+
+    public List<QueuedTurnInput> QueuedInputs { get; set; } = [];
+}
+
+public sealed class TurnQueueRemoveParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string QueuedInputId { get; set; } = string.Empty;
+}
+
+public sealed class TurnQueueRemoveResponse
+{
+    public List<QueuedTurnInput> QueuedInputs { get; set; } = [];
+}
+
+public sealed class TurnSteerParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string ExpectedTurnId { get; set; } = string.Empty;
+
+    public List<SessionWireInputPart> Input { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SenderContext? Sender { get; set; }
+}
+
+public sealed class TurnSteerResponse
+{
+    public string TurnId { get; set; } = string.Empty;
+}
+
 // ───── turn/interrupt ─────
 
 public sealed class TurnInterruptParams
@@ -2073,6 +2121,9 @@ public static class AppServerMethods
     public const string ThreadModeSet = "thread/mode/set";
     public const string ThreadConfigUpdate = "thread/config/update";
     public const string TurnStart = "turn/start";
+    public const string TurnEnqueue = "turn/enqueue";
+    public const string TurnQueueRemove = "turn/queue/remove";
+    public const string TurnSteer = "turn/steer";
     public const string TurnInterrupt = "turn/interrupt";
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
@@ -2107,6 +2158,7 @@ public static class AppServerMethods
     public const string ThreadStatusChanged = "thread/statusChanged";
     /// <summary>Workspace-level runtime snapshot broadcast for sidebar activity indicators.</summary>
     public const string ThreadRuntimeChanged = "thread/runtimeChanged";
+    public const string ThreadQueueUpdated = "thread/queue/updated";
     /// <summary>Server broadcast when a thread's display name changes (rename RPC or first-message title).</summary>
     public const string ThreadRenamed = "thread/renamed";
     public const string TurnStarted = "turn/started";

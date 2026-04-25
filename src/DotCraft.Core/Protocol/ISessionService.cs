@@ -117,6 +117,36 @@ public interface ISessionService
         SessionInputSnapshot? inputSnapshot = null);
 
     /// <summary>
+    /// Adds user input to the thread's FIFO queue while another turn is active.
+    /// Queued input starts a new turn automatically after the active turn completes successfully.
+    /// </summary>
+    Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null);
+
+    /// <summary>
+    /// Removes one queued input from a thread.
+    /// </summary>
+    Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds user guidance to the active turn.
+    /// </summary>
+    Task<string> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null);
+
+    /// <summary>
     /// Resolves a pending approval request within a WaitingApproval Turn.
     /// Resumes agent execution with the user's decision.
     /// </summary>

@@ -175,6 +175,37 @@ internal sealed class ThreadRolloutStore
             });
         }
 
+        var previousQueue = previous?.QueuedInputs ?? [];
+        var currentQueue = current.QueuedInputs;
+        foreach (var queued in currentQueue.Where(q => previousQueue.All(p => !string.Equals(p.Id, q.Id, StringComparison.Ordinal))))
+        {
+            records.Add(new ThreadRolloutRecord
+            {
+                Kind = "queued_input_added",
+                Timestamp = queued.CreatedAt,
+                QueuedInputAdded = new QueuedInputAddedPayload
+                {
+                    ThreadId = current.Id,
+                    QueuedInput = queued
+                }
+            });
+        }
+
+        foreach (var removed in previousQueue.Where(p => currentQueue.All(q => !string.Equals(q.Id, p.Id, StringComparison.Ordinal))))
+        {
+            records.Add(new ThreadRolloutRecord
+            {
+                Kind = "queued_input_removed",
+                Timestamp = current.LastActiveAt,
+                QueuedInputRemoved = new QueuedInputRemovedPayload
+                {
+                    ThreadId = current.Id,
+                    QueuedInputId = removed.Id,
+                    LastActiveAt = current.LastActiveAt
+                }
+            });
+        }
+
         if (previous == null || previous.Status != current.Status || previous.LastActiveAt != current.LastActiveAt)
         {
             records.Add(new ThreadRolloutRecord
@@ -378,7 +409,7 @@ internal sealed class ThreadRolloutStore
                     else
                         turn.Items.Add(record.ItemAppended.Item);
 
-                    if (record.ItemAppended.Item.Type == ItemType.UserMessage)
+                    if (record.ItemAppended.Item.Type == ItemType.UserMessage && turn.Input == null)
                         turn.Input = record.ItemAppended.Item;
                     break;
 
@@ -394,6 +425,16 @@ internal sealed class ThreadRolloutStore
                 case "thread_rolled_back" when thread != null && record.ThreadRolledBack != null:
                     ApplyRollback(turns, record.ThreadRolledBack.NumTurns);
                     thread.LastActiveAt = record.ThreadRolledBack.LastActiveAt;
+                    break;
+
+                case "queued_input_added" when thread != null && record.QueuedInputAdded != null:
+                    if (thread.QueuedInputs.All(q => !string.Equals(q.Id, record.QueuedInputAdded.QueuedInput.Id, StringComparison.Ordinal)))
+                        thread.QueuedInputs.Add(record.QueuedInputAdded.QueuedInput);
+                    break;
+
+                case "queued_input_removed" when thread != null && record.QueuedInputRemoved != null:
+                    thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, record.QueuedInputRemoved.QueuedInputId, StringComparison.Ordinal));
+                    thread.LastActiveAt = record.QueuedInputRemoved.LastActiveAt;
                     break;
             }
         }
@@ -443,6 +484,10 @@ internal sealed class ThreadRolloutRecord
     public ThreadNameUpdatedPayload? ThreadNameUpdated { get; init; }
 
     public ThreadRolledBackPayload? ThreadRolledBack { get; init; }
+
+    public QueuedInputAddedPayload? QueuedInputAdded { get; init; }
+
+    public QueuedInputRemovedPayload? QueuedInputRemoved { get; init; }
 }
 
 internal sealed class ThreadOpenedPayload
@@ -518,6 +563,22 @@ internal sealed class ThreadRolledBackPayload
     public string ThreadId { get; init; } = string.Empty;
 
     public int NumTurns { get; init; }
+
+    public DateTimeOffset LastActiveAt { get; init; }
+}
+
+internal sealed class QueuedInputAddedPayload
+{
+    public string ThreadId { get; init; } = string.Empty;
+
+    public QueuedTurnInput QueuedInput { get; init; } = new();
+}
+
+internal sealed class QueuedInputRemovedPayload
+{
+    public string ThreadId { get; init; } = string.Empty;
+
+    public string QueuedInputId { get; init; } = string.Empty;
 
     public DateTimeOffset LastActiveAt { get; init; }
 }

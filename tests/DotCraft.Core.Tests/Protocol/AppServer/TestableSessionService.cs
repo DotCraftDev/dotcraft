@@ -306,6 +306,78 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return thread;
     }
 
+    public async Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var parts = inputSnapshot?.NativeInputParts?.ToList() ?? content.Select(c => c.ToWireInputPart()).ToList();
+        var queued = new QueuedTurnInput
+        {
+            Id = SessionIdGenerator.NewQueuedInputId(),
+            ThreadId = threadId,
+            NativeInputParts = parts,
+            MaterializedInputParts = inputSnapshot?.MaterializedInputParts?.ToList() ?? parts,
+            DisplayText = inputSnapshot?.DisplayText ?? SessionWireMapper.BuildDisplayText(parts),
+            Sender = sender,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        thread.QueuedInputs.Add(queued);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return queued;
+    }
+
+    public async Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return thread.QueuedInputs.ToList();
+    }
+
+    public async Task<string> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var turn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+            ?? throw new InvalidOperationException("No active turn.");
+        if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
+            throw new InvalidOperationException("Active turn mismatch.");
+
+        var parts = inputSnapshot?.NativeInputParts?.ToList() ?? content.Select(c => c.ToWireInputPart()).ToList();
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload
+            {
+                Text = inputSnapshot?.DisplayText ?? SessionWireMapper.BuildDisplayText(parts),
+                DeliveryMode = "guidance",
+                NativeInputParts = parts,
+                MaterializedInputParts = inputSnapshot?.MaterializedInputParts?.ToList() ?? parts
+            }
+        });
+        await _store.SaveThreadAsync(thread, ct);
+        return turn.Id;
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

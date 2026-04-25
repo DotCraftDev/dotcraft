@@ -61,6 +61,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
+    private static readonly HttpClient QueuedInputHttpClient = new();
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -476,9 +477,10 @@ public sealed class SessionService(
             Status = ItemStatus.Completed,
             CreatedAt = DateTimeOffset.UtcNow,
             CompletedAt = DateTimeOffset.UtcNow,
-            Payload = new UserMessagePayload
+                Payload = new UserMessagePayload
             {
                 Text = text,
+                DeliveryMode = inputSnapshot?.DeliveryMode,
                 NativeInputParts = inputSnapshot?.NativeInputParts,
                 MaterializedInputParts = inputSnapshot?.MaterializedInputParts,
                 SenderId = sender?.SenderId,
@@ -1206,6 +1208,8 @@ public sealed class SessionService(
                 {
                     logger?.LogError(ex, "Failed to persist thread state after turn completion for thread {ThreadId}", threadId);
                 }
+
+                await TryStartNextQueuedTurnAsync(threadId, CancellationToken.None);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
@@ -1341,6 +1345,131 @@ public sealed class SessionService(
     }
 
     /// <inheritdoc/>
+    public async Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        if (content.Count == 0 && inputSnapshot?.MaterializedInputParts is not { Count: > 0 })
+            throw new InvalidOperationException("Queued input must not be empty.");
+
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        if (thread.Status != ThreadStatus.Active)
+            throw new InvalidOperationException($"Thread '{threadId}' is not Active (current status: {thread.Status}). Cannot enqueue input.");
+
+        var activeTurnId = thread.Turns
+            .LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+            ?.Id;
+
+        var nativeParts = inputSnapshot?.NativeInputParts?.ToList()
+            ?? content.Select(c => c.ToWireInputPart()).ToList();
+        var materializedParts = inputSnapshot?.MaterializedInputParts?.ToList()
+            ?? nativeParts;
+        var displayText = inputSnapshot?.DisplayText
+            ?? SessionWireMapper.BuildDisplayText(nativeParts);
+
+        var queued = new QueuedTurnInput
+        {
+            Id = SessionIdGenerator.NewQueuedInputId(),
+            ThreadId = threadId,
+            NativeInputParts = nativeParts,
+            MaterializedInputParts = materializedParts,
+            DisplayText = displayText,
+            Sender = sender,
+            Status = "queued",
+            CreatedAt = DateTimeOffset.UtcNow,
+            ReadyAfterTurnId = activeTurnId
+        };
+
+        thread.QueuedInputs.Add(queued);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        PublishQueueUpdated(thread);
+        return queued;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        var removed = thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        if (removed == 0)
+            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        PublishQueueUpdated(thread);
+        return thread.QueuedInputs.ToList();
+    }
+
+    /// <inheritdoc/>
+    public async Task<string> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        if (string.IsNullOrWhiteSpace(expectedTurnId))
+            throw new InvalidOperationException("expectedTurnId must not be empty.");
+        if (content.Count == 0 && inputSnapshot?.MaterializedInputParts is not { Count: > 0 })
+            throw new InvalidOperationException("Input must not be empty.");
+
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        if (thread.Status != ThreadStatus.Active)
+            throw new InvalidOperationException($"Thread '{threadId}' is not Active (current status: {thread.Status}). Cannot steer turn.");
+
+        var turn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+            ?? throw new InvalidOperationException($"Thread '{threadId}' has no active turn to steer.");
+        if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Expected active turn id '{expectedTurnId}' but found '{turn.Id}'.");
+
+        var nativeParts = inputSnapshot?.NativeInputParts?.ToList()
+            ?? content.Select(c => c.ToWireInputPart()).ToList();
+        var materializedParts = inputSnapshot?.MaterializedInputParts?.ToList()
+            ?? nativeParts;
+        var displayText = inputSnapshot?.DisplayText
+            ?? SessionWireMapper.BuildDisplayText(nativeParts);
+        var item = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload
+            {
+                Text = displayText,
+                DeliveryMode = "guidance",
+                NativeInputParts = nativeParts,
+                MaterializedInputParts = materializedParts,
+                SenderId = sender?.SenderId,
+                SenderName = sender?.SenderName,
+                SenderRole = sender?.SenderRole,
+                ChannelName = turn.OriginChannel,
+                ChannelContext = turn.Initiator?.ChannelContext,
+                GroupId = sender?.GroupId ?? turn.Initiator?.GroupId
+            }
+        };
+
+        turn.Items.Add(item);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await PersistThreadWithMaterializationAsync(thread, ct);
+
+        var broker = GetOrCreateBroker(threadId);
+        broker.PublishItemEvent(SessionEventType.ItemStarted, turn.Id, item);
+        broker.PublishItemEvent(SessionEventType.ItemCompleted, turn.Id, item);
+        return turn.Id;
+    }
+
+    /// <inheritdoc/>
     public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
     {
         if (numTurns <= 0)
@@ -1425,6 +1554,132 @@ public sealed class SessionService(
         _materializedThreads[thread.Id] = 0;
         _ = GetOrCreateBroker(thread.Id);
         return thread;
+    }
+
+    private void PublishQueueUpdated(SessionThread thread) =>
+        GetOrCreateBroker(thread.Id).PublishThreadQueueUpdated(thread.QueuedInputs);
+
+    private async Task TryStartNextQueuedTurnAsync(string threadId, CancellationToken ct)
+    {
+        QueuedTurnInput? queued = null;
+        SessionThread? thread = null;
+        try
+        {
+            thread = await GetOrLoadThreadAsync(threadId, ct);
+            if (thread.QueuedInputs.Count == 0)
+                return;
+            if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+                return;
+
+            queued = thread.QueuedInputs[0];
+            thread.QueuedInputs.RemoveAt(0);
+            thread.LastActiveAt = DateTimeOffset.UtcNow;
+            await PersistThreadWithMaterializationAsync(thread, ct);
+            PublishQueueUpdated(thread);
+
+            var content = await ResolveQueuedInputPartsAsync(queued.MaterializedInputParts.ToList(), ct);
+            if (content.Count == 0)
+                return;
+
+            var events = SubmitInputAsync(
+                threadId,
+                content,
+                queued.Sender,
+                messages: null,
+                ct,
+                new SessionInputSnapshot
+                {
+                    NativeInputParts = queued.NativeInputParts,
+                    MaterializedInputParts = queued.MaterializedInputParts,
+                    DisplayText = queued.DisplayText,
+                    DeliveryMode = "queued"
+                });
+
+            _ = Task.Run(async () =>
+            {
+                await foreach (var _ in events.WithCancellation(CancellationToken.None)) { }
+            }, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to start queued input {QueuedInputId} for thread {ThreadId}", queued?.Id, threadId);
+            if (thread != null && queued != null && thread.QueuedInputs.All(q => !string.Equals(q.Id, queued.Id, StringComparison.Ordinal)))
+            {
+                thread.QueuedInputs.Insert(0, queued);
+                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                PublishQueueUpdated(thread);
+            }
+        }
+    }
+
+    private static async Task<List<AIContent>> ResolveQueuedInputPartsAsync(
+        List<SessionWireInputPart> parts,
+        CancellationToken ct)
+    {
+        var result = new List<AIContent>(parts.Count);
+        foreach (var part in parts)
+        {
+            result.Add(part.Type switch
+            {
+                "localImage" when part.Path is { } path => await ResolveQueuedLocalImageAsync(path, part.MimeType, part.FileName, ct),
+                "image" when part.Url is { } url => await ResolveQueuedRemoteImageAsync(url, ct),
+                _ => part.ToAIContent()
+            });
+        }
+        return result;
+    }
+
+    private static async Task<AIContent> ResolveQueuedLocalImageAsync(
+        string path,
+        string? mimeTypeHint,
+        string? fileNameHint,
+        CancellationToken ct)
+    {
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(path, ct);
+            var data = new DataContent(bytes, InferMediaType(path));
+            data.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            data.AdditionalProperties["localImage.path"] = path;
+            if (!string.IsNullOrWhiteSpace(mimeTypeHint))
+                data.AdditionalProperties["localImage.mimeType"] = mimeTypeHint.Trim();
+            if (!string.IsNullOrWhiteSpace(fileNameHint))
+                data.AdditionalProperties["localImage.fileName"] = fileNameHint.Trim();
+            return data;
+        }
+        catch
+        {
+            return new TextContent($"[localImage:{path}]");
+        }
+    }
+
+    private static async Task<AIContent> ResolveQueuedRemoteImageAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await QueuedInputHttpClient.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
+            var mediaType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+            return new DataContent(bytes, mediaType);
+        }
+        catch
+        {
+            return new TextContent($"[image:{url}]");
+        }
+    }
+
+    private static string InferMediaType(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            _ => "image/png"
+        };
     }
 
     private void RecordTurnTokenUsage(SessionThread thread, SessionTurn turn)

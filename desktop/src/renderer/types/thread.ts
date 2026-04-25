@@ -3,6 +3,8 @@
  * Reference: specs/appserver-protocol.md §4
  */
 
+import type { QueuedTurnInput } from './conversation'
+
 export type ThreadStatus = 'active' | 'paused' | 'archived'
 
 export interface ThreadSummary {
@@ -58,6 +60,7 @@ export interface Thread extends ThreadSummary {
   metadata: Record<string, unknown>
   configuration?: ThreadConfigurationWire | null
   turns: Turn[]
+  queuedInputs?: QueuedTurnInput[]
   contextUsage?: ContextUsageSnapshotWire | null
 }
 

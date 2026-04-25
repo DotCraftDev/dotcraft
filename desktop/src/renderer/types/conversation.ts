@@ -167,6 +167,17 @@ export interface PendingComposerMessage {
   files?: ComposerFileAttachment[]
 }
 
+export interface QueuedTurnInput {
+  id: string
+  threadId: string
+  nativeInputParts?: InputPart[]
+  materializedInputParts?: InputPart[]
+  displayText: string
+  status: string
+  createdAt: string
+  readyAfterTurnId?: string | null
+}
+
 export interface UserMessageImageRef {
   path: string
   mimeType?: string

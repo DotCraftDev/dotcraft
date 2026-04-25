@@ -613,6 +613,8 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
 
+The `Thread` wire object includes `queuedInputs?: QueuedTurnInput[]`. This queue is returned regardless of `includeTurns`, because it is current thread state rather than historical turn detail.
+
 **`contextUsage` field**: When the server has persisted context-window occupancy for the thread, the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring. This snapshot is not billing usage and must not be derived from cumulative `Turn.tokenUsage` totals or message-history estimation:
 
 ```
@@ -849,6 +851,20 @@ Tag semantics:
 - `mimeType` (string, optional): client-observed MIME type for UI rehydration hints.
 - `fileName` (string, optional): original filename from paste/drop context for UI display.
 
+`QueuedTurnInput` uses the same input snapshot shape:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Queued input ID. |
+| `threadId` | string | Parent thread ID. |
+| `nativeInputParts` | InputPart[] | Original client input snapshot. |
+| `materializedInputParts` | InputPart[] | Model-visible materialized snapshot. |
+| `displayText` | string | Human-readable summary for queue UI. |
+| `sender` | SenderContext? | Optional sender identity. |
+| `status` | string | `"queued"` in v1. |
+| `createdAt` | string | UTC timestamp. |
+| `readyAfterTurnId` | string? | Active turn observed when the input was queued. |
+
 `SenderContext`:
 
 ```json
@@ -920,6 +936,72 @@ Before emitting `turn/cancelled`, the server finalizes any currently streaming a
 **Result**: `{}`
 
 The actual cancellation is asynchronous. Rely on the `turn/cancelled` notification to know when the turn has stopped.
+
+### 5.2.1 `turn/enqueue`
+
+Persist user input in the thread FIFO queue. Desktop clients use this as the default send behavior while another Turn is running.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Target active thread. |
+| `input` | InputPart[] | yes | Same input model as `turn/start`; at least one part required. |
+| `sender` | SenderContext | no | Sender identity for group sessions. |
+
+**Result**:
+
+```json
+{
+  "queuedInput": {
+    "id": "queued_20260425100000000_ab12cd",
+    "threadId": "thread_...",
+    "displayText": "Run tests next",
+    "status": "queued",
+    "createdAt": "2026-04-25T10:00:00Z",
+    "readyAfterTurnId": "turn_003"
+  },
+  "queuedInputs": [ ... ]
+}
+```
+
+After enqueue, remove, or dequeue, the server emits `thread/queue/updated`.
+
+### 5.2.2 `turn/queue/remove`
+
+Remove one queued input without starting a Turn.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Target thread. |
+| `queuedInputId` | string | yes | Queued input ID to remove. |
+
+**Result**: `{ "queuedInputs": QueuedTurnInput[] }`
+
+### 5.2.3 `turn/steer`
+
+Append a user guidance request to the current active Turn. This is not the default send path; clients should call it only when the user explicitly promotes a queued message into guidance.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Target active thread. |
+| `expectedTurnId` | string | yes | Active Turn ID observed by the client. The server rejects the request if it no longer matches. |
+| `input` | InputPart[] | yes | Same input model as `turn/start`; at least one part required. |
+| `sender` | SenderContext | no | Sender identity for group sessions. |
+
+**Result**: `{ "turnId": "<active-turn-id>" }`
+
+The server persists and broadcasts a `userMessage` item with `deliveryMode = "guidance"`. Implementations that own the tool/model loop should inject this input at the next safe boundary; implementations still using a black-box function-invoking loop may expose the persisted guidance item before full mid-turn model injection is available.
 
 ### 5.3 `workspace/commitMessage/suggest`
 
@@ -1144,6 +1226,28 @@ Emitted when a turn is cancelled via `turn/interrupt` or client disconnect.
 
 **Params**: `{ "turn": Turn, "reason": "<description>" }`
 
+#### `thread/queue/updated`
+
+Emitted whenever a thread queue changes because input was enqueued, removed, dequeued, or restored after a failed dequeue start.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "queuedInputs": [
+    {
+      "id": "queued_...",
+      "threadId": "thread_...",
+      "displayText": "Run tests next",
+      "status": "queued",
+      "createdAt": "2026-04-25T10:00:00Z",
+      "readyAfterTurnId": "turn_003"
+    }
+  ]
+}
+```
+
 ### 6.3 Item Notifications
 
 Items follow the lifecycle: `item/started` → zero or more `item/*/delta` → `item/completed`. See [Session Core, Section 5.3](session-core.md#53-item-lifecycle).
@@ -1177,7 +1281,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 
 | `item.type` | Wire-specific notes |
 |-------------|---------------------|
-| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. `text` is a compatibility/display field derived from the native input parts, not the sole source of truth. When present, `nativeInputParts` is authoritative for history rendering and `materializedInputParts` captures the exact snapshot sent to the model. Optional `triggerKind` (`"heartbeat"` / `"cron"` / `"automation"`), `triggerLabel`, and `triggerRefId` are emitted when the turn was synthesized by an automation mechanism (heartbeat, cron, Automations) rather than typed by a human; clients may use these to render a "sent via automation" affordance and route click-through to the originating job/task. |
+| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. `text` is a compatibility/display field derived from the native input parts, not the sole source of truth. When present, `nativeInputParts` is authoritative for history rendering and `materializedInputParts` captures the exact snapshot sent to the model. Optional `deliveryMode` (`"normal"` / `"queued"` / `"guidance"`) lets clients distinguish direct input, queued input that later became a Turn, and active-Turn guidance. Optional `triggerKind` (`"heartbeat"` / `"cron"` / `"automation"`), `triggerLabel`, and `triggerRefId` are emitted when the turn was synthesized by an automation mechanism (heartbeat, cron, Automations) rather than typed by a human; clients may use these to render a "sent via automation" affordance and route click-through to the originating job/task. |
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |

@@ -69,4 +69,9 @@ public sealed class SessionThread
     /// Ordered list of Turns. Append-only.
     /// </summary>
     public List<SessionTurn> Turns { get; set; } = [];
+
+    /// <summary>
+    /// FIFO user inputs waiting for the current running turn to complete.
+    /// </summary>
+    public List<QueuedTurnInput> QueuedInputs { get; set; } = [];
 }

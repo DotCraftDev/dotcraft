@@ -518,6 +518,10 @@ const MESSAGES_EN = {
   'composer.attachImage': 'Attach image',
   'composer.referenceFile': 'Reference file',
   'composer.queuedFileReferences': 'Queued follow-up with {{count}} file reference(s)',
+  'composer.queueGuide': 'Guide',
+  'composer.queueRemove': 'Remove',
+  'composer.queueSendTitle': 'Queue message',
+  'composer.queueSendAria': 'Queue message',
   'composer.removeImageAria': 'Remove image',
   'composer.removeFileAria': 'Remove file',
 
@@ -1955,6 +1959,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.attachImage': '附加图片',
   'composer.referenceFile': '引用文件',
   'composer.queuedFileReferences': '已排队后续消息，包含 {{count}} 个文件引用',
+  'composer.queueGuide': '引导',
+  'composer.queueRemove': '移除',
+  'composer.queueSendTitle': '加入队列',
+  'composer.queueSendAria': '加入队列',
   'composer.removeImageAria': '移除图片',
   'composer.removeFileAria': '移除文件',
 

@@ -50,6 +50,7 @@ public enum SessionEventType
     ThreadCreated,
     ThreadResumed,
     ThreadStatusChanged,
+    ThreadQueueUpdated,
     TurnStarted,
     TurnCompleted,
     TurnFailed,

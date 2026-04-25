@@ -38,7 +38,7 @@ import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { ContextUsageSnapshotWire, SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
-import type { ConversationItem, ConversationTurn } from './types/conversation'
+import type { ConversationItem, ConversationTurn, QueuedTurnInput } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
@@ -521,6 +521,14 @@ export function App(): JSX.Element {
             break
           }
 
+          case 'thread/queue/updated': {
+            const pp = p as { threadId?: string; queuedInputs?: unknown[] }
+            if (shouldUpdateActiveConversation(pp.threadId)) {
+              useConversationStore.getState().setQueuedInputs((pp.queuedInputs ?? []) as QueuedTurnInput[])
+            }
+            break
+          }
+
           case 'thread/runtimeChanged': {
             const pp = p as {
               threadId?: string
@@ -580,38 +588,7 @@ export function App(): JSX.Element {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const completedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
             if (shouldUpdateActiveConversation(completedThreadId)) {
-              const pendingBefore = useConversationStore.getState().pendingMessage
               conv.onTurnCompleted(rawTurn)
-              // Auto-send pending message if any
-              const pending = pendingBefore
-              if (pending) {
-                const activeId = useThreadStore.getState().activeThreadId
-                if (activeId) {
-                  const path = workspacePathRef.current
-                  void (async () => {
-                    const pendingInputParts = pending.inputParts
-                      ?? buildComposerInputParts({
-                        text: pending.text.trim(),
-                        files: pending.files ?? []
-                      }).inputParts
-                    if (pendingInputParts.length === 0) return
-                    await window.api.appServer.sendRequest('turn/start', {
-                      threadId: activeId,
-                      input: pendingInputParts,
-                      identity: {
-                        channelName: 'dotcraft-desktop',
-                        userId: 'local',
-                        channelContext: `workspace:${path}`,
-                        workspacePath: path
-                      }
-                    })
-                  })().catch((err: unknown) =>
-                    console.error('Auto-send pending message failed:', err)
-                  )
-                }
-                // Clear the pending message now that we've sent it
-                useConversationStore.getState().setPendingMessage(null)
-              }
             }
             // Fallback: poll thread/read if sidebar still has no displayName (e.g. missed thread/renamed).
             // Primary updates come from thread/renamed broadcast and thread/read on selection.
@@ -1308,6 +1285,7 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+          useConversationStore.getState().setQueuedInputs(res.thread.queuedInputs ?? [])
           useConversationStore.getState().setContextUsage(res.thread.contextUsage ?? null)
           const parked = useThreadStore.getState().consumeParkedApproval(requestedId)
           if (parked) {
