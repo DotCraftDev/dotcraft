@@ -672,6 +672,15 @@ internal sealed class FakeSessionService : ISessionService
     public Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default) =>
         Task.CompletedTask;
 
+    public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.Turns.RemoveRange(thread.Turns.Count - numTurns, numTurns);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.RollbackThreadAsync(thread, numTurns, ct);
+        return thread;
+    }
+
     public async Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default)
     {
         var thread = await GetOrLoadAsync(threadId, ct);

@@ -133,6 +133,12 @@ public interface ISessionService
     Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default);
 
     /// <summary>
+    /// Drops one or more turns from the end of a Thread.
+    /// This modifies conversation history only; it does not revert filesystem changes made by tools.
+    /// </summary>
+    Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default);
+
+    /// <summary>
     /// Changes the agent mode for a Thread (e.g., "agent" → "plan").
     /// Rebuilds the agent's tool set. Does not create a Turn.
     /// </summary>

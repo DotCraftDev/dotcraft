@@ -155,4 +155,11 @@ describe('InputComposer layout', () => {
     expect(stopButton.getAttribute('style')).toContain('rgb(245, 246, 247)')
     expect(stopButton.getAttribute('style')).toContain('rgb(31, 35, 40)')
   })
+
+  it('does not enter edit mode or expose an edit cancel action from composer', () => {
+    renderComposer()
+
+    expect((window as Window & { __inputComposerEditLastMessage?: unknown }).__inputComposerEditLastMessage).toBeUndefined()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
 })

@@ -287,6 +287,25 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return Task.CompletedTask;
     }
 
+    public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
+    {
+        if (numTurns <= 0)
+            throw new ArgumentOutOfRangeException(nameof(numTurns), "numTurns must be >= 1.");
+
+        var thread = await GetOrLoadAsync(threadId, ct);
+        if (thread.Status == ThreadStatus.Archived)
+            throw new InvalidOperationException($"Thread '{threadId}' is archived and cannot be rolled back.");
+        if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            throw new InvalidOperationException($"Thread '{threadId}' has a running Turn. Cancel it before rollback.");
+        if (thread.Turns.Count < numTurns)
+            throw new InvalidOperationException($"Thread '{threadId}' has only {thread.Turns.Count} turns; cannot roll back {numTurns}.");
+
+        thread.Turns.RemoveRange(thread.Turns.Count - numTurns, numTurns);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.RollbackThreadAsync(thread, numTurns, ct);
+        return thread;
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

@@ -535,8 +535,8 @@ rather than part of the model conversation.
   - Session Core creates an `Error` Item, sets `Turn.Error`, and runs cleanup.
 
 - `Running` or `WaitingApproval` → `Cancelled`
-  - The adapter requests cancellation (e.g., user sends `/cancel`, channel disconnects).
-  - Session Core cancels the agent execution via `CancellationToken`, saves partial state.
+- The adapter requests cancellation (e.g., user sends `/cancel`, channel disconnects).
+- Session Core cancels the agent execution via `CancellationToken`, completes any currently streaming agent/reasoning Items with their accumulated text, saves partial state, and rebuilds or invalidates the persisted `AgentSession` so the next turn includes the cancelled turn's user input and completed partial assistant output.
 
 **Terminal states**: `Completed`, `Failed`, `Cancelled`. A Turn in a terminal state cannot transition.
 
@@ -1069,6 +1069,12 @@ Cross-channel resume works for channels that share the same identity shape:
 
 - **Turn failures** do not corrupt Thread state. A failed Turn is recorded in the Thread's Turn history. The adapter can submit a new Turn to retry.
 - **Persistence failures** are recoverable because Session Core maintains in-memory state and retries on next operation.
+
+### 9.8 Thread Rollback
+
+`RollbackThread(threadId, numTurns)` removes `numTurns` turns from the end of a non-archived Thread. `numTurns` must be at least 1 and no turn in the Thread may be `Running` or `WaitingApproval`.
+
+Rollback appends a canonical rollback record to thread JSONL and updates thread metadata; it does not revert files or other workspace side effects created by tools. After rollback, Session Core rebuilds or invalidates the persisted `AgentSession` from canonical history so future turns use the pruned conversation.
 - **Channel disconnects** are transparent to Session Core. Turns run to completion regardless of adapter state. Results are persisted and available on reconnect.
 
 ### 12.3 Error Reporting

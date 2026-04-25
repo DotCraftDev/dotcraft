@@ -560,6 +560,49 @@ public sealed class SessionService(
             AIAgent agent = defaultAgent;
             AgentSession? session = null;
             TokenTracker? tokenTracker = null;
+            SessionItem? agentMessageItem = null;
+            SessionItem? reasoningItem = null;
+            var agentText = string.Empty;
+            var reasoningText = string.Empty;
+            var agentDeltaIndex = 0;
+            Dictionary<int, SessionItem>? streamingToolCallItemsByIndex = null;
+            Dictionary<int, string>? streamingToolNameByIndex = null;
+            Dictionary<string, SessionItem>? streamingToolCallItemsByCallId = null;
+
+            void FinalizeStreamingAgentMessage()
+            {
+                // Finalize the current AgentMessage so any subsequent text starts a
+                // fresh item, preserving the natural interleaving in stored turns.
+                if (agentMessageItem == null)
+                    return;
+
+                agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
+                agentMessageItem.Status = ItemStatus.Completed;
+                agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
+                eventChannel.EmitItemCompleted(agentMessageItem);
+                agentMessageItem = null;
+                agentText = string.Empty;
+            }
+
+            void FinalizeStreamingReasoning()
+            {
+                if (reasoningItem == null)
+                    return;
+
+                reasoningItem.Payload = new ReasoningContentPayload { Text = reasoningText };
+                reasoningItem.Status = ItemStatus.Completed;
+                reasoningItem.CompletedAt = DateTimeOffset.UtcNow;
+                eventChannel.EmitItemCompleted(reasoningItem);
+                reasoningItem = null;
+                reasoningText = string.Empty;
+            }
+
+            async Task PersistCancelledTurnAsync()
+            {
+                await TrySaveThreadAsync(thread);
+                await TryRebuildAndSaveSessionAsync(agent, threadId);
+            }
+
             try
             {
                 // Step 5a: Acquire SessionGate
@@ -661,14 +704,6 @@ public sealed class SessionService(
                     : null;
 
                 // Step 5g: Run agent
-                SessionItem? agentMessageItem = null;
-                SessionItem? reasoningItem = null;
-                var agentText = string.Empty;
-                var reasoningText = string.Empty;
-                var agentDeltaIndex = 0;
-                Dictionary<int, SessionItem>? streamingToolCallItemsByIndex = null;
-                Dictionary<int, string>? streamingToolNameByIndex = null;
-                Dictionary<string, SessionItem>? streamingToolCallItemsByCallId = null;
                 var externalChannelCallIds = new HashSet<string>(StringComparer.Ordinal);
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
@@ -720,22 +755,6 @@ public sealed class SessionService(
                         EmitItemCompleted = eventChannel.EmitItemCompleted,
                         SupportsCommandExecutionStreaming = supportsCommandExecutionStreaming
                     });
-                void FinalizeStreamingAgentMessage()
-                {
-                    // Finalize the current AgentMessage so any subsequent
-                    // text (post-tool response) starts a fresh item,
-                    // preserving the natural interleaving in stored turns.
-                    if (agentMessageItem == null)
-                        return;
-
-                    agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
-                    agentMessageItem.Status = ItemStatus.Completed;
-                    agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
-                    eventChannel.EmitItemCompleted(agentMessageItem);
-                    agentMessageItem = null;
-                    agentText = string.Empty;
-                }
-
                 try
                 {
                     await foreach (var update in agent.RunStreamingAsync(userMessage, session)
@@ -1191,19 +1210,24 @@ public sealed class SessionService(
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
                 // Explicit CancelTurn call
+                FinalizeStreamingAgentMessage();
+                FinalizeStreamingReasoning();
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Cancelled by request");
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCancelled);
-                await TrySaveThreadAsync(thread);
+                await PersistCancelledTurnAsync();
             }
             catch (OperationCanceledException)
             {
                 // Caller cancellation
+                FinalizeStreamingAgentMessage();
+                FinalizeStreamingReasoning();
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Caller cancelled");
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCancelled);
+                await PersistCancelledTurnAsync();
             }
             catch (Exception ex)
             {
@@ -1314,6 +1338,29 @@ public sealed class SessionService(
         if (_runningTurns.TryGetValue(new TurnKey(threadId, turnId), out var cts))
             cts.Cancel();
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
+    {
+        if (numTurns <= 0)
+            throw new ArgumentOutOfRangeException(nameof(numTurns), "numTurns must be >= 1.");
+
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        if (thread.Status == ThreadStatus.Archived)
+            throw new InvalidOperationException($"Thread '{threadId}' is archived and cannot be rolled back.");
+        if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            throw new InvalidOperationException($"Thread '{threadId}' has a running Turn. Cancel it before rollback.");
+        if (thread.Turns.Count < numTurns)
+            throw new InvalidOperationException($"Thread '{threadId}' has only {thread.Turns.Count} turns; cannot roll back {numTurns}.");
+
+        thread.Turns.RemoveRange(thread.Turns.Count - numTurns, numTurns);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+
+        await persistence.RollbackThreadAsync(thread, numTurns, ct);
+        await TryRebuildAndSaveSessionAsync(_threadAgents.GetValueOrDefault(threadId, defaultAgent), threadId);
+        ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCompleted);
+        return thread;
     }
 
     // =========================================================================
@@ -1637,6 +1684,32 @@ public sealed class SessionService(
         catch (Exception ex)
         {
             logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
+        }
+    }
+
+    private async Task TryRebuildAndSaveSessionAsync(AIAgent agent, string threadId)
+    {
+        if (IsPendingPermanentDeletion(threadId))
+            return;
+
+        if (!_threads.TryGetValue(threadId, out var thread) || thread.HistoryMode != HistoryMode.Server)
+            return;
+
+        try
+        {
+            await persistence.RebuildAndSaveSessionFromThreadAsync(agent, threadId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to rebuild agent session for thread {ThreadId}; clearing stale session.", threadId);
+            try
+            {
+                persistence.DeleteSessionFile(threadId);
+            }
+            catch (Exception deleteEx)
+            {
+                logger?.LogWarning(deleteEx, "Failed to clear stale agent session for thread {ThreadId}", threadId);
+            }
         }
     }
 

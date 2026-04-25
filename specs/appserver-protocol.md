@@ -628,7 +628,30 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. Freshly-created threads initialize persisted context usage to `tokens = 0`; the field is omitted only for older threads or hosts that have no persisted context usage state yet.
 
-### 4.5 `thread/subscribe`
+### 4.5 `thread/rollback`
+
+Drop one or more turns from the end of a thread's canonical history.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "numTurns": 1
+}
+```
+
+**Response**:
+
+```json
+{
+  "thread": { "id": "thread_...", "turns": [] }
+}
+```
+
+`numTurns` must be `>= 1`. The target thread must not be archived and must not contain a `running` or `waitingApproval` turn. Rollback only changes conversation history; it does not revert workspace files, command output, or other side effects produced by the dropped turns. The response includes the updated thread with turns/items so clients can replace local conversation state.
+
+### 4.6 `thread/subscribe`
 
 Subscribe the current connection to future lifecycle events for a thread. Multiple passive subscribers may observe the same thread concurrently.
 
@@ -645,7 +668,7 @@ Subscribe the current connection to future lifecycle events for a thread. Multip
 
 After subscription succeeds, the server may emit future `thread/*`, `turn/*`, and `item/*` notifications for that thread even when the current connection did not originate the turn.
 
-### 4.6 `thread/unsubscribe`
+### 4.7 `thread/unsubscribe`
 
 Remove the current connection's passive subscription to a thread.
 
@@ -661,7 +684,7 @@ Remove the current connection's passive subscription to a thread.
 
 Cancellation of the transport connection also implicitly unsubscribes all active thread subscriptions owned by that connection.
 
-### 4.7 `thread/pause`
+### 4.8 `thread/pause`
 
 Pause an active thread. A paused thread cannot accept new turns until resumed.
 
@@ -677,7 +700,7 @@ Pause an active thread. A paused thread cannot accept new turns until resumed.
 
 The server emits a `thread/statusChanged` notification.
 
-### 4.8 `thread/archive`
+### 4.9 `thread/archive`
 
 Archive a thread. Archived threads are read-only — they can be listed and read but not resumed or turned.
 
@@ -693,7 +716,7 @@ Archive a thread. Archived threads are read-only — they can be listed and read
 
 The server emits a `thread/statusChanged` notification.
 
-### 4.9 `thread/unarchive`
+### 4.10 `thread/unarchive`
 
 Restore an archived thread to Active status so it can appear in the normal active thread list again.
 
@@ -709,7 +732,7 @@ Restore an archived thread to Active status so it can appear in the normal activ
 
 The server emits a `thread/statusChanged` notification with `newStatus: "active"`.
 
-### 4.10 `thread/delete`
+### 4.11 `thread/delete`
 
 Permanently delete a thread, its associated session data, and all tracing sessions/events bound to that thread.
 
@@ -725,7 +748,7 @@ Permanently delete a thread, its associated session data, and all tracing sessio
 
 After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Deletion is only considered successful after the persisted thread record and all bound tracing data have been removed. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
 
-### 4.11 `thread/mode/set`
+### 4.12 `thread/mode/set`
 
 Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
@@ -742,7 +765,7 @@ Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Behavior**: The server recreates the execution context for the specified thread using the tool set associated with the requested mode.
 
-### 4.12 `thread/rename`
+### 4.13 `thread/rename`
 
 Update the display name of a thread.
 
@@ -759,7 +782,7 @@ Update the display name of a thread.
 
 After the display name is persisted, the server **broadcasts** a `thread/renamed` notification to **all** connected clients (see [Section 6.1](#61-thread-notifications)). The same notification is used when Session Core sets the display name from the first user message on a turn (not only in response to this RPC).
 
-### 4.13 `thread/config/update`
+### 4.14 `thread/config/update`
 
 Update per-thread agent configuration (MCP servers, extensions, etc.).
 
@@ -882,6 +905,8 @@ Each persisted Turn also records an `initiator` object with durable actor metada
 ### 5.2 `turn/interrupt`
 
 Request cancellation of an in-progress turn. The server cancels the agent execution via `CancellationToken` and emits `turn/cancelled` once shutdown completes.
+
+Before emitting `turn/cancelled`, the server finalizes any currently streaming agent/reasoning items with their accumulated text and persists the cancelled turn as canonical history. Future `turn/start` calls on server-managed threads must include the cancelled turn's user input and completed partial assistant output when rebuilding model context.
 
 **Direction**: client → server (request)
 

@@ -88,6 +88,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ThreadResume,
         AppServerMethods.ThreadList,
         AppServerMethods.ThreadRead,
+        AppServerMethods.ThreadRollback,
         AppServerMethods.ThreadSubscribe,
         AppServerMethods.ThreadUnsubscribe,
         AppServerMethods.ThreadPause,
@@ -192,6 +193,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
                 AppServerMethods.ThreadRead => HandleThreadReadAsync(msg, ct),
+                AppServerMethods.ThreadRollback => HandleThreadRollbackAsync(msg, ct),
                 AppServerMethods.ThreadSubscribe => HandleThreadSubscribeAsync(msg, ct),
                 AppServerMethods.ThreadUnsubscribe => HandleThreadUnsubscribeAsync(msg, ct),
                 AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
@@ -833,6 +835,19 @@ public sealed class AppServerRequestHandler(
         var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var includeTurns = p.IncludeTurns ?? false;
         return new { thread = WithContextUsage(thread.ToWire(includeTurns), thread.Id) };
+    }
+
+    private async Task<object?> HandleThreadRollbackAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<ThreadRollbackParams>(msg);
+        if (p.NumTurns <= 0)
+            throw AppServerErrors.InvalidParams("'numTurns' must be >= 1.");
+
+        var thread = await sessionService.RollbackThreadAsync(p.ThreadId, p.NumTurns, ct);
+        return new ThreadRollbackResponse
+        {
+            Thread = WithContextUsage(thread.ToWire(includeTurns: true), thread.Id)
+        };
     }
 
     private SessionWireThread WithContextUsage(SessionWireThread wire, string threadId)

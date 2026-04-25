@@ -1,7 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
-import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -303,6 +302,9 @@ export function InputComposer({
         fileFallbackThreadName: t('toast.fileReferenceMessage'),
         attachmentFallbackThreadName: t('toast.attachmentMessage')
       })
+    } catch (err) {
+      console.error('turn/start failed:', err)
+      addToast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       sendInFlightRef.current = false
     }

@@ -46,6 +46,19 @@ public sealed class ThreadStore
     }
 
     /// <summary>
+    /// Appends a rollback record for an already-pruned thread and updates metadata/cache.
+    /// </summary>
+    public async Task RollbackThreadAsync(
+        SessionThread thread,
+        int numTurns,
+        CancellationToken ct = default)
+    {
+        var rolloutPath = await _rolloutStore.AppendRollbackAsync(thread, numTurns, ct);
+        _threadSnapshotCache[thread.Id] = CloneThreadSnapshot(thread);
+        _metadataStore.UpsertThread(thread, rolloutPath);
+    }
+
+    /// <summary>
     /// Loads a thread by replaying canonical thread history.
     /// </summary>
     public async Task<SessionThread?> LoadThreadAsync(string threadId, CancellationToken ct = default)
@@ -87,6 +100,18 @@ public sealed class ThreadStore
     {
         var serialized = await agent.SerializeSessionAsync(session, SessionPersistenceJsonOptions.Default, ct);
         _metadataStore.SaveSessionJson(threadId, serialized.GetRawText());
+    }
+
+    /// <summary>
+    /// Rebuilds and saves the persisted agent session from canonical thread history.
+    /// </summary>
+    public async Task RebuildAndSaveSessionFromThreadAsync(
+        AIAgent agent,
+        string threadId,
+        CancellationToken ct = default)
+    {
+        var rebuilt = await RebuildSessionFromRolloutAsync(agent, threadId, ct);
+        await SaveSessionAsync(agent, rebuilt, threadId, ct);
     }
 
     /// <summary>
@@ -176,10 +201,9 @@ public sealed class ThreadStore
                 if (item.Status != ItemStatus.Completed)
                     continue;
 
-                if (item.Type == ItemType.UserMessage && item.AsUserMessage is { Text: { } userText } &&
-                    !string.IsNullOrWhiteSpace(userText))
+                if (item.Type == ItemType.UserMessage && TryBuildUserMessage(item, out var userMessage))
                 {
-                    history.Add(new ChatMessage(ChatRole.User, userText.Trim()));
+                    history.Add(userMessage);
                 }
                 else if (item.Type == ItemType.AgentMessage && item.AsAgentMessage is { Text: { } agentText } &&
                          !string.IsNullOrWhiteSpace(agentText))
@@ -211,6 +235,37 @@ public sealed class ThreadStore
         {
             return await agent.CreateSessionAsync(ct);
         }
+    }
+
+    private static bool TryBuildUserMessage(SessionItem item, out ChatMessage message)
+    {
+        message = new ChatMessage(ChatRole.User, string.Empty);
+        if (item.AsUserMessage is not { } user)
+            return false;
+
+        var parts =
+            user.MaterializedInputParts is { Count: > 0 } materialized ? materialized :
+            user.NativeInputParts is { Count: > 0 } native ? native :
+            null;
+
+        if (parts is { Count: > 0 })
+        {
+            var contents = parts
+                .Select(p => p.ToAIContent())
+                .Where(c => c is not TextContent tc || !string.IsNullOrWhiteSpace(tc.Text))
+                .ToList();
+            if (contents.Count > 0)
+            {
+                message = new ChatMessage(ChatRole.User, (IList<AIContent>)contents);
+                return true;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(user.Text))
+            return false;
+
+        message = new ChatMessage(ChatRole.User, user.Text.Trim());
+        return true;
     }
 }
 

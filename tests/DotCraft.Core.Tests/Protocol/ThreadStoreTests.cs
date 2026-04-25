@@ -260,6 +260,32 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.Equal("world", loadedTurn.Items[1].AsAgentMessage?.Text);
     }
 
+    [Fact]
+    public async Task RollbackThreadAsync_AppendsRollbackRecord_AndColdReloadRemovesTailTurns()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "first", "one");
+        AddTurnWithMessages(thread, "second", "two");
+        await _store.SaveThreadAsync(thread);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        thread.Turns.RemoveAt(thread.Turns.Count - 1);
+        thread.LastActiveAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        await _store.RollbackThreadAsync(thread, 1);
+
+        var lines = File.ReadAllLines(path);
+        Assert.Equal(initialLineCount + 1, lines.Length);
+        Assert.Contains("thread_rolled_back", lines[^1]);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        var remaining = Assert.Single(loaded.Turns);
+        Assert.Equal("first", remaining.Input?.AsUserMessage?.Text);
+        Assert.Equal("one", remaining.Items[1].AsAgentMessage?.Text);
+    }
+
     // -------------------------------------------------------------------------
     // Thread discovery (LoadIndexAsync reads persisted SQLite metadata)
     // -------------------------------------------------------------------------
@@ -361,6 +387,29 @@ public sealed class ThreadStoreTests : IDisposable
 
         Assert.Equal(
             ["user:Partial request", "assistant:Partial answer"],
+            await ExtractHistoryAsync(agent, session));
+    }
+
+    [Fact]
+    public async Task LoadOrCreateSessionAsync_PrefersMaterializedInputParts_WhenRebuildingHistory()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "display only", "assistant reply");
+        var userPayload = Assert.IsType<UserMessagePayload>(thread.Turns[0].Input?.Payload);
+        thread.Turns[0].Input!.Payload = userPayload with
+        {
+            NativeInputParts = [new SessionWireInputPart { Type = "text", Text = "native text" }],
+            MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = "materialized text" }]
+        };
+        await _store.SaveThreadAsync(thread);
+
+        var store = new ThreadStore(_root);
+        var agent = CreateAgent();
+
+        var session = await store.LoadOrCreateSessionAsync(agent, thread.Id);
+
+        Assert.Equal(
+            ["user:materialized text", "assistant:assistant reply"],
             await ExtractHistoryAsync(agent, session));
     }
 

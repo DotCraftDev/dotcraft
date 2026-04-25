@@ -603,6 +603,24 @@ public sealed class ThreadReadParams
     public bool? IncludeTurns { get; set; }
 }
 
+// ───── thread/rollback ─────
+
+public sealed class ThreadRollbackParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of turns to drop from the end of the thread. Must be >= 1.
+    /// This only modifies conversation history and does not revert filesystem changes.
+    /// </summary>
+    public int NumTurns { get; set; }
+}
+
+public sealed class ThreadRollbackResponse
+{
+    public SessionWireThread Thread { get; set; } = new();
+}
+
 // ───── thread/subscribe ─────
 
 public sealed class ThreadSubscribeParams
@@ -2044,6 +2062,7 @@ public static class AppServerMethods
     public const string ThreadResume = "thread/resume";
     public const string ThreadList = "thread/list";
     public const string ThreadRead = "thread/read";
+    public const string ThreadRollback = "thread/rollback";
     public const string ThreadSubscribe = "thread/subscribe";
     public const string ThreadUnsubscribe = "thread/unsubscribe";
     public const string ThreadPause = "thread/pause";
