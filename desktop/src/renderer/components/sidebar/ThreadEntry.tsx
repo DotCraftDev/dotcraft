@@ -371,7 +371,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             autoFocus
             style={{
               flex: 1,
-              fontSize: '13px',
+              fontSize: 'var(--type-ui-size)',
+              lineHeight: 'var(--type-ui-line-height)',
               color: 'var(--text-primary)',
               backgroundColor: 'var(--bg-tertiary)',
               border: '1px solid var(--border-active)',
@@ -387,7 +388,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             <span
               style={{
                 flex: 1,
-                fontSize: '13px',
+                fontSize: 'var(--type-ui-size)',
+                lineHeight: 'var(--type-ui-line-height)',
+                fontWeight: 'var(--type-ui-weight)',
                 color: 'var(--text-primary)',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -405,7 +408,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginLeft: '4px',
-                  fontSize: '13px',
+                  fontSize: 'var(--type-ui-size)',
+                  lineHeight: 'var(--type-ui-line-height)',
                   color: 'var(--accent)',
                   flexShrink: 0,
                   animation: 'slideInBadge 450ms ease-out'
@@ -434,8 +438,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                     ? 'color-mix(in srgb, var(--accent) 22%, transparent)'
                     : 'color-mix(in srgb, var(--accent) 10%, transparent)',
                   color: 'var(--accent)',
-                  fontSize: '11px',
-                  fontWeight: 600,
+                  fontSize: 'var(--type-secondary-size)',
+                  lineHeight: 'var(--type-secondary-line-height)',
+                  fontWeight: 'var(--type-ui-emphasis-weight)',
                   whiteSpace: 'nowrap',
                   flexShrink: 0,
                   marginLeft: '4px'
@@ -467,8 +472,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                     ? 'color-mix(in srgb, #d4a33b 18%, transparent)'
                     : 'color-mix(in srgb, var(--accent) 12%, transparent)',
                   color: showPendingApprovalBadge ? '#d4a33b' : 'var(--accent)',
-                  fontSize: '11px',
-                  fontWeight: 600,
+                  fontSize: 'var(--type-secondary-size)',
+                  lineHeight: 'var(--type-secondary-line-height)',
+                  fontWeight: 'var(--type-ui-emphasis-weight)',
                   whiteSpace: 'nowrap',
                   flexShrink: 0
                 }}
@@ -503,9 +509,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             <span
               aria-hidden={showArchiveAction}
               style={{
-                fontSize: '12px',
+                fontSize: 'var(--type-secondary-size)',
                 color: 'var(--text-dimmed)',
-                lineHeight: 1,
+                lineHeight: 'var(--type-secondary-line-height)',
                 whiteSpace: 'nowrap',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -542,6 +548,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 cursor: showArchiveAction && !showArchiveConfirm ? 'pointer' : 'default',
                 position: 'absolute',
                 right: 0,
+                top: '50%',
+                transform: 'translateY(-50%)',
                 opacity: showArchiveAction && !showArchiveConfirm ? 1 : 0,
                 pointerEvents: showArchiveAction && !showArchiveConfirm ? 'auto' : 'none',
                 transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
@@ -577,14 +585,17 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 borderRadius: '999px',
                 backgroundColor: 'rgba(248,81,73,0.10)',
                 color: 'var(--error)',
-                fontSize: '10px',
-                fontWeight: 600,
+                fontSize: 'var(--type-secondary-size)',
+                lineHeight: 'var(--type-secondary-line-height)',
+                fontWeight: 'var(--type-ui-emphasis-weight)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: showArchiveConfirm ? 'pointer' : 'default',
                 position: 'absolute',
                 right: 0,
+                top: '50%',
+                transform: 'translateY(-50%)',
                 opacity: showArchiveConfirm ? 1 : 0,
                 pointerEvents: showArchiveConfirm ? 'auto' : 'none',
                 transition: 'opacity 120ms ease, background-color 120ms ease'

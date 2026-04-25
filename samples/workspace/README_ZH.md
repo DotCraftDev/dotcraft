@@ -132,11 +132,11 @@ DotCraft 会先读取全局配置 `~/.craft/config.json`，再叠加 `<workspace
 
 1. 先启动 NapCat
 2. 再启动 DotCraft
-3. 确认 QQ 相关模块配置已启用，并且服务地址正确
+3. 确认 QQ 外部渠道配置已启用，并且服务地址正确
 
 ## 可选：QQ / NapCat
 
-这个示例本身不依赖 QQ 集成。只有在你要测试 QQ Bot 场景时，才需要这一步。
+这个示例本身不依赖 QQ 集成。只有在你要测试 QQ 外部渠道场景时，才需要这一步。
 
 Linux 示例：
 
@@ -144,7 +144,7 @@ Linux 示例：
 screen -dmS napcat bash -c "napcat"
 ```
 
-另外仍然需要在 DotCraft 配置中单独启用对应的 QQ 模块。
+另外仍然需要在 DotCraft 配置中单独启用 QQ 外部渠道。
 
 ## 可选：Tool Sandbox
 
@@ -244,4 +244,4 @@ opensandbox-server init-config ~/.sandbox.toml --example docker
 - [项目 README](../../README_ZH.md)
 - [配置指南](../../docs/config_guide.md)
 - [Dashboard 指南](../../docs/dash_board_guide.md)
-- [QQ Bot 指南](../../docs/qq_bot_guide.md)
+- [QQ 渠道适配器](../../docs/sdk/typescript-qq.md)

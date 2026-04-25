@@ -109,7 +109,11 @@ export function WelcomeScreen(): JSX.Element {
           gap: '8px'
         }}
       >
-        <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>{t('welcome.language')}</span>
+        <span style={{
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
+          color: 'var(--text-dimmed)'
+        }}>{t('welcome.language')}</span>
         <div
           style={{
             display: 'inline-flex',
@@ -139,9 +143,9 @@ export function WelcomeScreen(): JSX.Element {
                   background: active ? 'var(--accent)' : 'transparent',
                   color: active ? 'var(--on-accent)' : 'var(--text-secondary)',
                   padding: '6px 10px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  lineHeight: 1,
+                  fontSize: 'var(--type-secondary-size)',
+                  fontWeight: 'var(--type-ui-emphasis-weight)',
+                  lineHeight: 'var(--type-secondary-line-height)',
                   cursor: switchingLocale || loading ? 'default' : 'pointer',
                   opacity: switchingLocale || loading ? 0.7 : 1
                 }}
@@ -156,10 +160,21 @@ export function WelcomeScreen(): JSX.Element {
 
       {/* Logo / title */}
       <DotCraftLogo size={72} style={{ marginBottom: '20px' }} />
-      <div style={{ marginBottom: '10px', fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px' }}>
+      <div style={{
+        marginBottom: '10px',
+        fontSize: 'var(--type-title-size)',
+        lineHeight: 'var(--type-title-line-height)',
+        fontWeight: 'var(--type-title-weight)',
+        letterSpacing: 0
+      }}>
         {t('app.brandSubtitle')}
       </div>
-      <div style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '40px' }}>
+      <div style={{
+        fontSize: 'var(--type-body-size)',
+        lineHeight: 'var(--type-body-line-height)',
+        color: 'var(--text-secondary)',
+        marginBottom: '40px'
+      }}>
         {t('welcome.tagline')}
       </div>
 
@@ -173,8 +188,9 @@ export function WelcomeScreen(): JSX.Element {
           borderRadius: '8px',
           background: 'var(--accent)',
           color: '#fff',
-          fontSize: '14px',
-          fontWeight: 600,
+          fontSize: 'var(--type-body-size)',
+          lineHeight: 'var(--type-body-line-height)',
+          fontWeight: 'var(--type-ui-emphasis-weight)',
           cursor: loading ? 'default' : 'pointer',
           opacity: loading ? 0.7 : 1,
           marginBottom: '32px'
@@ -189,7 +205,8 @@ export function WelcomeScreen(): JSX.Element {
         <div
           style={{
             color: 'var(--error)',
-            fontSize: '13px',
+            fontSize: 'var(--type-ui-size)',
+            lineHeight: 'var(--type-ui-line-height)',
             marginBottom: '16px',
             maxWidth: '400px',
             textAlign: 'center'
@@ -204,8 +221,9 @@ export function WelcomeScreen(): JSX.Element {
         <div style={{ width: '100%', maxWidth: '420px' }}>
           <div
             style={{
-              fontSize: '11px',
-              fontWeight: 600,
+              fontSize: 'var(--type-secondary-size)',
+              fontWeight: 'var(--type-ui-emphasis-weight)',
+              lineHeight: 'var(--type-secondary-line-height)',
               color: 'var(--text-dimmed)',
               textTransform: 'uppercase',
               letterSpacing: '0.05em',
@@ -256,10 +274,15 @@ export function WelcomeScreen(): JSX.Element {
                   }}
                   aria-label={`Open workspace ${r.name}`}
                 >
-                  <span style={{ fontSize: '13px', fontWeight: 500 }}>{r.name}</span>
+                  <span style={{
+                    fontSize: 'var(--type-ui-size)',
+                    lineHeight: 'var(--type-ui-line-height)',
+                    fontWeight: 'var(--type-ui-emphasis-weight)'
+                  }}>{r.name}</span>
                   <span
                     style={{
-                      fontSize: '11px',
+                      fontSize: 'var(--type-secondary-size)',
+                      lineHeight: 'var(--type-secondary-line-height)',
                       color: 'var(--text-dimmed)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -271,7 +294,12 @@ export function WelcomeScreen(): JSX.Element {
                     {r.path}
                   </span>
                   {isLocked && (
-                    <span style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '2px' }}>
+                    <span style={{
+                      fontSize: 'var(--type-secondary-size)',
+                      lineHeight: 'var(--type-secondary-line-height)',
+                      color: 'var(--warning)',
+                      marginTop: '2px'
+                    }}>
                       {t('welcome.alreadyOpen')}
                     </span>
                   )}

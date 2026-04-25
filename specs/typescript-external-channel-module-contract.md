@@ -330,6 +330,7 @@ The standard adapter config locations are:
 
 - `{workspace}/.craft/feishu.json`
 - `{workspace}/.craft/weixin.json`
+- `{workspace}/.craft/wecom.json`
 
 If a variant targets the same `channelName`, it shares the same default config filename unless the manifest explicitly declares otherwise. The default rule is **shared channel config by channel name**.
 
@@ -636,11 +637,14 @@ This specification exists to close those gaps before desktop or enterprise integ
 
 ### 17.1 Package Set
 
-The TypeScript external channel surface is standardized into three package classes:
+The TypeScript external channel surface is standardized into these package classes:
 
 - `dotcraft-wire` (shared SDK package under `sdk/typescript`)
 - `@dotcraft/channel-feishu` (first-party Feishu package)
 - `@dotcraft/channel-weixin` (first-party Weixin package)
+- `@dotcraft/channel-telegram` (first-party Telegram package)
+- `@dotcraft/channel-qq` (first-party QQ package)
+- `@dotcraft/channel-wecom` (first-party WeCom package)
 
 Default first-party rule:
 
@@ -683,6 +687,9 @@ Each first-party package must expose exactly one supported CLI command:
 
 - `dotcraft-channel-feishu`
 - `dotcraft-channel-weixin`
+- `dotcraft-channel-telegram`
+- `dotcraft-channel-qq`
+- `dotcraft-channel-wecom`
 
 CLI behavior must align with this spec:
 
@@ -695,7 +702,7 @@ Hosts must consume package-root exports only, and must not depend on package-int
 
 ### 17.5 Versioning and Local Dependency Model
 
-- `dotcraft-wire`, `@dotcraft/channel-feishu`, and `@dotcraft/channel-weixin` must use the same repository version by default.
+- `dotcraft-wire` and first-party adapter packages must use the same repository version by default.
 - Adapter packages must depend on `dotcraft-wire` as a package dependency, not via source-relative implementation shortcuts.
 - Repo-local dependency resolution must be workspace-based or stable package-root based.
 - Per-package fragile `file:../..` dependency patterns that depend on folder depth are not allowed.
@@ -751,7 +758,7 @@ A shared conformance suite contract must verify, at minimum:
 Each adapter package README must document:
 
 - workspace `.craft/config.json` enablement snippet
-- adapter config path and example (`.craft/feishu.json` or `.craft/weixin.json`)
+- adapter config path and example (`.craft/feishu.json`, `.craft/weixin.json`, `.craft/wecom.json`, etc.)
 - launcher semantics for local execution
 - interactive setup behavior summary where relevant
 
@@ -811,7 +818,7 @@ This TypeScript external-channel contract effort is complete when all of the fol
 - The SDK exposes a manifest concept sufficient for host integration and variant substitution.
 - The SDK defines stable concepts for tool and capability registration at the module boundary.
 - The contract supports both first-party and enterprise adapter variants for the same channel family.
-- Feishu and Weixin adapters live as standard packages, not example-only directories.
+- First-party adapters live as standard packages, not example-only directories.
 - Each package exports the manifest and module entry required by this specification.
 - Each package can be built and tested independently inside the repo.
 - Each package can be packed locally with `npm pack`.

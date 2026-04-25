@@ -156,7 +156,7 @@ public sealed class AppConfig
     /// If the key is not present in the config file, a default instance is returned.
     /// </summary>
     /// <typeparam name="T">The config section type. Must have a parameterless constructor.</typeparam>
-    /// <param name="key">The JSON key, e.g. "QQBot", "WeComBot", "AgUi".</param>
+    /// <param name="key">The JSON key, e.g. "WeComBot", "AgUi".</param>
     public T GetSection<T>(string key) where T : class, new()
     {
         return (T)_sectionCache.GetOrAdd(key, _ =>
@@ -187,7 +187,7 @@ public sealed class AppConfig
     /// the section's type. Used by cross-cutting modules (GatewayModule, UnityModule) that need
     /// to check enabled status of sections from other modules without depending on their types.
     /// </summary>
-    /// <param name="key">The JSON key (case-insensitive), e.g. "QQBot", "WeComBot".</param>
+    /// <param name="key">The JSON key (case-insensitive), e.g. "WeComBot", "AgUi".</param>
     public bool IsSectionEnabled(string key)
     {
         // Check the section cache first — SetSection may have overridden the value.

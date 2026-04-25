@@ -12,6 +12,8 @@ DotCraft SDKs are for external clients, social channel adapters, and automation 
 | Connect Feishu / Lark | [Feishu Adapter](./typescript-feishu.md) |
 | Connect Telegram | [Telegram Adapter](./typescript-telegram.md) |
 | Connect Weixin | [Weixin Adapter](./typescript-weixin.md) |
+| Connect QQ | [QQ Adapter](./typescript-qq.md) |
+| Connect WeCom | [WeCom Adapter](./typescript-wecom.md) |
 
 ## Related Protocols
 

@@ -1,4 +1,4 @@
-export type ChannelId = 'qq' | 'wecom'
+export type ChannelId = 'wecom'
 
 export interface ChannelDefinition {
   id: ChannelId
@@ -8,12 +8,6 @@ export interface ChannelDefinition {
 }
 
 export const CHANNEL_DEFS: ChannelDefinition[] = [
-  {
-    id: 'qq',
-    nameKey: 'channels.channel.qq',
-    logoPath: new URL('../../assets/channels/qq.svg', import.meta.url).toString(),
-    channelListName: 'qq'
-  },
   {
     id: 'wecom',
     nameKey: 'channels.channel.wecom',

@@ -144,6 +144,6 @@ For complete Python usage examples, see [API Samples](./samples/api.md):
 ## Related Documentation
 
 - [Configuration Guide](./config_guide.md) - Complete configuration reference
-- [QQ Bot Guide](./qq_bot_guide.md) - QQ Bot mode
-- [WeCom Guide](./wecom_guide.md) - WeCom Bot mode
+- [QQ Channel Adapter](./sdk/typescript-qq.md) - QQ external channel
+- [WeCom Channel Adapter](./sdk/typescript-wecom.md) - WeCom external channel
 - [Documentation Index](./reference.md) - Full documentation navigation

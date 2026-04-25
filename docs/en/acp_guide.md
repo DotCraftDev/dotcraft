@@ -116,7 +116,7 @@ Because ACP is now a full AppServer client, sessions created through an editor a
 
 - **Session ID format**: `acp_{sessionId}` (the session ID is assigned by the editor and forwarded to AppServer)
 - **Session storage**: stored in `<workspace>/.craft/sessions/` alongside sessions from CLI, TUI, Desktop, and bot channels
-- **Shared memory**: `memory/MEMORY.md` and `memory/HISTORY.md` are shared across all channels in the same workspace — knowledge acquired in an ACP session is accessible from a CLI or QQ bot session in the same workspace, and vice versa
+- **Shared memory**: `memory/MEMORY.md` and `memory/HISTORY.md` are shared across all channels in the same workspace; knowledge acquired in an ACP session is accessible from CLI and external channel sessions in the same workspace, and vice versa
 - **Multi-client access**: when using `--remote`, multiple clients can connect to the same AppServer simultaneously. An ACP session started in Obsidian can be resumed or monitored from the Desktop application in real time
 
 ## Further Reading

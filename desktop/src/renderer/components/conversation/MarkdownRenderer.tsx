@@ -81,7 +81,7 @@ const baseComponents: Components = {
           fontSize: '1.45rem',
           lineHeight: 1.24,
           fontWeight: 650,
-          letterSpacing: '-0.02em',
+          letterSpacing: 0,
           color: 'var(--text-primary)'
         }}
         {...props}
@@ -99,7 +99,7 @@ const baseComponents: Components = {
           fontSize: '1.18rem',
           lineHeight: 1.3,
           fontWeight: 640,
-          letterSpacing: '-0.015em',
+          letterSpacing: 0,
           color: 'var(--text-primary)'
         }}
         {...props}

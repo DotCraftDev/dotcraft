@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace DotCraft.Gateway;
 
 /// <summary>
-/// Gateway module that enables running multiple channel modules concurrently (QQ, WeCom, API).
+/// Gateway module that enables running multiple channel modules concurrently (WeCom, API, external channels).
 /// Priority: 100 (highest) — overrides all single-channel modules when enabled.
 /// </summary>
 [DotCraftModule("gateway", Priority = 100, Description = "Gateway mode: runs all enabled channel modules concurrently", CanBePrimaryHost = true)]
@@ -42,8 +42,7 @@ public sealed partial class GatewayModule : ModuleBase
     }
 
     private static bool HasGatewayChannelsEnabled(AppConfig config)
-        => config.IsSectionEnabled("QQBot")
-           || config.IsSectionEnabled("WeComBot")
+        => config.IsSectionEnabled("WeComBot")
            || config.IsSectionEnabled("Api")
            || config.IsSectionEnabled("AgUi")
            || config.GetSection<GitHubTrackerConfig>("GitHubTracker").Enabled

@@ -217,7 +217,7 @@ describe('ThreadEntry', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
 
     const dialog = screen.getByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(appServerSendRequest).toHaveBeenCalledWith('thread/delete', { threadId: 'thread-1' })

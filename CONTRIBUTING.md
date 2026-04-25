@@ -41,7 +41,7 @@ If you're using AI coding assistants, load the skill from `samples/skills/dev-gu
 Reference the development guidelines:
 - **Code style**: `samples/skills/dev-guide/SKILL.md`
 - **Module spec**: `samples/skills/dev-guide/references/module-development-spec.md`
-- **Reference implementations**: `src/DotCraft.QQ/` (full channel), `src/DotCraft.Unity/` (tool-only)
+- **Reference implementations**: `sdk/typescript/packages/channel-qq/` (external channel), `src/DotCraft.Unity/` (tool-only)
 
 ### 2. Documentation Contributions
 
@@ -119,7 +119,7 @@ See `samples/skills/dev-guide/SKILL.md` for complete guidelines.
 ## Need Help?
 
 - **Development guidelines**: `samples/skills/dev-guide/`
-- **Code examples**: `src/DotCraft.QQ/`, `src/DotCraft.Unity/`
+- **Code examples**: `sdk/typescript/packages/channel-qq/`, `src/DotCraft.Unity/`
 - **User docs**: `docs/`
 - **Questions**: Open a GitHub Issue
 

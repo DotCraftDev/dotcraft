@@ -912,8 +912,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
             border: chrome === 'minimal' ? 'none' : '1px solid var(--border-default)',
             borderRadius: chrome === 'minimal' ? '0' : '8px',
             padding: chrome === 'minimal' ? '8px 2px 6px' : '8px 12px',
-            fontSize: '14px',
-            lineHeight: '20px',
+            fontSize: 'var(--type-body-size)',
+            lineHeight: 'var(--type-body-line-height)',
             fontFamily: 'var(--font-sans)',
             backgroundColor:
               chrome === 'minimal'

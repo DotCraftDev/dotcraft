@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { InputComposer } from '../components/conversation/InputComposer'
 import { useConnectionStore } from '../stores/connectionStore'
@@ -87,7 +87,15 @@ describe('InputComposer layout', () => {
     expect(screen.getByRole('button', { name: 'Agent' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
+    const modelButton = screen.getByRole('button', { name: 'Select model' })
+    fireEvent.focus(modelButton)
+    const tooltip = screen.getByRole('tooltip')
+    expect(within(tooltip).getByText('Select model')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Ctrl')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Shift')).toBeInTheDocument()
+    expect(within(tooltip).getByText('M')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'M', ctrlKey: true, shiftKey: true })
     const listbox = screen.getByRole('listbox', { name: 'Select model' })
 
     expect(listbox).toBeInTheDocument()
@@ -105,6 +113,29 @@ describe('InputComposer layout', () => {
     expect(svg?.getAttribute('width')).toBe('20')
     expect(sendButton.getAttribute('style')).toContain('color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)')
     expect(sendButton.getAttribute('style')).toContain('var(--text-dimmed)')
+  })
+
+  it('keeps the context usage ring aligned to the model picker height with a smaller donut', () => {
+    useConversationStore.getState().setContextUsage({
+      tokens: 2500,
+      contextWindow: 10000,
+      autoCompactThreshold: 8000,
+      warningThreshold: 7000,
+      errorThreshold: 9000,
+      percentLeft: 0.75
+    })
+
+    renderComposer()
+
+    const ring = screen.getByRole('img', { name: 'Context usage: 25% used' })
+    const ringSvg = ring.querySelector('svg')
+    const modelButton = screen.getByRole('button', { name: 'Select model' })
+
+    expect(ring.getAttribute('style')).toContain('width: 22px')
+    expect(ring.getAttribute('style')).toContain('height: 22px')
+    expect(ringSvg?.getAttribute('width')).toBe('14')
+    expect(ringSvg?.getAttribute('height')).toBe('14')
+    expect(modelButton.getAttribute('style')).toContain('height: 22px')
   })
 
   it('matches the running stop button to the enabled send button style', () => {

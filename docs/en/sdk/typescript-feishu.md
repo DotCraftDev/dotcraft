@@ -158,7 +158,7 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - New media tool `FeishuEmbedDocxMedia` uploads a local image/file and inserts it into a docx block flow (with rollback on downstream failure)
 - New title tools: `FeishuUpdateDocxTitle` and wiki node rename `FeishuRenameWikiNode`
 - New docx comment tools: `FeishuListDocxComments`, `FeishuBatchQueryDocxComments`, `FeishuListDocxCommentReplies`, `FeishuAddDocxComment`, `FeishuAddDocxCommentReply`, `FeishuResolveDocxComment`
-- Legacy `/doc/<token>` URLs (old-style Feishu documents) are **not supported**; the docx v1 API only covers `/docx/...`. Open the file in Feishu and copy the new `/docx/<token>` URL instead. The tool surface returns a dedicated `UnsupportedLegacyDoc` error in this case.
+- Use `/docx/<token>` URLs for docx documents; if you copy a link from Feishu, make sure it points to a docx document.
 - Wiki tools (`spaceIdOrUrl`) accept a numeric `space_id`, a wiki settings URL (`/wiki/settings/<space_id>`), or a wiki node URL/token; node URLs/tokens are auto-resolved by calling `getWikiNode` and default that node as parent when parent is omitted
 - `FeishuMoveDocxToWiki` aligns with the official Lark CLI: when the API returns a `task_id` (async path), the tool polls `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move` up to 30 times at 2 s intervals (~60 s window). On success it returns `ready=true` with the resolved `wikiToken`; on timeout it returns `ready=false, timedOut=true, taskId` so the caller can re-query later. Pass `waitForCompletion: false` to skip polling and get the raw `taskId` immediately.
 - `FeishuMoveWikiNode` moves an existing wiki node inside or across wiki spaces. Provide `nodeTokenOrUrl` plus at least one of `targetParentTokenOrUrl` / `targetSpaceIdOrUrl`; when both targets are given, the tool verifies they belong to the same space and otherwise raises `InconsistentWikiTarget`.
@@ -222,13 +222,6 @@ Fix:
 4. Re-run the tool; `code=131006` should disappear. If it changes to `99991672`, revisit the OpenAPI scope list (see the permission matrix above). If it changes to `131008`, the node exists but is locked/archived — verify node status in the Feishu UI.
 
 Reference: [Feishu wiki.spaces.get_node documentation](https://open.feishu.cn/document/server-docs/docs/wiki-v2/space-node/get_node).
-
-## Non-Goals For History APIs
-
-- No scheduler or polling orchestration
-- No checkpoint persistence
-- No cooldown or audit policy
-- No guarantee that tenant permissions are already enabled
 
 ## Auth / Login Model
 

@@ -23,8 +23,10 @@ export function useAutoScroll(contentLength: number): UseAutoScrollResult {
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
-    setIsAtBottom(true)
+    if (el.scrollTop !== el.scrollHeight) {
+      el.scrollTop = el.scrollHeight
+    }
+    setIsAtBottom((current) => current ? current : true)
   }, [])
 
   // Check scroll position on user scroll
@@ -35,7 +37,7 @@ export function useAutoScroll(contentLength: number): UseAutoScrollResult {
     function handleScroll(): void {
       if (!el) return
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - AT_BOTTOM_THRESHOLD
-      setIsAtBottom(atBottom)
+      setIsAtBottom((current) => current === atBottom ? current : atBottom)
     }
 
     el.addEventListener('scroll', handleScroll, { passive: true })

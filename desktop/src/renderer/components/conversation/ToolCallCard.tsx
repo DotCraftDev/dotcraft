@@ -54,9 +54,28 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
   return toolResultPending
 }
 
+function formatRunningToolLabel(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  locale: AppLocale,
+  streamingLabel: string,
+  planTodos?: Array<{ id: string; content: string }>
+): string {
+  if (isShellToolName(toolName) && args) {
+    return formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+  }
+  if (toolName === CRON_TOOL_NAME && args) {
+    return formatCronRunningLabel(args, locale)
+  }
+  if (isWebToolName(toolName) && args && !invocationNeedsCallingPrefix(toolName, args)) {
+    return formatInvocationDisplay(toolName, args, locale) ?? streamingLabel
+  }
+  return streamingLabel
+}
+
 export const ToolCallCard = memo(function ToolCallCard({
   item,
-  turnId
+  turnId: _turnId
 }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [hovered, setHovered] = useState(false)
@@ -113,6 +132,13 @@ export const ToolCallCard = memo(function ToolCallCard({
   const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
   const streamingFileDiff = FILE_WRITE_TOOLS.has(toolName) ? streamingItemDiffs.get(item.id) : undefined
+  const runningLabel = formatRunningToolLabel(
+    toolName,
+    args,
+    locale,
+    streamingDisplay.label,
+    planTodos
+  )
 
   function toggleExpand(): void {
     if (!isRunning || canExpandWhileRunning) {
@@ -218,24 +244,17 @@ export const ToolCallCard = memo(function ToolCallCard({
           }}
         >
           <Spinner />
-          <span style={{ flex: 1 }}>
-            {isShellTool && args ? (
-              <span style={{ color: 'var(--text-primary)' }}>
-                {formatCollapsedToolLabel(toolName, args, locale, { planTodos })}
-              </span>
-            ) : toolName === CRON_TOOL_NAME && args ? (
-              <span style={{ color: 'var(--text-primary)' }}>
-                {formatCronRunningLabel(args, locale)}
-              </span>
-            ) : isWebToolName(toolName) && args && !invocationNeedsCallingPrefix(toolName, args) ? (
-              <span style={{ color: 'var(--text-primary)' }}>
-                {formatInvocationDisplay(toolName, args, locale)}
-              </span>
-            ) : (
-              <span style={{ color: 'var(--text-primary)' }}>
-                {streamingDisplay.label}
-              </span>
-            )}
+          <span
+            className="tool-running-gradient-text"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {runningLabel}
           </span>
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}

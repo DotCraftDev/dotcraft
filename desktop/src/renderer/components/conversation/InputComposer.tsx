@@ -496,6 +496,7 @@ export function InputComposer({
               unsupported={modelListUnsupportedEndpoint}
               disabled={modelDisabled}
               onChange={onModelChange}
+              shortcut={ACTION_SHORTCUTS.selectModel}
               triggerStyle={composerModelPillStyle(
                 modelDisabled || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
                 modelDisabled || modelLoading

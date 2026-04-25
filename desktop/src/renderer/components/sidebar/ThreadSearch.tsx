@@ -209,7 +209,8 @@ function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps)
             outline: 'none',
             background: 'transparent',
             color: 'var(--text-primary)',
-            fontSize: '16px',
+            fontSize: 'var(--type-body-size)',
+            lineHeight: 'var(--type-body-line-height)',
             padding: '0 12px',
             boxSizing: 'border-box'
           }}
@@ -219,8 +220,9 @@ function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps)
           style={{
             padding: '12px 12px 6px',
             color: 'var(--text-dimmed)',
-            fontSize: '13px',
-            fontWeight: 500
+            fontSize: 'var(--type-ui-size)',
+            lineHeight: 'var(--type-ui-line-height)',
+            fontWeight: 'var(--type-ui-emphasis-weight)'
           }}
         >
           {title}
@@ -249,7 +251,8 @@ function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps)
                   color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   textAlign: 'left',
-                  fontSize: '15px'
+                  fontSize: 'var(--type-body-size)',
+                  lineHeight: 'var(--type-body-line-height)'
                 }}
               >
                 <Monitor size={17} strokeWidth={1.8} aria-hidden />
@@ -259,7 +262,8 @@ function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps)
                 <span
                   style={{
                     color: 'var(--text-dimmed)',
-                    fontSize: '14px',
+                    fontSize: 'var(--type-ui-size)',
+                    lineHeight: 'var(--type-ui-line-height)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -279,7 +283,8 @@ function ThreadSearchDialog({ workspaceName, onClose }: ThreadSearchDialogProps)
             style={{
               padding: '18px 12px 20px',
               color: 'var(--text-dimmed)',
-              fontSize: '14px'
+              fontSize: 'var(--type-body-size)',
+              lineHeight: 'var(--type-body-line-height)'
             }}
           >
             {t('threadSearchDialog.empty')}

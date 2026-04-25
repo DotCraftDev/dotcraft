@@ -81,7 +81,12 @@ export function SidebarFooter(): JSX.Element {
         }}
       >
         <ConnectionStatusIndicator />
-        <span style={{ fontSize: '11px', color: 'var(--text-dimmed)', flexShrink: 0, lineHeight: 1.2 }}>
+        <span style={{
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
+          color: 'var(--text-dimmed)',
+          flexShrink: 0
+        }}>
           v{APP_VERSION}
         </span>
       </div>

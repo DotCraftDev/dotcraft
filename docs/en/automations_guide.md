@@ -384,7 +384,7 @@ Each issue/PR gets its own workspace with automatic `git clone`:
         └── ...
 ```
 
-The GitHub workspace root is configured via `Automations.WorkspaceRoot`. `GitHubTracker.Workspace.Root` configures the legacy clone workspace.
+The GitHub workspace root is configured via `Automations.WorkspaceRoot`. `GitHubTracker.Workspace.Root` configures the tracker clone workspace.
 
 ---
 

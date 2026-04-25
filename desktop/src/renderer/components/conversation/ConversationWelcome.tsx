@@ -775,16 +775,25 @@ export function ConversationWelcome({
           >
             <h1
               style={{
-                fontSize: '26px',
-                fontWeight: 600,
+                fontSize: 'var(--type-title-size)',
+                lineHeight: 'var(--type-title-line-height)',
+                fontWeight: 'var(--type-title-weight)',
                 color: 'var(--text-primary)',
                 margin: 0,
-                letterSpacing: '-0.4px'
+                letterSpacing: 0
               }}
             >
               {t('welcome.heroTitle')}
             </h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, textAlign: 'center', maxWidth: '520px' }}>
+            <p style={{
+              fontSize: 'var(--type-body-size)',
+              lineHeight: 'var(--type-body-line-height)',
+              fontWeight: 'var(--type-body-weight)',
+              color: 'var(--text-secondary)',
+              margin: 0,
+              textAlign: 'center',
+              maxWidth: '520px'
+            }}>
               {isConnected
                 ? t('welcomeComposer.hint.select')
                 : t('welcomeComposer.hint.connecting')}
@@ -928,6 +937,7 @@ export function ConversationWelcome({
                     onChange={(nextModel) => {
                       void handleModelChange(nextModel)
                     }}
+                    shortcut={ACTION_SHORTCUTS.selectModel}
                     triggerStyle={composerModelPillStyle(
                       modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
                       modelApplying || starting || modelLoading
@@ -987,9 +997,9 @@ export function ConversationWelcome({
                     color: 'var(--text-secondary)',
                     cursor: busy ? 'default' : 'pointer',
                     textAlign: 'left',
-                    fontSize: '13px',
-                    fontWeight: 400,
-                    lineHeight: 1.4,
+                    fontSize: 'var(--type-ui-size)',
+                    fontWeight: 'var(--type-ui-weight)',
+                    lineHeight: 'var(--type-ui-line-height)',
                     transition: 'background-color 120ms ease, color 120ms ease',
                     opacity: busy ? 0.7 : 1
                   }}

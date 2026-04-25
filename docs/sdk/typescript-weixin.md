@@ -123,13 +123,7 @@ instance.onStatusChange((status, error) => {
 await instance.start();
 ```
 
-## 7）迁移说明
-
-- 旧版 `adapter_config.json` 与 `weixin.dataDir` 已废弃
-- 不会自动迁移旧 `dataDir` 路径中的历史状态
-- 迁移后首次运行需要在新状态目录下重新扫码登录
-
-## 8）开发说明
+## 开发说明
 
 - 构建所有 TypeScript 包：
   - `cd sdk/typescript && npm run build:all`

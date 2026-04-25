@@ -7,7 +7,8 @@ export const SIDEBAR_NAV_ROW_OUTER: CSSProperties = {
   padding: '8px 12px',
   borderRadius: '6px',
   border: 'none',
-  fontSize: '13px',
+  fontSize: 'var(--type-ui-size)',
+  lineHeight: 'var(--type-ui-line-height)',
   textAlign: 'left',
   display: 'flex',
   alignItems: 'center',
@@ -26,7 +27,7 @@ export const SIDEBAR_NAV_ICON_SLOT: CSSProperties = {
 }
 
 export const SIDEBAR_NAV_LABEL: CSSProperties = {
-  lineHeight: 1.2
+  lineHeight: 'var(--type-ui-line-height)'
 }
 
 export const SIDEBAR_NAV_BORDER_INACTIVE: CSSProperties = {

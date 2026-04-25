@@ -68,8 +68,6 @@ DashBoard behavior varies slightly across runtime modes:
 | Runtime Mode | DashBoard Startup | Access URL |
 |-------------|-------------------|------------|
 | CLI | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
-| QQ Bot | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
-| WeCom Bot | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
 | Gateway | Managed by WebHostPool, merged automatically by port | See note below |
 
 > **Gateway Mode Note**: In Gateway mode, DashBoard always uses the address configured by `DashBoard.Host` and `DashBoard.Port`. If that address matches another service (e.g. API or AG-UI), the DashBoard routes are automatically merged into the same Kestrel server — no separate server is started. If the address differs, it runs as a standalone server. Since both `Api.Port` and `DashBoard.Port` default to `8080`, they share the same server by default.
@@ -186,13 +184,13 @@ Returns the configuration schema used by the Settings page to render its dynamic
 ```json
 [
     {
-        "key": "QQBot",
-        "displayName": "QQ Bot",
-        "order": 200,
+        "key": "DashBoard",
+        "displayName": "DashBoard",
+        "order": 190,
         "fields": [
             { "name": "Enabled", "type": "boolean", "default": false },
-            { "name": "Port", "type": "number", "default": 6700, "min": 1, "max": 65535 },
-            { "name": "AccessToken", "type": "string", "sensitive": true }
+            { "name": "Port", "type": "number", "default": 8080, "min": 1, "max": 65535 },
+            { "name": "Host", "type": "string", "default": "127.0.0.1" }
         ]
     }
 ]
@@ -320,6 +318,6 @@ Because both `Api.Port` and `DashBoard.Port` are `8080`, they are automatically 
 
 - [Configuration Guide](./config_guide.md) - Complete configuration reference
 - [API Mode Guide](./api_guide.md) - OpenAI-compatible API service
-- [QQ Bot Guide](./qq_bot_guide.md) - QQ Bot mode
-- [WeCom Guide](./wecom_guide.md) - WeCom Bot mode
+- [QQ Channel Adapter](./sdk/typescript-qq.md) - QQ external channel
+- [WeCom Channel Adapter](./sdk/typescript-wecom.md) - WeCom external channel
 - [Documentation Index](./reference.md) - Full documentation navigation

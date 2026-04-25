@@ -119,6 +119,13 @@ function resolveModulePill(
   return { status: 'notConfigured', label: t('channels.status.notConfigured') }
 }
 
+function resolveModuleDisplayName(
+  module: Pick<DiscoveredModule, 'displayName' | 'localizedDisplayName'>,
+  locale: 'en' | 'zh-Hans'
+): string {
+  return module.localizedDisplayName?.[locale] ?? module.displayName
+}
+
 export function ModuleConfigForm({
   module,
   variantModules = [],
@@ -172,6 +179,7 @@ export function ModuleConfigForm({
     starting || moduleStatus?.processState === 'starting' || moduleStatus?.processState === 'stopping'
   const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
   const hasVariants = variantModules.length > 1
+  const moduleDisplayName = resolveModuleDisplayName(module, locale)
 
   const resolveDescriptorLabel = (
     descriptor: DiscoveredModule['configDescriptors'][number]
@@ -416,7 +424,7 @@ export function ModuleConfigForm({
         {logoPath ? (
           <img
             src={logoPath}
-            alt={module.displayName}
+            alt={moduleDisplayName}
             width={44}
             height={44}
             style={formStyles.headerLogo}
@@ -436,12 +444,12 @@ export function ModuleConfigForm({
               fontWeight: 700
             }}
           >
-            {module.displayName.slice(0, 1).toUpperCase()}
+            {moduleDisplayName.slice(0, 1).toUpperCase()}
           </div>
         )}
 
         <div style={{ minWidth: 0 }}>
-          <div style={formStyles.headerTitle}>{module.displayName}</div>
+          <div style={formStyles.headerTitle}>{moduleDisplayName}</div>
           <div
             style={{
               marginTop: '4px',
@@ -485,7 +493,7 @@ export function ModuleConfigForm({
               {variantModules.map((variant) => (
                 <option key={variant.moduleId} value={variant.moduleId}>
                   {t('channels.modules.variant.option', {
-                    name: variant.displayName,
+                    name: resolveModuleDisplayName(variant, locale),
                     variant: variant.variant
                   })}
                 </option>

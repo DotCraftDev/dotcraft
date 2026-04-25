@@ -32,9 +32,10 @@ export function WorkspaceSetupInterstitial({
       <h1
         style={{
           margin: '0 0 10px',
-          fontSize: '26px',
-          fontWeight: 700,
-          letterSpacing: '-0.4px'
+          fontSize: 'var(--type-title-size)',
+          lineHeight: 'var(--type-title-line-height)',
+          fontWeight: 'var(--type-title-weight)',
+          letterSpacing: 0
         }}
       >
         {t('setupInterstitial.title')}
@@ -43,8 +44,8 @@ export function WorkspaceSetupInterstitial({
         style={{
           maxWidth: '560px',
           margin: '0 0 14px',
-          fontSize: '14px',
-          lineHeight: 1.6,
+          fontSize: 'var(--type-body-size)',
+          lineHeight: 'var(--type-body-line-height)',
           color: 'var(--text-secondary)',
           textAlign: 'center'
         }}
@@ -60,7 +61,8 @@ export function WorkspaceSetupInterstitial({
           border: '1px solid var(--border-default)',
           background: 'var(--bg-secondary)',
           color: 'var(--text-secondary)',
-          fontSize: '12px',
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
           fontFamily: 'var(--font-mono)',
           marginBottom: '22px',
           wordBreak: 'break-all'
@@ -84,8 +86,9 @@ export function WorkspaceSetupInterstitial({
             borderRadius: '8px',
             background: 'var(--accent)',
             color: 'var(--on-accent)',
-            fontSize: '14px',
-            fontWeight: 600,
+            fontSize: 'var(--type-body-size)',
+            lineHeight: 'var(--type-body-line-height)',
+            fontWeight: 'var(--type-ui-emphasis-weight)',
             cursor: 'pointer'
           }}
         >
@@ -100,7 +103,8 @@ export function WorkspaceSetupInterstitial({
             border: '1px solid var(--border-default)',
             background: 'transparent',
             color: 'var(--text-primary)',
-            fontSize: '14px',
+            fontSize: 'var(--type-body-size)',
+            lineHeight: 'var(--type-body-line-height)',
             cursor: 'pointer'
           }}
         >

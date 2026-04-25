@@ -121,6 +121,59 @@ test("ChannelAdapter flushes the current segment before external channel tool ca
   );
 });
 
+test("ChannelAdapter lets senderExtra override groupId and omit implicit channel context groupId", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+  const senders: unknown[] = [];
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async (_threadId: string, _input: unknown, sender: unknown) => {
+    senders.push(sender);
+    return new Turn(`turn-${senders.length}`, "thread-1", "running");
+  };
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "turn/completed",
+        params: { threadId: "thread-1", turn: { items: [] } },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("user-1:group:123", {
+    userId: "user-1",
+    userName: "Tester",
+    text: "hello",
+    channelContext: "group:123",
+    senderExtra: { groupId: "123", senderRole: "admin" },
+  });
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("user-1:user:1", {
+    userId: "user-1",
+    userName: "Tester",
+    text: "hello",
+    channelContext: "user:1",
+    omitSenderGroupId: true,
+  });
+
+  assert.deepEqual(senders[0], {
+    senderId: "user-1",
+    senderName: "Tester",
+    groupId: "123",
+    senderRole: "admin",
+  });
+  assert.deepEqual(senders[1], {
+    senderId: "user-1",
+    senderName: "Tester",
+  });
+});
+
 test("item/completed reconciles truncated deltas before turn/completed", async () => {
   const adapter = new RecordingAdapter();
   const client = (adapter as unknown as { client: Record<string, unknown> }).client;

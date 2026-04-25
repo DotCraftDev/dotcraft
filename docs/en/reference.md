@@ -16,10 +16,6 @@ Read the DotCraft documentation to get started quickly.
 
 [SDK](./sdk/index.md) - Python SDK, TypeScript SDK, and external channel adapters
 
-[QQ Bot Guide](./qq_bot_guide.md) - NapCat / OneBot V11, permissions & approval
-
-[WeCom Guide](./wecom_guide.md) - WeComBot mode, approvals, and delivery
-
 [ACP Mode Guide](./acp_guide.md) - Agent Client Protocol editor/IDE integration (JetBrains, Obsidian, and more)
 
 [Unity Integration Guide](./unity_guide.md) - Unity Editor extension with AI-powered scene and asset tools
@@ -31,3 +27,7 @@ Read the DotCraft documentation to get started quickly.
 [DashBoard Debugging Tool Guide](./dash_board_guide.md) - Built-in Web debugging UI, Trace data viewer
 
 [Settings Lifecycle Guide](./settings-lifecycle.md) - Three-tier model, proxy lock, AppServer restart semantics
+
+[QQ Channel Adapter](./sdk/typescript-qq.md) - NapCat / OneBot v11, permissions, and approval
+
+[WeCom Channel Adapter](./sdk/typescript-wecom.md) - WeCom callbacks, approvals, and delivery

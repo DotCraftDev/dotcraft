@@ -22,6 +22,7 @@ export interface DiscoveredModule {
   moduleId: string
   channelName: string
   displayName: string
+  localizedDisplayName?: Partial<Record<'en' | 'zh-Hans', string>>
   packageName: string
   configFileName: string
   supportedTransports: string[]
@@ -42,6 +43,7 @@ interface ManifestWire {
   moduleId: unknown
   channelName: unknown
   displayName: unknown
+  localizedDisplayName?: unknown
   packageName: unknown
   configFileName: unknown
   supportedTransports: unknown
@@ -124,6 +126,8 @@ function parseManifest(
   const moduleId = asNonEmptyString(manifest.moduleId)
   const channelName = asNonEmptyString(manifest.channelName)
   const displayName = asNonEmptyString(manifest.displayName)
+  const localizedDisplayName =
+    manifest.localizedDisplayName == null ? undefined : asLocalizedStringMap(manifest.localizedDisplayName)
   const packageName = asNonEmptyString(manifest.packageName)
   const configFileName = asNonEmptyString(manifest.configFileName)
   const supportedTransports = asStringArray(manifest.supportedTransports)
@@ -133,6 +137,7 @@ function parseManifest(
     moduleId === null ||
     channelName === null ||
     displayName === null ||
+    localizedDisplayName === null ||
     packageName === null ||
     configFileName === null ||
     supportedTransports === null ||
@@ -154,6 +159,7 @@ function parseManifest(
     moduleId,
     channelName,
     displayName,
+    localizedDisplayName,
     packageName,
     configFileName,
     supportedTransports,

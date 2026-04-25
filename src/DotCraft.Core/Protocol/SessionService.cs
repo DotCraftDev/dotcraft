@@ -603,7 +603,7 @@ public sealed class SessionService(
                 }
 
                 // Step 5c: Append runtime context to the multimodal content list
-                var userMessage = new ChatMessage(ChatRole.User, content.AppendRuntimeContext());
+                var userMessage = new ChatMessage(ChatRole.User, content.AppendRuntimeContext(turn.Initiator));
 
                 // Step 5d: Run PrePrompt hooks
                 if (hookRunner != null)

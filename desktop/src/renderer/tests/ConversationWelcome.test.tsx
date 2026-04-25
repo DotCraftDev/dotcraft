@@ -197,7 +197,7 @@ describe('ConversationWelcome composer', () => {
     expect(modeToggle.getAttribute('style')).toContain('background: transparent')
     expect(modeToggle.getAttribute('style')).not.toContain('var(--border-default)')
     expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
+    fireEvent.keyDown(window, { key: 'M', ctrlKey: true, shiftKey: true })
     const listbox = screen.getByRole('listbox', { name: 'Select model' })
     expect(listbox).toBeInTheDocument()
     expect(listbox.getAttribute('style')).toContain('var(--bg-secondary)')
