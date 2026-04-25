@@ -462,6 +462,7 @@ Dashboard gains a workspace context:
 - A workspace selector allows switching the Dashboard view between registered workspaces.
 - Trace viewer, thread list, config editor, and token usage are all scoped to the selected workspace.
 - Dashboard reads data directly from the in-process `WorkspaceRuntime` objects (TraceStore, ThreadStore, TokenUsageStore). No wire protocol round-trip needed.
+- Clearing trace sessions deletes the selected workspace's trace rows plus usage rows linked by `thread_id` or `session_key`; global usage rows without either link are preserved. Bulk trace clearing may run SQLite WAL truncation and conditional compaction for that workspace's `.craft/state.db`.
 
 ### 10.3 Cross-Workspace Views
 

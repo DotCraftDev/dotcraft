@@ -1,3 +1,4 @@
+using DotCraft.State;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 
@@ -21,9 +22,13 @@ public static class SessionPersistenceDeletionScopes
 /// </summary>
 public sealed class SessionPersistenceService(
     ThreadStore threadStore,
-    TraceStore? traceStore = null)
+    TraceStore? traceStore = null,
+    TokenUsageStore? tokenUsageStore = null,
+    StateRuntime? stateRuntime = null)
 {
     private readonly TraceStore _traceStore = traceStore ?? new TraceStore();
+    private readonly TokenUsageStore? _tokenUsageStore = tokenUsageStore;
+    private readonly StateRuntime? _stateRuntime = stateRuntime;
 
     public Task SaveThreadAsync(SessionThread thread, CancellationToken ct = default)
         => threadStore.SaveThreadAsync(thread, ct);
@@ -78,11 +83,13 @@ public sealed class SessionPersistenceService(
     {
         ct.ThrowIfCancellationRequested();
 
-        foreach (var sessionKey in _traceStore.GetBoundSessionKeys(threadId))
+        var sessionKeys = _traceStore.GetBoundSessionKeys(threadId);
+        foreach (var sessionKey in sessionKeys)
             _traceStore.ClearSession(sessionKey);
 
         threadStore.DeleteThread(threadId);
         threadStore.DeleteSessionFile(threadId);
+        DeleteUsageRecords([threadId], sessionKeys);
         return Task.CompletedTask;
     }
 
@@ -100,6 +107,7 @@ public sealed class SessionPersistenceService(
                 try
                 {
                     await deleteThreadAsync(descriptor.RootThreadId, ct);
+                    DeleteUsageRecords([descriptor.RootThreadId], [sessionKey]);
                     return true;
                 }
                 catch (KeyNotFoundException)
@@ -113,7 +121,9 @@ public sealed class SessionPersistenceService(
             return true;
         }
 
-        return _traceStore.DeleteStandaloneSession(sessionKey);
+        var deleted = _traceStore.DeleteStandaloneSession(sessionKey);
+        DeleteUsageRecords([], [sessionKey]);
+        return deleted;
     }
 
     public async Task DeleteTraceSessionsAsync(
@@ -136,11 +146,18 @@ public sealed class SessionPersistenceService(
 
         foreach (var threadId in boundThreadIds)
         {
+            var sessionKeysForThread = descriptors
+                .Where(d => string.Equals(d.RootThreadId, threadId, StringComparison.Ordinal))
+                .Select(d => d.SessionKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
             if (deleteThreadAsync != null)
             {
                 try
                 {
                     await deleteThreadAsync(threadId, ct);
+                    DeleteUsageRecords([threadId], sessionKeysForThread);
                     continue;
                 }
                 catch (KeyNotFoundException)
@@ -153,6 +170,30 @@ public sealed class SessionPersistenceService(
         }
 
         foreach (var sessionKey in standaloneSessions)
+        {
             _traceStore.DeleteStandaloneSession(sessionKey);
+            DeleteUsageRecords([], [sessionKey]);
+        }
     }
+
+    /// <summary>
+    /// Runs lightweight database maintenance after bulk state deletion.
+    /// </summary>
+    public bool CompactStateIfWorthwhile(bool force = false)
+    {
+        if (_stateRuntime == null)
+            return false;
+
+        try
+        {
+            return _stateRuntime.CompactIfWorthwhile(force);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void DeleteUsageRecords(IEnumerable<string> threadIds, IEnumerable<string> sessionKeys)
+        => _tokenUsageStore?.DeleteDashboardUsageRecords(threadIds, sessionKeys);
 }
