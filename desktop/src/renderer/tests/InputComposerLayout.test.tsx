@@ -156,6 +156,22 @@ describe('InputComposer layout', () => {
     expect(stopButton.getAttribute('style')).toContain('rgb(31, 35, 40)')
   })
 
+  it('shows the queued send action instead of stop while running with draft text', () => {
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-123'
+    })
+
+    renderComposer()
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = 'follow up'
+    fireEvent.input(textbox)
+
+    expect(screen.getByRole('button', { name: 'Queue message' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop turn' })).toBeNull()
+  })
+
   it('does not enter edit mode or expose an edit cancel action from composer', () => {
     renderComposer()
 

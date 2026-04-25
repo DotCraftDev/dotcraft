@@ -3,8 +3,11 @@
 // DotCraft adaptation: owns a compact streaming tool loop so same-turn guidance can be inserted at safe boundaries.
 
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
+
+#pragma warning disable MEAI001 // Mirrors upstream FunctionInvokingChatClient handling for provider-managed continuations.
 
 namespace DotCraft.Agents;
 
@@ -15,6 +18,13 @@ namespace DotCraft.Agents;
 public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient, IServiceProvider? services = null)
     : DelegatingChatClient(innerClient)
 {
+    private static readonly AsyncLocal<FunctionInvocationContext?> CurrentInvocationContext = new();
+
+    /// <summary>
+    /// Gets the function invocation context currently flowing through this client.
+    /// </summary>
+    public static FunctionInvocationContext? CurrentContext => CurrentInvocationContext.Value;
+
     /// <summary>
     /// Extra tools that may be invoked even when they are not sent in the current
     /// request's <see cref="ChatOptions.Tools"/> list.
@@ -27,9 +37,45 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
     public bool AllowConcurrentInvocation { get; set; }
 
     /// <summary>
+    /// Includes raw exception messages in generated function result content.
+    /// </summary>
+    public bool IncludeDetailedErrors { get; set; }
+
+    /// <summary>
     /// Maximum number of model/tool rounds to run for one request.
     /// </summary>
-    public int MaximumIterationsPerRequest { get; set; } = 40;
+    public int MaximumIterationsPerRequest
+    {
+        get;
+        set
+        {
+            if (value < 1)
+                throw new ArgumentOutOfRangeException(nameof(value), "Maximum iterations must be at least one.");
+
+            field = value;
+        }
+    } = 40;
+
+    /// <summary>
+    /// Maximum consecutive function-call iterations allowed to fail before the
+    /// original exception is rethrown.
+    /// </summary>
+    public int MaximumConsecutiveErrorsPerRequest
+    {
+        get;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "Maximum consecutive errors cannot be negative.");
+
+            field = value;
+        }
+    } = 3;
+
+    /// <summary>
+    /// Terminates the loop when a requested function is not available locally.
+    /// </summary>
+    public bool TerminateOnUnknownCalls { get; set; }
 
     /// <summary>
     /// Custom invocation hook matching Microsoft.Extensions.AI's public surface.
@@ -49,22 +95,40 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
     {
         var originalMessages = messages.ToList();
         var currentMessages = (IEnumerable<ChatMessage>)originalMessages;
-        var augmentedHistory = new List<ChatMessage>();
+        List<ChatMessage>? augmentedHistory = null;
+        List<ChatMessage>? responseMessages = null;
         var consecutiveErrorCount = 0;
+        var lastIterationHadConversationId = false;
+        var toolMessageId = Guid.NewGuid().ToString("N");
 
-        for (var iteration = 0; iteration <= MaximumIterationsPerRequest; iteration++)
+        for (var iteration = 0; ; iteration++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (iteration >= MaximumIterationsPerRequest)
+                PrepareOptionsForLastIteration(ref options);
+
             var updates = new List<ChatResponseUpdate>();
             var functionCalls = new List<FunctionCallContent>();
-            var serverHandledCallIds = new HashSet<string>(StringComparer.Ordinal);
+            var lastYieldedUpdateIndex = 0;
 
             await foreach (var update in base.GetStreamingResponseAsync(currentMessages, options, cancellationToken))
             {
                 updates.Add(update);
                 CopyFunctionCalls(update.Contents, functionCalls);
-                CopyFunctionResults(update.Contents, serverHandledCallIds);
+
+                if (functionCalls.Count == 0)
+                {
+                    lastYieldedUpdateIndex++;
+                    yield return update;
+                }
+            }
+
+            MarkServerHandledFunctionCalls(updates, functionCalls);
+
+            for (; lastYieldedUpdateIndex < updates.Count; lastYieldedUpdateIndex++)
+            {
+                var update = updates[lastYieldedUpdateIndex];
                 yield return update;
             }
 
@@ -72,23 +136,40 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
                 yield break;
 
             var response = updates.ToChatResponse();
-            FixupHistory(originalMessages, ref currentMessages, augmentedHistory, response);
-            if (serverHandledCallIds.Count > 0)
-                functionCalls.RemoveAll(call => serverHandledCallIds.Contains(call.CallId));
+            (responseMessages ??= []).AddRange(response.Messages);
 
-            if (functionCalls.Count == 0 || iteration >= MaximumIterationsPerRequest)
+            if (iteration >= MaximumIterationsPerRequest || ShouldTerminateLoopBasedOnHandleableFunctions(functionCalls, options))
             {
-                if (await TryAppendGuidanceAsync(augmentedHistory, cancellationToken))
+                FixupHistories(
+                    originalMessages,
+                    ref currentMessages,
+                    ref augmentedHistory,
+                    response,
+                    responseMessages,
+                    ref lastIterationHadConversationId);
+
+                var history = augmentedHistory ?? throw new InvalidOperationException("Augmented history was not initialized.");
+                if (await TryAppendGuidanceAsync(history, cancellationToken))
                 {
-                    currentMessages = augmentedHistory;
+                    currentMessages = history;
+                    UpdateOptionsForNextIteration(ref options, response.ConversationId);
                     continue;
                 }
 
                 yield break;
             }
 
+            FixupHistories(
+                originalMessages,
+                ref currentMessages,
+                ref augmentedHistory,
+                response,
+                responseMessages,
+                ref lastIterationHadConversationId);
+            var nextHistory = augmentedHistory ?? throw new InvalidOperationException("Augmented history was not initialized.");
+
             var toolMessages = await InvokeFunctionsAsync(
-                augmentedHistory,
+                nextHistory,
                 options,
                 functionCalls,
                 iteration,
@@ -98,13 +179,16 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
             var anyTerminated = false;
             foreach (var message in toolMessages.Messages)
             {
-                augmentedHistory.Add(message);
+                nextHistory.Add(message);
+                responseMessages.Add(message);
                 yield return new ChatResponseUpdate
                 {
                     Role = message.Role,
                     Contents = message.Contents,
-                    MessageId = message.MessageId,
+                    MessageId = message.MessageId ?? toolMessageId,
+                    ResponseId = message.MessageId ?? toolMessageId,
                     ConversationId = response.ConversationId,
+                    CreatedAt = DateTimeOffset.UtcNow,
                     AdditionalProperties = message.AdditionalProperties
                 };
             }
@@ -115,21 +199,40 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
             if (anyTerminated)
                 yield break;
 
-            await TryAppendGuidanceAsync(augmentedHistory, cancellationToken);
-            currentMessages = augmentedHistory;
+            await TryAppendGuidanceAsync(nextHistory, cancellationToken);
+            UpdateOptionsForNextIteration(ref options, response.ConversationId);
+            currentMessages = nextHistory;
         }
     }
 
-    private static void FixupHistory(
-        IReadOnlyList<ChatMessage> originalMessages,
+    private static void FixupHistories(
+        IEnumerable<ChatMessage> originalMessages,
         ref IEnumerable<ChatMessage> currentMessages,
-        List<ChatMessage> augmentedHistory,
-        ChatResponse response)
+        ref List<ChatMessage>? augmentedHistory,
+        ChatResponse response,
+        List<ChatMessage> allTurnsResponseMessages,
+        ref bool lastIterationHadConversationId)
     {
-        if (augmentedHistory.Count == 0)
+        if (response.ConversationId is not null)
+        {
+            (augmentedHistory ??= []).Clear();
+            lastIterationHadConversationId = true;
+        }
+        else if (lastIterationHadConversationId)
+        {
+            augmentedHistory ??= [];
+            augmentedHistory.Clear();
             augmentedHistory.AddRange(originalMessages);
+            augmentedHistory.AddRange(allTurnsResponseMessages);
+            lastIterationHadConversationId = false;
+        }
+        else
+        {
+            augmentedHistory ??= originalMessages.ToList();
+            augmentedHistory.AddMessages(response);
+            lastIterationHadConversationId = false;
+        }
 
-        augmentedHistory.AddMessages(response);
         currentMessages = augmentedHistory;
     }
 
@@ -142,12 +245,31 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
         }
     }
 
-    private static void CopyFunctionResults(IList<AIContent> contents, HashSet<string> callIds)
+    private static void MarkServerHandledFunctionCalls(List<ChatResponseUpdate> updates, List<FunctionCallContent> functionCalls)
     {
-        foreach (var content in contents)
+        if (functionCalls.Count == 0)
+            return;
+
+        HashSet<string>? resultCallIds = null;
+        foreach (var update in updates)
         {
-            if (content is FunctionResultContent result)
-                callIds.Add(result.CallId);
+            foreach (var content in update.Contents)
+            {
+                if (content is FunctionResultContent result)
+                    (resultCallIds ??= []).Add(result.CallId);
+            }
+        }
+
+        if (resultCallIds == null)
+            return;
+
+        for (var i = functionCalls.Count - 1; i >= 0; i--)
+        {
+            if (!resultCallIds.Contains(functionCalls[i].CallId))
+                continue;
+
+            functionCalls[i].InformationalOnly = true;
+            functionCalls.RemoveAt(i);
         }
     }
 
@@ -165,6 +287,31 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
         return true;
     }
 
+    private bool ShouldTerminateLoopBasedOnHandleableFunctions(List<FunctionCallContent> functionCalls, ChatOptions? options)
+    {
+        if (functionCalls.Count == 0)
+            return true;
+
+        if (!HasAnyTools(options?.Tools, AdditionalTools))
+            return TerminateOnUnknownCalls;
+
+        foreach (var call in functionCalls)
+        {
+            var tool = FindToolDeclaration(call.Name, options);
+            if (tool is not null)
+            {
+                if (tool is not AIFunction)
+                    return true;
+            }
+            else if (TerminateOnUnknownCalls)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task<FunctionInvocationBatch> InvokeFunctionsAsync(
         List<ChatMessage> messages,
         ChatOptions? options,
@@ -173,6 +320,7 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
         int consecutiveErrorCount,
         CancellationToken cancellationToken)
     {
+        var captureExceptions = consecutiveErrorCount < MaximumConsecutiveErrorsPerRequest;
         var results = AllowConcurrentInvocation && functionCalls.Count > 1
             ? await Task.WhenAll(functionCalls.Select((call, index) => InvokeFunctionAsync(
                 messages,
@@ -181,7 +329,7 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
                 iteration,
                 index,
                 functionCalls.Count,
-                captureExceptions: true,
+                captureExceptions,
                 cancellationToken)))
             : await InvokeFunctionsSeriallyAsync(
                 messages,
@@ -193,27 +341,38 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
 
         var contents = new List<AIContent>();
         var shouldTerminate = false;
+        var exceptions = new List<Exception>();
+        var anyException = false;
 
         foreach (var result in results)
         {
             shouldTerminate |= result.ShouldTerminate;
-            if (result.Exception == null)
-            {
-                consecutiveErrorCount = 0;
-            }
-            else
-            {
-                consecutiveErrorCount++;
-            }
+            result.Call.InformationalOnly = true;
 
-            contents.Add(new FunctionResultContent(result.Call.CallId, result.Value)
+            var content = CreateFunctionResultContent(result);
+            contents.Add(content);
+
+            if (content.Exception != null)
             {
-                Exception = result.Exception
-            });
+                anyException = true;
+                exceptions.Add(content.Exception);
+            }
         }
 
+        if (anyException)
+        {
+            consecutiveErrorCount++;
+            if (consecutiveErrorCount > MaximumConsecutiveErrorsPerRequest)
+                ThrowFunctionExceptions(exceptions);
+        }
+        else
+        {
+            consecutiveErrorCount = 0;
+        }
+
+        var messageId = Guid.NewGuid().ToString("N");
         return new FunctionInvocationBatch(
-            contents.Count == 0 ? [] : [new ChatMessage(ChatRole.Tool, contents)],
+            contents.Count == 0 ? [] : [new ChatMessage(ChatRole.Tool, contents) { MessageId = messageId }],
             shouldTerminate,
             consecutiveErrorCount);
     }
@@ -236,7 +395,7 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
                 iteration,
                 index,
                 functionCalls.Count,
-                captureExceptions: consecutiveErrorCount > 0,
+                captureExceptions: consecutiveErrorCount < MaximumConsecutiveErrorsPerRequest,
                 cancellationToken);
             outcomes.Add(outcome);
             if (outcome.ShouldTerminate)
@@ -258,7 +417,7 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
     {
         var tool = FindTool(call.Name, options);
         if (tool is not AIFunction function)
-            return new FunctionInvocationOutcome(call, $"Tool '{call.Name}' was not found.", null, false);
+            return new FunctionInvocationOutcome(call, FunctionInvocationStatus.NotFound, null, null, false);
 
         var arguments = new AIFunctionArguments(call.Arguments)
         {
@@ -277,17 +436,49 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
             IsStreaming = true
         };
 
+        var previousContext = CurrentInvocationContext.Value;
         try
         {
+            CurrentInvocationContext.Value = context;
             var value = FunctionInvoker == null
                 ? await function.InvokeAsync(arguments, cancellationToken)
                 : await FunctionInvoker(context, cancellationToken);
-            return new FunctionInvocationOutcome(call, value, null, context.Terminate);
+            return new FunctionInvocationOutcome(call, FunctionInvocationStatus.RanToCompletion, value, null, context.Terminate);
         }
         catch (Exception ex) when (captureExceptions && ex is not OperationCanceledException)
         {
-            return new FunctionInvocationOutcome(call, ex.Message, ex, false);
+            return new FunctionInvocationOutcome(call, FunctionInvocationStatus.Exception, null, ex, false);
         }
+        finally
+        {
+            CurrentInvocationContext.Value = previousContext;
+        }
+    }
+
+    private FunctionResultContent CreateFunctionResultContent(FunctionInvocationOutcome result)
+    {
+        if (result.Status == FunctionInvocationStatus.RanToCompletion)
+        {
+            if (result.Value is FunctionResultContent content && content.CallId == result.Call.CallId)
+                return content;
+
+            return new FunctionResultContent(result.Call.CallId, result.Value ?? "Success: Function completed.");
+        }
+
+        var message = result.Status switch
+        {
+            FunctionInvocationStatus.NotFound => $"Error: Requested function \"{result.Call.Name}\" not found.",
+            FunctionInvocationStatus.Exception => "Error: Function failed.",
+            _ => "Error: Unknown error."
+        };
+
+        if (IncludeDetailedErrors && result.Status == FunctionInvocationStatus.Exception && result.Exception != null)
+            message = $"{message} Exception: {result.Exception.Message}";
+
+        return new FunctionResultContent(result.Call.CallId, message)
+        {
+            Exception = result.Exception
+        };
     }
 
     private AITool? FindTool(string name, ChatOptions? options)
@@ -298,6 +489,74 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
         return FindIn(options?.Tools, name) ?? FindIn(AdditionalTools, name);
     }
 
+    private AIFunctionDeclaration? FindToolDeclaration(string name, ChatOptions? options)
+    {
+        static AIFunctionDeclaration? FindIn(IEnumerable<AITool>? tools, string toolName) =>
+            tools?.OfType<AIFunctionDeclaration>().FirstOrDefault(t => string.Equals(t.Name, toolName, StringComparison.Ordinal));
+
+        return FindIn(options?.Tools, name) ?? FindIn(AdditionalTools, name);
+    }
+
+    private static bool HasAnyTools(params IList<AITool>?[] toolLists) =>
+        toolLists.Any(tools => tools is { Count: > 0 });
+
+    private static void PrepareOptionsForLastIteration(ref ChatOptions? options)
+    {
+        if (options?.Tools is not { Count: > 0 })
+            return;
+
+        List<AITool>? remainingTools = null;
+        foreach (var tool in options.Tools)
+        {
+            if (tool is not AIFunctionDeclaration)
+                (remainingTools ??= []).Add(tool);
+        }
+
+        var remainingCount = remainingTools?.Count ?? 0;
+        if (remainingCount >= options.Tools.Count)
+            return;
+
+        options = options.Clone();
+        options.Tools = remainingTools;
+        if (remainingCount == 0)
+            options.ToolMode = null;
+    }
+
+    private static void UpdateOptionsForNextIteration(ref ChatOptions? options, string? conversationId)
+    {
+        if (options == null)
+        {
+            if (conversationId != null)
+                options = new ChatOptions { ConversationId = conversationId };
+        }
+        else if (options.ToolMode is RequiredChatToolMode)
+        {
+            options = options.Clone();
+            options.ToolMode = null;
+            options.ConversationId = conversationId;
+        }
+        else if (options.ConversationId != conversationId)
+        {
+            options = options.Clone();
+            options.ConversationId = conversationId;
+        }
+        else if (options.ContinuationToken != null)
+        {
+            options = options.Clone();
+        }
+
+        if (options?.ContinuationToken != null)
+            options.ContinuationToken = null;
+    }
+
+    private static void ThrowFunctionExceptions(List<Exception> exceptions)
+    {
+        if (exceptions.Count == 1)
+            ExceptionDispatchInfo.Capture(exceptions[0]).Throw();
+
+        throw new AggregateException(exceptions);
+    }
+
     private sealed record FunctionInvocationBatch(
         IReadOnlyList<ChatMessage> Messages,
         bool ShouldTerminate,
@@ -305,7 +564,15 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
 
     private sealed record FunctionInvocationOutcome(
         FunctionCallContent Call,
+        FunctionInvocationStatus Status,
         object? Value,
         Exception? Exception,
         bool ShouldTerminate);
+
+    private enum FunctionInvocationStatus
+    {
+        RanToCompletion,
+        NotFound,
+        Exception
+    }
 }

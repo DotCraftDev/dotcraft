@@ -548,21 +548,20 @@ export function InputComposer({
             />
             {!isWaitingApproval ? (
               isRunning ? (
-                <>
-                  {canSend && (
-                    <ActionTooltip label={t('composer.queueSendTitle')} placement="top">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void sendMessage()
-                        }}
-                        aria-label={t('composer.queueSendAria')}
-                        style={composerSendButtonStyle('enabled')}
-                      >
-                        <SendIcon />
-                      </button>
-                    </ActionTooltip>
-                  )}
+                canSend ? (
+                  <ActionTooltip label={t('composer.queueSendTitle')} placement="top">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void sendMessage()
+                      }}
+                      aria-label={t('composer.queueSendAria')}
+                      style={composerSendButtonStyle('enabled')}
+                    >
+                      <SendIcon />
+                    </button>
+                  </ActionTooltip>
+                ) : (
                   <ActionTooltip label={t('composer.stopTitle')} placement="top">
                     <button
                       type="button"
@@ -573,7 +572,7 @@ export function InputComposer({
                       <StopIcon />
                     </button>
                   </ActionTooltip>
-                </>
+                )
               ) : (
                 <ActionTooltip
                   label={t('composer.sendAriaAlt')}
