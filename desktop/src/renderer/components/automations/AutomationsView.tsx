@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationTemplate,
@@ -15,6 +15,7 @@ import { TaskReviewPanel } from './TaskReviewPanel'
 import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 function SkeletonCard(): JSX.Element {
   return (
@@ -62,6 +63,7 @@ function SkeletonCard(): JSX.Element {
 
 export function AutomationsView(): JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const hasTasks = capabilities?.automations === true
   const hasCron = capabilities?.cronManagement === true
@@ -89,7 +91,6 @@ export function AutomationsView(): JSX.Element {
   const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
   const templates = useAutomationsStore((s) => s.templates)
-  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const [templatesCollapsed, setTemplatesCollapsed] = useState(false)
 
@@ -131,10 +132,10 @@ export function AutomationsView(): JSX.Element {
   }, [hasTasks, startPolling, stopPolling])
 
   useEffect(() => {
-    if (hasTasks && filterSource !== 'github' && !templatesLoaded) {
-      void fetchTemplates()
+    if (hasTasks && filterSource !== 'github') {
+      void fetchTemplates(locale)
     }
-  }, [hasTasks, filterSource, templatesLoaded, fetchTemplates])
+  }, [hasTasks, filterSource, locale, fetchTemplates])
 
   useEffect(() => {
     return () => {
@@ -207,13 +208,13 @@ export function AutomationsView(): JSX.Element {
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               {hasGitHubTrackerConfig && (
-                <button
-                  type="button"
-                  onClick={() => setShowGitHubConfig((v) => !v)}
-                  aria-label={t('auto.githubConfig.open')}
-                  title={t('auto.githubConfig.open')}
-                  aria-pressed={showGitHubConfig}
-                  style={{
+                <ActionTooltip label={t('auto.githubConfig.open')} placement="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setShowGitHubConfig((v) => !v)}
+                    aria-label={t('auto.githubConfig.open')}
+                    aria-pressed={showGitHubConfig}
+                    style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -235,15 +236,16 @@ export function AutomationsView(): JSX.Element {
                   >
                     <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
                   </svg>
-                </button>
+                  </button>
+                </ActionTooltip>
               )}
               {activePanel === 'tasks' && (
-                <button
-                  type="button"
-                  onClick={() => void fetchTasks()}
-                  aria-label={t('auto.refreshTasks')}
-                  title={t('auto.refreshTasks')}
-                  style={{
+                <ActionTooltip label={t('auto.refreshTasks')} placement="bottom">
+                  <button
+                    type="button"
+                    onClick={() => void fetchTasks()}
+                    aria-label={t('auto.refreshTasks')}
+                    style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
                     border: '1px solid var(--border-default)',
@@ -255,15 +257,16 @@ export function AutomationsView(): JSX.Element {
                   }}
                 >
                   {t('common.refresh')}
-                </button>
+                  </button>
+                </ActionTooltip>
               )}
               {activePanel === 'cron' && hasCron && (
-                <button
-                  type="button"
-                  onClick={refreshCron}
-                  aria-label={t('auto.refreshCron')}
-                  title={t('auto.refreshCron')}
-                  style={{
+                <ActionTooltip label={t('auto.refreshCron')} placement="bottom">
+                  <button
+                    type="button"
+                    onClick={refreshCron}
+                    aria-label={t('auto.refreshCron')}
+                    style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
                     border: '1px solid var(--border-default)',
@@ -275,7 +278,8 @@ export function AutomationsView(): JSX.Element {
                   }}
                 >
                   {t('common.refresh')}
-                </button>
+                  </button>
+                </ActionTooltip>
               )}
               {activePanel === 'tasks' && showNewButton && (
                 <button
@@ -306,17 +310,21 @@ export function AutomationsView(): JSX.Element {
 
           {showTabBar && (
             <div role="tablist" aria-label={t('auto.tablistAria')} style={{ display: 'flex', gap: '2px' }}>
-              <button
-                type="button"
-                role="tab"
-                disabled={!hasTasks}
-                aria-disabled={!hasTasks}
-                aria-selected={activePanel === 'tasks'}
-                title={hasTasks ? undefined : t('auto.tabTasksUnavailable')}
-                onClick={() => {
-                  if (hasTasks) setAutomationsTab('tasks')
-                }}
-                style={{
+              <ActionTooltip
+                label={t('auto.tabTasks')}
+                disabledReason={!hasTasks ? t('auto.tabTasksUnavailable') : undefined}
+                placement="bottom"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  disabled={!hasTasks}
+                  aria-disabled={!hasTasks}
+                  aria-selected={activePanel === 'tasks'}
+                  onClick={() => {
+                    if (hasTasks) setAutomationsTab('tasks')
+                  }}
+                  style={{
                   padding: '4px 12px',
                   borderRadius: '6px',
                   border: 'none',
@@ -329,18 +337,23 @@ export function AutomationsView(): JSX.Element {
                 }}
               >
                 {t('auto.tabTasks')}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                disabled={!hasCron}
-                aria-disabled={!hasCron}
-                aria-selected={activePanel === 'cron'}
-                title={hasCron ? undefined : t('auto.tabCronUnavailable')}
-                onClick={() => {
-                  if (hasCron) setAutomationsTab('cron')
-                }}
-                style={{
+                </button>
+              </ActionTooltip>
+              <ActionTooltip
+                label={t('auto.tabCron')}
+                disabledReason={!hasCron ? t('auto.tabCronUnavailable') : undefined}
+                placement="bottom"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  disabled={!hasCron}
+                  aria-disabled={!hasCron}
+                  aria-selected={activePanel === 'cron'}
+                  onClick={() => {
+                    if (hasCron) setAutomationsTab('cron')
+                  }}
+                  style={{
                   padding: '4px 12px',
                   borderRadius: '6px',
                   border: 'none',
@@ -353,7 +366,8 @@ export function AutomationsView(): JSX.Element {
                 }}
               >
                 {t('auto.tabCron')}
-              </button>
+                </button>
+              </ActionTooltip>
             </div>
           )}
 
@@ -568,6 +582,7 @@ export function AutomationsView(): JSX.Element {
                               transition: 'opacity 0.15s'
                             }}
                           >
+                            <ActionTooltip label={t('auto.gallery.my.edit')} placement="top">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -577,7 +592,6 @@ export function AutomationsView(): JSX.Element {
                                 setNewDialogTab('template')
                                 setShowNewTask(true)
                               }}
-                              title={t('auto.gallery.my.edit')}
                               aria-label={t('auto.gallery.my.edit')}
                               style={{
                                 width: '22px',
@@ -596,6 +610,7 @@ export function AutomationsView(): JSX.Element {
                             >
                               ✎
                             </button>
+                            </ActionTooltip>
                           </div>
                         )}
                       </div>

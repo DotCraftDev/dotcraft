@@ -389,7 +389,13 @@ export class WireProtocolClient extends EventEmitter {
           streamingSupport: true,
           commandExecutionStreaming: true,
           configChange: true,
-          optOutNotificationMethods: []
+          optOutNotificationMethods: [],
+          browserUse: {
+            version: 1,
+            jsRuntime: true,
+            images: true,
+            backend: 'desktop-webcontents'
+          }
         }
       },
       10_000

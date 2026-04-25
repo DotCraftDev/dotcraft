@@ -303,6 +303,13 @@ body {
   user-select: none;
 }
 
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
 /* Allow text selection in content areas */
 .selectable {
   user-select: text;

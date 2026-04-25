@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationSchedule,
@@ -11,6 +11,7 @@ import { SchedulePicker } from './SchedulePicker'
 import { ThreadPickerOverlay } from './ThreadPickerOverlay'
 import { TemplateGalleryOverlay } from './TemplateGalleryOverlay'
 import { PillSwitch } from '../ui/PillSwitch'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 type DialogTab = 'task' | 'template'
 
@@ -52,11 +53,11 @@ export function NewTaskDialog({
   editingTemplate
 }: Props): JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const createTask = useAutomationsStore((s) => s.createTask)
   const saveTemplate = useAutomationsStore((s) => s.saveTemplate)
   const deleteTemplate = useAutomationsStore((s) => s.deleteTemplate)
   const templates = useAutomationsStore((s) => s.templates)
-  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const threadList = useThreadStore((s) => s.threadList)
 
@@ -126,8 +127,8 @@ export function NewTaskDialog({
   const [tplDeleting, setTplDeleting] = useState(false)
 
   useEffect(() => {
-    if (!templatesLoaded) void fetchTemplates()
-  }, [templatesLoaded, fetchTemplates])
+    void fetchTemplates(locale)
+  }, [fetchTemplates, locale])
 
   // When a template suggests thread binding, pop the thread picker after the dialog mounts
   // so the user sees the intent immediately (without forcing — they can still cancel).
@@ -1068,6 +1069,7 @@ function TargetPill({
 
   return (
     <div style={{ position: 'relative' }}>
+      <ActionTooltip label={label}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -1088,10 +1090,10 @@ function TargetPill({
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap'
         }}
-        title={label}
       >
         {label} ▾
       </button>
+      </ActionTooltip>
       {open && (
         <div
           style={{

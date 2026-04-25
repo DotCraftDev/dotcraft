@@ -26,6 +26,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
     private sealed class StartedState(
         AgentFactory agentFactory,
         WireAcpExtensionProxy wireAcpExtensionProxy,
+        WireBrowserUseProxy wireBrowserUseProxy,
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggestService,
         WelcomeSuggestionService welcomeSuggestionService,
@@ -40,6 +41,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
         public AgentFactory AgentFactory { get; } = agentFactory;
 
         public WireAcpExtensionProxy WireAcpExtensionProxy { get; } = wireAcpExtensionProxy;
+
+        public WireBrowserUseProxy WireBrowserUseProxy { get; } = wireBrowserUseProxy;
 
         public ISessionService SessionService { get; } = sessionService;
 
@@ -126,6 +129,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
 
     public WireAcpExtensionProxy WireAcpExtensionProxy => EnsureStarted().WireAcpExtensionProxy;
 
+    public WireBrowserUseProxy WireBrowserUseProxy => EnsureStarted().WireBrowserUseProxy;
+
     public IReadOnlyList<ConfigSchemaSection> ConfigSchema => EnsureStarted().ConfigSchema;
 
     public string? DashboardUrl => EnsureStarted().AppServerFeature?.DashboardUrl;
@@ -171,6 +176,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
             var scopedApproval = new SessionScopedApprovalService(fallbackApproval);
             var planStore = new PlanStore(Paths.CraftPath);
             var wireAcpExtensionProxy = new WireAcpExtensionProxy();
+            var wireBrowserUseProxy = new WireBrowserUseProxy();
 
             AgentFactory? agentFactory = null;
             HeartbeatService? heartbeatService = null;
@@ -201,7 +207,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                         McpClientManager = McpClientManager.Tools.Count > 0 ? McpClientManager : null,
                         LspServerManager = LspServerManager,
                         TraceCollector = traceCollector,
-                        AcpExtensionProxy = wireAcpExtensionProxy
+                        AcpExtensionProxy = wireAcpExtensionProxy,
+                        BrowserUseProxy = wireBrowserUseProxy
                     },
                     traceCollector: traceCollector,
                     planStore: planStore,
@@ -288,6 +295,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                 _started = new StartedState(
                     agentFactory,
                     wireAcpExtensionProxy,
+                    wireBrowserUseProxy,
                     sessionService,
                     commitMessageSuggestService,
                     welcomeSuggestionService,

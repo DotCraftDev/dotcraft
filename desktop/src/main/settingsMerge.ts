@@ -33,5 +33,12 @@ export function mergeUpdatedSettings(current: AppSettings, partial: Partial<AppS
     }
   }
 
+  if (partial.browserUse !== undefined) {
+    next.browserUse = {
+      ...(current.browserUse ?? {}),
+      ...partial.browserUse
+    }
+  }
+
   return next
 }

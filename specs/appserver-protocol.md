@@ -224,6 +224,7 @@ Client                              Server
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
+| `capabilities.browserUse` | object | no | Desktop browser-use runtime capability. When present, the client can handle server-initiated `ext/browserUse/*` requests for thread-bound local browser automation. Default omitted (no browser-use support). |
 
 `capabilities.configChange` is an opt-out capability. When omitted, the server treats it as `true` and may push `workspace/configChanged` notifications. Modern clients should declare it explicitly for clarity, even when using the default behavior.
 
@@ -235,6 +236,15 @@ Client                              Server
 | `fsWriteTextFile` | boolean | Client can handle `ext/acp/fs/writeTextFile`. |
 | `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
 | `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
+
+**`browserUse` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | number | Browser-use wire contract version. Initial value is `1`. |
+| `jsRuntime` | boolean | Client can evaluate JavaScript through `ext/browserUse/evaluate`. |
+| `images` | boolean | Client can return image payloads from browser-use calls. |
+| `backend` | string | Client backend identifier, e.g. `desktop-webcontents`. |
 
 **`channelAdapter` object** (when present):
 
@@ -603,11 +613,11 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
 
-**`contextUsage` field**: When the server has a live token tracker for the thread (i.e. the thread has received at least one turn in the current process lifetime, or its rolled-out history was rehydrated), the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring:
+**`contextUsage` field**: When the server has persisted context-window occupancy for the thread, the returned `Thread` carries an optional `contextUsage` snapshot for the desktop token ring. This snapshot is not billing usage and must not be derived from cumulative `Turn.tokenUsage` totals or message-history estimation:
 
 ```
 "contextUsage": {
-  "tokens": number,                // Approximate input tokens currently consumed
+  "tokens": number,                // Approximate input tokens currently occupying context
   "contextWindow": number,         // Configured effective context window (denominator)
   "autoCompactThreshold": number,  // Token count at which auto-compact runs
   "warningThreshold": number,      // Token count at which compactWarning starts firing
@@ -616,7 +626,7 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 }
 ```
 
-The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. The field is omitted when no token tracker exists yet (e.g. fresh thread before the first turn).
+The same snapshot is also embedded on `thread/start` and `thread/resume` responses (and their matching `thread/started` / `thread/resumed` notifications) so clients can seed the token ring without an extra round-trip. Freshly-created threads initialize persisted context usage to `tokens = 0`; the field is omitted only for older threads or hosts that have no persisted context usage state yet.
 
 ### 4.5 `thread/subscribe`
 
@@ -1410,7 +1420,15 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
   "inputTokens": 1200,
   "outputTokens": 350,
   "totalInputTokens": 14820,
-  "totalOutputTokens": 2610
+  "totalOutputTokens": 2610,
+  "contextUsage": {
+    "tokens": 14820,
+    "contextWindow": 200000,
+    "autoCompactThreshold": 180000,
+    "warningThreshold": 176000,
+    "errorThreshold": 194000,
+    "percentLeft": 0.9259
+  }
 }
 ```
 
@@ -1420,8 +1438,9 @@ Emitted each time the agent completes an LLM iteration and produces a `UsageCont
 | `turnId` | string | Active turn. |
 | `inputTokens` | integer | Input tokens consumed in this LLM iteration (delta, not cumulative). |
 | `outputTokens` | integer | Output tokens consumed in this LLM iteration (delta, not cumulative). |
-| `totalInputTokens` | integer | Optional. Cumulative input-token snapshot from `TokenTracker.LastInputTokens`. Drives the desktop context-usage ring without waiting for turn completion. Absent when unavailable. |
-| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. Mirrors `totalInputTokens`; absent when unavailable. |
+| `totalInputTokens` | integer | Optional. Persisted context-occupancy input-token snapshot for the thread. Drives the desktop context-usage ring without waiting for turn completion. It is not billing/cumulative thread usage. Absent when unavailable. |
+| `totalOutputTokens` | integer | Optional. Cumulative output tokens emitted so far in the current turn. It is not used for context-occupancy calculations; absent when unavailable. |
+| `contextUsage` | object | Optional. Full `ContextUsageSnapshot` matching `totalInputTokens`, including thresholds needed to seed the desktop token ring. |
 
 **Emission rules**:
 

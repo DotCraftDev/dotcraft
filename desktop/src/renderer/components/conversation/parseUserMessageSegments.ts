@@ -73,7 +73,7 @@ function findNextSkillRef(text: string, from: number): Match | null {
   while (i < text.length) {
     if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {
       let j = i + 1
-      while (j < text.length && /[a-z0-9-]/i.test(text[j]!)) {
+      while (j < text.length && /[a-z0-9_-]/i.test(text[j]!)) {
         j += 1
       }
       const skillName = text.slice(i + 1, j)

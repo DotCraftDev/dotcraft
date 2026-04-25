@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { translate } from '../shared/locales'
+import type { CSSProperties, ReactNode } from 'react'
+import { translate, type AppLocale } from '../shared/locales'
 import { useLocale } from './contexts/LocaleContext'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
@@ -36,7 +36,7 @@ import { ToastContainer } from './components/ui/ToastContainer'
 import { SettingsView } from './components/settings/SettingsView'
 import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
-import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
+import type { ContextUsageSnapshotWire, SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
@@ -44,12 +44,126 @@ import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
+import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
 } from './utils/workspaceConfigChanged'
-import type { DiscoveredModule, ModuleStatusMap, WorkspaceStatusPayload } from '../preload/api.d'
+import type {
+  BrowserUseApprovalRequestPayload,
+  BrowserUseApprovalResponseAction,
+  DiscoveredModule,
+  ModuleStatusMap,
+  WorkspaceStatusPayload
+} from '../preload/api.d'
 import './styles/tokens.css'
+
+function BrowserUseApprovalDialog({
+  locale,
+  request,
+  onRespond
+}: {
+  locale: AppLocale
+  request: BrowserUseApprovalRequestPayload
+  onRespond: (action: BrowserUseApprovalResponseAction) => void
+}): JSX.Element {
+  const session = request.sessionName?.trim()
+  const message = session
+    ? translate(locale, 'browserUse.approval.messageWithSession', { session, domain: request.domain })
+    : translate(locale, 'browserUse.approval.message', { domain: request.domain })
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="browser-use-approval-title"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'var(--overlay-scrim)'
+      }}
+    >
+      <div
+        style={{
+          width: '460px',
+          maxWidth: 'calc(100vw - 48px)',
+          border: '1px solid var(--border-default)',
+          borderRadius: '12px',
+          background: 'var(--bg-secondary)',
+          boxShadow: 'var(--shadow-level-3)',
+          padding: '22px'
+        }}
+      >
+        <h2
+          id="browser-use-approval-title"
+          style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}
+        >
+          {translate(locale, 'browserUse.approval.title')}
+        </h2>
+        <p style={{ margin: '8px 0 14px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+          {message}
+        </p>
+        <div
+          style={{
+            border: '1px solid var(--border-default)',
+            borderRadius: '8px',
+            background: 'var(--bg-primary)',
+            padding: '10px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            overflowWrap: 'anywhere'
+          }}
+        >
+          {request.url}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px', flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => onRespond('deny')} style={dialogSecondaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.cancel')}
+          </button>
+          <button type="button" onClick={() => onRespond('blockDomain')} style={dialogSecondaryButtonStyle(true)}>
+            {translate(locale, 'browserUse.approval.blockDomain')}
+          </button>
+          <button type="button" onClick={() => onRespond('allowOnce')} style={dialogSecondaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.allowOnce')}
+          </button>
+          <button type="button" onClick={() => onRespond('allowDomain')} style={dialogPrimaryButtonStyle()}>
+            {translate(locale, 'browserUse.approval.alwaysAllow')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function dialogSecondaryButtonStyle(danger = false): CSSProperties {
+  return {
+    padding: '8px 12px',
+    border: '1px solid var(--border-default)',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: danger ? 'var(--error)' : 'var(--text-primary)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer'
+  }
+}
+
+function dialogPrimaryButtonStyle(): CSSProperties {
+  return {
+    padding: '8px 12px',
+    border: 'none',
+    borderRadius: '8px',
+    background: 'var(--accent)',
+    color: 'var(--on-accent)',
+    fontSize: '13px',
+    fontWeight: 700,
+    cursor: 'pointer'
+  }
+}
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
   const showCustomMenu = window.api.platform !== 'darwin'
@@ -106,6 +220,7 @@ export function App(): JSX.Element {
   const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
+  const [browserUseApprovalRequests, setBrowserUseApprovalRequests] = useState<BrowserUseApprovalRequestPayload[]>([])
   const activeMainView = useUIStore((s) => s.activeMainView)
   const activeDetailTab = useUIStore((s) => s.activeDetailTab)
   const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
@@ -369,6 +484,14 @@ export function App(): JSX.Element {
         const conv = useConversationStore.getState()
         const { addThread: doAddThread, updateThreadStatus: doUpdateStatus } =
           useThreadStore.getState()
+        const shouldUpdateActiveConversation = (threadId: string | null | undefined): boolean => {
+          if (!threadId) return true
+          return useThreadStore.getState().activeThreadId === threadId
+        }
+        const shouldUpdateReviewThread = (threadId: string | null | undefined): boolean => {
+          if (!threadId) return false
+          return useReviewPanelStore.getState().reviewThreadId === threadId
+        }
 
         switch (method) {
           // ── Thread lifecycle ──────────────────────────────────────────
@@ -442,13 +565,13 @@ export function App(): JSX.Element {
           // ── Turn lifecycle ────────────────────────────────────────────
           case 'turn/started': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
-            conv.onTurnStarted(rawTurn)
             const startedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            {
+            if (shouldUpdateActiveConversation(startedThreadId)) {
+              conv.onTurnStarted(rawTurn)
+            }
+            if (shouldUpdateReviewThread(startedThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (startedThreadId && rs.reviewThreadId === startedThreadId) {
-                rs.onTurnStarted(rawTurn)
-              }
+              rs.onTurnStarted(rawTurn)
             }
             break
           }
@@ -456,37 +579,39 @@ export function App(): JSX.Element {
           case 'turn/completed': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const completedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            const pendingBefore = conv.pendingMessage
-            conv.onTurnCompleted(rawTurn)
-            // Auto-send pending message if any
-            const pending = pendingBefore
-            if (pending) {
-              const activeId = useThreadStore.getState().activeThreadId
-              if (activeId) {
-                const path = workspacePathRef.current
-                void (async () => {
-                  const pendingInputParts = pending.inputParts
-                    ?? buildComposerInputParts({
-                      text: pending.text.trim(),
-                      files: pending.files ?? []
-                    }).inputParts
-                  if (pendingInputParts.length === 0) return
-                  await window.api.appServer.sendRequest('turn/start', {
-                    threadId: activeId,
-                    input: pendingInputParts,
-                    identity: {
-                      channelName: 'dotcraft-desktop',
-                      userId: 'local',
-                      channelContext: `workspace:${path}`,
-                      workspacePath: path
-                    }
-                  })
-                })().catch((err: unknown) =>
-                  console.error('Auto-send pending message failed:', err)
-                )
+            if (shouldUpdateActiveConversation(completedThreadId)) {
+              const pendingBefore = useConversationStore.getState().pendingMessage
+              conv.onTurnCompleted(rawTurn)
+              // Auto-send pending message if any
+              const pending = pendingBefore
+              if (pending) {
+                const activeId = useThreadStore.getState().activeThreadId
+                if (activeId) {
+                  const path = workspacePathRef.current
+                  void (async () => {
+                    const pendingInputParts = pending.inputParts
+                      ?? buildComposerInputParts({
+                        text: pending.text.trim(),
+                        files: pending.files ?? []
+                      }).inputParts
+                    if (pendingInputParts.length === 0) return
+                    await window.api.appServer.sendRequest('turn/start', {
+                      threadId: activeId,
+                      input: pendingInputParts,
+                      identity: {
+                        channelName: 'dotcraft-desktop',
+                        userId: 'local',
+                        channelContext: `workspace:${path}`,
+                        workspacePath: path
+                      }
+                    })
+                  })().catch((err: unknown) =>
+                    console.error('Auto-send pending message failed:', err)
+                  )
+                }
+                // Clear the pending message now that we've sent it
+                useConversationStore.getState().setPendingMessage(null)
               }
-              // Clear the pending message now that we've sent it
-              useConversationStore.getState().setPendingMessage(null)
             }
             // Fallback: poll thread/read if sidebar still has no displayName (e.g. missed thread/renamed).
             // Primary updates come from thread/renamed broadcast and thread/read on selection.
@@ -504,11 +629,9 @@ export function App(): JSX.Element {
                   .catch(() => { /* non-critical — ignore */ })
               }
             }
-            {
+            if (shouldUpdateReviewThread(completedThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (completedThreadId && rs.reviewThreadId === completedThreadId) {
-                rs.onTurnCompleted(rawTurn)
-              }
+              rs.onTurnCompleted(rawTurn)
             }
             break
           }
@@ -520,15 +643,15 @@ export function App(): JSX.Element {
             const errorCode = (p.code as number | undefined)
               ?? ((p.error as Record<string, unknown> | undefined)?.code as number | undefined)
             // -32020 = approval timeout — update the pending approval card
-            if (errorCode === -32020 || error.includes('-32020')) {
-              conv.onApprovalTimeout()
-            }
-            conv.onTurnFailed(rawTurn, error)
-            {
-              const rs = useReviewPanelStore.getState()
-              if (failedThreadId && rs.reviewThreadId === failedThreadId) {
-                rs.onTurnFailed(rawTurn, error)
+            if (shouldUpdateActiveConversation(failedThreadId)) {
+              if (errorCode === -32020 || error.includes('-32020')) {
+                conv.onApprovalTimeout()
               }
+              conv.onTurnFailed(rawTurn, error)
+            }
+            if (shouldUpdateReviewThread(failedThreadId)) {
+              const rs = useReviewPanelStore.getState()
+              rs.onTurnFailed(rawTurn, error)
             }
             break
           }
@@ -537,99 +660,111 @@ export function App(): JSX.Element {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const cancelledThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
             const reason = (p.reason as string) ?? ''
-            conv.onTurnCancelled(rawTurn, reason)
-            {
+            if (shouldUpdateActiveConversation(cancelledThreadId)) {
+              conv.onTurnCancelled(rawTurn, reason)
+            }
+            if (shouldUpdateReviewThread(cancelledThreadId)) {
               const rs = useReviewPanelStore.getState()
-              if (cancelledThreadId && rs.reviewThreadId === cancelledThreadId) {
-                rs.onTurnCancelled(rawTurn, reason)
-              }
+              rs.onTurnCancelled(rawTurn, reason)
             }
             break
           }
 
           // ── Item lifecycle ────────────────────────────────────────────
-          case 'item/started':
-            conv.onItemStarted(p)
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/started': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onItemStarted(p)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onItemStarted(p)
-              }
+              rs.onItemStarted(p)
             }
             break
+          }
 
-          case 'item/agentMessage/delta':
-            conv.onAgentMessageDelta((p.delta as string) ?? '')
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/agentMessage/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const delta = (p.delta as string) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onAgentMessageDelta(delta)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onAgentMessageDelta((p.delta as string) ?? '')
-              }
+              rs.onAgentMessageDelta(delta)
             }
             break
+          }
 
-          case 'item/reasoning/delta':
-            conv.onReasoningDelta((p.delta as string) ?? '')
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+          case 'item/reasoning/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const delta = (p.delta as string) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onReasoningDelta(delta)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onReasoningDelta((p.delta as string) ?? '')
-              }
+              rs.onReasoningDelta(delta)
             }
             break
+          }
 
-          case 'item/commandExecution/outputDelta':
-            conv.onCommandExecutionDelta({
+          case 'item/commandExecution/outputDelta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            const params = {
               threadId: (p.threadId as string | undefined),
               turnId: (p.turnId as string | undefined),
               itemId: (p.itemId as string | undefined),
               delta: (p.delta as string | undefined)
-            })
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
+            }
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onCommandExecutionDelta(params)
+            }
+            if (shouldUpdateReviewThread(tid)) {
               const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onCommandExecutionDelta({
-                  threadId: (p.threadId as string | undefined),
-                  turnId: (p.turnId as string | undefined),
-                  itemId: (p.itemId as string | undefined),
-                  delta: (p.delta as string | undefined)
-                })
-              }
+              rs.onCommandExecutionDelta(params)
             }
             break
+          }
 
-          case 'item/toolCall/argumentsDelta':
-            conv.onToolCallArgumentsDelta({
-              threadId: (p.threadId as string | undefined),
-              turnId: (p.turnId as string | undefined),
-              itemId: (p.itemId as string | undefined),
-              toolName: (p.toolName as string | undefined),
-              callId: (p.callId as string | undefined),
-              delta: (p.delta as string | undefined)
-            })
-            break
-
-          case 'item/completed':
-            conv.onItemCompleted(p)
-            {
-              const tid = (p.threadId as string | undefined) ?? ''
-              const rs = useReviewPanelStore.getState()
-              if (tid && rs.reviewThreadId === tid) {
-                rs.onItemCompleted(p)
-              }
+          case 'item/toolCall/argumentsDelta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onToolCallArgumentsDelta({
+                threadId: (p.threadId as string | undefined),
+                turnId: (p.turnId as string | undefined),
+                itemId: (p.itemId as string | undefined),
+                toolName: (p.toolName as string | undefined),
+                callId: (p.callId as string | undefined),
+                delta: (p.delta as string | undefined)
+              })
             }
             break
+          }
+
+          case 'item/completed': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (shouldUpdateActiveConversation(tid)) {
+              conv.onItemCompleted(p)
+            }
+            if (shouldUpdateReviewThread(tid)) {
+              const rs = useReviewPanelStore.getState()
+              rs.onItemCompleted(p)
+            }
+            break
+          }
 
           case 'item/usage/delta': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (!shouldUpdateActiveConversation(tid)) break
             const input = (p.inputTokens as number) ?? 0
             const output = (p.outputTokens as number) ?? 0
             const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
             const totalOutput = typeof p.totalOutputTokens === 'number' ? (p.totalOutputTokens as number) : null
-            conv.onUsageDelta(input, output, totalInput, totalOutput)
+            const contextUsage = typeof p.contextUsage === 'object' && p.contextUsage !== null
+              ? p.contextUsage as ContextUsageSnapshotWire
+              : null
+            conv.onUsageDelta(input, output, totalInput, totalOutput, contextUsage)
             break
           }
 
@@ -637,23 +772,25 @@ export function App(): JSX.Element {
           case 'subagent/progress': {
             const entries = (p.entries as SubAgentEntry[]) ?? []
             const threadId = (p.threadId as string | undefined) ?? ''
-            const activeId = useThreadStore.getState().activeThreadId
-            const reviewThreadId = useReviewPanelStore.getState().reviewThreadId
-            if (threadId && threadId === reviewThreadId) {
+            if (shouldUpdateReviewThread(threadId)) {
               useReviewPanelStore.getState().onSubagentProgress(entries)
-            } else if (!threadId || threadId === activeId) {
+            }
+            if (shouldUpdateActiveConversation(threadId)) {
               conv.onSubagentProgress(entries)
             }
             break
           }
 
           // ── System events ─────────────────────────────────────────────
-          case 'system/event':
+          case 'system/event': {
+            const tid = (p.threadId as string | undefined) ?? ''
+            if (!shouldUpdateActiveConversation(tid)) break
             conv.onSystemEvent((p.kind as string) ?? '', {
               tokenCount: typeof p.tokenCount === 'number' ? (p.tokenCount as number) : null,
               percentLeft: typeof p.percentLeft === 'number' ? (p.percentLeft as number) : null
             })
             break
+          }
 
           // ── Plan updates ──────────────────────────────────────────────
           case 'plan/updated': {
@@ -763,7 +900,7 @@ export function App(): JSX.Element {
       const { bridgeId, method, params } = payload
       const p = (params ?? {}) as Record<string, unknown>
 
-      if (method === 'item/approval/request') {
+        if (method === 'item/approval/request') {
         const threadId = typeof p.threadId === 'string' ? p.threadId : null
         const turnId = typeof p.turnId === 'string' ? p.turnId : null
         const activeThreadId = useThreadStore.getState().activeThreadId
@@ -774,12 +911,16 @@ export function App(): JSX.Element {
             rawParams: p
           })
           return
+          }
+          useConversationStore.getState().onApprovalRequest(bridgeId, p)
+          return
         }
-        useConversationStore.getState().onApprovalRequest(bridgeId, p)
-      }
-      // Unknown server requests: respond with null to unblock AppServer
-      // (will be handled by specific cases above in future)
-    })
+        // Unknown server requests: respond with null to unblock AppServer
+        // (will be handled by specific cases above in future)
+        window.api.appServer.sendServerResponse(bridgeId, {
+          error: `Unsupported server request: ${method}`
+        })
+      })
     return unsubscribe
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -945,6 +1086,42 @@ export function App(): JSX.Element {
    */
   const subscribedThreadIdRef = useRef<string | null>(null)
   const { activeThreadId } = useThreadStore()
+
+  useEffect(() => {
+    const unsubscribe = window.api.workspace.viewer.browserUse.onOpen(handleBrowserUseOpen)
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.api.workspace.viewer.browserUse.onApprovalRequest((event) => {
+      setBrowserUseApprovalRequests((current) => {
+        if (current.some((item) => item.requestId === event.requestId)) return current
+        return [...current, event]
+      })
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  const respondToBrowserUseApproval = useCallback(
+    (request: BrowserUseApprovalRequestPayload, action: BrowserUseApprovalResponseAction): void => {
+      setBrowserUseApprovalRequests((current) => current.filter((item) => item.requestId !== request.requestId))
+      window.api.workspace.viewer.browserUse
+        .sendApprovalResponse({ requestId: request.requestId, action })
+        .catch((err: unknown) => {
+          addToast(
+            translate(localeRef.current, 'browserUse.approval.sendFailed', {
+              error: err instanceof Error ? err.message : String(err)
+            }),
+            'error'
+          )
+        })
+    },
+    []
+  )
 
   // Keep viewerTabStore in sync with active thread, and restore/fallback
   // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
@@ -1381,6 +1558,13 @@ export function App(): JSX.Element {
         {quickOpenVisible && (
           <QuickOpenDialog
             onClose={() => setQuickOpenVisible(false)}
+          />
+        )}
+        {browserUseApprovalRequests[0] && (
+          <BrowserUseApprovalDialog
+            locale={locale}
+            request={browserUseApprovalRequests[0]}
+            onRespond={(action) => respondToBrowserUseApproval(browserUseApprovalRequests[0], action)}
           />
         )}
         {status === 'disconnected' && isExpectedRestart && (

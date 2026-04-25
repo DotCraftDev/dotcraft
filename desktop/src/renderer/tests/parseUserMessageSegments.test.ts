@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { segmentsFromNativeInputParts } from '../components/conversation/parseUserMessageSegments'
+import { parseUserMessageSegments, segmentsFromNativeInputParts } from '../components/conversation/parseUserMessageSegments'
 import type { InputPart } from '../types/conversation'
 
 describe('segmentsFromNativeInputParts commandRef rendering', () => {
+  it('keeps underscore skill names intact when parsing fallback message text', () => {
+    expect(parseUserMessageSegments('$browser_use ok')).toEqual([
+      { type: 'skillRef', skillName: 'browser_use' },
+      { type: 'text', value: ' ok' }
+    ])
+  })
+
+  it('keeps underscore skill names intact from native input parts', () => {
+    const parts: InputPart[] = [
+      { type: 'skillRef', name: 'browser_use' }
+    ]
+
+    expect(segmentsFromNativeInputParts(parts)).toEqual([
+      { type: 'skillRef', skillName: 'browser_use' }
+    ])
+  })
+
   it('splits commandRef with argsText into command chip and trailing plain text', () => {
     const parts: InputPart[] = [
       {

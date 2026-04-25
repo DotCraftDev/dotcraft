@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { stripWorkspaceLockedIpcPrefix } from '../../../shared/workspaceSwitchErrors'
 import { useT } from '../../contexts/LocaleContext'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 /** Extracts a clean user-facing message from a workspace switch error. */
 function switchErrorMessage(err: unknown): string {
@@ -121,9 +122,9 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
       </span>
 
       {/* Overflow menu trigger */}
+      <ActionTooltip label={t('workspaceHeader.optionsAria')} placement="bottom">
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); if (open) setShowRecents(false) }}
-        title={t('workspaceHeader.optionsAria')}
         aria-label={t('workspaceHeader.optionsAria')}
         style={{
           flexShrink: 0,
@@ -152,6 +153,7 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
       >
         ···
       </button>
+      </ActionTooltip>
 
       {/* Dropdown */}
       {open && (
@@ -216,44 +218,44 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
                 }}
               >
                 {recents.map((r) => (
-                  <button
-                    key={r.path}
-                    onClick={() => { void switchToRecent(r.path) }}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      width: '100%',
-                      padding: '7px 14px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      gap: '1px'
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                    }}
-                    title={r.path}
-                  >
-                    <span style={{ fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap' }}>{r.name}</span>
-                    <span
+                  <ActionTooltip key={r.path} label={r.path} wrapperStyle={{ display: 'block', width: '100%' }}>
+                    <button
+                      onClick={() => { void switchToRecent(r.path) }}
                       style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dimmed)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '280px'
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        width: '100%',
+                        padding: '7px 14px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        gap: '1px'
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
                       }}
                     >
-                      {r.path}
-                    </span>
-                  </button>
+                      <span style={{ fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap' }}>{r.name}</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          color: 'var(--text-dimmed)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '280px'
+                        }}
+                      >
+                        {r.path}
+                      </span>
+                    </button>
+                  </ActionTooltip>
                 ))}
                 <div
                   style={{

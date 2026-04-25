@@ -1,4 +1,5 @@
 import type { ImageAttachment } from '../../types/conversation'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ImageStripProps {
   images: ImageAttachment[]
@@ -61,11 +62,11 @@ export function ImageStrip({ images, onRemove }: ImageStripProps): JSX.Element |
           >
             {img.fileName}
           </span>
+          <ActionTooltip label="Remove" placement="top">
           <button
             type="button"
             onClick={() => { onRemove(idx) }}
             aria-label="Remove image"
-            title="Remove"
             style={{
               width: 16,
               height: 16,
@@ -82,6 +83,7 @@ export function ImageStrip({ images, onRemove }: ImageStripProps): JSX.Element |
           >
             ✕
           </button>
+          </ActionTooltip>
         </div>
       ))}
     </div>

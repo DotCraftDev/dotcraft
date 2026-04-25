@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface MessageCopyButtonProps {
   getText: () => string
@@ -38,35 +39,43 @@ export function MessageCopyButton({
     }
   }
 
+  const label = ariaLabel ?? t('conversation.copyMessage')
+
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void handleCopy()
-      }}
-      aria-label={ariaLabel ?? t('conversation.copyMessage')}
-      title={ariaLabel ?? t('conversation.copyMessage')}
-      style={{
+    <ActionTooltip
+      label={label}
+      placement="top"
+      wrapperStyle={{
         position: 'absolute',
         right: '8px',
         bottom: '6px',
-        width: '24px',
-        height: '24px',
-        borderRadius: '6px',
-        border: '1px solid var(--border-default)',
-        background: 'var(--bg-secondary)',
-        color: copied ? 'var(--success)' : 'var(--text-secondary)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
         opacity: visible ? 1 : 0,
         pointerEvents: visible ? 'auto' : 'none',
-        transition: 'opacity 120ms ease, color 120ms ease',
         zIndex: 2
       }}
     >
-      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
-    </button>
+      <button
+        type="button"
+        onClick={() => {
+          void handleCopy()
+        }}
+        aria-label={label}
+        style={{
+          width: '24px',
+          height: '24px',
+          borderRadius: '6px',
+          border: '1px solid var(--border-default)',
+          background: 'var(--bg-secondary)',
+          color: copied ? 'var(--success)' : 'var(--text-secondary)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          transition: 'opacity 120ms ease, color 120ms ease'
+        }}
+      >
+        {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+      </button>
+    </ActionTooltip>
   )
 }

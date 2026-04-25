@@ -113,6 +113,13 @@ public sealed class StateRuntime
                     FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS thread_context_usage (
+                    thread_id TEXT PRIMARY KEY,
+                    context_usage_tokens INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS trace_sessions (
                     session_key TEXT PRIMARY KEY,
                     started_at TEXT NOT NULL,

@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import type { ConversationItem, ApprovalDecision, ApprovalState } from '../../types/conversation'
 import { useConversationStore } from '../../stores/conversationStore'
 import { Cloud, File, SquareTerminal } from 'lucide-react'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
 interface ApprovalCardProps {
   item: ConversationItem
@@ -242,50 +244,55 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
         {/* Primary decision buttons */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
           {/* Accept — primary */}
-          <button
-            ref={acceptBtnRef}
-            onClick={() => sendDecision('accept')}
-            style={primaryButtonStyle('var(--accent)')}
-            title="Accept (Enter or A)"
-          >
-            Accept
-          </button>
+          <ActionTooltip label="Accept" shortcut={ACTION_SHORTCUTS.send} alternateShortcuts={[['A']]} placement="top">
+            <button
+              ref={acceptBtnRef}
+              onClick={() => sendDecision('accept')}
+              style={primaryButtonStyle('var(--accent)')}
+            >
+              Accept
+            </button>
+          </ActionTooltip>
 
           {/* Accept for Session — secondary */}
-          <button
-            onClick={() => sendDecision('acceptForSession')}
-            style={secondaryButtonStyle}
-            title="Accept for Session (S)"
-          >
-            Accept for Session
-          </button>
+          <ActionTooltip label="Accept for Session" shortcut={['S']} placement="top">
+            <button
+              onClick={() => sendDecision('acceptForSession')}
+              style={secondaryButtonStyle}
+            >
+              Accept for Session
+            </button>
+          </ActionTooltip>
 
           {/* Decline — primary */}
-          <button
-            onClick={() => sendDecision('decline')}
-            style={primaryButtonStyle('var(--error)')}
-            title="Decline (D)"
-          >
-            Decline
-          </button>
+          <ActionTooltip label="Decline" shortcut={['D']} placement="top">
+            <button
+              onClick={() => sendDecision('decline')}
+              style={primaryButtonStyle('var(--error)')}
+            >
+              Decline
+            </button>
+          </ActionTooltip>
         </div>
 
         {/* Text link decisions */}
         <div style={{ display: 'flex', gap: '16px', paddingLeft: '2px' }}>
-          <button
-            onClick={() => sendDecision('acceptAlways')}
-            style={textLinkStyle}
-            title="Accept Always (Shift+A)"
-          >
-            Accept Always
-          </button>
-          <button
-            onClick={() => sendDecision('cancel')}
-            style={textLinkStyle}
-            title="Cancel Turn (Esc)"
-          >
-            Cancel Turn
-          </button>
+          <ActionTooltip label="Accept Always" shortcut={['Shift', 'A']} placement="top">
+            <button
+              onClick={() => sendDecision('acceptAlways')}
+              style={textLinkStyle}
+            >
+              Accept Always
+            </button>
+          </ActionTooltip>
+          <ActionTooltip label="Cancel Turn" shortcut={ACTION_SHORTCUTS.cancel} placement="top">
+            <button
+              onClick={() => sendDecision('cancel')}
+              style={textLinkStyle}
+            >
+              Cancel Turn
+            </button>
+          </ActionTooltip>
         </div>
 
         {/* Keyboard hint */}

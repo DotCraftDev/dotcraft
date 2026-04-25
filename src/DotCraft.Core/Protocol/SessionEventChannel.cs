@@ -136,13 +136,15 @@ internal sealed class SessionEventChannel(
         long inputTokens,
         long outputTokens,
         long? totalInputTokens = null,
-        long? totalOutputTokens = null) =>
+        long? totalOutputTokens = null,
+        ContextUsageSnapshot? contextUsage = null) =>
         Write(SessionEventType.UsageDelta, null, new UsageDeltaPayload
         {
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
             TotalInputTokens = totalInputTokens,
-            TotalOutputTokens = totalOutputTokens
+            TotalOutputTokens = totalOutputTokens,
+            ContextUsage = contextUsage
         });
 
     // -------------------------------------------------------------------------

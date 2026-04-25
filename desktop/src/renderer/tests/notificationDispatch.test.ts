@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useSkillsStore } from '../stores/skillsStore'
-import type { ThreadSummary } from '../types/thread'
+import type { ContextUsageSnapshotWire, ThreadSummary } from '../types/thread'
 import type { InputPart } from '../types/conversation'
 import { resolveWorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
 import { buildComposerInputParts } from '../utils/composeInputParts'
@@ -35,6 +35,10 @@ function dispatch(payload: { method: string; params: unknown }): void {
   const p = (payload.params ?? {}) as Record<string, unknown>
   const conv = useConversationStore.getState()
   const threads = useThreadStore.getState()
+  const shouldUpdateActiveConversation = (threadId: string | null | undefined): boolean => {
+    if (!threadId) return true
+    return useThreadStore.getState().activeThreadId === threadId
+  }
 
   switch (method) {
     case 'workspace/configChanged': {
@@ -61,72 +65,108 @@ function dispatch(payload: { method: string; params: unknown }): void {
 
     case 'turn/started': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
-      conv.onTurnStarted(rawTurn)
+      const threadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (shouldUpdateActiveConversation(threadId)) {
+        conv.onTurnStarted(rawTurn)
+      }
       break
     }
 
     case 'turn/completed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
-      conv.onTurnCompleted(rawTurn)
+      const threadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (shouldUpdateActiveConversation(threadId)) {
+        conv.onTurnCompleted(rawTurn)
+      }
       break
     }
 
     case 'turn/failed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
       const error = (p.error as string) ?? 'Unknown error'
-      conv.onTurnFailed(rawTurn, error)
+      const threadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (shouldUpdateActiveConversation(threadId)) {
+        conv.onTurnFailed(rawTurn, error)
+      }
       break
     }
 
     case 'turn/cancelled': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
       const reason = (p.reason as string) ?? ''
-      conv.onTurnCancelled(rawTurn, reason)
+      const threadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (shouldUpdateActiveConversation(threadId)) {
+        conv.onTurnCancelled(rawTurn, reason)
+      }
       break
     }
 
     case 'item/started':
-      conv.onItemStarted(p)
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onItemStarted(p)
+      }
       break
 
     case 'item/agentMessage/delta':
-      conv.onAgentMessageDelta((p.delta as string) ?? '')
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onAgentMessageDelta((p.delta as string) ?? '')
+      }
       break
 
     case 'item/reasoning/delta':
-      conv.onReasoningDelta((p.delta as string) ?? '')
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onReasoningDelta((p.delta as string) ?? '')
+      }
       break
 
     case 'item/commandExecution/outputDelta':
-      conv.onCommandExecutionDelta({
-        threadId: (p.threadId as string | undefined),
-        turnId: (p.turnId as string | undefined),
-        itemId: (p.itemId as string | undefined),
-        delta: (p.delta as string | undefined)
-      })
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onCommandExecutionDelta({
+          threadId: (p.threadId as string | undefined),
+          turnId: (p.turnId as string | undefined),
+          itemId: (p.itemId as string | undefined),
+          delta: (p.delta as string | undefined)
+        })
+      }
       break
 
     case 'item/toolCall/argumentsDelta':
-      conv.onToolCallArgumentsDelta({
-        threadId: (p.threadId as string | undefined),
-        turnId: (p.turnId as string | undefined),
-        itemId: (p.itemId as string | undefined),
-        toolName: (p.toolName as string | undefined),
-        callId: (p.callId as string | undefined),
-        delta: (p.delta as string | undefined)
-      })
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onToolCallArgumentsDelta({
+          threadId: (p.threadId as string | undefined),
+          turnId: (p.turnId as string | undefined),
+          itemId: (p.itemId as string | undefined),
+          toolName: (p.toolName as string | undefined),
+          callId: (p.callId as string | undefined),
+          delta: (p.delta as string | undefined)
+        })
+      }
       break
 
     case 'item/completed':
-      conv.onItemCompleted(p)
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onItemCompleted(p)
+      }
       break
 
-    case 'item/usage/delta':
-      conv.onUsageDelta((p.inputTokens as number) ?? 0, (p.outputTokens as number) ?? 0)
+    case 'item/usage/delta': {
+      if (!shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) break
+      const totalInput = typeof p.totalInputTokens === 'number' ? (p.totalInputTokens as number) : null
+      const totalOutput = typeof p.totalOutputTokens === 'number' ? (p.totalOutputTokens as number) : null
+      const contextUsage = typeof p.contextUsage === 'object' && p.contextUsage !== null
+        ? p.contextUsage as ContextUsageSnapshotWire
+        : null
+      conv.onUsageDelta((p.inputTokens as number) ?? 0, (p.outputTokens as number) ?? 0, totalInput, totalOutput, contextUsage)
       break
+    }
 
     case 'system/event':
-      conv.onSystemEvent((p.kind as string) ?? '')
+      if (shouldUpdateActiveConversation((p.threadId as string | undefined) ?? '')) {
+        conv.onSystemEvent((p.kind as string) ?? '', {
+          tokenCount: typeof p.tokenCount === 'number' ? (p.tokenCount as number) : null,
+          percentLeft: typeof p.percentLeft === 'number' ? (p.percentLeft as number) : null
+        })
+      }
       break
 
     default:
@@ -696,6 +736,91 @@ describe('notification dispatch payload format', () => {
     expect(s().outputTokens).toBe(100)
   })
 
+  it('ignores item/usage/delta from non-active threads', () => {
+    s().setContextUsage({
+      tokens: 40_000,
+      contextWindow: 200_000,
+      autoCompactThreshold: 180_000,
+      warningThreshold: 176_000,
+      errorThreshold: 194_000,
+      percentLeft: 0.8
+    })
+
+    dispatch({
+      method: 'item/usage/delta',
+      params: {
+        threadId: 'thread-2',
+        turnId: 'turn_foreign',
+        inputTokens: 1_000,
+        outputTokens: 200,
+        totalInputTokens: 180_500,
+        totalOutputTokens: 3_000
+      }
+    })
+
+    expect(s().inputTokens).toBe(0)
+    expect(s().outputTokens).toBe(0)
+    expect(s().contextUsage?.tokens).toBe(40_000)
+  })
+
+  it('uses active item/usage/delta totalInputTokens for the context ring', () => {
+    s().setContextUsage({
+      tokens: 40_000,
+      contextWindow: 200_000,
+      autoCompactThreshold: 180_000,
+      warningThreshold: 176_000,
+      errorThreshold: 194_000,
+      percentLeft: 0.8
+    })
+
+    dispatch({
+      method: 'item/usage/delta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn_active',
+        inputTokens: 1_000,
+        outputTokens: 200,
+        totalInputTokens: 180_500,
+        totalOutputTokens: 3_000
+      }
+    })
+
+    expect(s().inputTokens).toBe(1_000)
+    expect(s().outputTokens).toBe(200)
+    expect(s().contextUsage?.tokens).toBe(180_500)
+    expect(s().contextUsage?.severity).toBe('warning')
+  })
+
+  it('uses active item/usage/delta contextUsage snapshot to create the context ring', () => {
+    expect(s().contextUsage).toBeNull()
+
+    dispatch({
+      method: 'item/usage/delta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn_active',
+        inputTokens: 500,
+        outputTokens: 50,
+        totalInputTokens: 44_000,
+        totalOutputTokens: 50,
+        contextUsage: {
+          tokens: 44_000,
+          contextWindow: 200_000,
+          autoCompactThreshold: 180_000,
+          warningThreshold: 176_000,
+          errorThreshold: 194_000,
+          percentLeft: 0.78
+        }
+      }
+    })
+
+    expect(s().inputTokens).toBe(500)
+    expect(s().outputTokens).toBe(50)
+    expect(s().contextUsage?.tokens).toBe(44_000)
+    expect(s().contextUsage?.percentLeft).toBe(0.78)
+    expect(s().contextUsage?.severity).toBe('normal')
+  })
+
   it('dispatches system/event and sets systemLabel', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
     dispatch({ method: 'system/event', params: { kind: 'compacting' } })
@@ -703,6 +828,31 @@ describe('notification dispatch payload format', () => {
 
     dispatch({ method: 'system/event', params: { kind: 'compacted' } })
     expect(s().systemLabel).toBeNull()
+  })
+
+  it('ignores compacted system/event from non-active threads', () => {
+    s().setContextUsage({
+      tokens: 195_000,
+      contextWindow: 200_000,
+      autoCompactThreshold: 180_000,
+      warningThreshold: 176_000,
+      errorThreshold: 194_000,
+      percentLeft: 0.025
+    })
+
+    dispatch({
+      method: 'system/event',
+      params: {
+        threadId: 'thread-2',
+        turnId: 'turn_foreign',
+        kind: 'compacted',
+        tokenCount: 44_000,
+        percentLeft: 0.78
+      }
+    })
+
+    expect(s().contextUsage?.tokens).toBe(195_000)
+    expect(s().contextUsage?.percentLeft).toBe(0.025)
   })
 
   it('ignores unknown notification methods without throwing', () => {

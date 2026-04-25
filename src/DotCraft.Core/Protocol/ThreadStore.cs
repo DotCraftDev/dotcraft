@@ -126,6 +126,23 @@ public sealed class ThreadStore
         => _metadataStore.SessionExists(threadId);
 
     /// <summary>
+    /// Loads the persisted context-window usage token count for a thread.
+    /// Returns null when no context usage snapshot has been recorded yet.
+    /// </summary>
+    public long? LoadContextUsageTokens(string threadId)
+        => _metadataStore.LoadContextUsageTokens(threadId);
+
+    /// <summary>
+    /// Persists the current context-window usage token count for a thread.
+    /// </summary>
+    public Task SaveContextUsageTokensAsync(string threadId, long tokens, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        _metadataStore.SaveContextUsageTokens(threadId, tokens);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Returns all persisted thread summaries from SQLite metadata, ordered by activity.
     /// </summary>
     public Task<List<ThreadSummary>> LoadIndexAsync(CancellationToken ct = default)

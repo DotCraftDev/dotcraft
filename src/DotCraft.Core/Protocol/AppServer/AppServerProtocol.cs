@@ -97,6 +97,13 @@ public sealed class AppServerClientCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AcpExtensionCapability? AcpExtensions { get; set; }
+
+    /// <summary>
+    /// Browser-use runtime capability. When set, the client can receive server-initiated
+    /// <c>ext/browserUse/*</c> requests for thread-bound browser automation.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BrowserUseCapability? BrowserUse { get; set; }
 }
 
 /// <summary>
@@ -112,6 +119,20 @@ public sealed class AcpExtensionCapability
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Extensions { get; set; }
+}
+
+/// <summary>
+/// Client-declared Desktop browser-use support during <c>initialize</c>.
+/// </summary>
+public sealed class BrowserUseCapability
+{
+    public int Version { get; set; } = 1;
+
+    public bool? JsRuntime { get; set; }
+
+    public bool? Images { get; set; }
+
+    public string Backend { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -2116,6 +2137,10 @@ public static class AppServerMethods
     public const string ExtAcpTerminalWaitForExit = "ext/acp/terminal/waitForExit";
     public const string ExtAcpTerminalKill = "ext/acp/terminal/kill";
     public const string ExtAcpTerminalRelease = "ext/acp/terminal/release";
+
+    // Server → Client requests (Desktop browser-use runtime)
+    public const string ExtBrowserUseEvaluate = "ext/browserUse/evaluate";
+    public const string ExtBrowserUseReset = "ext/browserUse/reset";
 
     // Client → Server requests (cron management, spec Section 16)
     public const string CronList = "cron/list";

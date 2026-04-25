@@ -43,7 +43,8 @@ internal sealed class AppServerTestHarness : IDisposable
         IAppConfigMonitor? appConfigMonitor = null,
         SkillsLoader? skillsLoader = null,
         McpClientManager? mcpClientManager = null,
-        IWelcomeSuggestionService? welcomeSuggestionService = null)
+        IWelcomeSuggestionService? welcomeSuggestionService = null,
+        WireBrowserUseProxy? wireBrowserUseProxy = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -69,7 +70,8 @@ internal sealed class AppServerTestHarness : IDisposable
             configSchema: configSchema,
             appConfigMonitor: Monitor,
             skillsLoader: skillsLoader,
-            mcpClientManager: mcpClientManager);
+            mcpClientManager: mcpClientManager,
+            wireBrowserUseProxy: wireBrowserUseProxy);
 
         Identity = new SessionIdentity
         {
@@ -92,14 +94,24 @@ internal sealed class AppServerTestHarness : IDisposable
         bool approvalSupport = true,
         bool streamingSupport = true,
         bool? configChange = null,
-        List<string>? optOutMethods = null)
+        List<string>? optOutMethods = null,
+        bool browserUse = false)
     {
         var caps = new
         {
             approvalSupport,
             streamingSupport,
             configChange,
-            optOutNotificationMethods = optOutMethods ?? []
+            optOutNotificationMethods = optOutMethods ?? [],
+            browserUse = browserUse
+                ? new
+                {
+                    version = 1,
+                    jsRuntime = true,
+                    images = true,
+                    backend = "desktop-webcontents"
+                }
+                : null
         };
         var initMsg = BuildRequest(AppServerMethods.Initialize, new
         {

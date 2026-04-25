@@ -249,7 +249,8 @@ public sealed class AppServerEventDispatcher
             inputTokens = usage.InputTokens,
             outputTokens = usage.OutputTokens,
             totalInputTokens = usage.TotalInputTokens,
-            totalOutputTokens = usage.TotalOutputTokens
+            totalOutputTokens = usage.TotalOutputTokens,
+            contextUsage = usage.ContextUsage
         },
 
         // System event notification (spec Section 6.7)

@@ -89,14 +89,15 @@ public sealed record SessionExtensionCapability
 }
 
 /// <summary>
-/// Snapshot of the per-thread context usage used to drive the desktop token ring.
-/// Tokens is approximated from <c>TokenTracker.LastInputTokens</c> when available and
-/// falls back to <see cref="Context.Compaction.MessageTokenEstimator"/> otherwise.
+/// Snapshot of the per-thread context-window usage used to drive the desktop token ring.
+/// Tokens comes from persisted per-thread context usage state, not billing usage
+/// or historical message estimation.
 /// </summary>
 public sealed record ContextUsageSnapshot
 {
     /// <summary>
-    /// Approximate input tokens currently consumed by the session history.
+    /// Persisted input tokens currently occupying the context window.
+    /// This is context occupancy, not billing or cumulative turn usage.
     /// </summary>
     public long Tokens { get; init; }
 
@@ -164,7 +165,7 @@ public sealed record SessionWireThread
     /// <summary>
     /// Context usage snapshot used by the desktop token ring. Populated on
     /// <c>thread/start</c>, <c>thread/resumed</c>, and <c>thread/read</c>; null when the thread has
-    /// no live token tracker yet.
+    /// no persisted context usage state yet.
     /// </summary>
     public ContextUsageSnapshot? ContextUsage { get; init; }
 }

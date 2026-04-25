@@ -171,10 +171,9 @@ public interface ISessionService
     Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns an approximate context-usage snapshot for the thread, based on the
-    /// in-memory <c>TokenTracker</c> and the <c>CompactionPipeline</c> thresholds.
-    /// Returns null when no token tracker exists yet for this thread; otherwise a
-    /// valid snapshot (tokens may be zero).
+    /// Returns the persisted context-window usage snapshot for the thread.
+    /// Returns null when no context usage state exists yet; otherwise a valid
+    /// snapshot (tokens may be zero).
     /// </summary>
     ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId);
 
@@ -205,4 +204,17 @@ public interface ISessionService
     /// <c>thread/runtimeChanged</c> to connected clients.
     /// </summary>
     Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+}
+
+/// <summary>
+/// Optional Session Core extension for hosts that bind thread-scoped client capabilities
+/// after the base thread lifecycle call has completed.
+/// </summary>
+public interface IThreadAgentRefreshService
+{
+    /// <summary>
+    /// Rebuilds the cached agent for a thread so dynamic, thread-bound tools are reflected
+    /// in the next turn.
+    /// </summary>
+    Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default);
 }

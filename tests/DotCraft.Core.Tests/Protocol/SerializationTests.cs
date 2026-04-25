@@ -207,6 +207,19 @@ public class SerializationTests
     }
 
     [Fact]
+    public void BuildDisplayText_PreservesUnderscoreSkillNames()
+    {
+        var text = SessionWireMapper.BuildDisplayText(
+        [
+            new SessionWireInputPart { Type = "text", Text = "Use " },
+            new SessionWireInputPart { Type = "skillRef", Name = "browser_use" },
+            new SessionWireInputPart { Type = "text", Text = " please" }
+        ]);
+
+        Assert.Equal("Use $browser_use please", text);
+    }
+
+    [Fact]
     public void SessionItem_AgentMessage_RoundTrip()
     {
         var item = BuildItem(ItemType.AgentMessage, ItemStatus.Completed,

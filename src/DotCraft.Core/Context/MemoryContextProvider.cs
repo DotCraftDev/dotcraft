@@ -27,7 +27,19 @@ public sealed class MemoryContextProvider(
     string? subAgentProfilesSection = null)
     : AIContextProvider
 {
-    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider, sandboxEnabled, deferredMcpServerNames, subAgentProfilesSection);
+    private readonly PromptBuilder _promptBuilder = new(
+        memoryStore,
+        skillsLoader,
+        dotCraftPath,
+        workspacePath,
+        customCommandLoader,
+        modeManager,
+        planStore,
+        sessionIdProvider,
+        sandboxEnabled,
+        deferredMcpServerNames,
+        subAgentProfilesSection,
+        toolNamesProvider);
 
     protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {

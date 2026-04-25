@@ -21,6 +21,7 @@ type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right'
 interface ActionTooltipProps {
   label: string
   shortcut?: ShortcutSpec
+  alternateShortcuts?: readonly ShortcutSpec[]
   placement?: TooltipPlacement
   disabledReason?: string
   children: ReactNode
@@ -39,6 +40,7 @@ const GAP = 8
 export function ActionTooltip({
   label,
   shortcut,
+  alternateShortcuts,
   placement = 'top',
   disabledReason,
   children,
@@ -66,7 +68,9 @@ export function ActionTooltip({
     const anchorRect = anchor.getBoundingClientRect()
     const tooltipRect = tooltip.getBoundingClientRect()
     setPosition(placeTooltip(anchorRect, tooltipRect, placement))
-  }, [visible, placement, tooltipLabel, shortcut])
+  }, [visible, placement, tooltipLabel, shortcut, alternateShortcuts])
+
+  const shortcutGroups = !disabledReason ? [shortcut, ...(alternateShortcuts ?? [])].filter(Boolean) as ShortcutSpec[] : []
 
   return (
     <>
@@ -100,7 +104,24 @@ export function ActionTooltip({
           }}
         >
           <span className="dc-action-tooltip__label">{tooltipLabel}</span>
-          {!disabledReason && shortcut && <ShortcutBadge shortcut={shortcut} />}
+          {shortcutGroups.length > 0 && (
+            <span
+              aria-hidden="true"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}
+            >
+              {shortcutGroups.map((shortcutGroup, index) => (
+                <span
+                  key={`${shortcutGroup.join('-')}-${index}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                >
+                  {index > 0 && (
+                    <span style={{ color: 'var(--shortcut-text)', opacity: 0.72, fontSize: '11px' }}>/</span>
+                  )}
+                  <ShortcutBadge shortcut={shortcutGroup} />
+                </span>
+              ))}
+            </span>
+          )}
         </div>,
         document.body
       )}

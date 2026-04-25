@@ -45,7 +45,7 @@ public sealed class SessionService(
     ApprovalStore? approvalStore = null,
     IToolProfileRegistry? toolProfileRegistry = null,
     SessionStreamDebugLogger? sessionStreamDebugLogger = null)
-    : ISessionService
+    : ISessionService, IThreadAgentRefreshService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
@@ -80,29 +80,13 @@ public sealed class SessionService(
         if (string.IsNullOrWhiteSpace(threadId))
             return null;
 
+        var tokens = persistence.LoadContextUsageTokens(threadId);
+        return tokens is null ? null : CreateContextUsageSnapshot(tokens.Value);
+    }
+
+    private ContextUsageSnapshot CreateContextUsageSnapshot(long tokens)
+    {
         var pipeline = agentFactory.CompactionPipeline;
-        long tokens = 0;
-
-        var tracker = agentFactory.TryGetTokenTracker(threadId);
-        if (tracker is not null)
-        {
-            tokens = tracker.LastInputTokens;
-        }
-        else if (_threads.TryGetValue(threadId, out var thread))
-        {
-            // Rehydrate from the latest completed turn so desktop can render
-            // context usage immediately after process restarts.
-            for (var i = thread.Turns.Count - 1; i >= 0; i--)
-            {
-                var turn = thread.Turns[i];
-                if (turn.Status == TurnStatus.Completed && turn.TokenUsage is not null)
-                {
-                    tokens = turn.TokenUsage.InputTokens;
-                    break;
-                }
-            }
-        }
-
         var threshold = pipeline.EvaluateThreshold(tokens);
 
         return new ContextUsageSnapshot
@@ -114,6 +98,16 @@ public sealed class SessionService(
             ErrorThreshold = threshold.ErrorThreshold,
             PercentLeft = threshold.PercentLeft
         };
+    }
+
+    private async Task<ContextUsageSnapshot> SaveContextUsageSnapshotAsync(
+        string threadId,
+        long tokens,
+        CancellationToken ct = default)
+    {
+        var normalizedTokens = Math.Max(0, tokens);
+        await persistence.SaveContextUsageTokensAsync(threadId, normalizedTokens, ct);
+        return CreateContextUsageSnapshot(normalizedTokens);
     }
 
     // =========================================================================
@@ -157,6 +151,9 @@ public sealed class SessionService(
         // runtime external channel tools may need thread-scoped injection.
         if (config != null || channelRuntimeToolProvider != null)
             _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
+
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        await SaveContextUsageSnapshotAsync(thread.Id, 0, ct);
 
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
         ThreadCreatedForBroadcast?.Invoke(thread);
@@ -1010,11 +1007,16 @@ public sealed class SessionService(
                                             inputTokens += deltaIn;
                                             outputTokens += deltaOut;
                                             tokenTracker.UpdateWithStreamingDeltas(deltaIn, deltaOut, curIn);
+                                            var contextUsage = await SaveContextUsageSnapshotAsync(
+                                                threadId,
+                                                tokenTracker.LastInputTokens,
+                                                CancellationToken.None);
                                             eventChannel.EmitUsageDelta(
                                                 deltaIn,
                                                 deltaOut,
                                                 totalInputTokens: tokenTracker.LastInputTokens,
-                                                totalOutputTokens: outputTokens);
+                                                totalOutputTokens: outputTokens,
+                                                contextUsage: contextUsage);
                                         }
                                     }
 
@@ -1117,6 +1119,10 @@ public sealed class SessionService(
                             case CompactionOutcome.Micro:
                             case CompactionOutcome.Partial:
                                 tokenTracker.Reset();
+                                await SaveContextUsageSnapshotAsync(
+                                    threadId,
+                                    status.ThresholdAfter.Tokens,
+                                    CancellationToken.None);
                                 traceCollector?.RecordContextCompaction(threadId);
                                 eventChannel.EmitSystemEvent(
                                     "compacted",
@@ -1221,6 +1227,10 @@ public sealed class SessionService(
                         if (status.Success)
                         {
                             tokenTracker?.Reset();
+                            await SaveContextUsageSnapshotAsync(
+                                threadId,
+                                status.ThresholdAfter.Tokens,
+                                CancellationToken.None);
                             traceCollector?.RecordContextCompaction(threadId);
                             eventChannel.EmitSystemEvent(
                                 "compacted",
@@ -1332,6 +1342,13 @@ public sealed class SessionService(
         thread.Configuration = config;
         _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
         await PersistThreadWithMaterializationAsync(thread, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -1692,6 +1709,22 @@ public sealed class SessionService(
         SessionThread thread,
         CancellationToken ct)
     {
+        var previousSessionKey = TracingChatClient.CurrentSessionKey;
+        TracingChatClient.CurrentSessionKey = thread.Id;
+        try
+        {
+            return await BuildAgentForThreadCoreAsync(thread, ct);
+        }
+        finally
+        {
+            TracingChatClient.CurrentSessionKey = previousSessionKey;
+        }
+    }
+
+    private async Task<AIAgent> BuildAgentForThreadCoreAsync(
+        SessionThread thread,
+        CancellationToken ct)
+    {
         var threadId = thread.Id;
         var config = thread.Configuration ?? new ThreadConfiguration();
         var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
@@ -1725,6 +1758,7 @@ public sealed class SessionService(
                 TraceCollector = baseCtx.TraceCollector,
                 LspServerManager = baseCtx.LspServerManager,
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
+                BrowserUseProxy = baseCtx.BrowserUseProxy,
                 CronTools = baseCtx.CronTools,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
                 ExternalCliSessionStore = externalCliSessionStore,
@@ -1803,6 +1837,7 @@ public sealed class SessionService(
                 McpClientManager = mcpManager,
                 LspServerManager = scopedContext.LspServerManager,
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
+                BrowserUseProxy = scopedContext.BrowserUseProxy,
                 CronTools = scopedContext.CronTools,
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
                 ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
@@ -1892,6 +1927,7 @@ public sealed class SessionService(
             LspServerManager = source.LspServerManager,
             TraceCollector = source.TraceCollector,
             AcpExtensionProxy = source.AcpExtensionProxy,
+            BrowserUseProxy = source.BrowserUseProxy,
             ExternalCliSessionStore = externalCliSessionStore ?? source.ExternalCliSessionStore,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,

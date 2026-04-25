@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { useT } from '../../contexts/LocaleContext'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface ModelPickerProps {
   modelName: string
@@ -86,26 +87,37 @@ export function ModelPicker({
     : modelName === 'Default'
       ? t('composer.defaultModel')
       : modelName
+  const tooltipLabel = t('composer.selectModelTitle')
+  const disabledReason = loading
+    ? t('composer.modelListLoading')
+    : unsupported
+      ? t('composer.modelListUnsupportedTitle')
+      : undefined
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', minWidth: 0 }}>
-      <button
-        type="button"
-        aria-label={t('composer.selectModelTitle')}
-        aria-haspopup={interactive ? 'listbox' : undefined}
-        aria-expanded={interactive ? open : undefined}
-        aria-controls={interactive && open ? listId : undefined}
-        disabled={!interactive}
-        title={loading ? t('composer.modelListLoading') : unsupported ? t('composer.modelListUnsupportedTitle') : t('composer.selectModelTitle')}
-        onClick={() => {
-          if (!interactive) return
-          setOpen((current) => !current)
-        }}
-        style={{
-          ...triggerStyle,
-          cursor: interactive ? 'pointer' : 'default'
-        }}
+      <ActionTooltip
+        label={tooltipLabel}
+        disabledReason={disabledReason}
+        placement="top"
+        wrapperStyle={{ minWidth: 0 }}
       >
+        <button
+          type="button"
+          aria-label={tooltipLabel}
+          aria-haspopup={interactive ? 'listbox' : undefined}
+          aria-expanded={interactive ? open : undefined}
+          aria-controls={interactive && open ? listId : undefined}
+          disabled={!interactive}
+          onClick={() => {
+            if (!interactive) return
+            setOpen((current) => !current)
+          }}
+          style={{
+            ...triggerStyle,
+            cursor: interactive ? 'pointer' : 'default'
+          }}
+        >
         <span
           style={{
             minWidth: 0,
@@ -141,7 +153,8 @@ export function ModelPicker({
             </svg>
           </span>
         )}
-      </button>
+        </button>
+      </ActionTooltip>
 
       {interactive && open && (
         <div

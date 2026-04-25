@@ -109,6 +109,12 @@ public sealed class ToolProviderContext
     public IAcpExtensionProxy? AcpExtensionProxy { get; init; }
 
     /// <summary>
+    /// Optional browser-use proxy for Desktop-hosted browser automation.
+    /// Available only when the current AppServer thread is bound to a client that declared browser-use support.
+    /// </summary>
+    public IBrowserUseProxy? BrowserUseProxy { get; init; }
+
+    /// <summary>
     /// Collection of disposable resources created by tool providers.
     /// These resources will be disposed when the application shuts down.
     /// </summary>

@@ -50,6 +50,12 @@ public sealed class SessionPersistenceService(
     public bool SessionFileExists(string threadId)
         => threadStore.SessionFileExists(threadId);
 
+    public long? LoadContextUsageTokens(string threadId)
+        => threadStore.LoadContextUsageTokens(threadId);
+
+    public Task SaveContextUsageTokensAsync(string threadId, long tokens, CancellationToken ct = default)
+        => threadStore.SaveContextUsageTokensAsync(threadId, tokens, ct);
+
     public TraceSessionDeletionDescriptor DescribeSessionDeletion(string sessionKey)
         => _traceStore.DescribeSessionDeletion(sessionKey);
 

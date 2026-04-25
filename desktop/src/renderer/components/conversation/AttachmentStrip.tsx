@@ -3,6 +3,7 @@ import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useT } from '../../contexts/LocaleContext'
 import { openImagePathInViewer } from '../../utils/conversationDeepLink'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface AttachmentStripProps {
   images: ImageAttachment[]
@@ -80,6 +81,7 @@ export function AttachmentStrip({
             background: 'var(--bg-tertiary)'
           }}
         >
+          <ActionTooltip label={img.fileName} placement="top">
           <button
             type="button"
             onClick={() => {
@@ -92,7 +94,6 @@ export function AttachmentStrip({
               })
             }}
             disabled={!activeThreadId || !isWorkspaceBacked(img.tempPath)}
-            title={isWorkspaceBacked(img.tempPath) ? img.fileName : undefined}
             style={{
               padding: 0,
               border: 'none',
@@ -115,6 +116,7 @@ export function AttachmentStrip({
               }}
             />
           </button>
+          </ActionTooltip>
           <span
             style={{
               overflow: 'hidden',
@@ -126,15 +128,16 @@ export function AttachmentStrip({
           >
             {img.fileName}
           </span>
+          <ActionTooltip label={removeImageLabel} placement="top">
           <button
             type="button"
             onClick={() => { onRemoveImage(idx) }}
             aria-label={removeImageLabel}
-            title={removeImageLabel}
             style={removeButtonStyle}
           >
             ✕
           </button>
+          </ActionTooltip>
         </div>
       ))}
 
@@ -160,15 +163,16 @@ export function AttachmentStrip({
           >
             {file.fileName}
           </span>
+          <ActionTooltip label={removeFileLabel} placement="top">
           <button
             type="button"
             onClick={() => { onRemoveFile(idx) }}
             aria-label={removeFileLabel}
-            title={removeFileLabel}
             style={removeButtonStyle}
           >
             ✕
           </button>
+          </ActionTooltip>
         </div>
       ))}
     </div>

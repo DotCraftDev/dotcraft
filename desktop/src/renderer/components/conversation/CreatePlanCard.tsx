@@ -5,6 +5,7 @@ import type { ConversationItem } from '../../types/conversation'
 import { addToast } from '../../stores/toastStore'
 import { extractPartialJsonStringValue } from '../../utils/toolCallDisplay'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface CreatePlanCardProps {
   item: ConversationItem
@@ -347,12 +348,12 @@ function IconButton(
   }
 ): JSX.Element {
   return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      onClick={onClick}
-      style={{
+    <ActionTooltip label={ariaLabel} placement="top">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        onClick={onClick}
+        style={{
         width: '24px',
         height: '24px',
         borderRadius: '6px',
@@ -366,6 +367,7 @@ function IconButton(
       }}
     >
       {icon}
-    </button>
+      </button>
+    </ActionTooltip>
   )
 }

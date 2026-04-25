@@ -11,6 +11,7 @@ import { MessageCopyButton } from './MessageCopyButton'
 import { parseUserMessageSegments, segmentsFromNativeInputParts } from './parseUserMessageSegments'
 import type { ConversationItem, InputPart, UserMessageImageRef } from '../../types/conversation'
 import { openImagePathInViewer } from '../../utils/conversationDeepLink'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 const imageDataUrlCache = new Map<string, string>()
 
@@ -403,16 +404,17 @@ function AutomationTriggerPill({
 
   if (onClick) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        title={title}
-        aria-label={title}
-        style={{ ...commonStyle, cursor: 'pointer', border: commonStyle.border }}
-      >
-        <Bot size={11} strokeWidth={2.1} aria-hidden />
-        <span>{badgeText}</span>
-      </button>
+      <ActionTooltip label={title} wrapperStyle={{ display: 'inline-flex' }}>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={title}
+          style={{ ...commonStyle, cursor: 'pointer', border: commonStyle.border }}
+        >
+          <Bot size={11} strokeWidth={2.1} aria-hidden />
+          <span>{badgeText}</span>
+        </button>
+      </ActionTooltip>
     )
   }
 

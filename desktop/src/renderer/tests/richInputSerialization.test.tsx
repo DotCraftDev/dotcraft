@@ -173,6 +173,13 @@ describe('truncateEditorDomToSerializedLength', () => {
     ])
   })
 
+  it('parses underscore skill names as a single legacy draft segment', () => {
+    expect(parseLegacyComposerText('$browser_use ok')).toEqual([
+      { type: 'skill', skillName: 'browser_use' },
+      { type: 'text', value: ' ok' }
+    ])
+  })
+
   it('still parses legacy double-bracket skill markers for backward compatibility', () => {
     expect(parseLegacyComposerText('Check [[Use Skill: memory]] now')).toEqual([
       { type: 'text', value: 'Check ' },

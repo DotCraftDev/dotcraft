@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationTemplate
 } from '../../stores/automationsStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface Props {
   onSelect(template: AutomationTemplate): void
@@ -26,14 +27,14 @@ export function TemplateGalleryOverlay({
   onCreateNew
 }: Props): JSX.Element {
   const t = useT()
+  const locale = useLocale()
   const templates = useAutomationsStore((s) => s.templates)
-  const templatesLoaded = useAutomationsStore((s) => s.templatesLoaded)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const deleteTemplate = useAutomationsStore((s) => s.deleteTemplate)
 
   useEffect(() => {
-    if (!templatesLoaded) void fetchTemplates()
-  }, [templatesLoaded, fetchTemplates])
+    void fetchTemplates(locale)
+  }, [fetchTemplates, locale])
 
   const builtIns = templates.filter((tpl) => !tpl.isUser)
   const userTemplates = templates.filter((tpl) => tpl.isUser)
@@ -311,32 +312,34 @@ function TemplateCard({
           }}
         >
           {onEdit && (
+            <ActionTooltip label={t('auto.gallery.my.edit')} placement="top">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 onEdit(template)
               }}
-              title={t('auto.gallery.my.edit')}
               aria-label={t('auto.gallery.my.edit')}
               style={iconBtnStyle}
             >
               ✎
             </button>
+            </ActionTooltip>
           )}
           {onDelete && (
+            <ActionTooltip label={t('auto.gallery.my.delete')} placement="top">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 setConfirmDelete(true)
               }}
-              title={t('auto.gallery.my.delete')}
               aria-label={t('auto.gallery.my.delete')}
               style={{ ...iconBtnStyle, color: 'var(--error)' }}
             >
               🗑
             </button>
+            </ActionTooltip>
           )}
         </div>
       )}

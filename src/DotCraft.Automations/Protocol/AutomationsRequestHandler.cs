@@ -65,7 +65,7 @@ public sealed partial class AutomationsRequestHandler(
         if (p.Description != null && p.Description.Length > 10000)
             throw AppServerErrors.InvalidParams("'description' must be 10000 characters or less.");
 
-        var taskId = GenerateTaskId(p.Title);
+        var taskId = GenerateTaskId(p.Title, p.TemplateId);
         
         // Security: Validate the generated task ID to prevent path traversal
         if (!IsValidTaskId(taskId))
@@ -168,11 +168,11 @@ public sealed partial class AutomationsRequestHandler(
 
     public async Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = GetParams<AutomationTemplateListParams>(msg);
+        var p = GetParams<AutomationTemplateListParams>(msg);
 
         var templates = new List<AutomationTemplateWire>();
         // Built-ins first so the UI can keep its existing ordering; user templates follow with IsUser=true.
-        foreach (var t in LocalTaskTemplates.All)
+        foreach (var t in LocalTaskTemplates.ForLocale(p.Locale))
             templates.Add(ToWire(t));
 
         var user = await userTemplateStore.LoadAllAsync(ct);
@@ -481,9 +481,11 @@ public sealed partial class AutomationsRequestHandler(
         _ => status.ToString().ToLowerInvariant()
     };
 
-    private static string GenerateTaskId(string title)
+    private static string GenerateTaskId(string title, string? templateId = null)
     {
         var slug = SlugRegex().Replace(title.ToLowerInvariant(), "-").Trim('-');
+        if (string.IsNullOrEmpty(slug) && !string.IsNullOrWhiteSpace(templateId))
+            slug = SlugRegex().Replace(templateId.ToLowerInvariant(), "-").Trim('-');
         if (slug.Length > 40) slug = slug[..40].TrimEnd('-');
         if (string.IsNullOrEmpty(slug)) slug = "task";
         return $"{slug}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";

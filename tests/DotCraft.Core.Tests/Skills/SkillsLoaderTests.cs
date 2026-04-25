@@ -7,7 +7,7 @@ public sealed class SkillsLoaderTests : IDisposable
     private readonly string _tempRoot = Path.Combine(Path.GetTempPath(), "dotcraft-skillsloader-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void DeployBuiltInSkills_DeploysExpectedBuiltIns_AndOmitsBrowser()
+    public void DeployBuiltInSkills_DeploysExpectedBuiltIns()
     {
         Directory.CreateDirectory(_tempRoot);
         var loader = new SkillsLoader(_tempRoot);
@@ -19,8 +19,7 @@ public sealed class SkillsLoaderTests : IDisposable
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(["create_hooks", "heartbeat", "memory"], skills);
-        Assert.DoesNotContain("browser", skills, StringComparer.Ordinal);
+        Assert.Equal(["browser_use", "create_hooks", "heartbeat", "memory"], skills);
     }
 
     public void Dispose()

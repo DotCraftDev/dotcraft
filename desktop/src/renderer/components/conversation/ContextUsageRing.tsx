@@ -13,8 +13,8 @@ import { useT } from '../../contexts/LocaleContext'
  * - The ring deliberately does NOT change color by severity; warning/error
  *   thresholds only surface in the tooltip text so the input chrome stays
  *   visually calm. Severity lives on the store for downstream consumers.
- * - Renders nothing when no snapshot is available yet (freshly-created
- *   threads without a token tracker return null from the backend).
+ * - Renders nothing when no persisted snapshot is available yet (for example
+ *   old threads created before context usage state existed).
  */
 export function ContextUsageRing(): JSX.Element | null {
   const t = useT()
@@ -67,7 +67,6 @@ export function ContextUsageRing(): JSX.Element | null {
       tabIndex={0}
       role="img"
       aria-label={t('contextRing.ariaLabel', { percent: ringData.percentUsed })}
-      title={t('contextRing.title', { percent: ringData.percentUsed })}
       style={{
         position: 'relative',
         display: 'inline-flex',

@@ -1,6 +1,7 @@
 import type { CSSProperties, DragEventHandler, JSX, ReactNode } from 'react'
 import { Square } from 'lucide-react'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import type { ShortcutSpec } from '../ui/shortcutKeys'
 
 type ComposerActionButtonTone = 'enabled' | 'disabled'
 
@@ -24,6 +25,7 @@ interface ComposerModeSwitchProps {
   agentLabel: string
   planLabel: string
   title?: string
+  shortcut?: ShortcutSpec
 }
 
 export function ComposerShell({
@@ -111,13 +113,14 @@ export function ComposerModeSwitch({
   onToggle,
   agentLabel,
   planLabel,
-  title
+  title,
+  shortcut
 }: ComposerModeSwitchProps): JSX.Element {
   const activeLabel = value === 'agent' ? agentLabel : planLabel
   const activeTone = value === 'agent' ? 'var(--success)' : 'var(--info)'
 
   return (
-    <ActionTooltip label={title ?? activeLabel} placement="top">
+    <ActionTooltip label={title ?? activeLabel} shortcut={shortcut} placement="top">
       <button
         type="button"
         onClick={onToggle}

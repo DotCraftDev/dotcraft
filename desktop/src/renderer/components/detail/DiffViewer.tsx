@@ -1,5 +1,6 @@
 import { useT } from '../../contexts/LocaleContext'
 import type { FileDiff } from '../../types/toolCall'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface DiffViewerProps {
   diff: FileDiff
@@ -55,10 +56,10 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
           </span>
         )}
         {onRevert && (
-          <button
-            onClick={onRevert}
-            title={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')}
-            style={{
+          <ActionTooltip label={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')} placement="bottom">
+            <button
+              onClick={onRevert}
+              style={{
               padding: '2px 8px',
               fontSize: '11px',
               borderRadius: '4px',
@@ -69,7 +70,8 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
             }}
           >
             {isReverted ? t('diffViewer.reapply') : t('diffViewer.revert')}
-          </button>
+            </button>
+          </ActionTooltip>
         )}
       </div>
 

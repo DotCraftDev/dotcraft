@@ -8,6 +8,7 @@ import { formatRelativeTime } from '../../utils/relativeTime'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { ActionTooltip } from '../ui/ActionTooltip'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 
 interface ArchivedThreadsSettingsViewProps {
@@ -277,15 +278,19 @@ export function ArchivedThreadsSettingsView({
                   >
                     {restoring ? t('archivedThreads.restoring') : t('archivedThreads.restore')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void confirmDeleteThread(thread.id)
-                    }}
-                    disabled={restoring || deleting}
-                    title={t('archivedThreads.delete')}
-                    aria-label={t('archivedThreads.delete')}
-                    style={{
+                  <ActionTooltip
+                    label={t('archivedThreads.delete')}
+                    disabledReason={restoring || deleting ? t('archivedThreads.delete') : undefined}
+                    placement="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void confirmDeleteThread(thread.id)
+                      }}
+                      disabled={restoring || deleting}
+                      aria-label={t('archivedThreads.delete')}
+                      style={{
                       width: '28px',
                       height: '28px',
                       borderRadius: '6px',
@@ -300,7 +305,8 @@ export function ArchivedThreadsSettingsView({
                     }}
                   >
                     <Trash2 size={14} strokeWidth={2} aria-hidden />
-                  </button>
+                    </button>
+                  </ActionTooltip>
                 </div>
               }
             />

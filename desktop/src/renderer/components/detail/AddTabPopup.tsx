@@ -10,6 +10,7 @@ import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useConversationStore } from '../../stores/conversationStore'
 import { FolderOpen, Globe, SquareTerminal } from 'lucide-react'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface AddTabPopupProps {
   anchorRef: React.RefObject<HTMLElement | null>
@@ -145,12 +146,17 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
       </button>
 
       {/* New Browser Tab */}
-      <button
-        role="menuitem"
-        disabled={!activeThreadId || !workspacePath}
-        onClick={handleOpenBrowser}
-        title={t('detailPanel.addTabNewBrowser')}
-        style={{
+      <ActionTooltip
+        label={t('detailPanel.addTabNewBrowser')}
+        disabledReason={!activeThreadId || !workspacePath ? t('detailPanel.addTabNewBrowser') : undefined}
+        placement="right"
+        wrapperStyle={{ display: 'block', width: '100%' }}
+      >
+        <button
+          role="menuitem"
+          disabled={!activeThreadId || !workspacePath}
+          onClick={handleOpenBrowser}
+          style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
@@ -173,14 +179,20 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
       >
         <Globe size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
         {t('detailPanel.addTabNewBrowser')}
-      </button>
+        </button>
+      </ActionTooltip>
 
-      <button
-        role="menuitem"
-        disabled={!activeThreadId || !workspacePath}
-        onClick={handleOpenTerminal}
-        title={t('detailPanel.addTabNewTerminal')}
-        style={{
+      <ActionTooltip
+        label={t('detailPanel.addTabNewTerminal')}
+        disabledReason={!activeThreadId || !workspacePath ? t('detailPanel.addTabNewTerminal') : undefined}
+        placement="right"
+        wrapperStyle={{ display: 'block', width: '100%' }}
+      >
+        <button
+          role="menuitem"
+          disabled={!activeThreadId || !workspacePath}
+          onClick={handleOpenTerminal}
+          style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
@@ -203,7 +215,8 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
       >
         <SquareTerminal size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
         {t('detailPanel.addTabNewTerminal')}
-      </button>
+        </button>
+      </ActionTooltip>
     </div>
   )
 }

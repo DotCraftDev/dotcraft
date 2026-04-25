@@ -9,7 +9,8 @@ export const ACTION_SHORTCUTS = {
   quickOpen: ['Mod', 'P'],
   settings: ['Mod', ','],
   send: ['Enter'],
-  cancel: ['Esc']
+  cancel: ['Esc'],
+  toggleMode: ['Shift', 'Tab']
 } as const satisfies Record<string, ShortcutSpec>
 
 export function isMacPlatform(platform = getPlatform()): boolean {

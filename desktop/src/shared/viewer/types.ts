@@ -220,6 +220,25 @@ export interface BrowserEventPayload {
   message?: string
 }
 
+export interface BrowserUseOpenPayload {
+  threadId: string
+  tabId: string
+  initialUrl: string
+  title?: string
+  focusMode: 'first-open' | 'none'
+}
+
+export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
+
+export interface BrowserUseApprovalRequestPayload {
+  requestId: string
+  threadId: string
+  tabId: string
+  url: string
+  domain: string
+  sessionName?: string
+}
+
 export type TerminalEventType = 'data' | 'exit'
 
 export interface TerminalDataEventPayload {

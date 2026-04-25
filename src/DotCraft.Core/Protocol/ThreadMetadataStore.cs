@@ -217,6 +217,33 @@ internal sealed class ThreadMetadataStore(StateRuntime stateRuntime)
         command.ExecuteNonQuery();
     }
 
+    public long? LoadContextUsageTokens(string threadId)
+    {
+        using var connection = stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT context_usage_tokens FROM thread_context_usage WHERE thread_id = $thread_id LIMIT 1";
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        var value = command.ExecuteScalar();
+        return value == null || value == DBNull.Value ? null : Convert.ToInt64(value);
+    }
+
+    public void SaveContextUsageTokens(string threadId, long tokens)
+    {
+        using var connection = stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_context_usage(thread_id, context_usage_tokens, updated_at)
+            VALUES ($thread_id, $tokens, $updated_at)
+            ON CONFLICT(thread_id) DO UPDATE SET
+                context_usage_tokens = excluded.context_usage_tokens,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$tokens", Math.Max(0, tokens));
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
     private static string? ExtractFirstUserMessage(SessionThread thread)
     {
         foreach (var turn in thread.Turns)

@@ -36,12 +36,47 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_ReturnsZeroSnapshot_WhenTrackerDoesNotExist()
+    public async Task TryGetContextUsageSnapshot_ReturnsNull_WhenPersistedUsageDoesNotExist()
     {
         const string threadId = "thread-missing";
 
         await using var agentFactory = CreateAgentFactory();
         var service = CreateSessionService(agentFactory);
+
+        var snapshot = service.TryGetContextUsageSnapshot(threadId);
+
+        Assert.Null(snapshot);
+        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
+    }
+
+    [Fact]
+    public async Task TryGetContextUsageSnapshot_DoesNotCreateTracker_WhenReadingMissingSnapshot()
+    {
+        const string threadId = "thread-readonly";
+
+        await using var agentFactory = CreateAgentFactory();
+        var service = CreateSessionService(agentFactory);
+
+        var snapshot = service.TryGetContextUsageSnapshot(threadId);
+
+        Assert.Null(snapshot);
+        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
+    }
+
+    [Fact]
+    public async Task TryGetContextUsageSnapshot_ReturnsZeroSnapshot_ForFreshThread()
+    {
+        const string threadId = "thread-fresh";
+
+        await using var agentFactory = CreateAgentFactory();
+        var service = CreateSessionService(agentFactory);
+        var identity = new SessionIdentity
+        {
+            WorkspacePath = _tempDir,
+            ChannelName = "desktop",
+            UserId = "user"
+        };
+        await service.CreateThreadAsync(identity, threadId: threadId);
 
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
@@ -57,26 +92,22 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_DoesNotCreateTracker_WhenReadingMissingSnapshot()
-    {
-        const string threadId = "thread-readonly";
-
-        await using var agentFactory = CreateAgentFactory();
-        var service = CreateSessionService(agentFactory);
-
-        var snapshot = service.TryGetContextUsageSnapshot(threadId);
-
-        Assert.NotNull(snapshot);
-        Assert.Null(agentFactory.TryGetTokenTracker(threadId));
-    }
-
-    [Fact]
-    public async Task TryGetContextUsageSnapshot_ReturnsThresholdSnapshot_WhenTrackerExists()
+    public async Task TryGetContextUsageSnapshot_UsesPersistedUsage_WhenTrackerExists()
     {
         const string threadId = "thread-active";
 
         await using var agentFactory = CreateAgentFactory();
         var service = CreateSessionService(agentFactory);
+        var identity = new SessionIdentity
+        {
+            WorkspacePath = _tempDir,
+            ChannelName = "desktop",
+            UserId = "user"
+        };
+        await service.CreateThreadAsync(identity, threadId: threadId);
+        var store = new ThreadStore(_tempDir);
+        await store.SaveContextUsageTokensAsync(threadId, 34_000);
+
         var tracker = agentFactory.GetOrCreateTokenTracker(threadId);
         tracker.Update(12_345, 67);
 
@@ -84,7 +115,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
 
         Assert.NotNull(snapshot);
 
-        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(tracker.LastInputTokens);
+        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(34_000);
         Assert.Equal(threshold.Tokens, snapshot!.Tokens);
         Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
         Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);
@@ -94,7 +125,7 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
     }
 
     [Fact]
-    public async Task TryGetContextUsageSnapshot_UsesLastCompletedTurnTokenUsage_WhenTrackerMissing()
+    public async Task TryGetContextUsageSnapshot_IgnoresTurnTokenUsageAndHistory()
     {
         const string threadId = "thread-history";
 
@@ -115,6 +146,29 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
             Status = TurnStatus.Completed,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
             CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            Items =
+            [
+                new SessionItem
+                {
+                    Id = "item_001",
+                    TurnId = "turn_001",
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    Payload = new UserMessagePayload { Text = "Short user question" }
+                },
+                new SessionItem
+                {
+                    Id = "item_002",
+                    TurnId = "turn_001",
+                    Type = ItemType.AgentMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                    Payload = new AgentMessagePayload { Text = "Short assistant answer" }
+                }
+            ],
             TokenUsage = new TokenUsageInfo
             {
                 InputTokens = 12_000,
@@ -129,6 +183,29 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
             Status = TurnStatus.Completed,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
             CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            Items =
+            [
+                new SessionItem
+                {
+                    Id = "item_003",
+                    TurnId = "turn_002",
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    Payload = new UserMessagePayload { Text = "Another short user question" }
+                },
+                new SessionItem
+                {
+                    Id = "item_004",
+                    TurnId = "turn_002",
+                    Type = ItemType.AgentMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    Payload = new AgentMessagePayload { Text = "Another short assistant answer" }
+                }
+            ],
             TokenUsage = new TokenUsageInfo
             {
                 InputTokens = 80_000,
@@ -136,13 +213,15 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
                 TotalTokens = 80_800
             }
         });
+        var store = new ThreadStore(_tempDir);
+        await store.SaveContextUsageTokensAsync(threadId, 321);
 
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
 
         var snapshot = service.TryGetContextUsageSnapshot(threadId);
 
         Assert.NotNull(snapshot);
-        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(80_000);
+        var threshold = agentFactory.CompactionPipeline.EvaluateThreshold(321);
         Assert.Equal(threshold.Tokens, snapshot!.Tokens);
         Assert.Equal(agentFactory.CompactionPipeline.EffectiveContextWindow, snapshot.ContextWindow);
         Assert.Equal(threshold.AutoThreshold, snapshot.AutoCompactThreshold);
@@ -150,6 +229,37 @@ public sealed class SessionServiceContextUsageSnapshotTests : IDisposable
         Assert.Equal(threshold.ErrorThreshold, snapshot.ErrorThreshold);
         Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
         Assert.Null(agentFactory.TryGetTokenTracker(threadId));
+    }
+
+    [Fact]
+    public async Task TryGetContextUsageSnapshot_LoadsPersistedUsage_AfterServiceRecreate()
+    {
+        const string threadId = "thread-recreated";
+
+        await using (var agentFactory = CreateAgentFactory())
+        {
+            var service = CreateSessionService(agentFactory);
+            var identity = new SessionIdentity
+            {
+                WorkspacePath = _tempDir,
+                ChannelName = "desktop",
+                UserId = "user"
+            };
+            await service.CreateThreadAsync(identity, threadId: threadId);
+            var store = new ThreadStore(_tempDir);
+            await store.SaveContextUsageTokensAsync(threadId, 77_000);
+        }
+
+        await using var recreatedAgentFactory = CreateAgentFactory();
+        var recreatedService = CreateSessionService(recreatedAgentFactory);
+
+        var snapshot = recreatedService.TryGetContextUsageSnapshot(threadId);
+
+        Assert.NotNull(snapshot);
+        var threshold = recreatedAgentFactory.CompactionPipeline.EvaluateThreshold(77_000);
+        Assert.Equal(threshold.Tokens, snapshot!.Tokens);
+        Assert.Equal(threshold.PercentLeft, snapshot.PercentLeft);
+        Assert.Null(recreatedAgentFactory.TryGetTokenTracker(threadId));
     }
 
     private SessionService CreateSessionService(AgentFactory agentFactory)

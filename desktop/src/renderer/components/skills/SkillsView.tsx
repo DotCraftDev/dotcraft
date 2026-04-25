@@ -4,6 +4,7 @@ import { useSkillsStore } from '../../stores/skillsStore'
 import { SkillCard } from './SkillCard'
 import { SkillDetailDialog } from './SkillDetailDialog'
 import { addToast } from '../../stores/toastStore'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 /**
  * Full-width skills management surface (Codex-style list + detail modal).
@@ -112,14 +113,16 @@ export function SkillsView(): JSX.Element {
                 {t('settings.savedToast')}
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => void fetchSkills()}
-              style={toolbarBtn}
-              title={t('skills.refresh')}
-            >
-              {t('skills.refresh')}
-            </button>
+            <ActionTooltip label={t('skills.refresh')} placement="bottom">
+              <button
+                type="button"
+                onClick={() => void fetchSkills()}
+                style={toolbarBtn}
+                aria-label={t('skills.refresh')}
+              >
+                {t('skills.refresh')}
+              </button>
+            </ActionTooltip>
             <input
               type="search"
               placeholder={t('skills.searchPlaceholder')}

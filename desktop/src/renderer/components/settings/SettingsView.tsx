@@ -19,6 +19,7 @@ import { SelectionCard, ResolvedPill } from '../ui/SelectionCard'
 import { PillSwitch } from '../ui/PillSwitch'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
+import { ActionTooltip } from '../ui/ActionTooltip'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import {
   EditableKeyValueList,
@@ -44,7 +45,7 @@ import {
   type McpServerStatusWire,
   type McpTransport
 } from '../../stores/mcpStore'
-import type { BinarySource, ProxyAuthFileSummary, ProxyOAuthProvider } from '../../../preload/api'
+import type { BinarySource, BrowserUseApprovalMode, ProxyAuthFileSummary, ProxyOAuthProvider } from '../../../preload/api'
 import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 declare const __APP_VERSION__: string | undefined
@@ -154,7 +155,7 @@ export async function readWorkspaceCoreStrictFromApi(
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp' | 'subAgents'
+type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'browserUse' | 'usage' | 'channels' | 'archivedThreads' | 'mcp' | 'subAgents'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
 type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
@@ -305,6 +306,20 @@ function inputStyle(mono = false): CSSProperties {
     color: 'var(--text-primary)',
     outline: 'none',
     fontFamily: mono ? 'var(--font-mono)' : undefined
+  }
+}
+
+function normalizeBrowserUseDomainInput(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed || /[\u0000-\u001f]/.test(trimmed)) return null
+  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+  try {
+    const domain = new URL(candidate).hostname.trim().toLowerCase().replace(/\.+$/, '')
+    return domain || null
+  } catch {
+    return null
   }
 }
 
@@ -507,6 +522,13 @@ export function SettingsView({
   const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
   const [channelListError, setChannelListError] = useState(false)
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general')
+  const [browserUseApprovalMode, setBrowserUseApprovalMode] = useState<BrowserUseApprovalMode>('alwaysAsk')
+  const [browserUseBlockedDomains, setBrowserUseBlockedDomains] = useState<string[]>([])
+  const [browserUseAllowedDomains, setBrowserUseAllowedDomains] = useState<string[]>([])
+  const [browserUseDomainDraft, setBrowserUseDomainDraft] = useState('')
+  const [browserUseDomainTarget, setBrowserUseDomainTarget] = useState<'blocked' | 'allowed' | null>(null)
+  const [browserUseDomainError, setBrowserUseDomainError] = useState('')
+  const [clearingBrowserCookies, setClearingBrowserCookies] = useState(false)
   const [baselineConnection, setBaselineConnection] = useState<{
     binarySource: BinarySource
     binaryPath: string
@@ -719,6 +741,9 @@ export function SettingsView({
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
+        setBrowserUseApprovalMode((s.browserUse?.approvalMode ?? 'alwaysAsk') as BrowserUseApprovalMode)
+        setBrowserUseBlockedDomains([...(s.browserUse?.blockedDomains ?? [])])
+        setBrowserUseAllowedDomains([...(s.browserUse?.allowedDomains ?? [])])
         setBaselineConnection({
           binarySource: (s.binarySource ?? (s.appServerBinaryPath ? 'custom' : 'bundled')) as BinarySource,
           binaryPath: s.appServerBinaryPath ?? '',
@@ -1307,6 +1332,89 @@ export function SettingsView({
     void setVisibleChannelsAndPersist(next)
   }
 
+  async function persistBrowserUseSettings(next: {
+    approvalMode?: BrowserUseApprovalMode
+    blockedDomains?: string[]
+    allowedDomains?: string[]
+  }): Promise<void> {
+    const browserUse = {
+      approvalMode: next.approvalMode ?? browserUseApprovalMode,
+      blockedDomains: next.blockedDomains ?? browserUseBlockedDomains,
+      allowedDomains: next.allowedDomains ?? browserUseAllowedDomains
+    }
+    await window.api.settings.set({ browserUse })
+  }
+
+  async function handleBrowserUseApprovalModeChange(next: BrowserUseApprovalMode): Promise<void> {
+    const previous = browserUseApprovalMode
+    setBrowserUseApprovalMode(next)
+    try {
+      await persistBrowserUseSettings({ approvalMode: next })
+    } catch (err) {
+      setBrowserUseApprovalMode(previous)
+      addToast(t('settings.saveFailed', { error: err instanceof Error ? err.message : String(err) }), 'error')
+    }
+  }
+
+  function openBrowserUseDomainDialog(target: 'blocked' | 'allowed'): void {
+    setBrowserUseDomainTarget(target)
+    setBrowserUseDomainDraft('')
+    setBrowserUseDomainError('')
+  }
+
+  async function handleAddBrowserUseDomain(): Promise<void> {
+    if (!browserUseDomainTarget) return
+    const domain = normalizeBrowserUseDomainInput(browserUseDomainDraft)
+    if (!domain) {
+      setBrowserUseDomainError(t('settings.browserUse.domainInvalid'))
+      return
+    }
+    const blocked = browserUseDomainTarget === 'blocked'
+      ? Array.from(new Set([...browserUseBlockedDomains, domain]))
+      : browserUseBlockedDomains.filter((item) => item !== domain)
+    const allowed = browserUseDomainTarget === 'allowed'
+      ? Array.from(new Set([...browserUseAllowedDomains, domain]))
+      : browserUseAllowedDomains.filter((item) => item !== domain)
+    setBrowserUseBlockedDomains(blocked)
+    setBrowserUseAllowedDomains(allowed)
+    setBrowserUseDomainTarget(null)
+    setBrowserUseDomainDraft('')
+    setBrowserUseDomainError('')
+    try {
+      await persistBrowserUseSettings({ blockedDomains: blocked, allowedDomains: allowed })
+    } catch (err) {
+      addToast(t('settings.saveFailed', { error: err instanceof Error ? err.message : String(err) }), 'error')
+    }
+  }
+
+  async function handleRemoveBrowserUseDomain(target: 'blocked' | 'allowed', domain: string): Promise<void> {
+    const blocked = target === 'blocked'
+      ? browserUseBlockedDomains.filter((item) => item !== domain)
+      : browserUseBlockedDomains
+    const allowed = target === 'allowed'
+      ? browserUseAllowedDomains.filter((item) => item !== domain)
+      : browserUseAllowedDomains
+    setBrowserUseBlockedDomains(blocked)
+    setBrowserUseAllowedDomains(allowed)
+    try {
+      await persistBrowserUseSettings({ blockedDomains: blocked, allowedDomains: allowed })
+    } catch (err) {
+      addToast(t('settings.saveFailed', { error: err instanceof Error ? err.message : String(err) }), 'error')
+    }
+  }
+
+  async function handleClearBrowserUseCookies(): Promise<void> {
+    setClearingBrowserCookies(true)
+    try {
+      await window.api.workspace.viewer.browserUse.clearCookies()
+      addToast(t('settings.browserUse.cookiesCleared'), 'success')
+    } catch (err) {
+      addToast(t('settings.browserUse.cookiesClearFailed', { error: err instanceof Error ? err.message : String(err) }), 'error')
+    } finally {
+      setClearingBrowserCookies(false)
+    }
+  }
+
   function normalizePortOrDefault(raw: string, defaultPort: number): number {
     const parsed = Number.parseInt(raw.trim(), 10)
     return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : defaultPort
@@ -1787,6 +1895,7 @@ export function SettingsView({
     { id: 'general', label: t('settings.tab.general') },
     { id: 'connection', label: t('settings.tab.connection') },
     { id: 'proxy', label: t('settings.tab.proxy') },
+    { id: 'browserUse', label: t('settings.tab.browserUse') },
     { id: 'usage', label: t('settings.tab.usage') },
     { id: 'channels', label: t('settings.tab.channels') }
   ]
@@ -1873,7 +1982,7 @@ export function SettingsView({
         </header>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          <div style={{ maxWidth: activeSettingsTab === 'mcp' || activeSettingsTab === 'subAgents' ? '760px' : '560px' }}>
+          <div style={{ maxWidth: activeSettingsTab === 'mcp' || activeSettingsTab === 'subAgents' || activeSettingsTab === 'browserUse' ? '760px' : '560px' }}>
             {(connectionDirty || llmDirty || proxyDirty) && (
               <div
                 style={{
@@ -2643,6 +2752,103 @@ export function SettingsView({
               </ProxyPanel>
             )}
 
+            {activeSettingsTab === 'browserUse' && (
+              <GeneralPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup title={t('settings.browserUse.browsingData')}>
+                  <SettingsRow
+                    label={t('settings.browserUse.cookies')}
+                    description={t('settings.browserUse.cookiesHint')}
+                    control={
+                      <button
+                        type="button"
+                        onClick={() => void handleClearBrowserUseCookies()}
+                        disabled={clearingBrowserCookies}
+                        style={secondaryActionButtonStyle(clearingBrowserCookies)}
+                      >
+                        {clearingBrowserCookies ? t('settings.saving') : t('settings.browserUse.clearCookies')}
+                      </button>
+                    }
+                  />
+                </SettingsGroup>
+
+                <SettingsGroup title={t('settings.browserUse.permissions')}>
+                  <SettingsRow
+                    label={t('settings.browserUse.approval')}
+                    description={t('settings.browserUse.approvalHint')}
+                    control={
+                      <select
+                        value={browserUseApprovalMode}
+                        onChange={(e) => void handleBrowserUseApprovalModeChange(e.target.value as BrowserUseApprovalMode)}
+                        style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
+                      >
+                        <option value="alwaysAsk">{t('settings.browserUse.approval.alwaysAsk')}</option>
+                        <option value="askUnknown">{t('settings.browserUse.approval.askUnknown')}</option>
+                        <option value="neverAsk">{t('settings.browserUse.approval.neverAsk')}</option>
+                      </select>
+                    }
+                  />
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title={t('settings.browserUse.blockedDomains')}
+                  description={t('settings.browserUse.blockedDomainsHint')}
+                  headerAction={
+                    <button type="button" onClick={() => openBrowserUseDomainDialog('blocked')} style={secondaryActionButtonStyle(false)}>
+                      {t('settings.browserUse.add')}
+                    </button>
+                  }
+                >
+                  {browserUseBlockedDomains.length === 0 ? (
+                    <SettingsRow>
+                      <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                        {t('settings.browserUse.noBlockedDomains')}
+                      </div>
+                    </SettingsRow>
+                  ) : browserUseBlockedDomains.map((domain) => (
+                    <SettingsRow
+                      key={domain}
+                      label={domain}
+                      control={
+                        <button type="button" onClick={() => void handleRemoveBrowserUseDomain('blocked', domain)} style={secondaryButtonStyle(false)}>
+                          {t('settings.browserUse.remove')}
+                        </button>
+                      }
+                    />
+                  ))}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title={t('settings.browserUse.allowedDomains')}
+                  description={t('settings.browserUse.allowedDomainsHint')}
+                  headerAction={
+                    <button type="button" onClick={() => openBrowserUseDomainDialog('allowed')} style={secondaryActionButtonStyle(false)}>
+                      {t('settings.browserUse.add')}
+                    </button>
+                  }
+                >
+                  {browserUseAllowedDomains.length === 0 ? (
+                    <SettingsRow>
+                      <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                        {t('settings.browserUse.noAllowedDomains')}
+                      </div>
+                    </SettingsRow>
+                  ) : browserUseAllowedDomains.map((domain) => (
+                    <SettingsRow
+                      key={domain}
+                      label={domain}
+                      control={
+                        <button type="button" onClick={() => void handleRemoveBrowserUseDomain('allowed', domain)} style={secondaryButtonStyle(false)}>
+                          {t('settings.browserUse.remove')}
+                        </button>
+                      }
+                    />
+                  ))}
+                </SettingsGroup>
+              </div>
+              </GeneralPanel>
+            )}
+
             {activeSettingsTab === 'usage' && (
               <UsagePanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2725,8 +2931,12 @@ export function SettingsView({
                           {items.map((ch) => {
                             const selected = visibleChannels.includes(ch.name)
                             return (
-                              <button
+                              <ActionTooltip
                                 key={ch.name}
+                                label={t('settings.channelIconTitle', { name: ch.name })}
+                                placement="top"
+                              >
+                              <button
                                 type="button"
                                 role="checkbox"
                                 aria-checked={selected}
@@ -2747,7 +2957,6 @@ export function SettingsView({
                                     ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))'
                                     : 'var(--bg-secondary)'
                                 }}
-                                title={t('settings.channelIconTitle', { name: ch.name })}
                                 aria-label={t('settings.channelIconTitle', { name: ch.name })}
                               >
                                 <ChannelIconBadge
@@ -2758,6 +2967,7 @@ export function SettingsView({
                                   framed={false}
                                 />
                               </button>
+                              </ActionTooltip>
                             )
                           })}
                         </div>
@@ -3180,6 +3390,72 @@ export function SettingsView({
         </main>
 
       </div>
+      {browserUseDomainTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'var(--overlay-scrim)'
+          }}
+        >
+          <div
+            style={{
+              width: '420px',
+              maxWidth: 'calc(100vw - 48px)',
+              border: '1px solid var(--border-default)',
+              borderRadius: '12px',
+              background: 'var(--bg-secondary)',
+              boxShadow: 'var(--shadow-level-3)',
+              padding: '22px'
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {browserUseDomainTarget === 'blocked'
+                ? t('settings.browserUse.addBlockedDomain')
+                : t('settings.browserUse.addAllowedDomain')}
+            </h2>
+            <p style={{ margin: '8px 0 14px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+              {browserUseDomainTarget === 'blocked'
+                ? t('settings.browserUse.addBlockedDomainHint')
+                : t('settings.browserUse.addAllowedDomainHint')}
+            </p>
+            <input
+              type="text"
+              value={browserUseDomainDraft}
+              onChange={(e) => {
+                setBrowserUseDomainDraft(e.target.value)
+                setBrowserUseDomainError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleAddBrowserUseDomain()
+                if (e.key === 'Escape') setBrowserUseDomainTarget(null)
+              }}
+              placeholder="example.com"
+              autoFocus
+              style={inputStyle(true)}
+            />
+            {browserUseDomainError && (
+              <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--error)' }}>
+                {browserUseDomainError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
+              <button type="button" onClick={() => setBrowserUseDomainTarget(null)} style={secondaryButtonStyle(false)}>
+                {t('settings.browserUse.cancel')}
+              </button>
+              <button type="button" onClick={() => void handleAddBrowserUseDomain()} style={primaryButtonStyle(false)}>
+                {t('settings.browserUse.add')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

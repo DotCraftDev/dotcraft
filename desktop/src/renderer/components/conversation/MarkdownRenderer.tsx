@@ -10,6 +10,7 @@ import { useThreadStore } from '../../stores/threadStore'
 import { openConversationLink } from '../../utils/conversationDeepLink'
 import { basename } from '../../utils/path'
 import { resolveConversationLink } from '../../../shared/viewer/linkResolver'
+import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface MarkdownRendererProps {
   content: string
@@ -294,14 +295,15 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
       >
         {children}
       </pre>
-      <button
-        onClick={handleCopy}
-        aria-label="Copy code"
-        title="Copy code"
-        style={{
-          position: 'absolute',
-          top: '6px',
-          right: '8px',
+      <ActionTooltip
+        label="Copy code"
+        placement="top"
+        wrapperStyle={{ position: 'absolute', top: '6px', right: '8px' }}
+      >
+        <button
+          onClick={handleCopy}
+          aria-label="Copy code"
+          style={{
           padding: '3px 8px',
           fontSize: '11px',
           background: copied ? 'var(--success)' : 'var(--code-copy-bg)',
@@ -314,7 +316,8 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
         }}
       >
         {copied ? 'Copied!' : 'Copy'}
-      </button>
+        </button>
+      </ActionTooltip>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog, Notification, shell, session } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as os from 'os'
@@ -32,8 +32,9 @@ import {
   listViewerFiles
 } from './viewerIpc'
 import { buildViewerUrl } from './viewerFileProtocol'
-import { viewerBrowserManager } from './viewerBrowser'
+import { partitionForWorkspace, viewerBrowserManager } from './viewerBrowser'
 import { viewerTerminalManager } from './viewerTerminal'
+import { browserUseManager, type BrowserUseApprovalResponsePayload } from './browserUseManager'
 import {
   scanModules,
   groupModulesByChannel,
@@ -1168,6 +1169,17 @@ export function registerIpcHandlers(
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return null
     return viewerBrowserManager.snapshotState(win, params.tabId)
+  })
+  handleSafe('viewer:browser-use:approval-response', async (_event, payload: BrowserUseApprovalResponsePayload) => {
+    browserUseManager.handleApprovalResponse(payload)
+  })
+  handleSafe('viewer:browser-use:clear-cookies', async () => {
+    if (!workspacePath) {
+      throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+    }
+    const partition = partitionForWorkspace(workspacePath)
+    await session.fromPartition(partition).clearStorageData({ storages: ['cookies'] })
+    return { ok: true }
   })
 
   // Renderer -> Main: terminal tab lifecycle / PTY I/O
