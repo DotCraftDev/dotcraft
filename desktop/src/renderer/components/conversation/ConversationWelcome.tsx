@@ -937,6 +937,7 @@ export function ConversationWelcome({
                     onChange={(nextModel) => {
                       void handleModelChange(nextModel)
                     }}
+                    shortcut={ACTION_SHORTCUTS.selectModel}
                     triggerStyle={composerModelPillStyle(
                       modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
                       modelApplying || starting || modelLoading

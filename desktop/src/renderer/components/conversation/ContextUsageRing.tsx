@@ -5,7 +5,7 @@ import { useT } from '../../contexts/LocaleContext'
 /**
  * Small circular progress indicator showing how much of the model context
  * window is currently consumed by the active thread. Mirrors Codex's ring:
- * a 18px donut with a theme-colored sweep plus a hover tooltip that exposes
+ * a 14px donut with a theme-colored sweep plus a hover tooltip that exposes
  * the raw numbers.
  *
  * Data model:
@@ -42,8 +42,8 @@ export function ContextUsageRing(): JSX.Element | null {
 
   if (!usage || !ringData) return null
 
-  const size = 18
-  const stroke = 2.5
+  const size = 14
+  const stroke = 2
   const radius = (size - stroke) / 2
   const circumference = 2 * Math.PI * radius
   const dash = circumference * ringData.filled

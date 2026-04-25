@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import type { ShortcutSpec } from '../ui/shortcutKeys'
 
 interface ModelPickerProps {
   modelName: string
@@ -9,6 +10,7 @@ interface ModelPickerProps {
   loading?: boolean
   unsupported?: boolean
   onChange?: (model: string) => void
+  shortcut?: ShortcutSpec
   triggerStyle: CSSProperties
 }
 
@@ -19,6 +21,7 @@ export function ModelPicker({
   loading = false,
   unsupported = false,
   onChange,
+  shortcut,
   triggerStyle
 }: ModelPickerProps): JSX.Element {
   const t = useT()
@@ -40,6 +43,32 @@ export function ModelPicker({
   useEffect(() => {
     setHighlight(selectedIndex)
   }, [selectedIndex])
+
+  useEffect(() => {
+    if (!shortcut) return
+    const handleShortcut = (event: KeyboardEvent): void => {
+      const mod = event.ctrlKey || event.metaKey
+      if (
+        !mod ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.isComposing ||
+        event.key.toLowerCase() !== 'm'
+      ) {
+        return
+      }
+      if (!interactive) return
+      event.preventDefault()
+      event.stopPropagation()
+      setHighlight(selectedIndex)
+      setOpen(true)
+    }
+
+    window.addEventListener('keydown', handleShortcut, true)
+    return () => {
+      window.removeEventListener('keydown', handleShortcut, true)
+    }
+  }, [interactive, selectedIndex, shortcut])
 
   useEffect(() => {
     if (!open) return
@@ -98,6 +127,7 @@ export function ModelPicker({
     <div ref={wrapRef} style={{ position: 'relative', minWidth: 0 }}>
       <ActionTooltip
         label={tooltipLabel}
+        shortcut={shortcut}
         disabledReason={disabledReason}
         placement="top"
         wrapperStyle={{ minWidth: 0 }}
