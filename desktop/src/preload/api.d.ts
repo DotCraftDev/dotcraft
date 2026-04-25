@@ -39,12 +39,21 @@ export interface BrowserEventPayload {
     | 'crashed'
     | 'update-history-flags'
     | 'external-handoff'
+    | 'automation-started'
+    | 'automation-updated'
+    | 'automation-stopped'
+    | 'virtual-cursor'
   url?: string
   title?: string
   faviconDataUrl?: string
   canGoBack?: boolean
   canGoForward?: boolean
   message?: string
+  automationActive?: boolean
+  sessionName?: string
+  action?: string
+  x?: number
+  y?: number
 }
 
 export interface BrowserUseOpenPayload {

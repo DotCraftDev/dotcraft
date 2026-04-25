@@ -60,9 +60,6 @@ public sealed class WireBrowserUseProxyTests
                 {
                     BrowserUse = new BrowserUseCapability
                     {
-                        Version = 1,
-                        JsRuntime = true,
-                        Images = true,
                         Backend = "desktop-webcontents"
                     }
                 }));
@@ -93,7 +90,7 @@ public sealed class WireBrowserUseProxyTests
                 new AppServerClientInfo { Name = "desktop", Version = "1" },
                 new AppServerClientCapabilities
                 {
-                    BrowserUse = new BrowserUseCapability { JsRuntime = true, Images = true }
+                    BrowserUse = new BrowserUseCapability()
                 });
             proxy.BindThread("thread-b", transport, connection);
             TracingChatClient.CurrentSessionKey = "thread-b";

@@ -106,9 +106,6 @@ internal sealed class AppServerTestHarness : IDisposable
             browserUse = browserUse
                 ? new
                 {
-                    version = 1,
-                    jsRuntime = true,
-                    images = true,
                     backend = "desktop-webcontents"
                 }
                 : null

@@ -126,12 +126,6 @@ public sealed class AcpExtensionCapability
 /// </summary>
 public sealed class BrowserUseCapability
 {
-    public int Version { get; set; } = 1;
-
-    public bool? JsRuntime { get; set; }
-
-    public bool? Images { get; set; }
-
     public string Backend { get; set; } = string.Empty;
 }
 

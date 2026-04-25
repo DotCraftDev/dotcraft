@@ -68,6 +68,19 @@ export interface BrowserViewerTab extends ViewerTabBase {
   blockedMessage?: string
   /** User-facing notice when a download is blocked/cancelled. */
   downloadMessage?: string
+  /** True while an agent is actively operating this embedded browser tab. */
+  automationActive?: boolean
+  /** Last browser-use session name supplied by the agent. */
+  automationSessionName?: string
+  /** Concise description of the latest automation action. */
+  lastAutomationAction?: string
+  /** Last known virtual cursor location in viewport coordinates. */
+  virtualCursor?: BrowserVirtualCursor
+}
+
+export interface BrowserVirtualCursor {
+  x: number
+  y: number
 }
 
 export interface TerminalExitState {
@@ -208,6 +221,10 @@ export type BrowserEventType =
   | 'crashed'
   | 'update-history-flags'
   | 'external-handoff'
+  | 'automation-started'
+  | 'automation-updated'
+  | 'automation-stopped'
+  | 'virtual-cursor'
 
 export interface BrowserEventPayload {
   tabId: string
@@ -218,6 +235,11 @@ export interface BrowserEventPayload {
   canGoBack?: boolean
   canGoForward?: boolean
   message?: string
+  automationActive?: boolean
+  sessionName?: string
+  action?: string
+  x?: number
+  y?: number
 }
 
 export interface BrowserUseOpenPayload {

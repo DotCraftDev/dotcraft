@@ -177,6 +177,27 @@ describe('openBrowser / updateBrowserTab', () => {
     }
   })
 
+  it('updates browser automation state via patch', () => {
+    store().onThreadSwitched(THREAD_A)
+    const id = store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com' })
+
+    store().updateBrowserTab(THREAD_A, id, {
+      automationActive: true,
+      automationSessionName: 'DotCraft',
+      lastAutomationAction: 'click',
+      virtualCursor: { x: 12, y: 34 }
+    })
+
+    const tab = store().getThreadState(THREAD_A).tabs.find((item) => item.id === id)
+    expect(tab?.kind).toBe('browser')
+    if (tab?.kind === 'browser') {
+      expect(tab.automationActive).toBe(true)
+      expect(tab.automationSessionName).toBe('DotCraft')
+      expect(tab.lastAutomationAction).toBe('click')
+      expect(tab.virtualCursor).toEqual({ x: 12, y: 34 })
+    }
+  })
+
   it('focuses matching browser tab by normalized URL', () => {
     store().onThreadSwitched(THREAD_A)
     const browserA = store().openBrowser({

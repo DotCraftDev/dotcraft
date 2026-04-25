@@ -241,10 +241,7 @@ Client                              Server
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | number | Browser-use wire contract version. Initial value is `1`. |
-| `jsRuntime` | boolean | Client can evaluate JavaScript through `ext/browserUse/evaluate`. |
-| `images` | boolean | Client can return image payloads from browser-use calls. |
-| `backend` | string | Client backend identifier, e.g. `desktop-webcontents`. |
+| `backend` | string | Client backend identifier, e.g. `desktop-webcontents`. Presence of `browserUse` means the client supports the current Desktop browser-use runtime: JavaScript evaluation, screenshots, Playwright-like locators, coordinate input, virtual mouse state, console logs, and named tab sessions. |
 
 **`channelAdapter` object** (when present):
 

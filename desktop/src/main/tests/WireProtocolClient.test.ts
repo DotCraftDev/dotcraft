@@ -284,9 +284,6 @@ describe('WireProtocolClient', () => {
     expect(initReq.params.clientInfo.name).toBe('dotcraft-desktop')
     expect(initReq.params.capabilities.approvalSupport).toBe(true)
     expect(initReq.params.capabilities.browserUse).toEqual({
-      version: 1,
-      jsRuntime: true,
-      images: true,
       backend: 'desktop-webcontents'
     })
 

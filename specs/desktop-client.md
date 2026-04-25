@@ -531,3 +531,11 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
 
 - Desktop reserves an auxiliary right-side **viewer panel** surface that coexists with the existing changes / plan / terminal tabs and lets users open native file viewers and embedded browser tabs without leaving the workspace.
 - The viewer panel must preserve the same principles this document applies to the rest of desktop behavior: protocol-driven where applicable, explicit status and recovery, and clear separation between workflow rules and visual implementation.
+
+### 10.2 Browser Use Automation
+
+- When Desktop declares the browser-use capability, embedded browser tabs may be controlled by the active agent through the thread-bound browser-use runtime.
+- Agent-controlled browser tabs remain regular viewer tabs: opening a browser-use tab may focus it on first open, but subsequent automation updates must not steal focus from the user's current thread or active tab.
+- While an agent is actively operating a browser tab, Desktop must surface an automation state on the tab chrome, including the session name when available and a concise last-action hint when useful.
+- Coordinate and locator-driven browser actions should render a virtual cursor inside the page whenever the page can accept the injected overlay. Failure to render the overlay must not block the underlying browser action.
+- Navigation, screenshots, DOM snapshots, console-log inspection, and coordinate input remain subject to Desktop's browser-use policy, including local-url defaults and external-domain approval or blocking.

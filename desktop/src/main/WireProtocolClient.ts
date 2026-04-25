@@ -391,9 +391,6 @@ export class WireProtocolClient extends EventEmitter {
           configChange: true,
           optOutNotificationMethods: [],
           browserUse: {
-            version: 1,
-            jsRuntime: true,
-            images: true,
             backend: 'desktop-webcontents'
           }
         }

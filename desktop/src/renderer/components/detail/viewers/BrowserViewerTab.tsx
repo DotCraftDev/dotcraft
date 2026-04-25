@@ -44,6 +44,9 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
   const blockedMessage = useViewerTabStore((s) => findBrowserTab(s, currentThreadId, tabId)?.blockedMessage ?? '')
   const downloadMessage = useViewerTabStore((s) => findBrowserTab(s, currentThreadId, tabId)?.downloadMessage ?? '')
   const errorMessage = useViewerTabStore((s) => findBrowserTab(s, currentThreadId, tabId)?.errorMessage ?? '')
+  const automationActive = useViewerTabStore((s) => Boolean(findBrowserTab(s, currentThreadId, tabId)?.automationActive))
+  const automationSessionName = useViewerTabStore((s) => findBrowserTab(s, currentThreadId, tabId)?.automationSessionName ?? '')
+  const lastAutomationAction = useViewerTabStore((s) => findBrowserTab(s, currentThreadId, tabId)?.lastAutomationAction ?? '')
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const updateBrowserTab = useViewerTabStore((s) => s.updateBrowserTab)
   const openBrowser = useViewerTabStore((s) => s.openBrowser)
@@ -123,6 +126,28 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
         })
         return
       case 'external-handoff':
+        return
+      case 'automation-started':
+      case 'automation-updated':
+        updateBrowserTab(currentThreadId, tabId, {
+          automationActive: event.automationActive ?? true,
+          ...(event.sessionName !== undefined ? { automationSessionName: event.sessionName } : {}),
+          ...(event.action !== undefined ? { lastAutomationAction: event.action } : {})
+        })
+        return
+      case 'automation-stopped':
+        updateBrowserTab(currentThreadId, tabId, {
+          automationActive: false,
+          ...(event.sessionName !== undefined ? { automationSessionName: event.sessionName } : {}),
+          ...(event.action !== undefined ? { lastAutomationAction: event.action } : {})
+        })
+        return
+      case 'virtual-cursor':
+        updateBrowserTab(currentThreadId, tabId, {
+          ...(typeof event.x === 'number' && typeof event.y === 'number'
+            ? { virtualCursor: { x: event.x, y: event.y } }
+            : {})
+        })
         return
       case 'request-new-tab':
         if (!event.url) return
@@ -378,7 +403,22 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
         {faviconDataUrl
           ? <img src={faviconDataUrl} alt="" width={14} height={14} style={{ borderRadius: '2px' }} />
           : <Globe size={14} aria-hidden style={{ display: 'block' }} />}
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {automationSessionName.trim() || title}
+        </span>
+        {automationActive && lastAutomationAction && (
+          <span style={{
+            flexShrink: 0,
+            maxWidth: '120px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: 'var(--accent)',
+            fontSize: '11px'
+          }}>
+            {lastAutomationAction}
+          </span>
+        )}
       </div>
 
       <div

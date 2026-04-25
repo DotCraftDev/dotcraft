@@ -104,3 +104,85 @@ describe('loadOrReport', () => {
     })
   })
 })
+
+describe('ViewerBrowserManager automation input', () => {
+  function createAutomationHarness() {
+    const events: unknown[] = []
+    const webContents = {
+      isDestroyed: vi.fn(() => false),
+      sendInputEvent: vi.fn((event: unknown) => events.push(event)),
+      insertText: vi.fn(),
+      executeJavaScript: vi.fn(async () => undefined)
+    }
+    const win = {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow & { webContents: { send: ReturnType<typeof vi.fn> } }
+    const manager = new ViewerBrowserManager()
+    ;(manager as unknown as {
+      byWindowId: Map<number, {
+        tabs: Map<string, unknown>
+        activeTabId: string | null
+      }>
+    }).byWindowId.set(1, {
+      activeTabId: null,
+      tabs: new Map([['tab-1', {
+        tabId: 'tab-1',
+        workspacePath: 'F:/workspace',
+        view: { webContents },
+        desiredVisible: true,
+        visible: true,
+        boundsInitialized: true,
+        currentUrl: 'http://localhost:3000/',
+        title: 'Test',
+        automationEnabled: true
+      }]])
+    })
+    return { manager, win, webContents, events }
+  }
+
+  it('clickMouse sends move, down, and up input events', async () => {
+    const { manager, win, webContents, events } = createAutomationHarness()
+
+    await manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
+
+    expect(webContents.executeJavaScript).toHaveBeenCalled()
+    expect(events).toMatchObject([
+      { type: 'mouseMove', x: 10, y: 20 },
+      { type: 'mouseDown', x: 10, y: 20, button: 'left' },
+      { type: 'mouseUp', x: 10, y: 20, button: 'left' }
+    ])
+  })
+
+  it('scrollMouse sends wheel input through the tab webContents', async () => {
+    const { manager, win, events } = createAutomationHarness()
+
+    await manager.scrollMouse(win, { tabId: 'tab-1', x: 5, y: 6, scrollX: 0, scrollY: 120 })
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'mouseWheel',
+      x: 5,
+      y: 6,
+      deltaY: 120
+    })
+  })
+
+  it('keypress sends keyDown and keyUp with modifiers', () => {
+    const { manager, win, events } = createAutomationHarness()
+
+    manager.keypress(win, { tabId: 'tab-1', keys: ['Control', 'A'] })
+
+    expect(events).toMatchObject([
+      { type: 'keyDown', keyCode: 'A', modifiers: ['control'] },
+      { type: 'keyUp', keyCode: 'A', modifiers: ['control'] }
+    ])
+  })
+})
