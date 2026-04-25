@@ -6,11 +6,9 @@
 
 **[中文](./README.md) | English**
 
-A project-scoped agent harness for persistent AI workspaces.
+A project-scoped agent harness for crafting a persistent AI workspaces.
 
-*Craft a persistent AI workspace around your project.*
-
-Powered by .NET 10 and a Unified Session Core, DotCraft delivers unified, observable AI orchestration across terminals, desktop apps, IDEs, and instant messaging platforms.
+DotCraft delivers unified, observable AI orchestration across terminals, desktop apps, IDEs, and instant messaging platforms.
 
 ![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
