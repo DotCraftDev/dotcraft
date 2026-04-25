@@ -112,7 +112,7 @@ export function MessageStream(): JSX.Element {
         }) as RollbackThreadResult
         rollbackPending = false
         if (rollbackResult.thread) {
-          useConversationStore.getState().setTurns(rollbackResult.thread.turns ?? [])
+          useConversationStore.getState().setTurns((rollbackResult.thread.turns ?? []).map(wireTurnToConversationTurn))
           useConversationStore.getState().setContextUsage(rollbackResult.thread.contextUsage ?? null)
           useThreadStore.getState().setActiveThread(rollbackResult.thread as Thread)
         }
