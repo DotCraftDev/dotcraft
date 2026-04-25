@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Agents;
 
-public sealed class StreamingToolCallPreviewChatClientTests
+public sealed partial class StreamingFunctionInvokingChatClientTests
 {
     [Fact]
     public async Task GetStreamingResponseAsync_TextOnly_NoInjectedDelta()
@@ -13,7 +13,10 @@ public sealed class StreamingToolCallPreviewChatClientTests
         {
             new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("hello")])
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
+        {
+            EnableToolCallArgumentPreviews = true
+        };
 
         var collected = new List<ChatResponseUpdate>();
         await foreach (var update in client.GetStreamingResponseAsync([]))
@@ -39,8 +42,9 @@ public sealed class StreamingToolCallPreviewChatClientTests
                     new ToolCallDeltaChunk(0, null, null, "lo\"}"))
             }
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
         {
+            EnableToolCallArgumentPreviews = true,
             IsStreamableTool = name => name == "WriteFile"
         };
 
@@ -65,7 +69,10 @@ public sealed class StreamingToolCallPreviewChatClientTests
             RawRepresentation = new FakeRawDeltaSource(
                 new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"path\":\"a.txt\"}"))
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: [update]));
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: [update]))
+        {
+            EnableToolCallArgumentPreviews = true
+        };
 
         var observed = new List<ToolCallArgumentsDeltaContent>();
         await foreach (var item in client.GetStreamingResponseAsync([]))
@@ -86,8 +93,9 @@ public sealed class StreamingToolCallPreviewChatClientTests
                     new ToolCallDeltaChunk(0, "ReadFile", "call-1", "{\"path\":\"a.txt\"}"))
             }
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
         {
+            EnableToolCallArgumentPreviews = true,
             IsStreamableTool = name => name == "WriteFile"
         };
 
@@ -111,7 +119,10 @@ public sealed class StreamingToolCallPreviewChatClientTests
                     new ToolCallDeltaChunk(0, "MyMcpTool", "call-1", "{\"query\":\"hi\"}"))
             }
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
+        {
+            EnableToolCallArgumentPreviews = true
+        };
 
         var deltas = new List<ToolCallArgumentsDeltaContent>();
         await foreach (var update in client.GetStreamingResponseAsync([]))
@@ -133,8 +144,9 @@ public sealed class StreamingToolCallPreviewChatClientTests
                     new ToolCallDeltaChunk(0, "ReadFile", "call-1", "{\"path\":\"a.txt\"}"))
             }
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
         {
+            EnableToolCallArgumentPreviews = true,
             StreamableToolNames = new HashSet<string>(["WriteFile"], StringComparer.Ordinal)
         };
 
@@ -163,7 +175,10 @@ public sealed class StreamingToolCallPreviewChatClientTests
                     new ToolCallDeltaChunk(1, null, null, "y\"}"))
             }
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates))
+        {
+            EnableToolCallArgumentPreviews = true
+        };
 
         var deltas = new List<ToolCallArgumentsDeltaContent>();
         await foreach (var update in client.GetStreamingResponseAsync([]))
@@ -183,30 +198,12 @@ public sealed class StreamingToolCallPreviewChatClientTests
     [Fact]
     public async Task GetStreamingResponseAsync_MultiRound_ResetsTrackers()
     {
-        var updates = new[]
+        var inner = new MultiRoundPreviewFakeChatClient();
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
-            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r1-a")])
-            {
-                RawRepresentation = new FakeRawDeltaSource(
-                    new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"content\":\"hel"))
-            },
-            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r1-b")])
-            {
-                RawRepresentation = new FakeRawDeltaSource(
-                    new ToolCallDeltaChunk(0, null, null, "lo\"}"))
-            },
-            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-a")])
-            {
-                RawRepresentation = new FakeRawDeltaSource(
-                    new ToolCallDeltaChunk(0, "EditFile", "call-2", "{\"old\":\"a"))
-            },
-            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-b")])
-            {
-                RawRepresentation = new FakeRawDeltaSource(
-                    new ToolCallDeltaChunk(0, null, null, "b\"}"))
-            }
+            EnableToolCallArgumentPreviews = true,
+            AdditionalTools = [AIFunctionFactory.Create(FakeToolMethods.WriteFile)]
         };
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
 
         var deltas = new List<ToolCallArgumentsDeltaContent>();
         await foreach (var update in client.GetStreamingResponseAsync([]))
@@ -229,17 +226,31 @@ public sealed class StreamingToolCallPreviewChatClientTests
         Assert.Equal(0, deltas[3].ToolCallIndex);
         Assert.Null(deltas[3].ToolName);
         Assert.Null(deltas[3].CallId);
+
+        Assert.Equal(2, inner.Calls.Count);
+        Assert.DoesNotContain(
+            inner.Calls[1].SelectMany(message => message.Contents),
+            content => content is ToolCallArgumentsDeltaContent);
     }
 
     [Fact]
-    public async Task GetResponseAsync_PassthroughUnchanged()
+    public async Task GetStreamingResponseAsync_PreviewsDisabledByDefault()
     {
-        var expected = new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]);
-        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(response: expected));
+        var updates = new[]
+        {
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("a")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"path\":\"a.txt\"}"))
+            }
+        };
+        var client = new StreamingFunctionInvokingChatClient(new FakeChatClient(streamUpdates: updates));
 
-        var actual = await client.GetResponseAsync([]);
+        var deltas = new List<ToolCallArgumentsDeltaContent>();
+        await foreach (var update in client.GetStreamingResponseAsync([]))
+            deltas.AddRange(update.Contents.OfType<ToolCallArgumentsDeltaContent>());
 
-        Assert.Same(expected, actual);
+        Assert.Empty(deltas);
     }
 
     [Fact]
@@ -284,6 +295,8 @@ public sealed class StreamingToolCallPreviewChatClientTests
         public static string OptedOut(string query) => query;
 
         public static string Streaming(string query) => query;
+
+        public static string WriteFile(string content) => content;
     }
 
     private sealed class MethodlessFakeFunction : AIFunction
@@ -337,4 +350,64 @@ public sealed class StreamingToolCallPreviewChatClientTests
         {
         }
     }
+
+    private sealed class MultiRoundPreviewFakeChatClient : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(chatMessages.ToList());
+            if (Calls.Count == 1)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r1-a")])
+                {
+                    RawRepresentation = new FakeRawDeltaSource(
+                        new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"content\":\"hel"))
+                };
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [
+                    new TextContent("r1-b"),
+                    new FunctionCallContent("call-1", "WriteFile", new Dictionary<string, object?> { ["content"] = "hello" })
+                ])
+                {
+                    RawRepresentation = new FakeRawDeltaSource(
+                        new ToolCallDeltaChunk(0, null, null, "lo\"}"))
+                };
+            }
+            else
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-a")])
+                {
+                    RawRepresentation = new FakeRawDeltaSource(
+                        new ToolCallDeltaChunk(0, "EditFile", "call-2", "{\"old\":\"a"))
+                };
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-b")])
+                {
+                    RawRepresentation = new FakeRawDeltaSource(
+                        new ToolCallDeltaChunk(0, null, null, "b\"}"))
+                };
+            }
+
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
 }
+

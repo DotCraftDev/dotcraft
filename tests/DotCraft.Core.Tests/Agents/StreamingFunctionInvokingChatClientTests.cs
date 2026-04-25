@@ -4,14 +4,14 @@ using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Agents;
 
-public sealed class SteerableFunctionInvokingChatClientTests
+public sealed partial class StreamingFunctionInvokingChatClientTests
 {
     [Fact]
     public async Task GetStreamingResponseAsync_DrainsGuidanceBeforeNextModelRequest()
     {
         var inner = new RoundTripFakeChatClient();
         var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
-        var client = new SteerableFunctionInvokingChatClient(inner)
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
             AdditionalTools = [tool]
         };
@@ -44,7 +44,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
     public async Task GetStreamingResponseAsync_UnknownToolCreatesFunctionResultByDefault()
     {
         var inner = new UnknownToolFakeChatClient();
-        var client = new SteerableFunctionInvokingChatClient(inner);
+        var client = new StreamingFunctionInvokingChatClient(inner);
 
         await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
         {
@@ -60,7 +60,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
     public async Task GetStreamingResponseAsync_TerminateOnUnknownCallsLeavesCallForCaller()
     {
         var inner = new UnknownToolFakeChatClient();
-        var client = new SteerableFunctionInvokingChatClient(inner)
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
             TerminateOnUnknownCalls = true
         };
@@ -77,7 +77,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
     {
         var inner = new AlwaysCallsToolFakeChatClient();
         var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
-        var client = new SteerableFunctionInvokingChatClient(inner)
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
             MaximumIterationsPerRequest = 1
         };
@@ -98,7 +98,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
     {
         var inner = new ConversationIdFakeChatClient();
         var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
-        var client = new SteerableFunctionInvokingChatClient(inner)
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
             AdditionalTools = [tool]
         };
@@ -117,7 +117,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
     public async Task GetStreamingResponseAsync_UsesGenericToolErrorUnlessDetailedErrorsAreEnabled()
     {
         var genericInner = new FailingToolFakeChatClient();
-        var genericClient = new SteerableFunctionInvokingChatClient(genericInner)
+        var genericClient = new StreamingFunctionInvokingChatClient(genericInner)
         {
             AdditionalTools = [AIFunctionFactory.Create(ThrowBoom, name: "Fail")]
         };
@@ -130,7 +130,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
         Assert.Equal("Error: Function failed.", genericResult.Result);
 
         var detailedInner = new FailingToolFakeChatClient();
-        var detailedClient = new SteerableFunctionInvokingChatClient(detailedInner)
+        var detailedClient = new StreamingFunctionInvokingChatClient(detailedInner)
         {
             AdditionalTools = [AIFunctionFactory.Create(ThrowBoom, name: "Fail")],
             IncludeDetailedErrors = true
@@ -150,12 +150,12 @@ public sealed class SteerableFunctionInvokingChatClientTests
         var inner = new RoundTripFakeChatClient();
         var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
         FunctionInvocationContext? captured = null;
-        var client = new SteerableFunctionInvokingChatClient(inner)
+        var client = new StreamingFunctionInvokingChatClient(inner)
         {
             AdditionalTools = [tool],
             FunctionInvoker = (context, _) =>
             {
-                captured = SteerableFunctionInvokingChatClient.CurrentContext;
+                captured = StreamingFunctionInvokingChatClient.CurrentContext;
                 return ValueTask.FromResult<object?>("tool ok");
             }
         };
@@ -166,7 +166,7 @@ public sealed class SteerableFunctionInvokingChatClientTests
 
         Assert.NotNull(captured);
         Assert.Equal("GetStatus", captured.Function.Name);
-        Assert.Null(SteerableFunctionInvokingChatClient.CurrentContext);
+        Assert.Null(StreamingFunctionInvokingChatClient.CurrentContext);
     }
 
     private static string ThrowBoom() => throw new InvalidOperationException("boom");
@@ -369,3 +369,4 @@ public sealed class SteerableFunctionInvokingChatClientTests
         }
     }
 }
+

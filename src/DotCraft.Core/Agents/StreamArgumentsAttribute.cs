@@ -1,7 +1,7 @@
 namespace DotCraft.Agents;
 
 /// <summary>
-/// Controls whether <see cref="StreamingToolCallPreviewChatClient"/> emits
+/// Controls whether <see cref="StreamingFunctionInvokingChatClient"/> emits
 /// <see cref="ToolCallArgumentsDeltaContent"/> previews for the decorated tool method.
 /// </summary>
 /// <remarks>

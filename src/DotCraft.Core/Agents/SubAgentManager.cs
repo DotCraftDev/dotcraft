@@ -243,12 +243,12 @@ public sealed class SubAgentManager
         // ChatClientBuilder applies middleware in reverse registration order:
         // first Use(...) is outermost. Register function invocation first so its internal
         // LLM rounds pass through progress/tracing clients.
-        // Effective pipeline: SteerableFunctionInvokingChatClient → SubAgentProgressChatClient
+        // Effective pipeline: StreamingFunctionInvokingChatClient → SubAgentProgressChatClient
         // → TracingChatClient → base LLM client.
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         chatClientBuilder.Use(inner =>
         {
-            var fic = new SteerableFunctionInvokingChatClient(inner)
+            var fic = new StreamingFunctionInvokingChatClient(inner)
             {
                 MaximumIterationsPerRequest = _maxToolCallRounds,
                 AllowConcurrentInvocation = true

@@ -6,16 +6,17 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
+using OpenAiStreamingUpdate = OpenAI.Chat.StreamingChatCompletionUpdate;
 
 #pragma warning disable MEAI001 // Mirrors upstream FunctionInvokingChatClient handling for provider-managed continuations.
 
 namespace DotCraft.Agents;
 
 /// <summary>
-/// DotCraft-owned function invocation loop with a safe-boundary hook for
-/// same-turn guidance injection.
+/// DotCraft-owned streaming function invocation loop with safe-boundary hooks
+/// for same-turn guidance injection and tool-call argument previews.
 /// </summary>
-public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient, IServiceProvider? services = null)
+public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient, IServiceProvider? services = null)
     : DelegatingChatClient(innerClient)
 {
     private static readonly AsyncLocal<FunctionInvocationContext?> CurrentInvocationContext = new();
@@ -78,6 +79,25 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
     public bool TerminateOnUnknownCalls { get; set; }
 
     /// <summary>
+    /// Emits preview-only tool-call argument deltas while provider streaming
+    /// payloads are still being assembled into <see cref="FunctionCallContent"/>.
+    /// </summary>
+    public bool EnableToolCallArgumentPreviews { get; set; }
+
+    /// <summary>
+    /// Optional predicate that decides whether argument deltas should be emitted for a tool.
+    /// When <see langword="null"/> (default) all tools are eligible.
+    /// </summary>
+    public Func<string, bool>? IsStreamableTool { get; set; }
+
+    /// <summary>
+    /// Tool names that should emit argument delta previews. Used as a fallback when
+    /// <see cref="IsStreamableTool"/> is not set. When both are <see langword="null"/>,
+    /// all tools are eligible.
+    /// </summary>
+    public IReadOnlySet<string>? StreamableToolNames { get; set; }
+
+    /// <summary>
     /// Custom invocation hook matching Microsoft.Extensions.AI's public surface.
     /// </summary>
     public Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>>? FunctionInvoker { get; set; }
@@ -111,9 +131,14 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
             var updates = new List<ChatResponseUpdate>();
             var functionCalls = new List<FunctionCallContent>();
             var lastYieldedUpdateIndex = 0;
+            var toolCallPreviewTrackers = new Dictionary<int, ToolCallTracker>();
+            Dictionary<ChatResponseUpdate, IReadOnlyList<ToolCallArgumentsDeltaContent>>? previewContentsByUpdate = null;
 
             await foreach (var update in base.GetStreamingResponseAsync(currentMessages, options, cancellationToken))
             {
+                var addedPreviewContents = AddToolCallArgumentPreviews(update, toolCallPreviewTrackers);
+                if (addedPreviewContents is { Count: > 0 })
+                    (previewContentsByUpdate ??= [])[update] = addedPreviewContents;
                 updates.Add(update);
                 CopyFunctionCalls(update.Contents, functionCalls);
 
@@ -121,6 +146,7 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
                 {
                     lastYieldedUpdateIndex++;
                     yield return update;
+                    RemoveToolCallArgumentPreviews(update, addedPreviewContents);
                 }
             }
 
@@ -129,7 +155,10 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
             for (; lastYieldedUpdateIndex < updates.Count; lastYieldedUpdateIndex++)
             {
                 var update = updates[lastYieldedUpdateIndex];
+                IReadOnlyList<ToolCallArgumentsDeltaContent>? addedPreviewContents = null;
+                previewContentsByUpdate?.TryGetValue(update, out addedPreviewContents);
                 yield return update;
+                RemoveToolCallArgumentPreviews(update, addedPreviewContents);
             }
 
             if (updates.Count == 0)
@@ -285,6 +314,92 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
 
         augmentedHistory.Add(guidanceMessage);
         return true;
+    }
+
+    private IReadOnlyList<ToolCallArgumentsDeltaContent>? AddToolCallArgumentPreviews(
+        ChatResponseUpdate update,
+        Dictionary<int, ToolCallTracker> trackers)
+    {
+        if (!EnableToolCallArgumentPreviews)
+            return null;
+
+        List<ToolCallArgumentsDeltaContent>? addedContents = null;
+        foreach (var delta in ExtractDeltas(update.RawRepresentation))
+        {
+            if (!trackers.TryGetValue(delta.Index, out var tracker))
+            {
+                tracker = new ToolCallTracker();
+                trackers[delta.Index] = tracker;
+            }
+
+            tracker.CallId ??= delta.CallId;
+            tracker.ToolName ??= delta.ToolName;
+
+            if (string.IsNullOrEmpty(delta.ArgumentsDelta))
+                continue;
+            if (tracker.ToolName is null)
+                continue;
+            if (!IsEligible(tracker.ToolName))
+                continue;
+
+            var isFirst = !tracker.FirstChunkEmitted;
+            tracker.FirstChunkEmitted = true;
+            var content = new ToolCallArgumentsDeltaContent
+            {
+                ToolCallIndex = delta.Index,
+                ToolName = isFirst ? tracker.ToolName : null,
+                CallId = isFirst ? tracker.CallId : null,
+                ArgumentsDelta = delta.ArgumentsDelta
+            };
+            update.Contents.Add(content);
+            (addedContents ??= []).Add(content);
+        }
+
+        return addedContents;
+    }
+
+    private static void RemoveToolCallArgumentPreviews(
+        ChatResponseUpdate update,
+        IReadOnlyList<ToolCallArgumentsDeltaContent>? addedContents)
+    {
+        if (addedContents is not { Count: > 0 })
+            return;
+
+        foreach (var content in addedContents)
+            update.Contents.Remove(content);
+    }
+
+    private bool IsEligible(string toolName)
+    {
+        if (IsStreamableTool is not null)
+            return IsStreamableTool(toolName);
+        if (StreamableToolNames is not null)
+            return StreamableToolNames.Contains(toolName);
+        return true;
+    }
+
+    internal static IEnumerable<ToolCallDeltaChunk> ExtractDeltas(object? rawRepresentation)
+    {
+        if (rawRepresentation is OpenAiStreamingUpdate openAiUpdate
+            && openAiUpdate.ToolCallUpdates is { Count: > 0 } toolCallUpdates)
+        {
+            foreach (var toolCallUpdate in toolCallUpdates)
+            {
+                yield return new ToolCallDeltaChunk(
+                    toolCallUpdate.Index,
+                    toolCallUpdate.FunctionName,
+                    toolCallUpdate.ToolCallId,
+                    toolCallUpdate.FunctionArgumentsUpdate?.ToString());
+            }
+
+            yield break;
+        }
+
+        if (rawRepresentation is IToolCallDeltaChunkSource source)
+        {
+            foreach (var chunk in source.GetToolCallDeltaChunks())
+                yield return chunk;
+        }
     }
 
     private bool ShouldTerminateLoopBasedOnHandleableFunctions(List<FunctionCallContent> functionCalls, ChatOptions? options)
@@ -575,4 +690,30 @@ public sealed class SteerableFunctionInvokingChatClient(IChatClient innerClient,
         NotFound,
         Exception
     }
+
+    private sealed class ToolCallTracker
+    {
+        public string? ToolName { get; set; }
+
+        public string? CallId { get; set; }
+
+        public bool FirstChunkEmitted { get; set; }
+    }
 }
+
+/// <summary>
+/// Internal test seam for providing tool-call chunks without constructing provider SDK types.
+/// </summary>
+internal interface IToolCallDeltaChunkSource
+{
+    IEnumerable<ToolCallDeltaChunk> GetToolCallDeltaChunks();
+}
+
+/// <summary>
+/// Normalized tool-call chunk extracted from provider-native streaming payload.
+/// </summary>
+internal readonly record struct ToolCallDeltaChunk(
+    int Index,
+    string? ToolName,
+    string? CallId,
+    string? ArgumentsDelta);
