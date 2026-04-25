@@ -58,6 +58,22 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
     } = 40;
 
     /// <summary>
+    /// Maximum number of extra model calls that guidance may add after the
+    /// function loop reaches a termination condition.
+    /// </summary>
+    public int MaximumGuidanceContinuationsPerRequest
+    {
+        get;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), "Maximum guidance continuations cannot be negative.");
+
+            field = value;
+        }
+    } = 8;
+
+    /// <summary>
     /// Maximum consecutive function-call iterations allowed to fail before the
     /// original exception is rethrown.
     /// </summary>
@@ -119,6 +135,7 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         List<ChatMessage>? responseMessages = null;
         var consecutiveErrorCount = 0;
         var lastIterationHadConversationId = false;
+        var guidanceContinuationCount = 0;
         var toolMessageId = Guid.NewGuid().ToString("N");
 
         for (var iteration = 0; ; iteration++)
@@ -178,8 +195,10 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                     ref lastIterationHadConversationId);
 
                 var history = augmentedHistory ?? throw new InvalidOperationException("Augmented history was not initialized.");
-                if (await TryAppendGuidanceAsync(history, cancellationToken))
+                if (guidanceContinuationCount < MaximumGuidanceContinuationsPerRequest &&
+                    await TryAppendGuidanceAsync(history, cancellationToken))
                 {
+                    guidanceContinuationCount++;
                     currentMessages = history;
                     UpdateOptionsForNextIteration(ref options, response.ConversationId);
                     continue;

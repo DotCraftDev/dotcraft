@@ -41,6 +41,43 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_LimitsGuidanceContinuationsAfterTermination()
+    {
+        var inner = new AlwaysCallsToolFakeChatClient();
+        var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
+        var client = new StreamingFunctionInvokingChatClient(inner)
+        {
+            MaximumIterationsPerRequest = 1,
+            MaximumGuidanceContinuationsPerRequest = 2
+        };
+        var drains = 0;
+
+        using var scope = TurnGuidanceRuntimeScope.Set(new TurnGuidanceRuntimeContext
+        {
+            ThreadId = "thread_1",
+            TurnId = "turn_1",
+            TryDrainGuidanceMessageAsync = _ =>
+            {
+                drains++;
+                return Task.FromResult<ChatMessage?>(new ChatMessage(ChatRole.User, $"guidance {drains}"));
+            }
+        });
+
+        await foreach (var _ in client.GetStreamingResponseAsync(
+            [new ChatMessage(ChatRole.User, "start")],
+            new ChatOptions { Tools = [tool] }))
+        {
+        }
+
+        Assert.Equal(3, drains);
+        Assert.Equal(4, inner.Calls.Count);
+        Assert.Contains(inner.Calls[1], message => message.Role == ChatRole.User && message.Text == "guidance 1");
+        Assert.Contains(inner.Calls[2], message => message.Role == ChatRole.User && message.Text == "guidance 2");
+        Assert.Contains(inner.Calls[3], message => message.Role == ChatRole.User && message.Text == "guidance 3");
+        Assert.DoesNotContain(inner.Calls[3], message => message.Role == ChatRole.User && message.Text == "guidance 4");
+    }
+
+    [Fact]
     public async Task GetStreamingResponseAsync_UnknownToolCreatesFunctionResultByDefault()
     {
         var inner = new UnknownToolFakeChatClient();
@@ -255,6 +292,7 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
 
     private sealed class AlwaysCallsToolFakeChatClient : IChatClient
     {
+        public List<List<ChatMessage>> Calls { get; } = [];
         public List<ChatOptions?> Options { get; } = [];
 
         public Task<ChatResponse> GetResponseAsync(
@@ -268,6 +306,7 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
             ChatOptions? options = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            Calls.Add(chatMessages.ToList());
             Options.Add(options);
             if (Options.Count == 1)
             {

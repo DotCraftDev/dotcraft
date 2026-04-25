@@ -620,7 +620,7 @@ function QueuedInputList({
       }}
     >
       {queuedInputs.map((item) => {
-        const label = summarizeQueuedInput(item)
+        const label = summarizeQueuedInput(item, t)
         const isGuidancePending = item.status === 'guidancePending'
         return (
           <div
@@ -694,14 +694,21 @@ const queuedTextButtonStyle: CSSProperties = {
   padding: '2px 4px'
 }
 
-function summarizeQueuedInput(item: QueuedTurnInput): string {
+function summarizeQueuedInput(
+  item: QueuedTurnInput,
+  t: (key: string, vars?: Record<string, string | number>) => string
+): string {
   const text = item.displayText?.trim()
   if (text) return text.length > 90 ? `${text.slice(0, 90)}...` : text
   const parts = item.nativeInputParts ?? item.materializedInputParts ?? []
   const files = parts.filter((part) => part.type === 'fileRef').length
   const images = parts.filter((part) => part.type === 'image' || part.type === 'localImage').length
   const labels: string[] = []
-  if (files > 0) labels.push(`${files} file${files === 1 ? '' : 's'}`)
-  if (images > 0) labels.push(`${images} image${images === 1 ? '' : 's'}`)
-  return labels.length > 0 ? labels.join(', ') : 'Queued message'
+  if (files > 0) {
+    labels.push(t(files === 1 ? 'composer.queueFileCountOne' : 'composer.queueFileCountMany', { count: files }))
+  }
+  if (images > 0) {
+    labels.push(t(images === 1 ? 'composer.queueImageCountOne' : 'composer.queueImageCountMany', { count: images }))
+  }
+  return labels.length > 0 ? labels.join(', ') : t('composer.queueFallbackLabel')
 }
