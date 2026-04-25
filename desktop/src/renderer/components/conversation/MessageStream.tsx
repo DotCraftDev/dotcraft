@@ -183,7 +183,7 @@ export function MessageStream(): JSX.Element {
           padding: '24px 28px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '20px'
+          gap: '16px'
         }}
       >
         {turns.map((turn, idx) => (
@@ -308,7 +308,7 @@ function TurnBlock({
   const canEditUserMessage = isLastTurn && !isActiveTurn && userItems.length > 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {/* User messages */}
       {userItems.map((item: ConversationItem, idx) => (
         <UserMessageBlock

@@ -63,7 +63,7 @@ const baseComponents: Components = {
     return (
       <p
         style={{
-          margin: '0 0 12px',
+          margin: '0 0 6px',
           color: 'var(--text-primary)'
         }}
         {...props}
@@ -77,7 +77,7 @@ const baseComponents: Components = {
     return (
       <h1
         style={{
-          margin: '4px 0 14px',
+          margin: '2px 0 10px',
           fontSize: '1.45rem',
           lineHeight: 1.24,
           fontWeight: 650,
@@ -95,7 +95,7 @@ const baseComponents: Components = {
     return (
       <h2
         style={{
-          margin: '18px 0 12px',
+          margin: '14px 0 8px',
           fontSize: '1.18rem',
           lineHeight: 1.3,
           fontWeight: 640,
@@ -113,7 +113,7 @@ const baseComponents: Components = {
     return (
       <h3
         style={{
-          margin: '16px 0 10px',
+          margin: '12px 0 7px',
           fontSize: '1.02rem',
           lineHeight: 1.34,
           fontWeight: 630,
@@ -130,7 +130,7 @@ const baseComponents: Components = {
     return (
       <ul
         style={{
-          margin: '0 0 12px',
+          margin: '0 0 6px',
           paddingLeft: '22px'
         }}
         {...props}
@@ -144,7 +144,7 @@ const baseComponents: Components = {
     return (
       <ol
         style={{
-          margin: '0 0 12px',
+          margin: '0 0 6px',
           paddingLeft: '22px'
         }}
         {...props}
@@ -158,7 +158,7 @@ const baseComponents: Components = {
     return (
       <li
         style={{
-          margin: '0 0 6px',
+          margin: '0 0 3px',
           color: 'var(--text-primary)'
         }}
         {...props}
@@ -175,7 +175,7 @@ const baseComponents: Components = {
         <code
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: '0.87em',
+            fontSize: 'var(--text-code-size)',
             backgroundColor: 'var(--bg-tertiary)',
             padding: '2px 6px',
             borderRadius: '6px',
@@ -204,7 +204,7 @@ const baseComponents: Components = {
         style={{
           borderLeft: '3px solid var(--border-active)',
           paddingLeft: '14px',
-          margin: '10px 0 14px',
+          margin: '8px 0 10px',
           color: 'var(--text-secondary)',
           fontStyle: 'italic'
         }}
@@ -217,7 +217,7 @@ const baseComponents: Components = {
 
   table({ children, ...props }) {
     return (
-      <div style={{ overflowX: 'auto', margin: '10px 0 14px' }}>
+      <div style={{ overflowX: 'auto', margin: '8px 0 10px' }}>
         <table
           style={{
             borderCollapse: 'collapse',
@@ -278,13 +278,13 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
   }
 
   return (
-    <div style={{ position: 'relative', margin: '10px 0 14px' }}>
+    <div style={{ position: 'relative', margin: '8px 0 10px' }}>
       <pre
         style={{
           backgroundColor: 'var(--code-block-bg)',
           borderRadius: '10px',
-          padding: '14px 18px',
-          paddingTop: '40px',
+          padding: '12px 14px',
+          paddingRight: '72px',
           overflowX: 'auto',
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--text-code-size)',

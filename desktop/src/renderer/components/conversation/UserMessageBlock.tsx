@@ -146,7 +146,7 @@ export function UserMessageBlock({
         style={{
           backgroundColor: 'var(--user-message-bg)',
           borderRadius: '12px',
-          padding: '12px 16px',
+          padding: '9px 13px',
           fontFamily: 'var(--font-body)',
           fontSize: 'var(--text-body-size)',
           lineHeight: 'var(--text-body-line-height)',
@@ -160,7 +160,7 @@ export function UserMessageBlock({
             : 'min(82%, var(--conversation-reading-width))',
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          gap: '6px',
           userSelect: 'text',
           position: 'relative'
         }}

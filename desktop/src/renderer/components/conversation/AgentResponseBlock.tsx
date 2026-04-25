@@ -214,7 +214,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
           key={`turn-collapsed-${turn.id}`}
           elapsedMs={elapsedMs}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {intermediateNodes}
           </div>
         </TurnCollapsedSummary>
@@ -227,7 +227,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       {renderNodes}
 
       {/* Turn-level failure */}

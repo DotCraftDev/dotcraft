@@ -64,6 +64,38 @@ describe('MarkdownRenderer', () => {
     expect(code?.textContent).toContain('npm install')
   })
 
+  it('uses compact markdown block spacing', () => {
+    const { container } = renderWithLocale('First paragraph\n\n- One\n- Two')
+    const paragraph = container.querySelector('p')
+    const list = container.querySelector('ul')
+    const firstItem = container.querySelector('li')
+
+    expect(paragraph).toHaveStyle({ margin: '0 0 6px' })
+    expect(list?.getAttribute('style')).toContain('margin: 0px 0px 6px')
+    expect(firstItem).toHaveStyle({ margin: '0 0 3px' })
+  })
+
+  it('marks markdown body for trailing block margin trim', () => {
+    const { container } = renderWithLocale('Only paragraph')
+    const markdownBody = container.querySelector('.markdown-body')
+    const lastBlock = container.querySelector('.markdown-body > :last-child')
+
+    expect(markdownBody).not.toBeNull()
+    expect(lastBlock).not.toBeNull()
+  })
+
+  it('uses conversation code typography tokens', () => {
+    const { container } = renderWithLocale('Inline `code`\n\n```ts\nconst x = 1\n```')
+    const inlineCode = container.querySelector('p code')
+    const block = container.querySelector('pre')
+
+    expect(inlineCode?.getAttribute('style')).toContain('font-size: var(--text-code-size)')
+    expect(block?.getAttribute('style')).toContain('font-size: var(--text-code-size)')
+    expect(block?.getAttribute('style')).toContain('line-height: var(--text-code-line-height)')
+    expect(block?.getAttribute('style')).toContain('padding: 12px 72px 12px 14px')
+    expect(block).toHaveStyle({ paddingRight: '72px' })
+  })
+
   it('renders a GFM table', () => {
     const tableMarkdown = [
       '| Name | Value |',
