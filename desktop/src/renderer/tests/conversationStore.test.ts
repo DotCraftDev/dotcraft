@@ -62,6 +62,48 @@ describe('turn lifecycle', () => {
     expect(items[0].status).toBe('streaming')
   })
 
+  it('onItemStarted/onItemCompleted appends guidance userMessage without duplicating it', () => {
+    s().onTurnStarted(makeTurn({
+      items: [
+        {
+          id: 'user-initial',
+          type: 'userMessage',
+          status: 'completed',
+          payload: { text: 'initial request' },
+          createdAt: '2026-04-25T10:00:00.000Z',
+          completedAt: '2026-04-25T10:00:00.000Z'
+        },
+        {
+          id: 'tool-1',
+          type: 'toolCall',
+          status: 'completed',
+          payload: { toolName: 'ReadFile', callId: 'call-1', arguments: { path: 'a.txt' } },
+          createdAt: '2026-04-25T10:00:01.000Z',
+          completedAt: '2026-04-25T10:00:02.000Z'
+        }
+      ]
+    }))
+
+    const guidanceItem = {
+      id: 'user-guidance',
+      type: 'userMessage',
+      status: 'completed',
+      payload: { text: 'guidance request', deliveryMode: 'guidance' },
+      createdAt: '2026-04-25T10:00:03.000Z',
+      completedAt: '2026-04-25T10:00:03.000Z'
+    }
+    s().onItemStarted({ turnId: 'turn-1', item: guidanceItem })
+    s().onItemCompleted({ turnId: 'turn-1', item: guidanceItem })
+
+    const items = s().turns[0].items
+    expect(items.map((i) => i.id)).toEqual(['user-initial', 'tool-1', 'user-guidance'])
+    const guidance = items.find((i) => i.id === 'user-guidance')
+    expect(guidance?.type).toBe('userMessage')
+    expect(guidance?.text).toBe('guidance request')
+    expect(guidance?.deliveryMode).toBe('guidance')
+    expect(items.filter((i) => i.id === 'user-guidance')).toHaveLength(1)
+  })
+
   it('onItemStarted/onCommandExecutionDelta/onItemCompleted track command execution output', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({

@@ -255,3 +255,102 @@ describe('AgentResponseBlock completed turn folding', () => {
     expect(screen.getByText('Read main.ts')).toBeInTheDocument()
   })
 })
+
+describe('AgentResponseBlock guidance user messages', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('renders guidance user messages inline after the preceding tool call', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-guidance',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-25T10:00:00.000Z',
+      items: [
+        {
+          id: 'initial-user',
+          type: 'userMessage',
+          status: 'completed',
+          text: 'initial request',
+          createdAt: '2026-04-25T10:00:00.000Z'
+        },
+        makeToolCallItem('tool-1', 'call-1', 'FollowupTool', '2026-04-25T10:00:01.000Z'),
+        {
+          id: 'guidance-user',
+          type: 'userMessage',
+          status: 'completed',
+          deliveryMode: 'guidance',
+          text: 'guide the active turn',
+          createdAt: '2026-04-25T10:00:02.000Z'
+        },
+        {
+          id: 'assistant-1',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'continuing after guidance',
+          createdAt: '2026-04-25T10:00:03.000Z'
+        }
+      ]
+    }
+
+    const text = renderBlock(turn)
+    const initialIndex = text.indexOf('initial request')
+    const toolIndex = text.indexOf('Called FollowupTool')
+    const guidanceIndex = text.indexOf('guide the active turn')
+    const assistantIndex = text.indexOf('continuing after guidance')
+
+    expect(initialIndex).toBe(-1)
+    expect(toolIndex).toBeGreaterThan(-1)
+    expect(guidanceIndex).toBeGreaterThan(-1)
+    expect(assistantIndex).toBeGreaterThan(-1)
+    expect(toolIndex).toBeLessThan(guidanceIndex)
+    expect(guidanceIndex).toBeLessThan(assistantIndex)
+  })
+
+  it('does not fold completed turns that contain guidance user messages', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-guidance-completed',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-25T10:00:00.000Z',
+      completedAt: '2026-04-25T10:00:10.000Z',
+      items: [
+        makeToolCallItem('tool-1', 'call-1', 'FollowupTool', '2026-04-25T10:00:01.000Z'),
+        {
+          id: 'guidance-user',
+          type: 'userMessage',
+          status: 'completed',
+          deliveryMode: 'guidance',
+          text: 'guide the active turn',
+          createdAt: '2026-04-25T10:00:02.000Z'
+        },
+        {
+          id: 'assistant-final',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final response',
+          createdAt: '2026-04-25T10:00:05.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText(/Processed in/)).toBeNull()
+    expect(screen.getByText('Called FollowupTool')).toBeInTheDocument()
+    expect(screen.getByText('guide the active turn')).toBeInTheDocument()
+    expect(screen.getByText('final response')).toBeInTheDocument()
+  })
+})

@@ -98,6 +98,70 @@ describe('MessageStream plan-accept sentinel filtering', () => {
     expect(screen.getByText('Executing accepted plan now.')).toBeInTheDocument()
   })
 
+  it('renders guidance user messages inline instead of grouping them with the initial request', () => {
+    useConversationStore.setState({
+      turns: [{
+        id: 'turn-1',
+        threadId: 'thread-1',
+        status: 'running',
+        startedAt: '2026-04-25T10:00:00.000Z',
+        items: [
+          {
+            id: 'u1',
+            type: 'userMessage',
+            status: 'completed',
+            text: 'Initial request',
+            createdAt: '2026-04-25T10:00:00.000Z'
+          },
+          {
+            id: 'tool-1',
+            type: 'toolCall',
+            status: 'completed',
+            toolName: 'FollowupTool',
+            toolCallId: 'call-1',
+            arguments: {},
+            success: true,
+            createdAt: '2026-04-25T10:00:01.000Z'
+          },
+          {
+            id: 'u-guidance',
+            type: 'userMessage',
+            status: 'completed',
+            deliveryMode: 'guidance',
+            text: 'Guidance request',
+            createdAt: '2026-04-25T10:00:02.000Z'
+          },
+          {
+            id: 'a1',
+            type: 'agentMessage',
+            status: 'completed',
+            text: 'Assistant after guidance',
+            createdAt: '2026-04-25T10:00:03.000Z'
+          }
+        ]
+      }],
+      turnStatus: 'running',
+      activeTurnId: 'turn-1',
+      turnStartedAt: Date.now()
+    })
+
+    renderWithLocale(<MessageStream />)
+
+    const text = screen.getByTestId('message-stream').textContent ?? ''
+    const initialIndex = text.indexOf('Initial request')
+    const toolIndex = text.indexOf('Called FollowupTool')
+    const guidanceIndex = text.indexOf('Guidance request')
+    const assistantIndex = text.indexOf('Assistant after guidance')
+
+    expect(initialIndex).toBeGreaterThan(-1)
+    expect(toolIndex).toBeGreaterThan(-1)
+    expect(guidanceIndex).toBeGreaterThan(-1)
+    expect(assistantIndex).toBeGreaterThan(-1)
+    expect(initialIndex).toBeLessThan(toolIndex)
+    expect(toolIndex).toBeLessThan(guidanceIndex)
+    expect(guidanceIndex).toBeLessThan(assistantIndex)
+  })
+
   it('keeps running tool auto-scroll stable under StrictMode streaming updates', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     useConversationStore.setState({

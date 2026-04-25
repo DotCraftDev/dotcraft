@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Protocol;
 using Microsoft.Agents.AI;
 using Microsoft.Data.Sqlite;
@@ -352,6 +353,37 @@ public sealed class ThreadStoreTests : IDisposable
         {
             Id = SessionIdGenerator.NewItemId(3),
             TurnId = turn.Id,
+            Type = ItemType.ToolCall,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolCallPayload
+            {
+                ToolName = "ReadFile",
+                CallId = "call_guidance_order",
+                Arguments = new JsonObject()
+            }
+        });
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(4),
+            TurnId = turn.Id,
+            Type = ItemType.ToolResult,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolResultPayload
+            {
+                CallId = "call_guidance_order",
+                Result = "tool result",
+                Success = true
+            }
+        });
+
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(5),
+            TurnId = turn.Id,
             Type = ItemType.UserMessage,
             Status = ItemStatus.Completed,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -370,8 +402,12 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.NotNull(loaded);
         var loadedTurn = Assert.Single(loaded.Turns);
         Assert.Equal("initial", loadedTurn.Input?.AsUserMessage?.Text);
-        Assert.Equal(["initial", "partial", "guidance"], loadedTurn.Items.Select(i =>
-            i.Type == ItemType.UserMessage ? i.AsUserMessage?.Text ?? string.Empty : i.AsAgentMessage?.Text ?? string.Empty).ToArray());
+        Assert.Equal(
+            [ItemType.UserMessage, ItemType.AgentMessage, ItemType.ToolCall, ItemType.ToolResult, ItemType.UserMessage],
+            loadedTurn.Items.Select(i => i.Type).ToArray());
+        var guidance = Assert.IsType<UserMessagePayload>(loadedTurn.Items[^1].Payload);
+        Assert.Equal("guidance", guidance.Text);
+        Assert.Equal("guidance", guidance.DeliveryMode);
     }
 
     // -------------------------------------------------------------------------

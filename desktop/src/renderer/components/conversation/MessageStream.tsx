@@ -53,7 +53,10 @@ function editableUserText(item: ConversationItem): string {
 
 function lastUserItem(turn: ConversationTurn): ConversationItem | undefined {
   return [...turn.items].reverse().find(
-    (item) => item.type === 'userMessage' && !isAcceptPlanSentinel(item.text ?? '')
+    (item) =>
+      item.type === 'userMessage' &&
+      item.deliveryMode !== 'guidance' &&
+      !isAcceptPlanSentinel(item.text ?? '')
   )
 }
 
@@ -298,7 +301,9 @@ function TurnBlock({
   // Separate user-input items from agent items
   const userItems = turn.items.filter(
     (i: ConversationItem) =>
-      i.type === 'userMessage' && !isAcceptPlanSentinel(i.text ?? '')
+      i.type === 'userMessage' &&
+      i.deliveryMode !== 'guidance' &&
+      !isAcceptPlanSentinel(i.text ?? '')
   )
   const canEditUserMessage = isLastTurn && !isActiveTurn && userItems.length > 0
 

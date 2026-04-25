@@ -65,6 +65,8 @@ export interface ConversationItem {
   id: string
   type: ItemType
   status: ItemStatus
+  /** User message delivery mode: normal turn input, queued turn input, or mid-turn guidance. */
+  deliveryMode?: 'normal' | 'queued' | 'guidance'
   /** Primary text content: userMessage text, agentMessage markdown, error message */
   text?: string
   /** Native user input parts used as the source of truth for history rendering. */
@@ -290,6 +292,9 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     id: (raw.id as string) ?? '',
     type,
     status: 'completed',
+    deliveryMode: normalizeDeliveryMode(
+      (raw.deliveryMode as unknown) ?? (payload.deliveryMode as unknown)
+    ),
     text: (raw.text as string | undefined)
       ?? (payload.text as string | undefined)
       ?? (raw.content as string | undefined)
@@ -364,6 +369,15 @@ function normalizeTriggerKind(
   if (typeof value !== 'string') return undefined
   const normalized = value.trim().toLowerCase()
   if (normalized === 'heartbeat' || normalized === 'cron' || normalized === 'automation') {
+    return normalized
+  }
+  return undefined
+}
+
+function normalizeDeliveryMode(value: unknown): 'normal' | 'queued' | 'guidance' | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  if (normalized === 'normal' || normalized === 'queued' || normalized === 'guidance') {
     return normalized
   }
   return undefined

@@ -9,7 +9,7 @@ import type {
   PendingComposerMessage,
   QueuedTurnInput
 } from '../types/conversation'
-import { wireTurnToConversationTurn } from '../types/conversation'
+import { wireItemToConversationItem, wireTurnToConversationTurn } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
 import {
@@ -351,6 +351,17 @@ function mergeExistingCommandExecutionIntoToolCall(
   if (item.type !== 'toolCall') return item
   const commandExecution = findMatchingCommandExecution(items, item.toolCallId)
   return commandExecution ? mergeCommandExecutionIntoToolCall(item, commandExecution) : item
+}
+
+function upsertItemById(items: ConversationItem[], item: ConversationItem): ConversationItem[] {
+  const existingIndex = items.findIndex((i) => i.id === item.id)
+  if (existingIndex < 0) {
+    return sortItemsByCreatedAt([...items, item])
+  }
+
+  const next = [...items]
+  next[existingIndex] = { ...next[existingIndex], ...item }
+  return sortItemsByCreatedAt(next)
 }
 
 const SYSTEM_LABELS: Record<string, string | null> = {
@@ -754,6 +765,13 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'userMessage') {
+      const newItem = wireItemToConversationItem(item)
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
+        )
+      }))
     } else if (type === 'reasoningContent') {
       const newItem: ConversationItem = {
         id: itemId ?? '',
@@ -1128,6 +1146,13 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           activeItemId: null
         }
       })
+    } else if (type === 'userMessage') {
+      const newItem = wireItemToConversationItem(item)
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
+        )
+      }))
     } else if (type === 'error') {
       const newItem: ConversationItem = {
         id: (item?.id as string) ?? '',

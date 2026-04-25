@@ -68,6 +68,18 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
     expect(item.type).toBe('userMessage')
   })
 
+  it('extracts deliveryMode from userMessage payload', () => {
+    const item = wireItemToConversationItem({
+      id: 'i2-guidance',
+      type: 'userMessage',
+      status: 'completed',
+      payloadKind: 'userMessage',
+      payload: { text: 'guide this turn', deliveryMode: 'guidance' },
+      createdAt: '2025-01-01T00:00:00Z'
+    })
+    expect(item.deliveryMode).toBe('guidance')
+  })
+
   it('extracts images metadata from payload.images for userMessage', () => {
     const item = wireItemToConversationItem({
       id: 'i2b',

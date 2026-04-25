@@ -624,6 +624,10 @@ public sealed class SessionService(
                     ? queued.DisplayText
                     : SessionWireMapper.BuildDisplayText(nativeParts);
                 var images = ExtractUserMessageImages(contentParts);
+
+                FinalizeStreamingAgentMessage();
+                FinalizeStreamingReasoning();
+
                 var item = new SessionItem
                 {
                     Id = SessionIdGenerator.NewItemId(NextItemSeq()),
