@@ -210,6 +210,33 @@ Fields:
   - Per-thread agent configuration (MCP servers, mode, extensions). See Section 16. Null means workspace defaults apply.
 - `Turns` (ordered list of Turn)
   - Append-only. Turns are never removed from a Thread.
+- `QueuedInputs` (ordered list of QueuedTurnInput)
+  - FIFO inputs submitted while a Turn is running. The queue is part of canonical thread state and is persisted in the rollout file.
+  - When a running Turn completes successfully, Session Core dequeues at most one queued input and starts it as the next Turn. Failed or cancelled Turns do not automatically consume queued inputs.
+
+#### 4.1.1.1 QueuedTurnInput
+
+A QueuedTurnInput is a durable snapshot of user input waiting to become a future Turn.
+
+Fields:
+
+- `Id` (string)
+  - Globally unique queued-input identifier.
+- `ThreadId` (string)
+  - Parent Thread ID.
+- `NativeInputParts` (ordered list)
+  - Transport-native input parts, such as text, file references, skill references, command references, or local image references.
+- `MaterializedInputParts` (ordered list)
+  - Model-visible input parts after materialization. This snapshot is used when the queued input is executed.
+- `DisplayText` (string)
+  - Human-readable queue label derived from the native snapshot.
+- `Sender` (SenderContext, nullable)
+  - Optional sender identity for group sessions.
+- `Status` (string)
+  - `"queued"` for normal FIFO execution or `"guidancePending"` after the user promotes the input into current-Turn guidance.
+- `CreatedAt` (UTC timestamp)
+- `ReadyAfterTurnId` (string, nullable)
+  - Active Turn ID observed when the input was queued.
 
 #### 4.1.2 Turn
 
@@ -535,8 +562,8 @@ rather than part of the model conversation.
   - Session Core creates an `Error` Item, sets `Turn.Error`, and runs cleanup.
 
 - `Running` or `WaitingApproval` → `Cancelled`
-  - The adapter requests cancellation (e.g., user sends `/cancel`, channel disconnects).
-  - Session Core cancels the agent execution via `CancellationToken`, saves partial state.
+- The adapter requests cancellation (e.g., user sends `/cancel`, channel disconnects).
+- Session Core cancels the agent execution via `CancellationToken`, completes any currently streaming agent/reasoning Items with their accumulated text, saves partial state, and rebuilds or invalidates the persisted `AgentSession` so the next turn includes the cancelled turn's user input and completed partial assistant output.
 
 **Terminal states**: `Completed`, `Failed`, `Cancelled`. A Turn in a terminal state cannot transition.
 
@@ -809,6 +836,39 @@ IAsyncEnumerable<SessionEvent> SubmitInputAsync(
 
 The `content` parameter accepts multimodal input (text, images, etc.) as a list of `AIContent` parts. When the transport provides native input metadata (for example native command, skill, or file-reference parts), Session Core persists both the transport-native snapshot and the materialized `AIContent` snapshot on `UserMessagePayload`, derives `UserMessagePayload.Text` from the native snapshot for compatibility/display, and passes the full multimodal materialized content to the agent via `ChatMessage`. A convenience extension method `SubmitInputAsync(string threadId, string text, ...)` wraps plain text into `[new TextContent(text)]` for text-only callers.
 
+`UserMessagePayload.DeliveryMode` is optional and indicates how the user message entered the conversation: `"normal"` (or omitted) for a direct Turn start, `"queued"` for a queued input that later became a Turn, and `"guidance"` for a user request appended to an active Turn.
+
+```
+Task<QueuedTurnInput> EnqueueTurnInputAsync(
+    string threadId,
+    IList<AIContent> content,
+    SenderContext? sender = null,
+    CancellationToken ct = default,
+    SessionInputSnapshot? inputSnapshot = null)
+```
+
+Enqueues user input while another Turn may be running. The queue is persisted as append-only rollout records. On successful Turn completion, Session Core automatically dequeues the first input and invokes `SubmitInputAsync` with `DeliveryMode = "queued"`.
+
+```
+Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+    string threadId,
+    string queuedInputId,
+    CancellationToken ct = default)
+```
+
+Removes a queued input without starting a Turn.
+
+```
+Task<TurnSteerResult> SteerTurnAsync(
+    string threadId,
+    string expectedTurnId,
+    string queuedInputId,
+    CancellationToken ct = default,
+    SenderContext? sender = null)
+```
+
+Marks the referenced queued input as `guidancePending` after validating that `expectedTurnId` still matches the current active Turn. The active execution loop drains pending guidance only at safe model/tool boundaries, appends a `UserMessage` item with `DeliveryMode = "guidance"` at insertion time, removes the queued input, and injects the input into the current model history. If the Turn ends before insertion, pending guidance is restored to `queued`.
+
 The adapter starts a turn and immediately consumes the returned async stream. Callback-style consumption is a helper-layer concern (for example, wrapping the stream in a local event handler), not part of the `ISessionService` contract.
 
 ## 7. Channel Adapter Contract
@@ -892,6 +952,8 @@ Each thread is stored as an append-only JSONL rollout. Every line is a `ThreadRo
 { "kind": "turn_started", "timestamp": "2026-03-15T10:00:01Z", "turnStarted": { ... } }
 { "kind": "item_appended", "timestamp": "2026-03-15T10:00:01Z", "itemAppended": { ... } }
 { "kind": "turn_completed", "timestamp": "2026-03-15T10:02:30Z", "turnCompleted": { ... } }
+{ "kind": "queued_input_added", "timestamp": "2026-03-15T10:02:31Z", "queuedInputAdded": { ... } }
+{ "kind": "queued_input_removed", "timestamp": "2026-03-15T10:02:32Z", "queuedInputRemoved": { ... } }
 ```
 
 Session Core reconstructs a `SessionThread` by replaying the rollout file in order.
@@ -1069,6 +1131,12 @@ Cross-channel resume works for channels that share the same identity shape:
 
 - **Turn failures** do not corrupt Thread state. A failed Turn is recorded in the Thread's Turn history. The adapter can submit a new Turn to retry.
 - **Persistence failures** are recoverable because Session Core maintains in-memory state and retries on next operation.
+
+### 9.8 Thread Rollback
+
+`RollbackThread(threadId, numTurns)` removes `numTurns` turns from the end of a non-archived Thread. `numTurns` must be at least 1 and no turn in the Thread may be `Running` or `WaitingApproval`.
+
+Rollback appends a canonical rollback record to thread JSONL and updates thread metadata; it does not revert files or other workspace side effects created by tools. After rollback, Session Core rebuilds or invalidates the persisted `AgentSession` from canonical history so future turns use the pruned conversation.
 - **Channel disconnects** are transparent to Session Core. Turns run to completion regardless of adapter state. Results are persisted and available on reconnect.
 
 ### 12.3 Error Reporting

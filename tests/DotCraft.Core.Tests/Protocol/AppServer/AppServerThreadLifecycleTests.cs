@@ -489,6 +489,64 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
+    // thread/rollback
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ThreadRollback_ReturnsThreadWithRemainingTurns()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        AddCompletedTurn(thread, "turn_001", "first");
+        AddCompletedTurn(thread, "turn_002", "second");
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadRollback, new { threadId = thread.Id, numTurns = 1 });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(doc);
+        var returned = doc.RootElement.GetProperty("result").GetProperty("thread");
+        Assert.Equal(thread.Id, returned.GetProperty("id").GetString());
+        var turns = returned.GetProperty("turns");
+        var remaining = Assert.Single(turns.EnumerateArray());
+        Assert.Equal("turn_001", remaining.GetProperty("id").GetString());
+        Assert.Equal("first", remaining.GetProperty("items")[0].GetProperty("payload").GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadRollback_ThenThreadReadIncludeTurns_ReturnsSameTurns()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        AddCompletedTurn(thread, "turn_001", "first");
+        AddCompletedTurn(thread, "turn_002", "second");
+
+        var rollbackMsg = _h.BuildRequest(AppServerMethods.ThreadRollback, new { threadId = thread.Id, numTurns = 1 });
+        await _h.ExecuteRequestAsync(rollbackMsg);
+        var rollbackDoc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(rollbackDoc);
+
+        var readMsg = _h.BuildRequest(AppServerMethods.ThreadRead, new { threadId = thread.Id, includeTurns = true });
+        await _h.ExecuteRequestAsync(readMsg);
+        var readDoc = await _h.Transport.ReadNextSentAsync();
+
+        AppServerTestHarness.AssertIsSuccessResponse(readDoc);
+        var rollbackTurns = rollbackDoc.RootElement.GetProperty("result").GetProperty("thread").GetProperty("turns");
+        var readTurns = readDoc.RootElement.GetProperty("result").GetProperty("thread").GetProperty("turns");
+        Assert.Equal(rollbackTurns.GetRawText(), readTurns.GetRawText());
+    }
+
+    [Fact]
+    public async Task ThreadRollback_WithZeroTurns_ReturnsInvalidParams()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadRollback, new { threadId = thread.Id, numTurns = 0 });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.InvalidParamsCode);
+    }
+
+    // -------------------------------------------------------------------------
     // thread/delete
     // -------------------------------------------------------------------------
 
@@ -502,5 +560,31 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
 
         var doc = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(doc);
+    }
+
+    private static void AddCompletedTurn(SessionThread thread, string turnId, string text)
+    {
+        var now = DateTimeOffset.UtcNow.AddSeconds(thread.Turns.Count);
+        var turn = new SessionTurn
+        {
+            Id = turnId,
+            ThreadId = thread.Id,
+            Status = TurnStatus.Completed,
+            StartedAt = now,
+            CompletedAt = now.AddMilliseconds(1)
+        };
+        var userItem = new SessionItem
+        {
+            Id = $"{turnId}_user",
+            TurnId = turnId,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = now,
+            CompletedAt = now,
+            Payload = new UserMessagePayload { Text = text }
+        };
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+        thread.Turns.Add(turn);
     }
 }

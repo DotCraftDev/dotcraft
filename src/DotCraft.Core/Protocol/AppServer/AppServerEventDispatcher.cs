@@ -155,6 +155,11 @@ public sealed class AppServerEventDispatcher
             previousStatus = evt.StatusChangedPayload?.PreviousStatus,
             newStatus = evt.StatusChangedPayload?.NewStatus
         },
+        SessionEventType.ThreadQueueUpdated when evt.ThreadQueueUpdatedPayload is { } queue => new
+        {
+            threadId = queue.ThreadId,
+            queuedInputs = queue.QueuedInputs
+        },
 
         // Turn notifications (spec Section 6.2)
         SessionEventType.TurnStarted => new

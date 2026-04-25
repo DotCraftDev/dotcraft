@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { InputComposer } from '../components/conversation/InputComposer'
 import { useConnectionStore } from '../stores/connectionStore'
@@ -154,5 +154,63 @@ describe('InputComposer layout', () => {
     expect(stopButton.getAttribute('style')).not.toContain('#ffffff')
     expect(stopButton.getAttribute('style')).toContain('rgb(245, 246, 247)')
     expect(stopButton.getAttribute('style')).toContain('rgb(31, 35, 40)')
+  })
+
+  it('shows the queued send action instead of stop while running with draft text', () => {
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-123'
+    })
+
+    renderComposer()
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = 'follow up'
+    fireEvent.input(textbox)
+
+    expect(screen.getByRole('button', { name: 'Queue message' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop turn' })).toBeNull()
+  })
+
+  it('summarizes queued non-text inputs with localized labels', async () => {
+    settingsGet.mockResolvedValue({ locale: 'zh-Hans' })
+    useConversationStore.setState({
+      queuedInputs: [
+        {
+          id: 'queued-1',
+          threadId: 'thread-1',
+          displayText: '',
+          status: 'queued',
+          createdAt: new Date().toISOString(),
+          nativeInputParts: [
+            { type: 'fileRef', path: 'docs/a.md' },
+            { type: 'fileRef', path: 'docs/b.md' },
+            { type: 'localImage', path: 'C:\\temp\\diagram.png' }
+          ]
+        },
+        {
+          id: 'queued-2',
+          threadId: 'thread-1',
+          displayText: '',
+          status: 'queued',
+          createdAt: new Date().toISOString(),
+          nativeInputParts: []
+        }
+      ]
+    })
+
+    renderComposer()
+
+    await waitFor(() => {
+      expect(screen.getByText('2 个文件, 1 张图片')).toBeInTheDocument()
+    })
+    expect(screen.getByText('已排队消息')).toBeInTheDocument()
+  })
+
+  it('does not enter edit mode or expose an edit cancel action from composer', () => {
+    renderComposer()
+
+    expect((window as Window & { __inputComposerEditLastMessage?: unknown }).__inputComposerEditLastMessage).toBeUndefined()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   })
 })

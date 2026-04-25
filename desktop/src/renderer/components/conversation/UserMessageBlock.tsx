@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Bot, FileText, Sparkle, Terminal } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Bot, FileText, Pencil, Sparkle, Terminal } from 'lucide-react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { translate } from '../../../shared/locales'
 import { useConversationStore } from '../../stores/conversationStore'
@@ -23,6 +23,15 @@ interface UserMessageBlockProps {
   triggerKind?: ConversationItem['triggerKind']
   triggerLabel?: string
   triggerRefId?: string
+  editable?: boolean
+  onEdit?: () => void
+  editing?: boolean
+  editText?: string
+  editSubmitting?: boolean
+  editSubmitDisabled?: boolean
+  onEditTextChange?: (text: string) => void
+  onCancelEdit?: () => void
+  onSubmitEdit?: () => void
 }
 
 /**
@@ -37,9 +46,19 @@ export function UserMessageBlock({
   images,
   triggerKind,
   triggerLabel,
-  triggerRefId
+  triggerRefId,
+  editable = false,
+  onEdit,
+  editing = false,
+  editText,
+  editSubmitting = false,
+  editSubmitDisabled = false,
+  onEditTextChange,
+  onCancelEdit,
+  onSubmitEdit
 }: UserMessageBlockProps): JSX.Element {
   const t = useT()
+  const editAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
   const [hydratedImages, setHydratedImages] = useState<Array<{ url: string; absolutePath?: string }>>(
@@ -58,6 +77,17 @@ export function UserMessageBlock({
     (seg): seg is Extract<(typeof segments)[number], { type: 'attachedFile' }> => seg.type === 'attachedFile'
   )
   const textSegments = segments.filter((seg) => seg.type !== 'attachedFile')
+
+  useEffect(() => {
+    if (!editing) return
+    const el = editAreaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const lineHeight = parseInt(getComputedStyle(el).lineHeight) || 20
+    const maxHeight = lineHeight * 8 + 24
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
+    el.focus()
+  }, [editing, editText])
 
   useEffect(() => {
     let cancelled = false
@@ -116,7 +146,7 @@ export function UserMessageBlock({
         style={{
           backgroundColor: 'var(--user-message-bg)',
           borderRadius: '12px',
-          padding: '12px 16px',
+          padding: '9px 13px',
           fontFamily: 'var(--font-body)',
           fontSize: 'var(--text-body-size)',
           lineHeight: 'var(--text-body-line-height)',
@@ -124,14 +154,100 @@ export function UserMessageBlock({
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           alignSelf: 'flex-end',
-          maxWidth: 'min(82%, var(--conversation-reading-width))',
+          width: editing ? 'min(100%, var(--conversation-reading-width))' : undefined,
+          maxWidth: editing
+            ? 'var(--conversation-reading-width)'
+            : 'min(82%, var(--conversation-reading-width))',
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          gap: '6px',
           userSelect: 'text',
           position: 'relative'
         }}
       >
+        {editing ? (
+          <>
+            <textarea
+              ref={editAreaRef}
+              value={editText ?? text}
+              aria-label={t('conversation.editTextarea')}
+              disabled={editSubmitting}
+              onChange={(e) => onEditTextChange?.(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  onCancelEdit?.()
+                  return
+                }
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  if (!editSubmitDisabled) {
+                    onSubmitEdit?.()
+                  }
+                }
+              }}
+              style={{
+                width: '100%',
+                minHeight: '72px',
+                maxHeight: '184px',
+                resize: 'none',
+                overflowY: 'auto',
+                border: 'none',
+                outline: 'none',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                font: 'inherit',
+                lineHeight: 'inherit',
+                padding: 0
+              }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={editSubmitting}
+                style={{
+                  height: 32,
+                  padding: '0 12px',
+                  borderRadius: 16,
+                  border: '1px solid var(--border-default)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  cursor: editSubmitting ? 'default' : 'pointer',
+                  opacity: editSubmitting ? 0.7 : 1
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={onSubmitEdit}
+                disabled={editSubmitDisabled}
+                aria-label={t('conversation.editSend')}
+                style={{
+                  height: 32,
+                  padding: '0 14px',
+                  borderRadius: 16,
+                  border: '1px solid transparent',
+                  background: editSubmitDisabled ? 'var(--bg-tertiary)' : 'var(--text-primary)',
+                  color: editSubmitDisabled ? 'var(--text-dimmed)' : 'var(--bg-primary)',
+                  cursor: editSubmitDisabled ? 'not-allowed' : 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                {editSubmitting ? t('conversation.editSending') : t('conversation.editSend')}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         {hasImages && (
           <div
             style={{
@@ -236,6 +352,43 @@ export function UserMessageBlock({
           getText={() => text}
           visible={hovered && text.length > 0}
         />
+        {editable && onEdit && (
+          <ActionTooltip
+            label={t('conversation.editMessage')}
+            placement="top"
+            wrapperStyle={{
+              position: 'absolute',
+              right: text.length > 0 ? '40px' : '8px',
+              bottom: '6px',
+              opacity: hovered ? 1 : 0,
+              pointerEvents: hovered ? 'auto' : 'none',
+              zIndex: 2
+            }}
+          >
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label={t('conversation.editMessage')}
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-secondary)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'opacity 120ms ease, color 120ms ease'
+              }}
+            >
+              <Pencil size={14} aria-hidden />
+            </button>
+          </ActionTooltip>
+        )}
+          </>
+        )}
       </div>
       {lightboxSrc != null && (
         <ImageLightbox src={lightboxSrc} onClose={() => { setLightboxSrc(null) }} />

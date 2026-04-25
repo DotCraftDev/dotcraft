@@ -54,6 +54,44 @@ internal sealed class ThreadEventBroker(string threadId)
     }
 
     /// <summary>
+    /// Publishes the current queued input snapshot for this thread.
+    /// </summary>
+    public void PublishThreadQueueUpdated(IReadOnlyList<QueuedTurnInput> queuedInputs)
+    {
+        PublishThreadEvent(
+            SessionEventType.ThreadQueueUpdated,
+            new ThreadQueueUpdatedPayload
+            {
+                ThreadId = threadId,
+                QueuedInputs = queuedInputs.ToList()
+            });
+    }
+
+    public void PublishItemEvent(SessionEventType eventType, string turnId, SessionItem item)
+    {
+        var payload = new SessionItem
+        {
+            Id = item.Id,
+            TurnId = item.TurnId,
+            Type = item.Type,
+            Status = eventType == SessionEventType.ItemStarted ? ItemStatus.Started : item.Status,
+            CreatedAt = item.CreatedAt,
+            CompletedAt = eventType == SessionEventType.ItemStarted ? null : item.CompletedAt,
+            Payload = item.Payload
+        };
+        Publish(new SessionEvent
+        {
+            EventId = NextEventId(),
+            EventType = eventType,
+            ThreadId = threadId,
+            TurnId = turnId,
+            ItemId = item.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = payload
+        });
+    }
+
+    /// <summary>
     /// Subscribes to thread events until the returned async sequence is cancelled or completed.
     /// </summary>
     public IAsyncEnumerable<SessionEvent> SubscribeAsync(

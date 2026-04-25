@@ -73,7 +73,7 @@ cp .env.example .env.local  # edit DOTCRAFT_AGUI_URL if needed
 pnpm run dev
 ```
 
-Open http://localhost:3000 to chat with DotCraft in the browser.
+Open `http://localhost:3000` to chat with DotCraft in the browser.
 
 If DotCraft has `RequireAuth` enabled, also set `DOTCRAFT_AGUI_API_KEY` in `.env.local`.
 
@@ -96,6 +96,29 @@ AG-UI is fully supported in [Gateway multi-channel concurrent mode](./config_gui
 ```
 
 With this configuration, `http://127.0.0.1:8080/v1/chat/completions` serves the OpenAI API and `http://127.0.0.1:8080/ag-ui` serves the AG-UI SSE endpoint — both from the same server process.
+
+## Usage Examples
+
+| Scenario | Approach |
+|----------|----------|
+| Local frontend debugging | Enable `AgUi.Enabled`, keep `RequireAuth = false` |
+| Production or shared environment | Enable `RequireAuth` and set `ApiKey` |
+| Share a port with API | In Gateway, use the same Host/Port and different Path |
+| Validate client integration | Use the [AG-UI Client Sample](./samples/ag-ui-client.md) |
+
+## Troubleshooting
+
+### Frontend does not receive SSE events
+
+Confirm the client connects to the configured `AgUi.Path`, default `/ag-ui`, and inspect the SSE request in the browser network panel.
+
+### Authentication fails
+
+When `RequireAuth` is enabled, the client must send a Bearer token matching `AgUi.ApiKey` or the sample client's environment variable.
+
+### Port conflicts
+
+Use Gateway when services need to share a port. Outside Gateway, configure different ports for API, Dashboard, and AG-UI.
 
 ---
 

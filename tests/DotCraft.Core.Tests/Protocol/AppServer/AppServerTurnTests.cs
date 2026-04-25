@@ -482,6 +482,88 @@ public sealed class AppServerTurnTests : IDisposable
         Assert.Equal("turn_001", _h.Service.CancelledTurns[0].turnId);
     }
 
+    [Fact]
+    public async Task TurnEnqueue_ReturnsQueuedInputAndFullQueue()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnEnqueue, new
+        {
+            threadId = thread.Id,
+            input = new[] { new { type = "text", text = "Run this next" } }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(doc);
+        var result = doc.RootElement.GetProperty("result");
+        Assert.Equal("Run this next", result.GetProperty("queuedInput").GetProperty("displayText").GetString());
+        Assert.Single(result.GetProperty("queuedInputs").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task TurnQueueRemove_ReturnsRemainingQueue()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        var queued = await _h.Service.EnqueueTurnInputAsync(
+            thread.Id,
+            [new TextContent("remove me")],
+            inputSnapshot: new SessionInputSnapshot
+            {
+                NativeInputParts = [new SessionWireInputPart { Type = "text", Text = "remove me" }],
+                MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = "remove me" }],
+                DisplayText = "remove me"
+            });
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnQueueRemove, new
+        {
+            threadId = thread.Id,
+            queuedInputId = queued.Id
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(doc);
+        Assert.Empty(doc.RootElement.GetProperty("result").GetProperty("queuedInputs").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task TurnSteer_MarksQueuedInputGuidancePending()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        thread.Turns.Add(new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        });
+        var queued = await _h.Service.EnqueueTurnInputAsync(
+            thread.Id,
+            [new TextContent("Use this hint")],
+            inputSnapshot: new SessionInputSnapshot
+            {
+                NativeInputParts = [new SessionWireInputPart { Type = "text", Text = "Use this hint" }],
+                MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = "Use this hint" }],
+                DisplayText = "Use this hint"
+            });
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnSteer, new
+        {
+            threadId = thread.Id,
+            expectedTurnId = "turn_001",
+            queuedInputId = queued.Id
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(doc);
+        Assert.Equal("turn_001", doc.RootElement.GetProperty("result").GetProperty("turnId").GetString());
+        var resultQueued = Assert.Single(doc.RootElement.GetProperty("result").GetProperty("queuedInputs").EnumerateArray());
+        Assert.Equal("guidancePending", resultQueued.GetProperty("status").GetString());
+        Assert.Empty(thread.Turns[0].Items);
+    }
+
     // -------------------------------------------------------------------------
     // turn/start — empty input validation
     // -------------------------------------------------------------------------

@@ -287,6 +287,88 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return Task.CompletedTask;
     }
 
+    public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
+    {
+        if (numTurns <= 0)
+            throw new ArgumentOutOfRangeException(nameof(numTurns), "numTurns must be >= 1.");
+
+        var thread = await GetOrLoadAsync(threadId, ct);
+        if (thread.Status == ThreadStatus.Archived)
+            throw new InvalidOperationException($"Thread '{threadId}' is archived and cannot be rolled back.");
+        if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            throw new InvalidOperationException($"Thread '{threadId}' has a running Turn. Cancel it before rollback.");
+        if (thread.Turns.Count < numTurns)
+            throw new InvalidOperationException($"Thread '{threadId}' has only {thread.Turns.Count} turns; cannot roll back {numTurns}.");
+
+        thread.Turns.RemoveRange(thread.Turns.Count - numTurns, numTurns);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.RollbackThreadAsync(thread, numTurns, ct);
+        return thread;
+    }
+
+    public async Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var parts = inputSnapshot?.NativeInputParts?.ToList() ?? content.Select(c => c.ToWireInputPart()).ToList();
+        var queued = new QueuedTurnInput
+        {
+            Id = SessionIdGenerator.NewQueuedInputId(),
+            ThreadId = threadId,
+            NativeInputParts = parts,
+            MaterializedInputParts = inputSnapshot?.MaterializedInputParts?.ToList() ?? parts,
+            DisplayText = inputSnapshot?.DisplayText ?? SessionWireMapper.BuildDisplayText(parts),
+            Sender = sender,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        thread.QueuedInputs.Add(queued);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return queued;
+    }
+
+    public async Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return thread.QueuedInputs.ToList();
+    }
+
+    public async Task<TurnSteerResult> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        string queuedInputId,
+        CancellationToken ct = default,
+        SenderContext? sender = null)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var turn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+            ?? throw new InvalidOperationException("No active turn.");
+        if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
+            throw new InvalidOperationException("Active turn mismatch.");
+
+        var index = thread.QueuedInputs.FindIndex(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        if (index < 0)
+            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+        thread.QueuedInputs[index] = thread.QueuedInputs[index] with
+        {
+            Status = "guidancePending",
+            ReadyAfterTurnId = turn.Id,
+            Sender = sender ?? thread.QueuedInputs[index].Sender
+        };
+        await _store.SaveThreadAsync(thread, ct);
+        return new TurnSteerResult { TurnId = turn.Id, QueuedInputs = thread.QueuedInputs.ToList() };
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

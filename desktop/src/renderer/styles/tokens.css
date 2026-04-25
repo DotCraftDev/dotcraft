@@ -146,11 +146,11 @@
   --type-secondary-line-height: 16px;
   --type-secondary-weight: 400;
   --text-body-size: 13px;
-  --text-body-line-height: 1.62;
+  --text-body-line-height: 1.48;
   --text-body-secondary-size: 12px;
   --text-body-secondary-line-height: 1.54;
-  --text-code-size: 11.5px;
-  --text-code-line-height: 1.46;
+  --text-code-size: 12px;
+  --text-code-line-height: 1.44;
   --conversation-reading-width: 820px;
   --inline-reference-max-width: 28rem;
 
@@ -391,7 +391,7 @@ kbd {
     background-position: 0 50%;
   }
   100% {
-    background-position: -240px 50%;
+    background-position: 240px 50%;
   }
 }
 
@@ -413,7 +413,7 @@ kbd {
   -webkit-background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  animation: tool-running-gradient 1.8s linear infinite;
+  animation: tool-running-gradient 4.8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -509,6 +509,11 @@ kbd {
 /* ─── Settings grouped card ─── */
 .dc-settings-group__body > .dc-settings-row + .dc-settings-row {
   border-top: 1px solid var(--border-default);
+}
+
+/* Conversation markdown should not add trailing air after the final block. */
+.markdown-body > :last-child {
+  margin-bottom: 0 !important;
 }
 
 /* ─── Input with inline action button ─── */

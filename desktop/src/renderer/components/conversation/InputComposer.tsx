@@ -1,13 +1,12 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo, type CSSProperties } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
-import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import { useSkillsStore } from '../../stores/skillsStore'
-import type { ComposerFileAttachment, ImageAttachment } from '../../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment, QueuedTurnInput } from '../../types/conversation'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
 import { buildComposerInputParts } from '../../utils/composeInputParts'
 import {
@@ -83,8 +82,8 @@ export function InputComposer({
 
   const turnStatus = useConversationStore((s) => s.turnStatus)
   const pendingMessage = useConversationStore((s) => s.pendingMessage)
+  const queuedInputs = useConversationStore((s) => s.queuedInputs)
   const threadMode = useConversationStore((s) => s.threadMode)
-  const setPendingMessage = useConversationStore((s) => s.setPendingMessage)
   const setThreadMode = useConversationStore((s) => s.setThreadMode)
   const composerPrefill = useUIStore((s) => s.composerPrefill)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -267,20 +266,26 @@ export function InputComposer({
     if (modelLoading) return
 
     if (isRunning) {
-      if (images.length > 0) {
-        addToast(t('input.imageAttachmentsQueued'), 'warning')
+      if (sendInFlightRef.current) return
+      sendInFlightRef.current = true
+      try {
+        if (trimmed || files.length > 0 || images.length > 0) {
+          const { inputParts } = buildComposerInputParts({ text: trimmed, segments, files, images })
+          await window.api.appServer.sendRequest('turn/enqueue', {
+            threadId,
+            input: inputParts,
+            sender: undefined
+          })
+        }
+        richRef.current?.clear()
+        setImages([])
+        setFiles([])
+      } catch (err) {
+        console.error('turn/enqueue failed:', err)
+        addToast(err instanceof Error ? err.message : String(err), 'error')
+      } finally {
+        sendInFlightRef.current = false
       }
-      if (trimmed || files.length > 0) {
-        const { inputParts } = buildComposerInputParts({ text: trimmed, segments, files })
-        setPendingMessage({
-          text: trimmed,
-          inputParts,
-          files: files.length > 0 ? [...files] : undefined
-        })
-      }
-      richRef.current?.clear()
-      setImages([])
-      setFiles([])
       return
     }
 
@@ -303,10 +308,42 @@ export function InputComposer({
         fileFallbackThreadName: t('toast.fileReferenceMessage'),
         attachmentFallbackThreadName: t('toast.attachmentMessage')
       })
+    } catch (err) {
+      console.error('turn/start failed:', err)
+      addToast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       sendInFlightRef.current = false
     }
-  }, [files, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
+  }, [files, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, t])
+
+  const removeQueuedInput = useCallback(async (queuedInputId: string): Promise<void> => {
+    try {
+      const res = await window.api.appServer.sendRequest('turn/queue/remove', { threadId, queuedInputId }) as {
+        queuedInputs?: unknown[]
+      }
+      useConversationStore.getState().setQueuedInputs((res.queuedInputs ?? []) as QueuedTurnInput[])
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }, [threadId])
+
+  const steerQueuedInput = useCallback(async (queuedInputId: string): Promise<void> => {
+    const state = useConversationStore.getState()
+    const activeTurnId = state.activeTurnId
+    const queued = state.queuedInputs.find((item) => item.id === queuedInputId)
+    if (!activeTurnId || !queued) return
+    if (queued.status === 'guidancePending') return
+    try {
+      const res = await window.api.appServer.sendRequest('turn/steer', {
+        threadId,
+        expectedTurnId: activeTurnId,
+        queuedInputId
+      }) as { queuedInputs?: unknown[] }
+      useConversationStore.getState().setQueuedInputs((res.queuedInputs ?? []) as QueuedTurnInput[])
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }, [threadId])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -369,6 +406,13 @@ export function InputComposer({
   return (
     <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
+      {queuedInputs.length > 0 && (
+        <QueuedInputList
+          queuedInputs={queuedInputs}
+          onSteer={(id) => { void steerQueuedInput(id) }}
+          onRemove={(id) => { void removeQueuedInput(id) }}
+        />
+      )}
 
       <ComposerShell
         dragOver={dragOver}
@@ -504,16 +548,31 @@ export function InputComposer({
             />
             {!isWaitingApproval ? (
               isRunning ? (
-                <ActionTooltip label={t('composer.stopTitle')} placement="top">
-                  <button
-                    type="button"
-                    onClick={stopTurn}
-                    aria-label={t('composer.stopAria')}
-                    style={composerSendButtonStyle('enabled')}
-                >
-                    <StopIcon />
-                  </button>
-                </ActionTooltip>
+                canSend ? (
+                  <ActionTooltip label={t('composer.queueSendTitle')} placement="top">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void sendMessage()
+                      }}
+                      aria-label={t('composer.queueSendAria')}
+                      style={composerSendButtonStyle('enabled')}
+                    >
+                      <SendIcon />
+                    </button>
+                  </ActionTooltip>
+                ) : (
+                  <ActionTooltip label={t('composer.stopTitle')} placement="top">
+                    <button
+                      type="button"
+                      onClick={stopTurn}
+                      aria-label={t('composer.stopAria')}
+                      style={composerSendButtonStyle('enabled')}
+                    >
+                      <StopIcon />
+                    </button>
+                  </ActionTooltip>
+                )
               ) : (
                 <ActionTooltip
                   label={t('composer.sendAriaAlt')}
@@ -539,4 +598,117 @@ export function InputComposer({
       />
     </div>
   )
+}
+
+function QueuedInputList({
+  queuedInputs,
+  onSteer,
+  onRemove
+}: {
+  queuedInputs: QueuedTurnInput[]
+  onSteer: (id: string) => void
+  onRemove: (id: string) => void
+}): JSX.Element {
+  const t = useT()
+  return (
+    <div
+      style={{
+        padding: '0 18px 4px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px'
+      }}
+    >
+      {queuedInputs.map((item) => {
+        const label = summarizeQueuedInput(item, t)
+        const isGuidancePending = item.status === 'guidancePending'
+        return (
+          <div
+            key={item.id}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto minmax(0, 1fr) auto auto',
+              alignItems: 'center',
+              gap: '8px',
+              minHeight: '30px',
+              padding: '5px 8px',
+              borderRadius: '8px',
+              background: 'color-mix(in srgb, var(--bg-secondary) 86%, var(--bg-primary))',
+              color: 'var(--text-secondary)',
+              fontSize: '12px'
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '999px',
+                background: isGuidancePending ? 'var(--accent)' : 'var(--warning)'
+              }}
+            />
+            <span
+              title={label}
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {label}
+            </span>
+            <button
+              type="button"
+              onClick={() => onSteer(item.id)}
+              disabled={isGuidancePending}
+              style={{
+                ...queuedTextButtonStyle,
+                opacity: isGuidancePending ? 0.55 : 1,
+                cursor: isGuidancePending ? 'default' : 'pointer'
+              }}
+            >
+              {isGuidancePending ? t('composer.queueGuidancePending') : t('composer.queueGuide')}
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(item.id)}
+              aria-label={t('composer.queueRemove')}
+              style={queuedTextButtonStyle}
+            >
+              {t('composer.queueRemove')}
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const queuedTextButtonStyle: CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--text-dimmed)',
+  cursor: 'pointer',
+  fontSize: '12px',
+  padding: '2px 4px'
+}
+
+function summarizeQueuedInput(
+  item: QueuedTurnInput,
+  t: (key: string, vars?: Record<string, string | number>) => string
+): string {
+  const text = item.displayText?.trim()
+  if (text) return text.length > 90 ? `${text.slice(0, 90)}...` : text
+  const parts = item.nativeInputParts ?? item.materializedInputParts ?? []
+  const files = parts.filter((part) => part.type === 'fileRef').length
+  const images = parts.filter((part) => part.type === 'image' || part.type === 'localImage').length
+  const labels: string[] = []
+  if (files > 0) {
+    labels.push(t(files === 1 ? 'composer.queueFileCountOne' : 'composer.queueFileCountMany', { count: files }))
+  }
+  if (images > 0) {
+    labels.push(t(images === 1 ? 'composer.queueImageCountOne' : 'composer.queueImageCountMany', { count: images }))
+  }
+  return labels.length > 0 ? labels.join(', ') : t('composer.queueFallbackLabel')
 }

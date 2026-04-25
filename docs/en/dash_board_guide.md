@@ -312,6 +312,38 @@ Because both `Api.Port` and `DashBoard.Port` are `8080`, they are automatically 
 ```
 
 > **Note**: Setting `Host` to `0.0.0.0` allows external network access to DashBoard. Ensure the network environment is secure.
+
+---
+
+## Usage Examples
+
+| Scenario | How to use it |
+|----------|---------------|
+| Confirm model calls work for the first time | Enable DashBoard, run one CLI or Desktop session, then inspect Trace Timeline |
+| Debug failed tool calls | Open session detail and filter Tools / Errors events |
+| Check merged configuration | Open Settings and compare global config with workspace config |
+| Review automation state | Use the Automations panel in Gateway + Automations environments |
+
+## Advanced Topics
+
+- DashBoard exposes prompts, tool arguments, and tool results; bind it to `127.0.0.1` by default.
+- In Gateway mode, DashBoard can share a port with API and AG-UI.
+- After saving Settings, startup-level fields may still require restarting the host.
+
+## Troubleshooting
+
+### Browser cannot open Dashboard
+
+Confirm `DashBoard.Enabled = true` and use the URL printed by the console. The default path is `http://127.0.0.1:8080/dashboard`.
+
+### Automations panel is missing
+
+The Automations panel is only available when Gateway loads the Automations module. Standalone CLI DashBoard does not register automation snapshots.
+
+### Changes in Settings do not appear
+
+Model fields usually affect new sessions. AppServer, port, Gateway, and external-channel settings require restarting DotCraft.
+
 ---
 
 ## Related Documentation

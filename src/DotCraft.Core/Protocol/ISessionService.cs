@@ -117,6 +117,35 @@ public interface ISessionService
         SessionInputSnapshot? inputSnapshot = null);
 
     /// <summary>
+    /// Adds user input to the thread's FIFO queue while another turn is active.
+    /// Queued input starts a new turn automatically after the active turn completes successfully.
+    /// </summary>
+    Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null);
+
+    /// <summary>
+    /// Removes one queued input from a thread.
+    /// </summary>
+    Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Marks one queued input as same-turn guidance for the active turn.
+    /// </summary>
+    Task<TurnSteerResult> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        string queuedInputId,
+        CancellationToken ct = default,
+        SenderContext? sender = null);
+
+    /// <summary>
     /// Resolves a pending approval request within a WaitingApproval Turn.
     /// Resumes agent execution with the user's decision.
     /// </summary>
@@ -131,6 +160,12 @@ public interface ISessionService
     /// Cancels a Running or WaitingApproval Turn.
     /// </summary>
     Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Drops one or more turns from the end of a Thread.
+    /// This modifies conversation history only; it does not revert filesystem changes made by tools.
+    /// </summary>
+    Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default);
 
     /// <summary>
     /// Changes the agent mode for a Thread (e.g., "agent" → "plan").

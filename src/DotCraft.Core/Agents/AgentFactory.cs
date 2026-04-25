@@ -15,7 +15,6 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using OpenAI.Chat;
-using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace DotCraft.Agents;
 
@@ -307,29 +306,27 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
-        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient
+        // => StreamingFunctionInvokingChatClient => TracingChatClient
         var chatClientBuilder = new ChatClientBuilder(ctx.ChatClient.AsIChatClient());
         if (_traceCollector != null)
         {
             var tc = _traceCollector;
             chatClientBuilder.Use(innerClient => new TracingChatClient(innerClient, tc));
         }
+        var streamOptOutTools = BuildStreamOptOutToolNames(
+            tools, deferredRegistry?.DeferredTools.Values);
         chatClientBuilder.Use(innerClient =>
         {
-            var fic = new FunctionInvokingChatClient(innerClient)
+            var fic = new StreamingFunctionInvokingChatClient(innerClient)
             {
                 MaximumIterationsPerRequest = _config.MaxToolCallRounds,
-                AllowConcurrentInvocation = true
+                AllowConcurrentInvocation = true,
+                EnableToolCallArgumentPreviews = true,
+                IsStreamableTool = name => !streamOptOutTools.Contains(name)
             };
             if (deferredRegistry != null)
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
-        });
-        var streamOptOutTools = BuildStreamOptOutToolNames(
-            tools, deferredRegistry?.DeferredTools.Values);
-        chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
-        {
-            IsStreamableTool = name => !streamOptOutTools.Contains(name)
         });
         if (deferredRegistry != null)
         {
@@ -408,30 +405,28 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
-        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
+        // => StreamingFunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         chatClientBuilder.Use(innerClient => new ToolCallFilteringChatClient(innerClient));
         if (_traceCollector != null)
         {
             chatClientBuilder.Use(innerClient => new TracingChatClient(innerClient, _traceCollector));
         }
+        var streamOptOutTools = BuildStreamOptOutToolNames(
+            CreateDefaultTools(),
+            deferredRegistry?.DeferredTools.Values);
         chatClientBuilder.Use(innerClient =>
         {
-            var fic = new FunctionInvokingChatClient(innerClient)
+            var fic = new StreamingFunctionInvokingChatClient(innerClient)
             {
                 MaximumIterationsPerRequest = _config.MaxToolCallRounds,
-                AllowConcurrentInvocation = true
+                AllowConcurrentInvocation = true,
+                EnableToolCallArgumentPreviews = true,
+                IsStreamableTool = name => !streamOptOutTools.Contains(name)
             };
             if (deferredRegistry != null)
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
-        });
-        var streamOptOutTools = BuildStreamOptOutToolNames(
-            CreateDefaultTools(),
-            deferredRegistry?.DeferredTools.Values);
-        chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
-        {
-            IsStreamableTool = name => !streamOptOutTools.Contains(name)
         });
         if (deferredRegistry != null)
         {

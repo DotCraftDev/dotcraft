@@ -6,9 +6,10 @@ import type {
   ThreadMode,
   ApprovalDecision,
   ApprovalState,
-  PendingComposerMessage
+  PendingComposerMessage,
+  QueuedTurnInput
 } from '../types/conversation'
-import { wireTurnToConversationTurn } from '../types/conversation'
+import { wireItemToConversationItem, wireTurnToConversationTurn } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
 import {
@@ -116,6 +117,8 @@ interface ConversationState {
   systemLabel: string | null
   /** Queued follow-up message (sent when current turn completes) */
   pendingMessage: PendingComposerMessage | null
+  /** Server-persisted FIFO inputs queued behind the active turn. */
+  queuedInputs: QueuedTurnInput[]
   /** Current agent operating mode */
   threadMode: ThreadMode
   /** Workspace root path (for cumulative diff disk reads) */
@@ -206,6 +209,7 @@ interface ConversationActions {
     percentLeft: number
   } | null): void
   setPendingMessage(msg: PendingComposerMessage | null): void
+  setQueuedInputs(inputs: QueuedTurnInput[]): void
   setThreadMode(mode: ThreadMode): void
   /** Add an optimistic (locally-created) turn before server confirms */
   addOptimisticTurn(turn: ConversationTurn): void
@@ -275,6 +279,7 @@ const initialState: ConversationState = {
   outputTokens: 0,
   systemLabel: null,
   pendingMessage: null,
+  queuedInputs: [],
   threadMode: 'agent',
   workspacePath: '',
   changedFiles: new Map<string, FileDiff>(),
@@ -346,6 +351,21 @@ function mergeExistingCommandExecutionIntoToolCall(
   if (item.type !== 'toolCall') return item
   const commandExecution = findMatchingCommandExecution(items, item.toolCallId)
   return commandExecution ? mergeCommandExecutionIntoToolCall(item, commandExecution) : item
+}
+
+function upsertItemById(items: ConversationItem[], item: ConversationItem): ConversationItem[] {
+  const existingIndex = items.findIndex((i) => i.id === item.id)
+  if (existingIndex < 0) {
+    return sortItemsByCreatedAt([...items, item])
+  }
+
+  const next = [...items]
+  next[existingIndex] = { ...next[existingIndex], ...item }
+  return sortItemsByCreatedAt(next)
+}
+
+function isGuidanceUserMessage(item: ConversationItem): boolean {
+  return item.type === 'userMessage' && item.deliveryMode === 'guidance'
 }
 
 const SYSTEM_LABELS: Record<string, string | null> = {
@@ -749,6 +769,14 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'userMessage') {
+      const newItem = wireItemToConversationItem(item)
+      if (!isGuidanceUserMessage(newItem)) return
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
+        )
+      }))
     } else if (type === 'reasoningContent') {
       const newItem: ConversationItem = {
         id: itemId ?? '',
@@ -1123,6 +1151,14 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           activeItemId: null
         }
       })
+    } else if (type === 'userMessage') {
+      const newItem = wireItemToConversationItem(item)
+      if (!isGuidanceUserMessage(newItem)) return
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
+        )
+      }))
     } else if (type === 'error') {
       const newItem: ConversationItem = {
         id: (item?.id as string) ?? '',
@@ -1428,6 +1464,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
   setPendingMessage(msg) {
     set({ pendingMessage: msg })
+  },
+
+  setQueuedInputs(inputs) {
+    set({ queuedInputs: inputs })
   },
 
   setThreadMode(mode) {

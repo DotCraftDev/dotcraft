@@ -3,6 +3,7 @@ layout: page
 title: DotCraft
 description: 面向项目的 Agent Harness，打造持久的 AI 工作空间。
 aside: false
+sidebar: false
 editLink: false
 lastUpdated: false
 ---
@@ -16,8 +17,9 @@ lastUpdated: false
         DotCraft 将 CLI、Desktop、IDE、聊天机器人、API 与自动化任务接入同一个工作区，让会话、记忆、技能和工具在不同入口之间保持一致。
       </p>
       <div class="dc-actions">
-        <a class="dc-button dc-button--primary" href="./config_guide">开始配置</a>
-        <a class="dc-button" href="./reference">阅读文档</a>
+        <a class="dc-button dc-button--primary" href="./getting-started">开始使用</a>
+        <a class="dc-button" href="https://github.com/DotHarness/dotcraft/releases">下载 Release</a>
+        <a class="dc-button" href="./config_guide">完整配置</a>
         <a class="dc-button" href="https://github.com/DotHarness/dotcraft">GitHub</a>
       </div>
     </div>
@@ -34,7 +36,7 @@ lastUpdated: false
       <div class="dc-grid">
         <article class="dc-card">
           <h3>项目级工作区</h3>
-          <p>围绕仓库和 `.craft/` 状态组织会话、记忆、技能、配置和任务，让 agent 能持续理解你的项目。</p>
+          <p>围绕真实项目目录组织会话、记忆、技能、配置和任务，让 agent 能持续理解你的项目。</p>
         </article>
         <article class="dc-card">
           <h3>统一会话模型</h3>
@@ -54,11 +56,12 @@ lastUpdated: false
         <p class="dc-kicker">Desktop first</p>
         <h2>图形化管理会话、Diff、计划与自动化</h2>
         <p class="dc-section__text">
-          Desktop 是推荐的第一入口。它作为 AppServer 客户端工作，可视化管理工作区、代理配置、会话详情、自动化审核和运行状态。
+          Desktop 是推荐的第一入口。先完成下载、工作区初始化和模型配置，再按需进入 TUI、AppServer、ACP、频道或自动化。
         </p>
         <div class="dc-actions">
-          <a class="dc-button dc-button--primary" href="https://github.com/DotHarness/dotcraft/releases">下载 Release</a>
-          <a class="dc-button" href="https://github.com/DotHarness/dotcraft/tree/master/desktop">Desktop 文档</a>
+          <a class="dc-button dc-button--primary" href="./getting-started">5 分钟快速开始</a>
+          <a class="dc-button" href="./desktop_guide">Desktop 指南</a>
+          <a class="dc-button" href="./tui_guide">TUI 指南</a>
         </div>
       </div>
       <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png" alt="DotCraft Desktop" />
@@ -103,12 +106,12 @@ lastUpdated: false
     <div class="dc-section__inner">
       <div class="dc-section__header">
         <h2>三步开始</h2>
-        <p class="dc-section__text">从桌面端或源码构建开始，完成工作区和模型配置后，就可以把不同入口接入同一个 DotCraft 工作区。</p>
+        <p class="dc-section__text">第一次使用请从 Desktop 开始。跑通之后，同一工作区可以继续接入终端、编辑器、API、SDK 和自动化任务。</p>
       </div>
       <div class="dc-steps">
-        <div class="dc-step"><div><strong>安装 DotCraft</strong><span>下载 Desktop Release，或安装 .NET 10 SDK、Rust 和 Node.js 后从源码构建。</span></div></div>
-        <div class="dc-step"><div><strong>初始化工作区</strong><span>选择项目目录并完成 `.craft/` 初始化，让配置和任务都绑定到当前项目。</span></div></div>
-        <div class="dc-step"><div><strong>配置模型与入口</strong><span>设置 OpenAI-compatible API Key 或 CLIProxyAPI，再按需启用 Desktop、AppServer、ACP、频道或自动化。</span></div></div>
+        <div class="dc-step"><div><strong>下载 Desktop</strong><span>从 Release 安装桌面应用，或从源码构建后启动 Desktop。</span></div></div>
+        <div class="dc-step"><div><strong>选择项目文件夹</strong><span>选择真实项目目录，让配置、会话和任务跟随这个项目保存。</span></div></div>
+        <div class="dc-step"><div><strong>配置模型并开始对话</strong><span>设置 OpenAI-compatible API Key 或 CLIProxyAPI，发送第一次仓库理解请求。</span></div></div>
       </div>
     </div>
   </section>

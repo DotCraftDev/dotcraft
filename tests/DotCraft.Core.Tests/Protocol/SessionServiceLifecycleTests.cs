@@ -672,6 +672,60 @@ internal sealed class FakeSessionService : ISessionService
     public Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default) =>
         Task.CompletedTask;
 
+    public async Task<SessionThread> RollbackThreadAsync(string threadId, int numTurns, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.Turns.RemoveRange(thread.Turns.Count - numTurns, numTurns);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.RollbackThreadAsync(thread, numTurns, ct);
+        return thread;
+    }
+
+    public async Task<QueuedTurnInput> EnqueueTurnInputAsync(
+        string threadId,
+        IList<AIContent> content,
+        SenderContext? sender = null,
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var parts = inputSnapshot?.NativeInputParts?.ToList() ?? content.Select(c => c.ToWireInputPart()).ToList();
+        var queued = new QueuedTurnInput
+        {
+            Id = SessionIdGenerator.NewQueuedInputId(),
+            ThreadId = threadId,
+            NativeInputParts = parts,
+            MaterializedInputParts = inputSnapshot?.MaterializedInputParts?.ToList() ?? parts,
+            DisplayText = inputSnapshot?.DisplayText ?? SessionWireMapper.BuildDisplayText(parts),
+            Sender = sender,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        thread.QueuedInputs.Add(queued);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return queued;
+    }
+
+    public async Task<IReadOnlyList<QueuedTurnInput>> RemoveQueuedTurnInputAsync(
+        string threadId,
+        string queuedInputId,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return thread.QueuedInputs.ToList();
+    }
+
+    public Task<TurnSteerResult> SteerTurnAsync(
+        string threadId,
+        string expectedTurnId,
+        string queuedInputId,
+        CancellationToken ct = default,
+        SenderContext? sender = null) =>
+        throw new NotSupportedException("Use FakeSessionService for lifecycle tests only.");
+
     public async Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default)
     {
         var thread = await GetOrLoadAsync(threadId, ct);

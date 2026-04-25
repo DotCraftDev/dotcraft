@@ -18,6 +18,7 @@ interface StartTurnParams {
   attachmentFallbackThreadName?: string
   includeUserPreview?: boolean
   renameThreadFromText?: boolean
+  throwOnStartError?: boolean
 }
 
 /**
@@ -35,7 +36,8 @@ export async function startTurnWithOptimisticUI({
   fileFallbackThreadName,
   attachmentFallbackThreadName,
   includeUserPreview = true,
-  renameThreadFromText = true
+  renameThreadFromText = true,
+  throwOnStartError = false
 }: StartTurnParams): Promise<boolean> {
   const { inputParts, visibleText } = buildComposerInputParts({ text, segments, files, images })
   if (inputParts.length === 0) {
@@ -104,6 +106,9 @@ export async function startTurnWithOptimisticUI({
   } catch (err) {
     console.error('turn/start failed:', err)
     useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+    if (throwOnStartError) {
+      throw err
+    }
   }
 
   return true

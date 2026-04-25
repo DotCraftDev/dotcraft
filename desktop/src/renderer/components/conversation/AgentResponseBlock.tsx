@@ -10,6 +10,7 @@ import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { TurnArtifacts } from './TurnArtifacts'
 import { ApprovalCard } from './ApprovalCard'
 import { SystemNoticeBlock } from './SystemNoticeBlock'
+import { UserMessageBlock } from './UserMessageBlock'
 import { planToolRunRender } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
@@ -87,7 +88,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   // parent toolCall items by the store, not rendered independently)
   const renderableItems = turn.items.filter(
     (i) =>
-      i.type !== 'userMessage'
+      (i.type !== 'userMessage' || i.deliveryMode === 'guidance')
       && i.type !== 'toolResult'
       && i.type !== 'commandExecution'
   )
@@ -138,6 +139,19 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         }
 
         nodes.push(...runNodes)
+      } else if (item.type === 'userMessage' && item.deliveryMode === 'guidance') {
+        nodes.push(
+          <UserMessageBlock
+            key={item.id}
+            text={item.text ?? ''}
+            nativeInputParts={item.nativeInputParts}
+            imageDataUrls={item.imageDataUrls}
+            images={item.images}
+            triggerKind={item.triggerKind}
+            triggerLabel={item.triggerLabel}
+            triggerRefId={item.triggerRefId}
+          />
+        )
       } else if (item.type === 'reasoningContent') {
         const isLiveStreaming =
           isRunning && item.status === 'streaming' && item.id === activeItemId
@@ -181,7 +195,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   }
 
   const lastFinalAgentMessageIndex =
-    !isRunning && turn.status === 'completed'
+    !isRunning && turn.status === 'completed' && !renderableItems.some(isGuidanceUserMessage)
       ? findLastAgentMessageIndex(renderableItems)
       : -1
   const shouldCollapseIntermediate = lastFinalAgentMessageIndex > 0
@@ -200,7 +214,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
           key={`turn-collapsed-${turn.id}`}
           elapsedMs={elapsedMs}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {intermediateNodes}
           </div>
         </TurnCollapsedSummary>
@@ -213,7 +227,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       {renderNodes}
 
       {/* Turn-level failure */}
@@ -335,6 +349,10 @@ function findLastAgentMessageIndex(items: ConversationItem[]): number {
     }
   }
   return -1
+}
+
+function isGuidanceUserMessage(item: ConversationItem): boolean {
+  return item.type === 'userMessage' && item.deliveryMode === 'guidance'
 }
 
 function getIntermediateElapsedMs(

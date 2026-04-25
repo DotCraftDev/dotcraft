@@ -88,6 +88,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ThreadResume,
         AppServerMethods.ThreadList,
         AppServerMethods.ThreadRead,
+        AppServerMethods.ThreadRollback,
         AppServerMethods.ThreadSubscribe,
         AppServerMethods.ThreadUnsubscribe,
         AppServerMethods.ThreadPause,
@@ -98,6 +99,9 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ThreadModeSet,
         AppServerMethods.ThreadConfigUpdate,
         AppServerMethods.TurnStart,
+        AppServerMethods.TurnEnqueue,
+        AppServerMethods.TurnQueueRemove,
+        AppServerMethods.TurnSteer,
         AppServerMethods.TurnInterrupt,
         AppServerMethods.WorkspaceCommitMessageSuggest,
         AppServerMethods.WelcomeSuggestions,
@@ -192,6 +196,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
                 AppServerMethods.ThreadRead => HandleThreadReadAsync(msg, ct),
+                AppServerMethods.ThreadRollback => HandleThreadRollbackAsync(msg, ct),
                 AppServerMethods.ThreadSubscribe => HandleThreadSubscribeAsync(msg, ct),
                 AppServerMethods.ThreadUnsubscribe => HandleThreadUnsubscribeAsync(msg, ct),
                 AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
@@ -202,6 +207,9 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ThreadModeSet => HandleThreadModeSetAsync(msg, ct),
                 AppServerMethods.ThreadConfigUpdate => HandleThreadConfigUpdateAsync(msg, ct),
                 AppServerMethods.TurnStart => HandleTurnStartAsync(msg, ct),
+                AppServerMethods.TurnEnqueue => HandleTurnEnqueueAsync(msg, ct),
+                AppServerMethods.TurnQueueRemove => HandleTurnQueueRemoveAsync(msg, ct),
+                AppServerMethods.TurnSteer => HandleTurnSteerAsync(msg, ct),
                 AppServerMethods.TurnInterrupt => HandleTurnInterruptAsync(msg, ct),
                 AppServerMethods.CronList => HandleCronListAsync(msg, ct),
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
@@ -835,6 +843,19 @@ public sealed class AppServerRequestHandler(
         return new { thread = WithContextUsage(thread.ToWire(includeTurns), thread.Id) };
     }
 
+    private async Task<object?> HandleThreadRollbackAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<ThreadRollbackParams>(msg);
+        if (p.NumTurns <= 0)
+            throw AppServerErrors.InvalidParams("'numTurns' must be >= 1.");
+
+        var thread = await sessionService.RollbackThreadAsync(p.ThreadId, p.NumTurns, ct);
+        return new ThreadRollbackResponse
+        {
+            Thread = WithContextUsage(thread.ToWire(includeTurns: true), thread.Id)
+        };
+    }
+
     private SessionWireThread WithContextUsage(SessionWireThread wire, string threadId)
     {
         var snapshot = sessionService.TryGetContextUsageSnapshot(threadId);
@@ -1137,6 +1158,60 @@ public sealed class AppServerRequestHandler(
 
         // Return null to signal the host that the response has already been sent inline
         return null;
+    }
+
+    private async Task<object?> HandleTurnEnqueueAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<TurnEnqueueParams>(msg);
+        var materializedInput = await PrepareTurnInputAsync(p.Input, ct);
+
+        using var channelScope = CreateChannelScope(p.Sender);
+        await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
+        var queued = await sessionService.EnqueueTurnInputAsync(
+            p.ThreadId,
+            materializedInput.Content,
+            p.Sender,
+            ct,
+            new SessionInputSnapshot
+            {
+                NativeInputParts = materializedInput.NativeInputParts,
+                MaterializedInputParts = materializedInput.MaterializedInputParts,
+                DisplayText = materializedInput.DisplayText
+            });
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
+        return new TurnEnqueueResponse
+        {
+            QueuedInput = queued,
+            QueuedInputs = thread.QueuedInputs.ToList()
+        };
+    }
+
+    private async Task<object?> HandleTurnQueueRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<TurnQueueRemoveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.QueuedInputId))
+            throw AppServerErrors.InvalidParams("'queuedInputId' is required.");
+        var queuedInputs = await sessionService.RemoveQueuedTurnInputAsync(p.ThreadId, p.QueuedInputId, ct);
+        return new TurnQueueRemoveResponse { QueuedInputs = queuedInputs.ToList() };
+    }
+
+    private async Task<object?> HandleTurnSteerAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<TurnSteerParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ExpectedTurnId))
+            throw AppServerErrors.InvalidParams("'expectedTurnId' is required.");
+        if (string.IsNullOrWhiteSpace(p.QueuedInputId))
+            throw AppServerErrors.InvalidParams("'queuedInputId' is required.");
+
+        using var channelScope = CreateChannelScope(p.Sender);
+        await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
+        var result = await sessionService.SteerTurnAsync(
+            p.ThreadId,
+            p.ExpectedTurnId,
+            p.QueuedInputId,
+            ct,
+            p.Sender);
+        return new TurnSteerResponse { TurnId = result.TurnId, QueuedInputs = result.QueuedInputs.ToList() };
     }
 
     private async Task<object?> HandleTurnInterruptAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -2043,6 +2118,57 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams(
                 $"Built-in slash command '{registration.Name}' cannot be sent as 'commandRef' in 'turn/start'. Use 'command/execute' or dedicated UI instead.");
         }
+    }
+
+    private async Task<PreparedTurnInput> PrepareTurnInputAsync(
+        IReadOnlyList<SessionWireInputPart> input,
+        CancellationToken ct)
+    {
+        if (input.Count == 0)
+            throw AppServerErrors.InvalidParams("'input' must contain at least one part.");
+
+        var inputMaterialization = new InputMaterializationService(_commandRegistry, skillsLoader);
+        var normalizedInput = InputMaterializationService.NormalizeInputParts(input);
+        ValidateTurnStartInput(normalizedInput);
+        var materializedInput = inputMaterialization.MaterializeNormalized(normalizedInput);
+        var content = await ResolveInputPartsAsync(materializedInput.MaterializedInputParts.ToList(), ct);
+        return new PreparedTurnInput
+        {
+            NativeInputParts = materializedInput.NativeInputParts,
+            MaterializedInputParts = materializedInput.MaterializedInputParts,
+            DisplayText = materializedInput.DisplayText,
+            Content = content
+        };
+    }
+
+    private IDisposable? CreateChannelScope(SenderContext? sender)
+    {
+        var channelScopeInfo = connection.IsChannelAdapter
+            ? new ChannelSessionInfo
+            {
+                Channel = connection.ChannelAdapterName ?? "external",
+                UserId = sender?.SenderId ?? connection.ClientInfo?.Name ?? "anonymous",
+                GroupId = sender?.GroupId,
+                DefaultDeliveryTarget = sender?.GroupId,
+            }
+            : new ChannelSessionInfo
+            {
+                Channel = connection.HasAcpExtensions ? "acp" : "cli",
+                UserId = connection.ClientInfo?.Name ?? "anonymous"
+            };
+
+        return ChannelSessionScope.Set(channelScopeInfo);
+    }
+
+    private sealed class PreparedTurnInput
+    {
+        public IReadOnlyList<SessionWireInputPart> NativeInputParts { get; init; } = [];
+
+        public IReadOnlyList<SessionWireInputPart> MaterializedInputParts { get; init; } = [];
+
+        public string DisplayText { get; init; } = string.Empty;
+
+        public List<AIContent> Content { get; init; } = [];
     }
 
     private static string ExtractCommandName(string rawCommand)

@@ -41,11 +41,23 @@ public sealed class SessionPersistenceService(
         CancellationToken ct = default)
         => threadStore.SaveSessionAsync(agent, session, threadId, ct);
 
+    public Task RebuildAndSaveSessionFromThreadAsync(
+        AIAgent agent,
+        string threadId,
+        CancellationToken ct = default)
+        => threadStore.RebuildAndSaveSessionFromThreadAsync(agent, threadId, ct);
+
     public Task<AgentSession> LoadOrCreateSessionAsync(
         AIAgent agent,
         string threadId,
         CancellationToken ct = default)
         => threadStore.LoadOrCreateSessionAsync(agent, threadId, ct);
+
+    public Task RollbackThreadAsync(SessionThread thread, int numTurns, CancellationToken ct = default)
+        => threadStore.RollbackThreadAsync(thread, numTurns, ct);
+
+    public void DeleteSessionFile(string threadId)
+        => threadStore.DeleteSessionFile(threadId);
 
     public bool SessionFileExists(string threadId)
         => threadStore.SessionFileExists(threadId);

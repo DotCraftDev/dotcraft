@@ -158,6 +158,11 @@ public sealed record SessionWireThread
     public Dictionary<string, string> Metadata { get; init; } = [];
 
     /// <summary>
+    /// FIFO inputs queued behind the currently active turn.
+    /// </summary>
+    public List<QueuedTurnInput> QueuedInputs { get; init; } = [];
+
+    /// <summary>
     /// Turn summaries. Populated only when the caller requests turn history (e.g. thread/read with includeTurns = true).
     /// </summary>
     public List<SessionWireTurn>? Turns { get; init; }
@@ -336,6 +341,7 @@ public static class SessionWireMapper
             HistoryMode = thread.HistoryMode,
             Configuration = thread.Configuration,
             Metadata = new Dictionary<string, string>(thread.Metadata),
+            QueuedInputs = thread.QueuedInputs.ToList(),
             Turns = includeTurns ? thread.Turns.Select(t => t.ToWire(includeItems: true)).ToList() : null
         };
 
@@ -398,6 +404,7 @@ public static class SessionWireMapper
             SessionEventType.ThreadCreated => "thread/started",
             SessionEventType.ThreadResumed => "thread/resumed",
             SessionEventType.ThreadStatusChanged => "thread/statusChanged",
+            SessionEventType.ThreadQueueUpdated => "thread/queue/updated",
             SessionEventType.TurnStarted => "turn/started",
             SessionEventType.TurnCompleted => "turn/completed",
             SessionEventType.TurnFailed => "turn/failed",
@@ -444,6 +451,7 @@ public static class SessionWireMapper
                 TurnFailedPayload failed => new { turn = failed.Turn.ToWire(includeItems: true), error = failed.Error },
                 // Map ThreadStatusChangedPayload to wire shape: { threadId, previousStatus, newStatus }
                 ThreadStatusChangedPayload statusChanged => new { threadId = evt.ThreadId, previousStatus = statusChanged.PreviousStatus, newStatus = statusChanged.NewStatus },
+                ThreadQueueUpdatedPayload queueUpdated => new { threadId = queueUpdated.ThreadId, queuedInputs = queueUpdated.QueuedInputs },
                 // Flatten delta payloads to { delta } string per spec Section 6.3
                 AgentMessageDelta agentDelta => new { delta = agentDelta.TextDelta },
                 ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
@@ -583,20 +591,21 @@ public static class SessionWireMapper
             ToolCallPayload => "toolCall",
             ExternalChannelToolCallPayload => "externalChannelToolCall",
             ToolResultPayload => "toolResult",
-        UserMessagePayload => "userMessage",
-        AgentMessagePayload => "agentMessage",
-        ReasoningContentPayload => "reasoningContent",
-        SystemNoticePayload => "systemNotice",
+            UserMessagePayload => "userMessage",
+            AgentMessagePayload => "agentMessage",
+            ReasoningContentPayload => "reasoningContent",
+            SystemNoticePayload => "systemNotice",
             SessionThread => "thread",
             SessionTurn => "turn",
             SessionItem => "item",
-        ThreadStatusChangedPayload => "threadStatusChanged",
-        ThreadResumedPayload => "threadResumed",
-        TurnCancelledPayload => "turnCancelled",
-        TurnFailedPayload => "turnFailed",
-        SubAgentProgressPayload => "subAgentProgress",
-        SystemEventPayload => "systemEvent",
-        _ => null
+            ThreadStatusChangedPayload => "threadStatusChanged",
+            ThreadResumedPayload => "threadResumed",
+            ThreadQueueUpdatedPayload => "threadQueueUpdated",
+            TurnCancelledPayload => "turnCancelled",
+            TurnFailedPayload => "turnFailed",
+            SubAgentProgressPayload => "subAgentProgress",
+            SystemEventPayload => "systemEvent",
+            _ => null
         };
 
     private static string BuildCommandRefText(SessionWireInputPart part)

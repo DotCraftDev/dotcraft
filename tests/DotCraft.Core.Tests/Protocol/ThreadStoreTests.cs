@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Protocol;
 using Microsoft.Agents.AI;
 using Microsoft.Data.Sqlite;
@@ -260,6 +261,155 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.Equal("world", loadedTurn.Items[1].AsAgentMessage?.Text);
     }
 
+    [Fact]
+    public async Task RollbackThreadAsync_AppendsRollbackRecord_AndColdReloadRemovesTailTurns()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "first", "one");
+        AddTurnWithMessages(thread, "second", "two");
+        await _store.SaveThreadAsync(thread);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        thread.Turns.RemoveAt(thread.Turns.Count - 1);
+        thread.LastActiveAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        await _store.RollbackThreadAsync(thread, 1);
+
+        var lines = File.ReadAllLines(path);
+        Assert.Equal(initialLineCount + 1, lines.Length);
+        Assert.Contains("thread_rolled_back", lines[^1]);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        var remaining = Assert.Single(loaded.Turns);
+        Assert.Equal("first", remaining.Input?.AsUserMessage?.Text);
+        Assert.Equal("one", remaining.Items[1].AsAgentMessage?.Text);
+    }
+
+    [Fact]
+    public async Task QueuedInputs_ArePersistedAppendOnly_AndColdReloadPreservesFifo()
+    {
+        var thread = CreateThread();
+        var first = CreateQueuedInput(thread.Id, "first");
+        var second = CreateQueuedInput(thread.Id, "second");
+        thread.QueuedInputs.Add(first);
+        thread.QueuedInputs.Add(second);
+        await _store.SaveThreadAsync(thread);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(["first", "second"], loaded.QueuedInputs.Select(q => q.DisplayText).ToArray());
+
+        thread.QueuedInputs.RemoveAt(0);
+        thread.LastActiveAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        var thirdStore = new ThreadStore(_root);
+        var reloaded = await thirdStore.LoadThreadAsync(thread.Id);
+
+        Assert.NotNull(reloaded);
+        var remaining = Assert.Single(reloaded.QueuedInputs);
+        Assert.Equal(second.Id, remaining.Id);
+        Assert.Equal("second", remaining.DisplayText);
+    }
+
+    [Fact]
+    public async Task QueuedInputStatusUpdate_IsPersistedAppendOnly()
+    {
+        var thread = CreateThread();
+        var queued = CreateQueuedInput(thread.Id, "guide me");
+        thread.QueuedInputs.Add(queued);
+        await _store.SaveThreadAsync(thread);
+
+        thread.QueuedInputs[0] = queued with
+        {
+            Status = "guidancePending",
+            ReadyAfterTurnId = "turn_active"
+        };
+        thread.LastActiveAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+
+        Assert.NotNull(loaded);
+        var reloaded = Assert.Single(loaded.QueuedInputs);
+        Assert.Equal("guidancePending", reloaded.Status);
+        Assert.Equal("turn_active", reloaded.ReadyAfterTurnId);
+    }
+
+    [Fact]
+    public async Task GuidanceUserItem_DoesNotReplaceOriginalTurnInputOnColdReload()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "initial", "partial", TurnStatus.Running);
+        await _store.SaveThreadAsync(thread);
+        var turn = thread.Turns[0];
+
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(3),
+            TurnId = turn.Id,
+            Type = ItemType.ToolCall,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolCallPayload
+            {
+                ToolName = "ReadFile",
+                CallId = "call_guidance_order",
+                Arguments = new JsonObject()
+            }
+        });
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(4),
+            TurnId = turn.Id,
+            Type = ItemType.ToolResult,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolResultPayload
+            {
+                CallId = "call_guidance_order",
+                Result = "tool result",
+                Success = true
+            }
+        });
+
+        turn.Items.Add(new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(5),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload
+            {
+                Text = "guidance",
+                DeliveryMode = "guidance"
+            }
+        });
+        await _store.SaveThreadAsync(thread);
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(thread.Id);
+
+        Assert.NotNull(loaded);
+        var loadedTurn = Assert.Single(loaded.Turns);
+        Assert.Equal("initial", loadedTurn.Input?.AsUserMessage?.Text);
+        Assert.Equal(
+            [ItemType.UserMessage, ItemType.AgentMessage, ItemType.ToolCall, ItemType.ToolResult, ItemType.UserMessage],
+            loadedTurn.Items.Select(i => i.Type).ToArray());
+        var guidance = Assert.IsType<UserMessagePayload>(loadedTurn.Items[^1].Payload);
+        Assert.Equal("guidance", guidance.Text);
+        Assert.Equal("guidance", guidance.DeliveryMode);
+    }
+
     // -------------------------------------------------------------------------
     // Thread discovery (LoadIndexAsync reads persisted SQLite metadata)
     // -------------------------------------------------------------------------
@@ -364,6 +514,29 @@ public sealed class ThreadStoreTests : IDisposable
             await ExtractHistoryAsync(agent, session));
     }
 
+    [Fact]
+    public async Task LoadOrCreateSessionAsync_PrefersMaterializedInputParts_WhenRebuildingHistory()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "display only", "assistant reply");
+        var userPayload = Assert.IsType<UserMessagePayload>(thread.Turns[0].Input?.Payload);
+        thread.Turns[0].Input!.Payload = userPayload with
+        {
+            NativeInputParts = [new SessionWireInputPart { Type = "text", Text = "native text" }],
+            MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = "materialized text" }]
+        };
+        await _store.SaveThreadAsync(thread);
+
+        var store = new ThreadStore(_root);
+        var agent = CreateAgent();
+
+        var session = await store.LoadOrCreateSessionAsync(agent, thread.Id);
+
+        Assert.Equal(
+            ["user:materialized text", "assistant:assistant reply"],
+            await ExtractHistoryAsync(agent, session));
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -453,6 +626,17 @@ public sealed class ThreadStoreTests : IDisposable
         thread.Turns.Add(turn);
         thread.LastActiveAt = DateTimeOffset.UtcNow;
     }
+
+    private static QueuedTurnInput CreateQueuedInput(string threadId, string text) => new()
+    {
+        Id = SessionIdGenerator.NewQueuedInputId(),
+        ThreadId = threadId,
+        NativeInputParts = [new SessionWireInputPart { Type = "text", Text = text }],
+        MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = text }],
+        DisplayText = text,
+        Status = "queued",
+        CreatedAt = DateTimeOffset.UtcNow
+    };
 
     private string GetCanonicalPath(string threadId, bool archived)
         => Path.Combine(_root, "threads", archived ? "archived" : "active", $"{threadId}.jsonl");

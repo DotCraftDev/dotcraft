@@ -73,7 +73,7 @@ cp .env.example .env.local  # 按需修改 DOTCRAFT_AGUI_URL
 pnpm run dev
 ```
 
-打开 http://localhost:3000 即可在浏览器中与 DotCraft 对话。
+打开 `http://localhost:3000` 即可在浏览器中与 DotCraft 对话。
 
 若 DotCraft 启用了 `RequireAuth`，在 `.env.local` 中同步设置 `DOTCRAFT_AGUI_API_KEY`。
 
@@ -96,6 +96,29 @@ AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多
 ```
 
 此配置下，`http://127.0.0.1:8080/v1/chat/completions` 提供 OpenAI API，`http://127.0.0.1:8080/ag-ui` 提供 AG-UI SSE 端点，均来自同一个服务器进程。
+
+## Usage Examples
+
+| 场景 | 做法 |
+|------|------|
+| 本地前端调试 | 启用 `AgUi.Enabled`，保持 `RequireAuth = false` |
+| 生产或共享环境 | 启用 `RequireAuth` 并设置 `ApiKey` |
+| 与 API 共用端口 | 在 Gateway 中配置相同 Host/Port，不同 Path |
+| 验证客户端接入 | 使用 [AG-UI Client Sample](./samples/ag-ui-client.md) |
+
+## Troubleshooting
+
+### 前端收不到 SSE 事件
+
+确认客户端连接的是 `AgUi.Path` 配置的路径，默认是 `/ag-ui`，并检查浏览器网络面板中的 SSE 状态。
+
+### 认证失败
+
+启用 `RequireAuth` 后，客户端必须提供与 `AgUi.ApiKey` 匹配的 Bearer Token 或示例客户端环境变量。
+
+### 端口冲突
+
+需要共用端口时请使用 Gateway；非 Gateway 模式下为 API、Dashboard 和 AG-UI 配置不同端口。
 
 ---
 

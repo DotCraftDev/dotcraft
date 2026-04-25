@@ -284,6 +284,56 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
             secondChatClient.LastMessages.Select(FormatMessage).ToList());
     }
 
+    [Fact]
+    public async Task QueuedInputOperations_AreSerializedPerThread()
+    {
+        IChatClient chatClient = new FakeChatClient([new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")])]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+        thread.Turns.Add(new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        });
+
+        var queuedInputs = new List<QueuedTurnInput>();
+        for (var i = 0; i < 40; i++)
+        {
+            var text = $"queued {i}";
+            queuedInputs.Add(await svc.EnqueueTurnInputAsync(
+                thread.Id,
+                [new TextContent(text)],
+                inputSnapshot: new SessionInputSnapshot
+                {
+                    NativeInputParts = [new SessionWireInputPart { Type = "text", Text = text }],
+                    MaterializedInputParts = [new SessionWireInputPart { Type = "text", Text = text }],
+                    DisplayText = text
+                }));
+        }
+
+        var operations = queuedInputs.Select(async (queued, index) =>
+        {
+            if (index % 2 == 0)
+                await svc.RemoveQueuedTurnInputAsync(thread.Id, queued.Id);
+            else
+                await svc.SteerTurnAsync(thread.Id, "turn_001", queued.Id);
+        }).ToArray();
+
+        await Task.WhenAll(operations);
+
+        var reloaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(20, reloaded.QueuedInputs.Count);
+        Assert.Equal(20, reloaded.QueuedInputs.Select(q => q.Id).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(reloaded.QueuedInputs, queued => Assert.Equal("guidancePending", queued.Status));
+        Assert.Equal(
+            queuedInputs.Where((_, index) => index % 2 == 1).Select(q => q.Id).ToArray(),
+            reloaded.QueuedInputs.Select(q => q.Id).ToArray());
+    }
+
     private SessionService CreateService(
         AgentFactory agentFactory,
         IChatClient chatClient,

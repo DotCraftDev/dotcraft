@@ -139,6 +139,29 @@ For complete Python usage examples, see [API Samples](./samples/api.md):
 | [streaming_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/streaming_chat.py) | Streaming output |
 | [multi_turn_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/multi_turn_chat.py) | Multi-turn conversation (interactive REPL) |
 
+## Usage Examples
+
+| Scenario | Approach |
+|----------|----------|
+| Debug local HTTP calls | Enable `Api.Enabled`, keep `Host = 127.0.0.1` |
+| Expose to internal tools | Set `Api.ApiKey` and use Bearer token authentication |
+| Restrict dangerous actions | Set `Api.AutoApprove = false` and narrow tools with `EnabledTools` |
+| Share a port with Dashboard | In Gateway, set `Api.Port` and `DashBoard.Port` to the same value |
+
+## Troubleshooting
+
+### `/v1/chat/completions` returns 401
+
+Check that the request includes `Authorization: Bearer <Api.ApiKey>`. `/v1/health` does not require auth and is useful for service checks.
+
+### Tool calls are all rejected
+
+When `Api.AutoApprove = false`, file and shell operations are automatically rejected. For public deployments, keep this setting and enable only low-risk tools.
+
+### Clients cannot connect
+
+Confirm the API host, port, and path. When Gateway shares ports, OpenAI-compatible API routes still live under `/v1/...`.
+
 ---
 
 ## Related Documentation

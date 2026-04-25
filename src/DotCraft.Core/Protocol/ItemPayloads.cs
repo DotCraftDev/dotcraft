@@ -31,6 +31,12 @@ public sealed record UserMessagePayload
     public string Text { get; init; } = string.Empty;
 
     /// <summary>
+    /// How this user message entered the turn: normal, queued follow-up, or
+    /// same-turn guidance.
+    /// </summary>
+    public string? DeliveryMode { get; init; }
+
+    /// <summary>
     /// Native transport-level input parts captured as the source of truth for
     /// history rendering and draft rehydration.
     /// </summary>
@@ -114,6 +120,45 @@ public sealed record SessionInputSnapshot
     /// Compatibility/display text derived from the native transport parts.
     /// </summary>
     public string? DisplayText { get; init; }
+
+    /// <summary>
+    /// Optional delivery mode carried into the persisted UserMessage payload.
+    /// </summary>
+    public string? DeliveryMode { get; init; }
+}
+
+/// <summary>
+/// Persisted FIFO input queued while a thread already has an active turn.
+/// </summary>
+public sealed record QueuedTurnInput
+{
+    public string Id { get; init; } = string.Empty;
+
+    public string ThreadId { get; init; } = string.Empty;
+
+    public IReadOnlyList<SessionWireInputPart> NativeInputParts { get; init; } = [];
+
+    public IReadOnlyList<SessionWireInputPart> MaterializedInputParts { get; init; } = [];
+
+    public string DisplayText { get; init; } = string.Empty;
+
+    public SenderContext? Sender { get; init; }
+
+    public string Status { get; init; } = "queued";
+
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public string? ReadyAfterTurnId { get; init; }
+}
+
+/// <summary>
+/// Result returned when a queued input is promoted to current-turn guidance.
+/// </summary>
+public sealed record TurnSteerResult
+{
+    public string TurnId { get; init; } = string.Empty;
+
+    public IReadOnlyList<QueuedTurnInput> QueuedInputs { get; init; } = [];
 }
 
 /// <summary>

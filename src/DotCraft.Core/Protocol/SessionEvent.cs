@@ -67,6 +67,9 @@ public sealed class SessionEvent
     public ThreadStatusChangedPayload? StatusChangedPayload => Payload as ThreadStatusChangedPayload;
 
     [JsonIgnore]
+    public ThreadQueueUpdatedPayload? ThreadQueueUpdatedPayload => Payload as ThreadQueueUpdatedPayload;
+
+    [JsonIgnore]
     public ThreadResumedPayload? ResumedPayload => Payload as ThreadResumedPayload;
 
     [JsonIgnore]
@@ -106,6 +109,16 @@ public sealed record ThreadStatusChangedPayload
     public ThreadStatus PreviousStatus { get; init; }
 
     public ThreadStatus NewStatus { get; init; }
+}
+
+/// <summary>
+/// Thread-level queue snapshot notification payload.
+/// </summary>
+public sealed record ThreadQueueUpdatedPayload
+{
+    public string ThreadId { get; init; } = string.Empty;
+
+    public IReadOnlyList<QueuedTurnInput> QueuedInputs { get; init; } = [];
 }
 
 /// <summary>

@@ -1,5 +1,3 @@
-using Microsoft.Extensions.AI;
-
 namespace DotCraft.Abstractions;
 
 /// <summary>

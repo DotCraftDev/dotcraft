@@ -52,4 +52,4 @@ Use these signals to interpret state:
 **Q: I changed Model, why did nothing happen immediately?**  
 A: `Model` is Tier C (process restart). The change is persisted first, and becomes active after AppServer restart.
 
-For protocol details, see `workspace/configChanged` in the [AppServer Protocol](../../specs/appserver-protocol.md).
+For protocol details, see `workspace/configChanged` in the [AppServer Protocol](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md).
