@@ -64,6 +64,7 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
 
   const applyEvent = useCallback((event: BrowserEventPayload) => {
     if (!currentThreadId || event.tabId !== tabId) return
+    if (event.threadId && event.threadId !== currentThreadId) return
     switch (event.type) {
       case 'did-start-loading':
         updateBrowserTab(currentThreadId, tabId, {
@@ -160,6 +161,7 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
         setActiveViewerTab(newTabId)
         void window.api.workspace.viewer.browser.create({
           tabId: newTabId,
+          threadId: currentThreadId,
           workspacePath,
           initialUrl: event.url
         })
@@ -189,6 +191,7 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
     const initialUrl = found?.currentUrl || 'about:blank'
     void window.api.workspace.viewer.browser.create({
       tabId,
+      threadId: currentThreadId,
       workspacePath,
       initialUrl
     }).then((snapshot) => {

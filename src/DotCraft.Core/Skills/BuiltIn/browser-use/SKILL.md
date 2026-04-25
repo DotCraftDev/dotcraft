@@ -14,6 +14,7 @@ External `http` and `https` URLs can also be opened when the Desktop Browser Use
 Call `BrowserJs` with JavaScript. The runtime exposes:
 
 - `agent.browser.nameSession(name)`
+- `agent.browser.goto(url)`
 - `agent.browser.tabs.list()`
 - `agent.browser.tabs.new(url?)`
 - `agent.browser.tabs.selected()`
@@ -58,12 +59,14 @@ Example:
 
 ```js
 await agent.browser.nameSession("local app");
-const tab = await agent.browser.tabs.new("http://localhost:3000");
+const tab = await agent.browser.goto("http://localhost:3000");
 await tab.waitForLoadState("load");
 const snapshot = await tab.domSnapshot();
 const image = await tab.screenshot();
 await display(image);
 return snapshot;
 ```
+
+By default, prefer `agent.browser.goto(url)` or `agent.browser.tabs.selected()` so Desktop can reuse the current browser viewer tab. Use `agent.browser.tabs.new(url)` only when a genuinely new browser tab is desired.
 
 If navigation is denied or blocked, explain that Browser Use access is controlled by Desktop settings and ask the user to approve the request or update the allowed/blocked domain lists. Do not try to bypass the Desktop Browser Use policy.

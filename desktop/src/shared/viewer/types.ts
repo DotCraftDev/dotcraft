@@ -148,6 +148,7 @@ export interface ReadTextParams {
 
 export interface BrowserCreateParams {
   tabId: string
+  threadId?: string
   workspacePath: string
   initialUrl?: string
 }
@@ -228,6 +229,7 @@ export type BrowserEventType =
 
 export interface BrowserEventPayload {
   tabId: string
+  threadId?: string
   type: BrowserEventType
   url?: string
   title?: string

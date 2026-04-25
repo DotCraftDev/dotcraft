@@ -677,6 +677,7 @@ const api = {
         browser: {
         create(params: {
           tabId: string
+          threadId?: string
           workspacePath: string
           initialUrl?: string
         }): Promise<{

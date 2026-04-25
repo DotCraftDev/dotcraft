@@ -54,6 +54,7 @@ export const TurnArtifacts = memo(function TurnArtifacts({ turnId }: TurnArtifac
       setActiveViewerTab(tabId)
       await window.api.workspace.viewer.browser.create({
         tabId,
+        threadId: currentThreadId,
         workspacePath,
         initialUrl: url
       })

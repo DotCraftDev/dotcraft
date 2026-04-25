@@ -59,6 +59,7 @@ export interface BrowserUseApprovalResponsePayload {
 interface BrowserUseViewerHost {
   createAutomationTab(win: BrowserWindow, params: {
     tabId: string
+    threadId?: string
     workspacePath: string
     initialUrl?: string
     width?: number
@@ -66,6 +67,12 @@ interface BrowserUseViewerHost {
     allowFileScheme?: boolean
   }): unknown
   getTabWebContents(win: BrowserWindow, tabId: string): Electron.WebContents | null
+  getAutomationTargetTab?(win: BrowserWindow, threadId: string): {
+    tabId: string
+    currentUrl: string
+    title: string
+    loading: boolean
+  } | null
   loadAutomationUrl(win: BrowserWindow, params: { tabId: string; url: string }): Promise<void>
   destroyTab(win: BrowserWindow, tabId: string): void
   snapshotState(win: BrowserWindow, tabId: string): {
@@ -98,6 +105,7 @@ interface BrowserUseTabRuntime {
   id: string
   owner: BrowserWindow
   logs: BrowserUseLogEntry[]
+  adopted?: boolean
 }
 
 interface BrowserUseLogEntry {
@@ -232,8 +240,6 @@ export class BrowserUseManager {
         images: [...runtime.images],
         logs: [...runtime.logs]
       }
-    } finally {
-      this.stopAutomation(runtime)
     }
   }
 
@@ -241,7 +247,11 @@ export class BrowserUseManager {
     const runtime = this.runtimes.get(threadId)
     if (!runtime) return { ok: false }
     for (const tab of [...runtime.tabs.values()]) {
-      this.viewerHost.destroyTab(tab.owner, tab.id)
+      if (tab.adopted) {
+        this.setAutomationState(runtime, tab, false)
+      } else {
+        this.viewerHost.destroyTab(tab.owner, tab.id)
+      }
     }
     this.runtimes.delete(threadId)
     return { ok: true }
@@ -294,6 +304,11 @@ export class BrowserUseManager {
           }
           return { ok: true, name: runtime.sessionName }
         },
+        goto: async (url: string) => {
+          const tab = await this.getOrAdoptSelectedTab(owner, runtime)
+          await this.navigate(tab, url)
+          return this.createTabApi(tab)
+        },
         tabs: {
           list: async () => [...runtime.tabs.values()].map((tab) => this.tabSnapshot(tab)),
           new: async (url?: string) => {
@@ -302,7 +317,7 @@ export class BrowserUseManager {
             return this.createTabApi(tab)
           },
           selected: async () => {
-            const tab = this.getSelectedTab(runtime)
+            const tab = await this.getOrAdoptSelectedTab(owner, runtime)
             return this.createTabApi(tab)
           },
           get: async (id: string) => {
@@ -348,6 +363,7 @@ export class BrowserUseManager {
 
     this.viewerHost.createAutomationTab(owner, {
       tabId: id,
+      threadId: runtime.threadId,
       workspacePath: runtime.workspacePath || owner.getTitle(),
       initialUrl: 'about:blank',
       width: 1280,
@@ -355,22 +371,7 @@ export class BrowserUseManager {
       allowFileScheme: true
     })
 
-    const wc = this.webContentsFor(owner, id)
-    const tab: BrowserUseTabRuntime = { id, owner, logs: [] }
-    runtime.tabs.set(id, tab)
-
-    wc.on('console-message', (_event, level, message) => {
-      tab.logs.push({
-        level: String(level ?? 'log'),
-        message,
-        timestamp: new Date().toISOString(),
-        url: wc.getURL()
-      })
-    })
-    wc.once('destroyed', () => {
-      runtime.tabs.delete(id)
-      if (runtime.selectedTabId === id) runtime.selectedTabId = null
-    })
+    const tab = this.registerTab(owner, runtime, id, false)
 
     const focusMode = runtime.hasFocusedFirstTab ? 'none' : 'first-open'
     runtime.hasFocusedFirstTab = true
@@ -397,14 +398,59 @@ export class BrowserUseManager {
     return wc
   }
 
-  private getSelectedTab(runtime: BrowserUseThreadRuntime): BrowserUseTabRuntime {
+  private getSelectedTab(runtime: BrowserUseThreadRuntime): BrowserUseTabRuntime | null {
     if (runtime.selectedTabId) {
       const existing = runtime.tabs.get(runtime.selectedTabId)
       if (existing) return existing
     }
     const first = runtime.tabs.values().next().value as BrowserUseTabRuntime | undefined
-    if (first) return first
-    throw new Error('No browser-use tab is open. Call agent.browser.tabs.new(url) first.')
+    return first ?? null
+  }
+
+  private async getOrAdoptSelectedTab(
+    owner: BrowserWindow,
+    runtime: BrowserUseThreadRuntime
+  ): Promise<BrowserUseTabRuntime> {
+    const candidate = this.viewerHost.getAutomationTargetTab?.(owner, runtime.threadId)
+    if (candidate) {
+      const adopted = this.registerTab(owner, runtime, candidate.tabId, true)
+      runtime.selectedTabId = adopted.id
+      return adopted
+    }
+
+    const selected = this.getSelectedTab(runtime)
+    if (selected) return selected
+
+    const created = await this.createTab(owner, runtime)
+    runtime.selectedTabId = created.id
+    return created
+  }
+
+  private registerTab(
+    owner: BrowserWindow,
+    runtime: BrowserUseThreadRuntime,
+    id: string,
+    adopted: boolean
+  ): BrowserUseTabRuntime {
+    const existing = runtime.tabs.get(id)
+    if (existing) return existing
+    const wc = this.webContentsFor(owner, id)
+    const tab: BrowserUseTabRuntime = { id, owner, logs: [], adopted }
+    runtime.tabs.set(id, tab)
+
+    wc.on('console-message', (_event, level, message) => {
+      tab.logs.push({
+        level: String(level ?? 'log'),
+        message,
+        timestamp: new Date().toISOString(),
+        url: wc.getURL()
+      })
+    })
+    wc.once('destroyed', () => {
+      runtime.tabs.delete(id)
+      if (runtime.selectedTabId === id) runtime.selectedTabId = null
+    })
+    return tab
   }
 
   private createTabApi(tab: BrowserUseTabRuntime): Record<string, unknown> {
@@ -569,12 +615,6 @@ export class BrowserUseManager {
   private markAutomation(tab: BrowserUseTabRuntime, action: string): void {
     const runtime = this.getRuntimeForTab(tab)
     this.setAutomationState(runtime, tab, true, action)
-  }
-
-  private stopAutomation(runtime: BrowserUseThreadRuntime): void {
-    for (const tab of runtime.tabs.values()) {
-      this.setAutomationState(runtime, tab, false)
-    }
   }
 
   private async goBack(tab: BrowserUseTabRuntime): Promise<Record<string, unknown>> {

@@ -46,6 +46,7 @@ function createFakeHost(webContents = createFakeWebContents()) {
   return {
     createAutomationTab: vi.fn(),
     getTabWebContents: vi.fn(() => webContents),
+    getAutomationTargetTab: vi.fn((): { tabId: string; currentUrl: string; title: string; loading: boolean } | null => null),
     loadAutomationUrl: vi.fn(async (_win: Electron.BrowserWindow, params: { tabId: string; url: string }) => {
       webContents.setUrl(params.url)
     }),
@@ -205,6 +206,90 @@ describe('BrowserUseManager JavaScript runtime', () => {
     }))
     expect(owner.webContents.send).toHaveBeenNthCalledWith(2, 'viewer:browser-use:open', expect.objectContaining({
       focusMode: 'none'
+    }))
+  })
+
+  it('adopts the current thread browser tab for default BrowserJs navigation', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.goto("localhost:5173"); return await tab.url();'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(host.createAutomationTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5173/'
+    })
+    expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
+      tabId: 'user-browser-tab',
+      active: true,
+      action: 'navigate'
+    }))
+  })
+
+  it('reuses an adopted selected tab across BrowserJs calls', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.tabs.selected();'
+    })
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.tabs.selected(); await tab.goto("localhost:5174");'
+    })
+
+    expect(host.createAutomationTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5174/'
+    })
+  })
+
+  it('reset leaves adopted user browser tabs open but clears automation state', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.goto("localhost:5173");'
+    })
+    expect(manager.reset('thread-1')).toEqual({ ok: true })
+
+    expect(host.destroyTab).not.toHaveBeenCalled()
+    expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
+      tabId: 'user-browser-tab',
+      active: false
     }))
   })
 
@@ -396,7 +481,8 @@ describe('BrowserUseManager JavaScript runtime', () => {
       y: 50
     }))
     expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
-      active: false
+      active: true,
+      action: 'click'
     }))
   })
 

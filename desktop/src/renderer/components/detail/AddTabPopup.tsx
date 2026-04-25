@@ -72,6 +72,7 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
     setActiveViewerTab(tabId)
     void window.api.workspace.viewer.browser.create({
       tabId,
+      threadId: activeThreadId,
       workspacePath
     })
     onClose()

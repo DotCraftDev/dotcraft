@@ -235,12 +235,13 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                 fontSize: '13px',
                 fontWeight: isActive ? 500 : 400,
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                backgroundColor: 'transparent',
+                backgroundColor: automationActive ? 'rgba(47, 138, 245, 0.10)' : 'transparent',
                 backgroundImage: automationActive
                   ? 'linear-gradient(90deg, rgba(47,138,245,0.05), rgba(47,138,245,0.18), rgba(47,138,245,0.05))'
                   : 'none',
                 backgroundSize: automationActive ? '220% 100%' : undefined,
                 animation: automationActive ? 'dotcraft-automation-tab-flow 1.8s linear infinite' : undefined,
+                borderRadius: automationActive ? '6px' : undefined,
                 boxSizing: 'border-box',
                 boxShadow: isActive ? 'inset 0 -2px 0 var(--accent)' : 'none',
                 cursor: 'pointer',

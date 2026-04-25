@@ -13,6 +13,7 @@ const DEFAULT_START_TITLE = 'DotCraft Browser'
 
 interface BrowserTabRuntime {
   tabId: string
+  threadId?: string
   workspacePath: string
   view: WebContentsView
   desiredVisible: boolean
@@ -36,6 +37,7 @@ interface WindowRuntime {
 
 export interface BrowserSnapshot {
   tabId: string
+  threadId?: string
   currentUrl: string
   title: string
   faviconDataUrl?: string
@@ -240,6 +242,7 @@ export function normalizeBrowserUrl(input: string): string | null {
 
 export async function loadOrReport(params: {
   tabId: string
+  threadId?: string
   url: string
   load: () => Promise<unknown>
   emit: (payload: BrowserEventPayload) => void
@@ -250,12 +253,14 @@ export async function loadOrReport(params: {
     const message = error instanceof Error ? error.message : String(error)
     params.emit({
       tabId: params.tabId,
+      threadId: params.threadId,
       type: 'did-fail-load',
       url: params.url,
       message
     })
     params.emit({
       tabId: params.tabId,
+      threadId: params.threadId,
       type: 'did-stop-loading',
       url: params.url
     })
@@ -273,13 +278,17 @@ export class ViewerBrowserManager {
 
   createTab(win: BrowserWindow, params: {
     tabId: string
+    threadId?: string
     workspacePath: string
     initialUrl?: string
     allowFileScheme?: boolean
   }): BrowserSnapshot {
     const runtime = this.ensureWindowRuntime(win)
     const existing = runtime.tabs.get(params.tabId)
-    if (existing) return this.snapshotFromRuntime(existing)
+    if (existing) {
+      if (params.threadId && !existing.threadId) existing.threadId = params.threadId
+      return this.snapshotFromRuntime(existing)
+    }
 
     const partition = partitionForWorkspace(params.workspacePath)
     const partitionSession = session.fromPartition(partition)
@@ -295,6 +304,7 @@ export class ViewerBrowserManager {
     })
     const tabRuntime: BrowserTabRuntime = {
       tabId: params.tabId,
+      threadId: params.threadId,
       workspacePath: params.workspacePath,
       view,
       desiredVisible: false,
@@ -312,6 +322,7 @@ export class ViewerBrowserManager {
       const startPageUrl = ensureDataUrl(buildStartPageHtml(this.startPageHint))
       void loadOrReport({
         tabId: params.tabId,
+        threadId: params.threadId,
         url: START_URL,
         load: () => view.webContents.loadURL(startPageUrl),
         emit: (payload) => emitBrowserEvent(win, payload)
@@ -322,6 +333,7 @@ export class ViewerBrowserManager {
 
     emitBrowserEvent(win, {
       tabId: params.tabId,
+      threadId: params.threadId,
       type: 'page-title-updated',
       title: DEFAULT_START_TITLE
     })
@@ -353,6 +365,7 @@ export class ViewerBrowserManager {
 
   createAutomationTab(win: BrowserWindow, params: {
     tabId: string
+    threadId?: string
     workspacePath: string
     initialUrl?: string
     width?: number
@@ -361,6 +374,7 @@ export class ViewerBrowserManager {
   }): BrowserSnapshot {
     const snapshot = this.createTab(win, {
       tabId: params.tabId,
+      threadId: params.threadId,
       workspacePath: params.workspacePath,
       initialUrl: params.initialUrl,
       allowFileScheme: params.allowFileScheme
@@ -387,12 +401,26 @@ export class ViewerBrowserManager {
     return tab.view.webContents
   }
 
+  getAutomationTargetTab(win: BrowserWindow, threadId: string): BrowserSnapshot | null {
+    const runtime = this.byWindowId.get(win.id)
+    if (!runtime) return null
+    const active = runtime.activeTabId ? runtime.tabs.get(runtime.activeTabId) : null
+    if (active?.threadId === threadId && !active.view.webContents.isDestroyed()) {
+      return this.snapshotFromRuntime(active)
+    }
+    const recent = [...runtime.tabs.values()].reverse().find((tab) => (
+      tab.threadId === threadId && !tab.view.webContents.isDestroyed()
+    ))
+    return recent ? this.snapshotFromRuntime(recent) : null
+  }
+
   async loadAutomationUrl(win: BrowserWindow, params: { tabId: string; url: string }): Promise<void> {
     const tab = this.getTab(win, params.tabId)
     if (!tab) return
     tab.currentUrl = params.url
     await loadOrReport({
       tabId: params.tabId,
+      threadId: tab.threadId,
       url: params.url,
       load: () => tab.view.webContents.loadURL(params.url),
       emit: (payload) => emitBrowserEvent(win, payload)
@@ -408,12 +436,13 @@ export class ViewerBrowserManager {
     const navigationDecision = this.classifyUrlForTab(tab, normalized)
     if (navigationDecision === 'external-handoff') {
       await shell.openExternal(normalized)
-      emitBrowserEvent(win, { tabId: params.tabId, type: 'external-handoff', url: normalized })
+      emitBrowserEvent(win, { tabId: params.tabId, threadId: tab.threadId, type: 'external-handoff', url: normalized })
       return
     }
     if (navigationDecision !== 'allow') {
       emitBrowserEvent(win, {
         tabId: params.tabId,
+        threadId: tab.threadId,
         type: 'blocked-navigation',
         message: `Blocked scheme: ${extractScheme(normalized) ?? 'unknown'}`
       })
@@ -423,6 +452,7 @@ export class ViewerBrowserManager {
     tab.currentUrl = normalized
     await loadOrReport({
       tabId: params.tabId,
+      threadId: tab.threadId,
       url: normalized,
       load: () => tab.view.webContents.loadURL(normalized),
       emit: (payload) => emitBrowserEvent(win, payload)
@@ -524,6 +554,7 @@ export class ViewerBrowserManager {
     }
     emitBrowserEvent(win, {
       tabId: params.tabId,
+      threadId: tab.threadId,
       type: params.active ? (wasActive ? 'automation-updated' : 'automation-started') : 'automation-stopped',
       automationActive: params.active,
       sessionName: tab.automationSessionName,
@@ -636,6 +667,7 @@ export class ViewerBrowserManager {
     const history = historyOf(tab.view.webContents)
     return {
       tabId: tab.tabId,
+      threadId: tab.threadId,
       currentUrl: tab.currentUrl,
       title: tab.title,
       faviconDataUrl: tab.faviconDataUrl,
@@ -715,6 +747,7 @@ export class ViewerBrowserManager {
   private emitVirtualCursor(win: BrowserWindow, tab: BrowserTabRuntime, x: number, y: number): void {
     emitBrowserEvent(win, {
       tabId: tab.tabId,
+      threadId: tab.threadId,
       type: 'virtual-cursor',
       x,
       y,
@@ -727,6 +760,7 @@ export class ViewerBrowserManager {
     const history = historyOf(tab.view.webContents)
     emitBrowserEvent(win, {
       tabId: tab.tabId,
+      threadId: tab.threadId,
       type: 'update-history-flags',
       canGoBack: history.canGoBack(),
       canGoForward: history.canGoForward()
@@ -737,24 +771,25 @@ export class ViewerBrowserManager {
     const wc = tab.view.webContents
 
     wc.on('did-start-loading', () => {
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'did-start-loading' })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'did-start-loading' })
       this.emitHistoryFlags(win, tab)
     })
     wc.on('did-stop-loading', () => {
       tab.currentUrl = wc.getURL() || tab.currentUrl
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'did-stop-loading', url: tab.currentUrl })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'did-stop-loading', url: tab.currentUrl })
       this.emitHistoryFlags(win, tab)
       if (tab.automationEnabled) void this.injectVirtualMouse(tab)
     })
     wc.on('did-navigate', (_event, url) => {
       tab.currentUrl = url
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'did-navigate', url })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'did-navigate', url })
       this.emitHistoryFlags(win, tab)
     })
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return
       emitBrowserEvent(win, {
         tabId: tab.tabId,
+        threadId: tab.threadId,
         type: 'did-fail-load',
         url: validatedURL,
         message: errorDescription
@@ -763,7 +798,7 @@ export class ViewerBrowserManager {
     wc.on('page-title-updated', (event, title) => {
       event.preventDefault()
       tab.title = title || DEFAULT_START_TITLE
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'page-title-updated', title: tab.title })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'page-title-updated', title: tab.title })
     })
     wc.on('page-favicon-updated', async (_event, favicons) => {
       const first = favicons[0]
@@ -777,6 +812,7 @@ export class ViewerBrowserManager {
         tab.faviconDataUrl = image.toDataURL()
         emitBrowserEvent(win, {
           tabId: tab.tabId,
+          threadId: tab.threadId,
           type: 'page-favicon-updated',
           faviconDataUrl: tab.faviconDataUrl
         })
@@ -785,7 +821,7 @@ export class ViewerBrowserManager {
       }
     })
     wc.on('render-process-gone', () => {
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'crashed' })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'crashed' })
     })
 
     wc.on('will-navigate', (event, url) => {
@@ -806,6 +842,7 @@ export class ViewerBrowserManager {
       if (navigationDecision === 'allow') {
         emitBrowserEvent(win, {
           tabId: tab.tabId,
+          threadId: tab.threadId,
           type: 'request-new-tab',
           url: normalized
         })
@@ -816,6 +853,7 @@ export class ViewerBrowserManager {
       } else {
         emitBrowserEvent(win, {
           tabId: tab.tabId,
+          threadId: tab.threadId,
           type: 'blocked-navigation',
           message: `Blocked scheme: ${extractScheme(normalized) ?? 'unknown'}`
         })
@@ -836,12 +874,13 @@ export class ViewerBrowserManager {
     if (navigationDecision === 'allow') return false
     if (navigationDecision === 'external-handoff') {
       void shell.openExternal(url)
-      emitBrowserEvent(win, { tabId: tab.tabId, type: 'external-handoff', url })
+      emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'external-handoff', url })
       return true
     }
     if (navigationDecision === 'blocked') {
       emitBrowserEvent(win, {
         tabId: tab.tabId,
+        threadId: tab.threadId,
         type: 'blocked-navigation',
         message: `Blocked scheme: ${scheme ?? 'unknown'}`
       })
@@ -866,6 +905,7 @@ export class ViewerBrowserManager {
         if (tab.view.webContents.id === webContents.id) {
           emitBrowserEvent(win, {
             tabId: tab.tabId,
+            threadId: tab.threadId,
             type: 'download-blocked',
             message: 'Downloads are disabled in embedded browser tabs.'
           })

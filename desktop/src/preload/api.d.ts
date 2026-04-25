@@ -26,6 +26,7 @@ export interface NotificationPayload {
 
 export interface BrowserEventPayload {
   tabId: string
+  threadId?: string
   type:
     | 'did-start-loading'
     | 'did-stop-loading'
@@ -388,6 +389,7 @@ declare global {
           browser: {
             create(params: {
               tabId: string
+              threadId?: string
               workspacePath: string
               initialUrl?: string
             }): Promise<{

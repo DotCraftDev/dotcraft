@@ -1095,7 +1095,7 @@ export function registerIpcHandlers(
   // Renderer -> Main: browser tab lifecycle / navigation
   handleSafe(
     'viewer:browser:create',
-    async (event, params: { tabId: string; workspacePath: string; initialUrl?: string }) => {
+    async (event, params: { tabId: string; threadId?: string; workspacePath: string; initialUrl?: string }) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) {
         throw new Error('Browser window not available')
@@ -1107,6 +1107,7 @@ export function registerIpcHandlers(
       }
       return viewerBrowserManager.createTab(win, {
         tabId: params.tabId,
+        ...(params.threadId ? { threadId: params.threadId } : {}),
         workspacePath: params.workspacePath,
         ...(params.initialUrl ? { initialUrl: params.initialUrl } : {})
       })

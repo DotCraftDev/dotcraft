@@ -185,4 +185,58 @@ describe('ViewerBrowserManager automation input', () => {
       { type: 'keyUp', keyCode: 'A', modifiers: ['control'] }
     ])
   })
+
+  it('returns the active browser tab for the requested thread as automation target', () => {
+    const { manager, win } = createAutomationHarness()
+    const webContents = {
+      isDestroyed: vi.fn(() => false),
+      getURL: vi.fn(() => 'http://localhost:5173/'),
+      getTitle: vi.fn(() => 'Local app'),
+      isLoading: vi.fn(() => false),
+      navigationHistory: {
+        canGoBack: vi.fn(() => false),
+        canGoForward: vi.fn(() => false)
+      }
+    }
+    ;(manager as unknown as {
+      byWindowId: Map<number, {
+        tabs: Map<string, unknown>
+        activeTabId: string | null
+      }>
+    }).byWindowId.set(1, {
+      activeTabId: 'tab-current',
+      tabs: new Map([
+        ['tab-other', {
+          tabId: 'tab-other',
+          threadId: 'thread-other',
+          workspacePath: 'F:/workspace',
+          view: { webContents },
+          desiredVisible: true,
+          visible: true,
+          boundsInitialized: true,
+          currentUrl: 'http://localhost:4000/',
+          title: 'Other'
+        }],
+        ['tab-current', {
+          tabId: 'tab-current',
+          threadId: 'thread-a',
+          workspacePath: 'F:/workspace',
+          view: { webContents },
+          desiredVisible: true,
+          visible: true,
+          boundsInitialized: true,
+          currentUrl: 'http://localhost:5173/',
+          title: 'Local app'
+        }]
+      ])
+    })
+
+    expect(manager.getAutomationTargetTab(win, 'thread-a')).toMatchObject({
+      tabId: 'tab-current',
+      threadId: 'thread-a',
+      currentUrl: 'http://localhost:5173/',
+      title: 'Local app'
+    })
+    expect(manager.getAutomationTargetTab(win, 'thread-missing')).toBeNull()
+  })
 })
