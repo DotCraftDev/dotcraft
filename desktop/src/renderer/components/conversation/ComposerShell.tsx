@@ -79,7 +79,8 @@ export function ComposerShell({
               alignItems: 'center',
               justifyContent: 'center',
               pointerEvents: 'none',
-              fontSize: '13px',
+              fontSize: 'var(--type-ui-size)',
+              lineHeight: 'var(--type-ui-line-height)',
               color: 'var(--accent)'
             }}
           >
@@ -135,8 +136,9 @@ export function ComposerModeSwitch({
           background: 'transparent',
           color: 'var(--text-secondary)',
           cursor: 'pointer',
-          fontSize: '12px',
-          fontWeight: 600,
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
+          fontWeight: 'var(--type-ui-emphasis-weight)',
           outline: 'none'
         }}
     >
@@ -158,8 +160,9 @@ export function ComposerModeSwitch({
 
 export function composerModelPillStyle(color: string, disabled = false): CSSProperties {
   return {
-    fontSize: '12px',
-    fontWeight: 600,
+    fontSize: 'var(--type-secondary-size)',
+    lineHeight: 'var(--type-secondary-line-height)',
+    fontWeight: 'var(--type-ui-emphasis-weight)',
     color,
     display: 'inline-flex',
     alignItems: 'center',

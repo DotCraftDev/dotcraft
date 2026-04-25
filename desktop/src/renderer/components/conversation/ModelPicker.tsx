@@ -206,7 +206,8 @@ export function ModelPicker({
                   color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   textAlign: 'left',
-                  fontSize: '12px'
+                  fontSize: 'var(--type-secondary-size)',
+                  lineHeight: 'var(--type-secondary-line-height)'
                 }}
               >
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

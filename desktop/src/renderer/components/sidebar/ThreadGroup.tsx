@@ -24,12 +24,13 @@ export function ThreadGroup({ label, threads }: ThreadGroupProps): JSX.Element {
   const t = useT()
   return (
     <div style={{ marginBottom: '4px' }}>
-      {/* Group heading: 11px, semibold, uppercase, dimmed */}
+      {/* Group heading: compact, semibold, uppercase, dimmed */}
       <div
         style={{
           padding: '6px 16px 2px',
-          fontSize: '11px',
-          fontWeight: 600,
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
+          fontWeight: 'var(--type-ui-emphasis-weight)',
           textTransform: 'uppercase',
           color: 'var(--text-dimmed)',
           letterSpacing: '0.04em'

@@ -26,7 +26,11 @@ export function ThreadList(): JSX.Element {
   if (loading) {
     return (
       <div style={emptyStyle}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: '13px' }}>{t('threadList.loading')}</span>
+        <span style={{
+          color: 'var(--text-dimmed)',
+          fontSize: 'var(--type-ui-size)',
+          lineHeight: 'var(--type-ui-line-height)'
+        }}>{t('threadList.loading')}</span>
       </div>
     )
   }
@@ -34,7 +38,12 @@ export function ThreadList(): JSX.Element {
   if (threadList.length === 0) {
     return (
       <div style={emptyStyle}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: '13px', textAlign: 'center' }}>
+        <span style={{
+          color: 'var(--text-dimmed)',
+          fontSize: 'var(--type-ui-size)',
+          lineHeight: 'var(--type-ui-line-height)',
+          textAlign: 'center'
+        }}>
           {t('threadList.empty')}
           <br />
           {t('threadList.emptyHint', { label: t('sidebar.newThreadLabel') })}
@@ -46,7 +55,11 @@ export function ThreadList(): JSX.Element {
   if (filteredThreads.length === 0 && searchQuery) {
     return (
       <div style={emptyStyle}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: '13px' }}>
+        <span style={{
+          color: 'var(--text-dimmed)',
+          fontSize: 'var(--type-ui-size)',
+          lineHeight: 'var(--type-ui-line-height)'
+        }}>
           {t('threadList.noSearchResults')}
         </span>
       </div>
@@ -77,8 +90,9 @@ export function ThreadList(): JSX.Element {
             margin: '4px 10px 6px',
             padding: '6px 10px',
             borderRadius: '999px',
-            fontSize: '11px',
-            fontWeight: 500,
+            fontSize: 'var(--type-secondary-size)',
+            lineHeight: 'var(--type-secondary-line-height)',
+            fontWeight: 'var(--type-ui-emphasis-weight)',
             color: 'var(--accent)',
             backgroundColor: 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))',
             border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',

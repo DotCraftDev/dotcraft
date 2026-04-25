@@ -286,7 +286,8 @@ function CollapsedSidebar({ onExpand }: CollapsedSidebarProps): JSX.Element {
             backgroundColor: 'var(--accent)',
             color: '#ffffff',
             fontSize: '18px',
-            fontWeight: 700,
+            lineHeight: 'var(--type-ui-line-height)',
+            fontWeight: 'var(--type-ui-emphasis-weight)',
             opacity: status !== 'connected' ? 0.5 : 1
           }}
           aria-label={t('sidebar.newThreadLabel')}
@@ -311,8 +312,9 @@ function CollapsedSidebar({ onExpand }: CollapsedSidebarProps): JSX.Element {
               }}
               style={{
                 ...iconButtonStyle,
-                fontSize: '11px',
-                fontWeight: 600,
+                fontSize: 'var(--type-secondary-size)',
+                lineHeight: 'var(--type-secondary-line-height)',
+                fontWeight: 'var(--type-ui-emphasis-weight)',
                 backgroundColor: 'var(--bg-tertiary)'
               }}
               aria-label={thread.displayName ?? t('sidebar.newConversation')}
@@ -465,10 +467,11 @@ function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
         </span>
         <span
           style={{
-            fontSize: '14px',
-            fontWeight: 700,
+            fontSize: 'var(--type-ui-size)',
+            lineHeight: 'var(--type-ui-line-height)',
+            fontWeight: 'var(--type-title-weight)',
             color: 'var(--text-primary)',
-            letterSpacing: '-0.3px',
+            letterSpacing: 0,
             flex: 1,
             textAlign: 'left'
           }}
@@ -509,5 +512,6 @@ const iconButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: '14px'
+  fontSize: 'var(--type-ui-size)',
+  lineHeight: 'var(--type-ui-line-height)'
 }

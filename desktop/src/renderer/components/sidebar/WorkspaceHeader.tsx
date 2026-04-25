@@ -109,8 +109,9 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
       <span
         style={{
           flex: 1,
-          fontSize: '12px',
-          fontWeight: 500,
+          fontSize: 'var(--type-secondary-size)',
+          lineHeight: 'var(--type-secondary-line-height)',
+          fontWeight: 'var(--type-ui-emphasis-weight)',
           color: 'var(--text-secondary)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -134,8 +135,8 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
           cursor: 'pointer',
           padding: '2px 4px',
           borderRadius: '4px',
-          fontSize: '14px',
-          lineHeight: 1,
+          fontSize: 'var(--type-ui-size)',
+          lineHeight: 'var(--type-ui-line-height)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center'
@@ -176,7 +177,8 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
           <div
             style={{
               padding: '6px 14px',
-              fontSize: '11px',
+              fontSize: 'var(--type-secondary-size)',
+              lineHeight: 'var(--type-secondary-line-height)',
               color: 'var(--text-dimmed)',
               borderBottom: '1px solid var(--border-default)',
               overflow: 'hidden',
@@ -241,10 +243,16 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
                         (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
                       }}
                     >
-                      <span style={{ fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap' }}>{r.name}</span>
+                      <span style={{
+                        fontSize: 'var(--type-ui-size)',
+                        lineHeight: 'var(--type-ui-line-height)',
+                        fontWeight: 'var(--type-ui-emphasis-weight)',
+                        whiteSpace: 'nowrap'
+                      }}>{r.name}</span>
                       <span
                         style={{
-                          fontSize: '11px',
+                          fontSize: 'var(--type-secondary-size)',
+                          lineHeight: 'var(--type-secondary-line-height)',
                           color: 'var(--text-dimmed)',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -308,7 +316,8 @@ function DropdownItem({ label, onClick, disabled = false, hasSubmenu = false }: 
       onClick={disabled ? undefined : onClick}
       style={{
         padding: '7px 14px',
-        fontSize: '13px',
+        fontSize: 'var(--type-ui-size)',
+        lineHeight: 'var(--type-ui-line-height)',
         color: disabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
         cursor: disabled ? 'default' : 'pointer',
         transition: 'background-color 100ms ease',

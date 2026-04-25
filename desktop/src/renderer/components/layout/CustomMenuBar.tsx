@@ -37,7 +37,9 @@ export function CustomMenuBar(): JSX.Element {
         paddingRight: TITLE_BAR_OVERLAY_RIGHT_RESERVE,
         backgroundColor: 'var(--bg-primary)',
         borderBottom: 'none',
-        fontSize: 13,
+        fontSize: 'var(--type-ui-size)',
+        lineHeight: 'var(--type-ui-line-height)',
+        fontWeight: 'var(--type-ui-weight)',
         color: 'var(--text-secondary)'
       }}
     >

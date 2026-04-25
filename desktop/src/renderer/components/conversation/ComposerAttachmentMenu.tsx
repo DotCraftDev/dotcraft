@@ -157,5 +157,6 @@ const menuItemStyle = {
   color: 'var(--text-secondary)',
   cursor: 'pointer',
   textAlign: 'left',
-  fontSize: '12px'
+  fontSize: 'var(--type-secondary-size)',
+  lineHeight: 'var(--type-secondary-line-height)'
 } as const
