@@ -57,6 +57,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, McpClientManager> _threadMcpManagers = new();
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadQueueLocks = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
@@ -302,6 +303,7 @@ public sealed class SessionService(
             _threadAgents.TryRemove(normalizedThreadId, out _);
             _threadModeManagers.TryRemove(normalizedThreadId, out _);
             _threadEventBrokers.TryRemove(normalizedThreadId, out _);
+            _threadQueueLocks.TryRemove(normalizedThreadId, out _);
             _materializedThreads.TryRemove(normalizedThreadId, out _);
             _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
             if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
@@ -607,13 +609,18 @@ public sealed class SessionService(
 
             async Task<ChatMessage?> TryDrainGuidanceMessageAsync(CancellationToken drainCt)
             {
-                var queueIndex = thread.QueuedInputs.FindIndex(q =>
-                    string.Equals(q.Status, "guidancePending", StringComparison.Ordinal) &&
-                    string.Equals(q.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal));
-                if (queueIndex < 0)
-                    return null;
+                QueuedTurnInput queued;
+                using (await AcquireThreadQueueLockAsync(threadId, drainCt))
+                {
+                    var queueIndex = thread.QueuedInputs.FindIndex(q =>
+                        string.Equals(q.Status, "guidancePending", StringComparison.Ordinal) &&
+                        string.Equals(q.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal));
+                    if (queueIndex < 0)
+                        return null;
 
-                var queued = thread.QueuedInputs[queueIndex];
+                    queued = thread.QueuedInputs[queueIndex];
+                }
+
                 var contentParts = await ResolveQueuedInputPartsAsync(queued.MaterializedInputParts.ToList(), drainCt);
                 if (contentParts.Count == 0)
                     return null;
@@ -624,9 +631,6 @@ public sealed class SessionService(
                     ? queued.DisplayText
                     : SessionWireMapper.BuildDisplayText(nativeParts);
                 var images = ExtractUserMessageImages(contentParts);
-
-                FinalizeStreamingAgentMessage();
-                FinalizeStreamingReasoning();
 
                 var item = new SessionItem
                 {
@@ -652,38 +656,64 @@ public sealed class SessionService(
                     }
                 };
 
-                turn.Items.Add(item);
-                thread.QueuedInputs.RemoveAt(queueIndex);
-                thread.LastActiveAt = DateTimeOffset.UtcNow;
+                IReadOnlyList<QueuedTurnInput> queueSnapshot;
+                using (await AcquireThreadQueueLockAsync(threadId, CancellationToken.None))
+                {
+                    var queue = thread.QueuedInputs.ToList();
+                    var queueIndex = queue.FindIndex(q =>
+                        string.Equals(q.Id, queued.Id, StringComparison.Ordinal) &&
+                        string.Equals(q.Status, "guidancePending", StringComparison.Ordinal) &&
+                        string.Equals(q.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal));
+                    if (queueIndex < 0)
+                        return null;
+
+                    FinalizeStreamingAgentMessage();
+                    FinalizeStreamingReasoning();
+
+                    turn.Items.Add(item);
+                    queue.RemoveAt(queueIndex);
+                    thread.QueuedInputs = queue;
+                    thread.LastActiveAt = DateTimeOffset.UtcNow;
+                    await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                    queueSnapshot = queue.ToList();
+                }
+
                 eventChannel.EmitItemStarted(item);
                 eventChannel.EmitItemCompleted(item);
-                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
-                PublishQueueUpdated(thread);
+                PublishQueueUpdated(thread.Id, queueSnapshot);
                 return new ChatMessage(ChatRole.User, contentParts);
             }
 
             async Task RestoreUndrainedGuidanceAsync()
             {
-                var restored = false;
-                for (var i = 0; i < thread.QueuedInputs.Count; i++)
+                IReadOnlyList<QueuedTurnInput> queueSnapshot;
+                using (await AcquireThreadQueueLockAsync(threadId, CancellationToken.None))
                 {
-                    var queued = thread.QueuedInputs[i];
-                    if (!string.Equals(queued.Status, "guidancePending", StringComparison.Ordinal) ||
-                        !string.Equals(queued.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal))
+                    var restored = false;
+                    var queue = thread.QueuedInputs.ToList();
+                    for (var i = 0; i < queue.Count; i++)
                     {
-                        continue;
+                        var queued = queue[i];
+                        if (!string.Equals(queued.Status, "guidancePending", StringComparison.Ordinal) ||
+                            !string.Equals(queued.ReadyAfterTurnId, turn.Id, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        queue[i] = queued with { Status = "queued" };
+                        restored = true;
                     }
 
-                    thread.QueuedInputs[i] = queued with { Status = "queued" };
-                    restored = true;
+                    if (!restored)
+                        return;
+
+                    thread.QueuedInputs = queue;
+                    thread.LastActiveAt = DateTimeOffset.UtcNow;
+                    await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                    queueSnapshot = queue.ToList();
                 }
 
-                if (!restored)
-                    return;
-
-                thread.LastActiveAt = DateTimeOffset.UtcNow;
-                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
-                PublishQueueUpdated(thread);
+                PublishQueueUpdated(thread.Id, queueSnapshot);
             }
 
             try
@@ -1476,10 +1506,28 @@ public sealed class SessionService(
             ReadyAfterTurnId = activeTurnId
         };
 
-        thread.QueuedInputs.Add(queued);
-        thread.LastActiveAt = DateTimeOffset.UtcNow;
-        await PersistThreadWithMaterializationAsync(thread, ct);
-        PublishQueueUpdated(thread);
+        IReadOnlyList<QueuedTurnInput> queueSnapshot;
+        using (await AcquireThreadQueueLockAsync(threadId, ct))
+        {
+            if (_threads.TryGetValue(threadId, out var cachedThread))
+                thread = cachedThread;
+
+            queued = queued with
+            {
+                ReadyAfterTurnId = thread.Turns
+                    .LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+                    ?.Id
+            };
+
+            var queue = thread.QueuedInputs.ToList();
+            queue.Add(queued);
+            thread.QueuedInputs = queue;
+            thread.LastActiveAt = DateTimeOffset.UtcNow;
+            await PersistThreadWithMaterializationAsync(thread, ct);
+            queueSnapshot = queue.ToList();
+        }
+
+        PublishQueueUpdated(thread.Id, queueSnapshot);
         return queued;
     }
 
@@ -1490,14 +1538,25 @@ public sealed class SessionService(
         CancellationToken ct = default)
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
-        var removed = thread.QueuedInputs.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
-        if (removed == 0)
-            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+        IReadOnlyList<QueuedTurnInput> queueSnapshot;
+        using (await AcquireThreadQueueLockAsync(threadId, ct))
+        {
+            if (_threads.TryGetValue(threadId, out var cachedThread))
+                thread = cachedThread;
 
-        thread.LastActiveAt = DateTimeOffset.UtcNow;
-        await PersistThreadWithMaterializationAsync(thread, ct);
-        PublishQueueUpdated(thread);
-        return thread.QueuedInputs.ToList();
+            var queue = thread.QueuedInputs.ToList();
+            var removed = queue.RemoveAll(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+            if (removed == 0)
+                throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+
+            thread.QueuedInputs = queue;
+            thread.LastActiveAt = DateTimeOffset.UtcNow;
+            await PersistThreadWithMaterializationAsync(thread, ct);
+            queueSnapshot = queue.ToList();
+        }
+
+        PublishQueueUpdated(thread.Id, queueSnapshot);
+        return queueSnapshot;
     }
 
     /// <inheritdoc/>
@@ -1522,28 +1581,44 @@ public sealed class SessionService(
         if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Expected active turn id '{expectedTurnId}' but found '{turn.Id}'.");
 
-        var queueIndex = thread.QueuedInputs.FindIndex(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
-        if (queueIndex < 0)
-            throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
-
-        var queued = thread.QueuedInputs[queueIndex];
-        if (!string.Equals(queued.Status, "queued", StringComparison.Ordinal))
-            throw new InvalidOperationException($"Queued input '{queuedInputId}' is not queued (current status: {queued.Status}).");
-
-        thread.QueuedInputs[queueIndex] = queued with
+        IReadOnlyList<QueuedTurnInput> queueSnapshot;
+        using (await AcquireThreadQueueLockAsync(threadId, ct))
         {
-            Status = "guidancePending",
-            ReadyAfterTurnId = turn.Id,
-            Sender = sender ?? queued.Sender
-        };
-        thread.LastActiveAt = DateTimeOffset.UtcNow;
-        await PersistThreadWithMaterializationAsync(thread, ct);
-        PublishQueueUpdated(thread);
+            if (_threads.TryGetValue(threadId, out var cachedThread))
+                thread = cachedThread;
+
+            turn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval)
+                ?? throw new InvalidOperationException($"Thread '{threadId}' has no active turn to steer.");
+            if (!string.Equals(turn.Id, expectedTurnId, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Expected active turn id '{expectedTurnId}' but found '{turn.Id}'.");
+
+            var queue = thread.QueuedInputs.ToList();
+            var queueIndex = queue.FindIndex(q => string.Equals(q.Id, queuedInputId, StringComparison.Ordinal));
+            if (queueIndex < 0)
+                throw new KeyNotFoundException($"Queued input '{queuedInputId}' not found.");
+
+            var queued = queue[queueIndex];
+            if (!string.Equals(queued.Status, "queued", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Queued input '{queuedInputId}' is not queued (current status: {queued.Status}).");
+
+            queue[queueIndex] = queued with
+            {
+                Status = "guidancePending",
+                ReadyAfterTurnId = turn.Id,
+                Sender = sender ?? queued.Sender
+            };
+            thread.QueuedInputs = queue;
+            thread.LastActiveAt = DateTimeOffset.UtcNow;
+            await PersistThreadWithMaterializationAsync(thread, ct);
+            queueSnapshot = queue.ToList();
+        }
+
+        PublishQueueUpdated(thread.Id, queueSnapshot);
 
         return new TurnSteerResult
         {
             TurnId = turn.Id,
-            QueuedInputs = thread.QueuedInputs.ToList()
+            QueuedInputs = queueSnapshot
         };
     }
 
@@ -1634,8 +1709,20 @@ public sealed class SessionService(
         return thread;
     }
 
-    private void PublishQueueUpdated(SessionThread thread) =>
-        GetOrCreateBroker(thread.Id).PublishThreadQueueUpdated(thread.QueuedInputs);
+    private async Task<IDisposable> AcquireThreadQueueLockAsync(string threadId, CancellationToken ct)
+    {
+        var queueLock = _threadQueueLocks.GetOrAdd(threadId, static _ => new SemaphoreSlim(1, 1));
+        await queueLock.WaitAsync(ct);
+        return new SemaphoreSlimReleaser(queueLock);
+    }
+
+    private void PublishQueueUpdated(string threadId, IReadOnlyList<QueuedTurnInput> queuedInputs) =>
+        GetOrCreateBroker(threadId).PublishThreadQueueUpdated(queuedInputs);
+
+    private sealed class SemaphoreSlimReleaser(SemaphoreSlim semaphore) : IDisposable
+    {
+        public void Dispose() => semaphore.Release();
+    }
 
     private async Task TryStartNextQueuedTurnAsync(string threadId, CancellationToken ct)
     {
@@ -1644,17 +1731,28 @@ public sealed class SessionService(
         try
         {
             thread = await GetOrLoadThreadAsync(threadId, ct);
-            var queueIndex = thread.QueuedInputs.FindIndex(q => string.Equals(q.Status, "queued", StringComparison.Ordinal));
-            if (queueIndex < 0)
-                return;
-            if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
-                return;
+            IReadOnlyList<QueuedTurnInput> queueSnapshot;
+            using (await AcquireThreadQueueLockAsync(threadId, ct))
+            {
+                if (_threads.TryGetValue(threadId, out var cachedThread))
+                    thread = cachedThread;
 
-            queued = thread.QueuedInputs[queueIndex];
-            thread.QueuedInputs.RemoveAt(queueIndex);
-            thread.LastActiveAt = DateTimeOffset.UtcNow;
-            await PersistThreadWithMaterializationAsync(thread, ct);
-            PublishQueueUpdated(thread);
+                var queue = thread.QueuedInputs.ToList();
+                var queueIndex = queue.FindIndex(q => string.Equals(q.Status, "queued", StringComparison.Ordinal));
+                if (queueIndex < 0)
+                    return;
+                if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+                    return;
+
+                queued = queue[queueIndex];
+                queue.RemoveAt(queueIndex);
+                thread.QueuedInputs = queue;
+                thread.LastActiveAt = DateTimeOffset.UtcNow;
+                await PersistThreadWithMaterializationAsync(thread, ct);
+                queueSnapshot = queue.ToList();
+            }
+
+            PublishQueueUpdated(thread.Id, queueSnapshot);
 
             var content = await ResolveQueuedInputPartsAsync(queued.MaterializedInputParts.ToList(), ct);
             if (content.Count == 0)
@@ -1682,11 +1780,26 @@ public sealed class SessionService(
         catch (Exception ex)
         {
             logger?.LogError(ex, "Failed to start queued input {QueuedInputId} for thread {ThreadId}", queued?.Id, threadId);
-            if (thread != null && queued != null && thread.QueuedInputs.All(q => !string.Equals(q.Id, queued.Id, StringComparison.Ordinal)))
+            if (thread != null && queued != null)
             {
-                thread.QueuedInputs.Insert(0, queued);
-                await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
-                PublishQueueUpdated(thread);
+                IReadOnlyList<QueuedTurnInput>? queueSnapshot = null;
+                using (await AcquireThreadQueueLockAsync(threadId, CancellationToken.None))
+                {
+                    if (_threads.TryGetValue(threadId, out var cachedThread))
+                        thread = cachedThread;
+
+                    var queue = thread.QueuedInputs.ToList();
+                    if (queue.All(q => !string.Equals(q.Id, queued.Id, StringComparison.Ordinal)))
+                    {
+                        queue.Insert(0, queued);
+                        thread.QueuedInputs = queue;
+                        await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
+                        queueSnapshot = queue.ToList();
+                    }
+                }
+
+                if (queueSnapshot != null)
+                    PublishQueueUpdated(thread.Id, queueSnapshot);
             }
         }
     }
