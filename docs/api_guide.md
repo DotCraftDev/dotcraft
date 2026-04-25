@@ -132,6 +132,29 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 | [streaming_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/streaming_chat.py) | 流式输出 |
 | [multi_turn_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/multi_turn_chat.py) | 多轮对话（交互式 REPL） |
 
+## Usage Examples
+
+| 场景 | 做法 |
+|------|------|
+| 本地调试 HTTP 调用 | 启用 `Api.Enabled`，保持 `Host = 127.0.0.1` |
+| 提供给内部工具调用 | 配置 `Api.ApiKey`，使用 Bearer Token 访问 |
+| 限制危险操作 | 设置 `Api.AutoApprove = false` 并通过 `EnabledTools` 缩小工具范围 |
+| 与 Dashboard 共用端口 | 在 Gateway 中让 `Api.Port` 与 `DashBoard.Port` 相同 |
+
+## Troubleshooting
+
+### `/v1/chat/completions` 返回 401
+
+检查请求头是否包含 `Authorization: Bearer <Api.ApiKey>`。`/v1/health` 不需要认证，可先用它确认服务是否在线。
+
+### 工具调用全部被拒绝
+
+如果 `Api.AutoApprove = false`，文件和 Shell 操作会自动拒绝。公网部署建议保留该设置，并只启用低风险工具。
+
+### 客户端无法连接
+
+确认 API Host、Port 和路径正确。Gateway 共享端口时，OpenAI-compatible API 路径仍然是 `/v1/...`。
+
 ---
 
 ## 相关文档

@@ -45,7 +45,7 @@ A minimal Next.js app that connects to DotCraft's AG-UI server via CopilotKit. U
   pnpm run dev
   ```
 
-  Open http://localhost:3000 and use the chat.
+  Open `http://localhost:3000` and use the chat.
 
 - **Production build:**
 

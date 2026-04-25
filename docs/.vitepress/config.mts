@@ -11,9 +11,12 @@ const zhSidebar: DefaultTheme.Sidebar = [
   {
     text: '开始使用',
     items: [
-      { text: '文档索引', link: '/reference' },
+      { text: '快速开始', link: '/getting-started' },
+      { text: 'Desktop', link: '/desktop_guide' },
+      { text: 'TUI', link: '/tui_guide' },
       { text: '配置与安全', link: '/config_guide' },
       { text: 'Dashboard', link: '/dash_board_guide' },
+      { text: '文档索引', link: '/reference' },
       { text: '设置生效层级', link: '/settings-lifecycle' }
     ]
   },
@@ -68,9 +71,12 @@ const enSidebar: DefaultTheme.Sidebar = [
   {
     text: 'Get Started',
     items: [
-      { text: 'Documentation Index', link: '/en/reference' },
+      { text: 'Getting Started', link: '/en/getting-started' },
+      { text: 'Desktop', link: '/en/desktop_guide' },
+      { text: 'TUI', link: '/en/tui_guide' },
       { text: 'Configuration & Security', link: '/en/config_guide' },
       { text: 'Dashboard', link: '/en/dash_board_guide' },
+      { text: 'Documentation Index', link: '/en/reference' },
       { text: 'Settings Lifecycle', link: '/en/settings-lifecycle' }
     ]
   },
@@ -123,6 +129,9 @@ const enSidebar: DefaultTheme.Sidebar = [
 
 const zhNav: DefaultTheme.NavItem[] = [
   { text: '功能', link: '/#features' },
+  { text: '开始使用', link: '/getting-started' },
+  { text: 'Desktop', link: '/desktop_guide' },
+  { text: 'TUI', link: '/tui_guide' },
   { text: '文档', link: '/reference' },
   { text: 'Samples', link: '/samples/' },
   {
@@ -142,6 +151,9 @@ const zhNav: DefaultTheme.NavItem[] = [
 
 const enNav: DefaultTheme.NavItem[] = [
   { text: 'Features', link: '/en/#features' },
+  { text: 'Get Started', link: '/en/getting-started' },
+  { text: 'Desktop', link: '/en/desktop_guide' },
+  { text: 'TUI', link: '/en/tui_guide' },
   { text: 'Docs', link: '/en/reference' },
   { text: 'Samples', link: '/en/samples/' },
   {
@@ -164,7 +176,6 @@ export default defineConfig({
   description: 'A project-scoped agent harness for persistent AI workspaces.',
   base,
   cleanUrls: true,
-  ignoreDeadLinks: true,
   lastUpdated: true,
   head: [
     ['meta', { name: 'theme-color', content: '#4A7FA5' }],

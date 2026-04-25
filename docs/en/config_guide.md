@@ -1,6 +1,28 @@
 # DotCraft Configuration Guide
 
-This document describes DotCraft's configuration system, including global configuration, workspace configuration, and security settings.
+This is the full configuration reference for DotCraft: global config, workspace config, security settings, tools, entry points, and integrations. If this is your first time, start with [Getting Started](./getting-started.md), get Desktop, workspace setup, and model configuration working, then return here for field-level details.
+
+## Quick Start
+
+The minimal working configuration only needs model-provider settings:
+
+```json
+{
+  "ApiKey": "sk-your-api-key",
+  "Model": "gpt-4o-mini",
+  "EndPoint": "https://api.openai.com/v1"
+}
+```
+
+Recommended placement:
+
+| Step | Put it in | Why |
+|------|-----------|-----|
+| API key | `~/.craft/config.json` | Keeps sensitive values out of project repositories |
+| Project model overrides | `<workspace>/.craft/config.json` | Different projects can use different models and tools |
+| Dashboard / Automations / Gateway | `<workspace>/.craft/config.json` | These usually belong to project workflow |
+
+## Configuration
 
 ## Configuration File Locations
 
@@ -559,3 +581,41 @@ Gateway mode allows external channels, API, AG-UI, Automations, and related serv
 ```
 
 All HTTP services are managed by WebHostPool — services with the same `Host:Port` automatically share the port.
+
+---
+
+## Usage Examples
+
+| Scenario | Recommended config path |
+|----------|-------------------------|
+| First local use | Minimal model config from [Getting Started](./getting-started.md) |
+| Visual desktop collaboration | `ApiKey` / `Model` / `EndPoint` + [Desktop Guide](./desktop_guide.md) |
+| Debug tool calls and traces | `DashBoard.Enabled = true` + [Dashboard Guide](./dash_board_guide.md) |
+| Run multiple entry points concurrently | `dotcraft gateway` + Gateway / API / AG-UI / external channel config |
+| Connect bots or external adapters | `AppServer.Mode = WebSocket` + `ExternalChannels` |
+| Restrict sensitive path access | `Security.BlacklistedPaths` + `Tools.*.RequireApprovalOutsideWorkspace` |
+
+## Advanced Topics
+
+- AppServer, API, AG-UI, ACP, and Dashboard fields only matter when the corresponding entry point is enabled.
+- Startup-level config changes usually require restarting the DotCraft host or Desktop background AppServer.
+- Security config applies globally across CLI, Desktop, external channels, and automation tasks.
+- Avoid putting API keys in workspace `.craft/config.json` unless the repository will never be shared or committed.
+
+## Troubleshooting
+
+### Config is written but not applied
+
+Confirm it is written to the current workspace's `.craft/config.json`, then restart the relevant host. AppServer, port, Gateway, and external-channel settings are not hot-reloaded.
+
+### You do not want API keys committed to the repository
+
+Put `ApiKey` in global `~/.craft/config.json`; keep only `Model`, `EndPoint`, and feature switches in workspace config.
+
+### Dashboard or API ports conflict
+
+In Gateway mode, the same `Host:Port` is merged by WebHostPool. Outside Gateway, configure different ports for different services.
+
+### Tool access is rejected
+
+Check `Security.BlacklistedPaths`, workspace boundaries, and `Tools.File` / `Tools.Shell` approval policies. Blacklists take priority over workspace boundaries.

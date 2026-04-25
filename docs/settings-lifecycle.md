@@ -52,4 +52,4 @@ Desktop 将设置项按生效方式划分为三类：
 **问：我改了 Model，为什么没有立即生效？**  
 答：`Model` 属于 Tier C（进程重启）。写入配置后需要重启 AppServer 才会反映到运行态。
 
-协议细节请参阅 [AppServer Protocol](../specs/appserver-protocol.md) 的 `workspace/configChanged` 章节。
+协议细节请参阅 [AppServer Protocol](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) 的 `workspace/configChanged` 章节。

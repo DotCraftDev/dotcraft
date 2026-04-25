@@ -3,6 +3,7 @@ layout: page
 title: DotCraft
 description: A project-scoped agent harness for persistent AI workspaces.
 aside: false
+sidebar: false
 editLink: false
 lastUpdated: false
 ---
@@ -16,8 +17,9 @@ lastUpdated: false
         DotCraft connects CLI, Desktop, IDEs, chat bots, APIs, and automations to one workspace so sessions, memory, skills, and tools stay coherent across every entry point.
       </p>
       <div class="dc-actions">
-        <a class="dc-button dc-button--primary" href="./config_guide">Start configuring</a>
-        <a class="dc-button" href="./reference">Read the docs</a>
+        <a class="dc-button dc-button--primary" href="./getting-started">Get started</a>
+        <a class="dc-button" href="https://github.com/DotHarness/dotcraft/releases">Download release</a>
+        <a class="dc-button" href="./config_guide">Full configuration</a>
         <a class="dc-button" href="https://github.com/DotHarness/dotcraft">GitHub</a>
       </div>
     </div>
@@ -34,7 +36,7 @@ lastUpdated: false
       <div class="dc-grid">
         <article class="dc-card">
           <h3>Project-scoped workspace</h3>
-          <p>Sessions, memory, skills, configuration, and tasks are organized around the repository and `.craft/` state.</p>
+          <p>Sessions, memory, skills, configuration, and tasks are organized around the real project folder.</p>
         </article>
         <article class="dc-card">
           <h3>Unified session model</h3>
@@ -54,11 +56,12 @@ lastUpdated: false
         <p class="dc-kicker">Desktop first</p>
         <h2>Manage sessions, diffs, plans, and automations visually</h2>
         <p class="dc-section__text">
-          Desktop is the recommended first entry point. It works as an AppServer client for workspace setup, agent configuration, session detail, automation review, and runtime status.
+          Desktop is the recommended first entry point. Start with download, workspace initialization, and model configuration, then enable TUI, AppServer, ACP, channels, or automations as needed.
         </p>
         <div class="dc-actions">
-          <a class="dc-button dc-button--primary" href="https://github.com/DotHarness/dotcraft/releases">Download release</a>
-          <a class="dc-button" href="https://github.com/DotHarness/dotcraft/tree/master/desktop">Desktop docs</a>
+          <a class="dc-button dc-button--primary" href="./getting-started">5-minute start</a>
+          <a class="dc-button" href="./desktop_guide">Desktop guide</a>
+          <a class="dc-button" href="./tui_guide">TUI guide</a>
         </div>
       </div>
       <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png" alt="DotCraft Desktop" />
@@ -103,12 +106,12 @@ lastUpdated: false
     <div class="dc-section__inner">
       <div class="dc-section__header">
         <h2>Start in three steps</h2>
-        <p class="dc-section__text">Start from Desktop or source builds, configure the workspace and model provider, then connect any entry point to the same DotCraft workspace.</p>
+        <p class="dc-section__text">For first-time use, start from Desktop. Once that works, the same workspace can connect terminal, editor, API, SDK, and automation entry points.</p>
       </div>
       <div class="dc-steps">
-        <div class="dc-step"><div><strong>Install DotCraft</strong><span>Download a Desktop release, or build from source with the .NET 10 SDK, Rust, and Node.js.</span></div></div>
-        <div class="dc-step"><div><strong>Initialize a workspace</strong><span>Choose a project folder and initialize `.craft/` so configuration and tasks belong to that project.</span></div></div>
-        <div class="dc-step"><div><strong>Configure models and entry points</strong><span>Set an OpenAI-compatible API key or CLIProxyAPI, then enable Desktop, AppServer, ACP, channels, or automations as needed.</span></div></div>
+        <div class="dc-step"><div><strong>Download Desktop</strong><span>Install a release build, or build from source and start Desktop.</span></div></div>
+        <div class="dc-step"><div><strong>Choose a project folder</strong><span>Select a real project folder so configuration, sessions, and tasks stay with that project.</span></div></div>
+        <div class="dc-step"><div><strong>Configure a model and chat</strong><span>Set an OpenAI-compatible API key or CLIProxyAPI, then send your first repository-understanding request.</span></div></div>
       </div>
     </div>
   </section>

@@ -216,8 +216,31 @@ By default, the CLI automatically starts `dotcraft app-server` as a subprocess a
 | Multiple clients sharing workspace | Start WebSocket mode, each client connects independently |
 | Custom client integration | Start AppServer, communicate via JSON-RPC in any language |
 
+## Usage Examples
+
+| Goal | Recommended approach |
+|------|----------------------|
+| Use only the local terminal | Run `dotcraft` and let the CLI manage AppServer automatically |
+| Share one backend across Desktop / TUI / ACP | Start `dotcraft app-server --listen ws://127.0.0.1:9100` |
+| Connect to a remote workspace | Listen with WebSocket on the server, connect locally with `--remote` |
+| Build a custom client | Use JSON-RPC 2.0 over stdio or WebSocket through the Wire Protocol |
+
+## Troubleshooting
+
+### WebSocket clients cannot connect
+
+Confirm the server was started with `--listen ws://...` or `ws+stdio://...`, and the client URL includes the `/ws` path.
+
+### Authentication fails
+
+When the server sets `--token`, CLI, TUI, Desktop, or custom clients must send the same token. Do not use an empty token for remote deployments.
+
+### Why the local CLI still starts a subprocess
+
+Running `dotcraft` directly makes the CLI host a stdio AppServer automatically. Manual AppServer startup is only needed for remote, multi-client, or custom integration scenarios.
+
 ## Further Reading
 
 - [Configuration Guide](./config_guide.md): Full configuration reference, including AppServer and CLI config items
 - [ACP Mode Guide](./acp_guide.md): Editor / IDE integration (also based on wire protocol)
-- [AppServer Protocol Specification](../../specs/appserver-protocol.md): Complete JSON-RPC protocol specification (§15 covers WebSocket transport)
+- [AppServer Protocol Specification](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md): Complete JSON-RPC protocol specification (§15 covers WebSocket transport)

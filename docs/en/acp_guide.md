@@ -119,6 +119,29 @@ Because ACP is now a full AppServer client, sessions created through an editor a
 - **Shared memory**: `memory/MEMORY.md` and `memory/HISTORY.md` are shared across all channels in the same workspace; knowledge acquired in an ACP session is accessible from CLI and external channel sessions in the same workspace, and vice versa
 - **Multi-client access**: when using `--remote`, multiple clients can connect to the same AppServer simultaneously. An ACP session started in Obsidian can be resumed or monitored from the Desktop application in real time
 
+## Usage Examples
+
+| Scenario | Recommended approach |
+|----------|----------------------|
+| Local IDE use | Configure the editor to start `dotcraft acp` |
+| Remote workspace | Start AppServer WebSocket first, then pass `--remote` in ACP arguments |
+| Share sessions with Desktop | Connect to the same workspace / AppServer |
+| Let the editor own file and terminal access | Use an ACP client that supports `fs/*` and `terminal/*` |
+
+## Troubleshooting
+
+### DotCraft does not appear in the editor
+
+Confirm the command path points to `dotcraft`, arguments start ACP mode, and the editor plugin supports Agent Client Protocol.
+
+### Unsaved files are not visible
+
+Only file access routed through an editor ACP client can see unsaved buffers. Plain CLI reads files from disk.
+
+### Remote mode cannot connect
+
+Confirm AppServer is running with WebSocket enabled, the URL includes `/ws`, and the token matches the server.
+
 ## Further Reading
 
 - [Configuration Guide — ACP Mode Configuration](./config_guide.md#acp-mode-configuration) — full config reference

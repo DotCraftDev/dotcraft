@@ -45,7 +45,7 @@
   pnpm run dev
   ```
 
-  打开 http://localhost:3000 即可开始对话。
+  打开 `http://localhost:3000` 即可开始对话。
 
 - **生产构建：**
 
