@@ -104,6 +104,34 @@ describe('turn lifecycle', () => {
     expect(items.filter((i) => i.id === 'user-guidance')).toHaveLength(1)
   })
 
+  it('ignores non-guidance userMessage item events because turn/started owns the initial prompt', () => {
+    s().onTurnStarted(makeTurn({
+      items: [
+        {
+          id: 'local-user',
+          type: 'userMessage',
+          status: 'completed',
+          payload: { text: 'initial request' },
+          createdAt: '2026-04-25T10:00:00.000Z',
+          completedAt: '2026-04-25T10:00:00.000Z'
+        }
+      ]
+    }))
+
+    const serverInitialUser = {
+      id: 'server-user',
+      type: 'userMessage',
+      status: 'completed',
+      payload: { text: 'initial request' },
+      createdAt: '2026-04-25T10:00:00.000Z',
+      completedAt: '2026-04-25T10:00:00.000Z'
+    }
+    s().onItemStarted({ turnId: 'turn-1', item: serverInitialUser })
+    s().onItemCompleted({ turnId: 'turn-1', item: serverInitialUser })
+
+    expect(s().turns[0].items.map((i) => i.id)).toEqual(['local-user'])
+  })
+
   it('onItemStarted/onCommandExecutionDelta/onItemCompleted track command execution output', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({

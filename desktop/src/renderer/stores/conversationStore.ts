@@ -364,6 +364,10 @@ function upsertItemById(items: ConversationItem[], item: ConversationItem): Conv
   return sortItemsByCreatedAt(next)
 }
 
+function isGuidanceUserMessage(item: ConversationItem): boolean {
+  return item.type === 'userMessage' && item.deliveryMode === 'guidance'
+}
+
 const SYSTEM_LABELS: Record<string, string | null> = {
   compacting: 'Compacting context...',
   consolidating: 'Consolidating memory...',
@@ -767,6 +771,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       }))
     } else if (type === 'userMessage') {
       const newItem = wireItemToConversationItem(item)
+      if (!isGuidanceUserMessage(newItem)) return
       set((state) => ({
         turns: state.turns.map((t) =>
           t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
@@ -1148,6 +1153,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       })
     } else if (type === 'userMessage') {
       const newItem = wireItemToConversationItem(item)
+      if (!isGuidanceUserMessage(newItem)) return
       set((s) => ({
         turns: s.turns.map((t) =>
           t.id === turnId ? { ...t, items: upsertItemById(t.items, newItem) } : t
