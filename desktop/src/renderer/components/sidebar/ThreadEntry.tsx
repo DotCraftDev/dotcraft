@@ -542,6 +542,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 cursor: showArchiveAction && !showArchiveConfirm ? 'pointer' : 'default',
                 position: 'absolute',
                 right: 0,
+                top: '50%',
+                transform: 'translateY(-50%)',
                 opacity: showArchiveAction && !showArchiveConfirm ? 1 : 0,
                 pointerEvents: showArchiveAction && !showArchiveConfirm ? 'auto' : 'none',
                 transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
@@ -585,6 +587,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 cursor: showArchiveConfirm ? 'pointer' : 'default',
                 position: 'absolute',
                 right: 0,
+                top: '50%',
+                transform: 'translateY(-50%)',
                 opacity: showArchiveConfirm ? 1 : 0,
                 pointerEvents: showArchiveConfirm ? 'auto' : 'none',
                 transition: 'opacity 120ms ease, background-color 120ms ease'
