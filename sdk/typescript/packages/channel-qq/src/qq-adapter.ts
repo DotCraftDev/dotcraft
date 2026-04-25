@@ -30,6 +30,8 @@ import { QQPermissionService, normalizeIds } from "./permission.js";
 import { channelContextForQQEvent, parseQQTarget } from "./target.js";
 
 type PendingApproval = {
+  channelContext: string;
+  userId: string;
   resolve: (decision: string) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -233,13 +235,19 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
       return "cancel";
     }
 
+    const approvalUserId = this.lastSenderByContext.get(channelContext) ?? (target.kind === "user" ? target.id : undefined);
+    if (!approvalUserId) {
+      console.warn(`[qq] cannot find approver for '${channelContext}'; auto-cancelling approval`);
+      return "cancel";
+    }
+
     const prompt =
       "\u26a0\ufe0f \u9700\u8981\u64cd\u4f5c\u5ba1\u6279\n" +
       `Type: ${approvalType}\n` +
       `Operation: ${operation}\n` +
       (reason ? `Reason: ${reason}\n` : "") +
       "\n\u56de\u590d \u540c\u610f/yes \u6279\u51c6\uff0c\u540c\u610f\u5168\u90e8/yes all \u672c\u4f1a\u8bdd\u653e\u884c\u540c\u7c7b\u64cd\u4f5c\uff0c\u62d2\u7edd/no \u62d2\u7edd\u3002";
-    await this.sendApprovalPrompt(target, prompt, this.lastSenderByContext.get(channelContext));
+    await this.sendApprovalPrompt(target, prompt, approvalUserId);
 
     return await new Promise<string>((resolveDecision) => {
       const timer = setTimeout(() => {
@@ -247,6 +255,8 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
         resolveDecision("cancel");
       }, this.approvalTimeoutMs);
       this.pendingApprovals.set(requestId, {
+        channelContext,
+        userId: approvalUserId,
         resolve: (decision) => {
           clearTimeout(timer);
           this.pendingApprovals.delete(requestId);
@@ -293,10 +303,11 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
     const isGroup = evt.message_type === "group";
     const groupId = evt.group_id;
     const userId = String(evt.user_id);
+    const channelContext = channelContextForQQEvent(isGroup, groupId, evt.user_id);
     const rawText = getPlainText(evt.message).trim();
 
     const approvalDecision = parseQQApprovalDecision(rawText);
-    if (approvalDecision && this.resolvePendingApproval(approvalDecision)) {
+    if (approvalDecision && this.resolvePendingApproval(approvalDecision, userId, channelContext)) {
       return;
     }
 
@@ -316,7 +327,6 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
       return;
     }
 
-    const channelContext = channelContextForQQEvent(isGroup, groupId, evt.user_id);
     this.lastSenderByContext.set(channelContext, userId);
 
     await this.handleMessage({
@@ -392,13 +402,18 @@ export class QQAdapter extends ModuleChannelAdapter<QQConfig> {
     await server.sendAction(action);
   }
 
-  private resolvePendingApproval(decision: string): boolean {
-    const first = this.pendingApprovals.entries().next();
-    if (first.done) return false;
-    const [requestId, pending] = first.value;
-    this.pendingApprovals.delete(requestId);
-    pending.resolve(decision);
-    return true;
+  private resolvePendingApproval(decision: string, userId: string, channelContext: string): boolean {
+    for (const [requestId, pending] of this.pendingApprovals) {
+      if (pending.userId !== userId || pending.channelContext !== channelContext) {
+        continue;
+      }
+
+      this.pendingApprovals.delete(requestId);
+      pending.resolve(decision);
+      return true;
+    }
+
+    return false;
   }
 
   private resolveAllPendingApprovals(decision: string): void {

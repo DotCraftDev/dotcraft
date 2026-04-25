@@ -60,6 +60,64 @@ test("QQAdapter passes real group id only for group messages", async () => {
   assert.equal(privateOpts.omitSenderGroupId, true);
 });
 
+test("QQAdapter resolves approvals only for the matching sender and chat", async () => {
+  type PendingApproval = {
+    channelContext: string;
+    userId: string;
+    resolve: (decision: string) => void;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  const adapter = new QQAdapter() as unknown as {
+    pendingApprovals: Map<string, PendingApproval>;
+    handleOneBotMessage: (evt: OneBotMessageEvent) => Promise<void>;
+  };
+  const resolved: string[] = [];
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const addPending = (requestId: string, userId: string, channelContext: string) => {
+    const timer = setTimeout(() => undefined, 10_000);
+    timers.push(timer);
+    adapter.pendingApprovals.set(requestId, {
+      channelContext,
+      userId,
+      timer,
+      resolve: (decision) => {
+        clearTimeout(timer);
+        resolved.push(`${requestId}:${decision}`);
+      },
+    });
+  };
+
+  try {
+    addPending("req-1", "10", "group:1");
+    addPending("req-2", "20", "group:2");
+
+    await adapter.handleOneBotMessage({
+      post_type: "message",
+      message_type: "group",
+      user_id: 10,
+      group_id: 2,
+      message: [{ type: "text", data: { text: "yes" } }],
+    });
+
+    assert.deepEqual(resolved, []);
+    assert.equal(adapter.pendingApprovals.size, 2);
+
+    await adapter.handleOneBotMessage({
+      post_type: "message",
+      message_type: "group",
+      user_id: 20,
+      group_id: 2,
+      message: [{ type: "text", data: { text: "yes" } }],
+    });
+
+    assert.deepEqual(resolved, ["req-2:accept"]);
+    assert.equal(adapter.pendingApprovals.has("req-1"), true);
+    assert.equal(adapter.pendingApprovals.has("req-2"), false);
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+  }
+});
+
 async function captureHandleMessageOptions(evt: OneBotMessageEvent): Promise<Record<string, unknown>> {
   const adapter = new QQAdapter() as unknown as {
     permission: QQPermissionService;

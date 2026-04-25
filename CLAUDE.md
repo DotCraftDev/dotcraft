@@ -39,7 +39,8 @@ Prerequisite: .NET 10 SDK (preview).
 ## Repo Map
 
 - Core and app: `src/DotCraft.Core/`, `src/DotCraft.App/`, `src/DotCraft.Gen/`
-- Feature modules: `src/DotCraft.{QQ,WeCom,Unity,Api,AGUI,Automations,GitHubTracker,...}/`
+- Feature modules: `src/DotCraft.{Unity,Api,AGUI,Automations,GitHubTracker,...}/`
+- TypeScript channel packages: `sdk/typescript/packages/channel-{qq,wecom,feishu,weixin,telegram}/`
 - Specs and tests: `specs/`, `tests/`
 - SDKs and clients: `sdk/`, `tui/`, `desktop/`
 - Docs and examples: `docs/`, `docs/en/`, `samples/`

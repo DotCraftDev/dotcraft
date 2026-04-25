@@ -90,3 +90,63 @@ test("WeComAdapter passes chat id as sender groupId", async () => {
   assert.equal(opts["channelContext"], "chat:chat-1");
   assert.deepEqual(opts["senderExtra"], { senderRole: "admin", groupId: "chat-1" });
 });
+
+test("WeComAdapter resolves approvals only for the matching sender and chat", async () => {
+  type PendingApproval = {
+    channelContext: string;
+    userId: string;
+    resolve: (decision: string) => void;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  const adapter = new WeComAdapter() as unknown as {
+    pendingApprovals: Map<string, PendingApproval>;
+    handleTextMessage: (
+      parameters: string[],
+      from: { userId: string; name: string; alias: string },
+      pusher: { getChatId: () => string; pushText: (content: string) => Promise<void> },
+    ) => Promise<void>;
+    runInboundMessage: () => Promise<void>;
+  };
+  const resolved: string[] = [];
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const addPending = (requestId: string, userId: string, channelContext: string) => {
+    const timer = setTimeout(() => undefined, 10_000);
+    timers.push(timer);
+    adapter.pendingApprovals.set(requestId, {
+      channelContext,
+      userId,
+      timer,
+      resolve: (decision) => {
+        clearTimeout(timer);
+        resolved.push(`${requestId}:${decision}`);
+      },
+    });
+  };
+  adapter.runInboundMessage = async () => undefined;
+
+  try {
+    addPending("req-1", "u1", "chat:chat-1");
+    addPending("req-2", "u2", "chat:chat-2");
+
+    await adapter.handleTextMessage(
+      ["yes"],
+      { userId: "u1", name: "User One", alias: "" },
+      { getChatId: () => "chat-2", pushText: async () => undefined },
+    );
+
+    assert.deepEqual(resolved, []);
+    assert.equal(adapter.pendingApprovals.size, 2);
+
+    await adapter.handleTextMessage(
+      ["yes"],
+      { userId: "u2", name: "User Two", alias: "" },
+      { getChatId: () => "chat-2", pushText: async () => undefined },
+    );
+
+    assert.deepEqual(resolved, ["req-2:accept"]);
+    assert.equal(adapter.pendingApprovals.has("req-1"), true);
+    assert.equal(adapter.pendingApprovals.has("req-2"), false);
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+  }
+});

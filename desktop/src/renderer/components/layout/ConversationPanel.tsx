@@ -7,7 +7,6 @@ import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
 import { ThreadHeader } from '../conversation/ThreadHeader'
 import { MessageStream } from '../conversation/MessageStream'
-import { TurnStatusIndicator } from '../conversation/TurnStatusIndicator'
 import { InputComposer } from '../conversation/InputComposer'
 import { PlanApprovalComposer } from '../conversation/PlanApprovalComposer'
 import { ConversationWelcome } from '../conversation/ConversationWelcome'
@@ -23,7 +22,7 @@ interface ConversationPanelProps {
 
 /**
  * Main conversation panel — M3 full implementation.
- * Composes: ThreadHeader, MessageStream, TurnStatusIndicator, InputComposer.
+ * Composes: ThreadHeader, MessageStream, InputComposer.
  * Spec §10
  */
 export function ConversationPanel({
@@ -293,9 +292,6 @@ export function ConversationPanel({
           </p>
         </div>
       )}
-
-      {/* Turn running indicator */}
-      <TurnStatusIndicator />
 
       {/* Input composer */}
       {showPlanApproval && latestCreatePlanTurnId ? (

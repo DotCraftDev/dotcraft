@@ -28,6 +28,8 @@ import {
 import type { WeComConfig } from "./wecom-config.js";
 
 type PendingApproval = {
+  channelContext: string;
+  userId: string;
   resolve: (decision: string) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -84,6 +86,7 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
   private permission = new WeComPermissionService({});
   private readonly mediaTools = new WeComMediaTools();
   private readonly threadContextMap = new Map<string, string>();
+  private readonly lastSenderByContext = new Map<string, string>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private approvalTimeoutMs = 60_000;
   private tempDir = "";
@@ -258,6 +261,12 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
       return DECISION_CANCEL;
     }
 
+    const approvalUserId = this.lastSenderByContext.get(channelContext);
+    if (!approvalUserId) {
+      console.warn(`[wecom] cannot find approver for '${channelContext}'; auto-cancelling approval`);
+      return DECISION_CANCEL;
+    }
+
     const timeoutSeconds = Math.round(this.approvalTimeoutMs / 1000);
     const prompt = approvalType === "shell"
       ? `⚠️ 需要执行命令权限：\`${operation}\`\n回复 同意/yes 批准，同意全部/yes all 本会话放行同类操作，拒绝/no 拒绝（${timeoutSeconds}秒超时自动拒绝）`
@@ -271,6 +280,8 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
         resolveDecision(DECISION_CANCEL);
       }, this.approvalTimeoutMs);
       this.pendingApprovals.set(requestId, {
+        channelContext,
+        userId: approvalUserId,
         resolve: (decision) => {
           clearTimeout(timer);
           this.pendingApprovals.delete(requestId);
@@ -317,8 +328,9 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
       return;
     }
 
+    const channelContext = `chat:${pusher.getChatId()}`;
     const approvalDecision = parseWeComApprovalDecision(plainText);
-    if (approvalDecision && this.resolvePendingApproval(approvalDecision)) {
+    if (approvalDecision && this.resolvePendingApproval(approvalDecision, from.userId, channelContext)) {
       return;
     }
 
@@ -358,6 +370,7 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
   private async runInboundMessage(text: string, from: WeComFrom, pusher: WeComPusher, inputParts: Record<string, unknown>[]): Promise<void> {
     const chatId = pusher.getChatId();
     const channelContext = `chat:${chatId}`;
+    this.lastSenderByContext.set(channelContext, from.userId);
     const role = this.permission.getUserRole(from.userId, chatId);
     await this.handleMessage({
       userId: from.userId,
@@ -414,13 +427,18 @@ export class WeComAdapter extends ModuleChannelAdapter<WeComConfig> {
     return new WeComPusher(chatId, webhookUrl);
   }
 
-  private resolvePendingApproval(decision: string): boolean {
-    const first = this.pendingApprovals.entries().next();
-    if (first.done) return false;
-    const [requestId, pending] = first.value;
-    this.pendingApprovals.delete(requestId);
-    pending.resolve(decision);
-    return true;
+  private resolvePendingApproval(decision: string, userId: string, channelContext: string): boolean {
+    for (const [requestId, pending] of this.pendingApprovals) {
+      if (pending.userId !== userId || pending.channelContext !== channelContext) {
+        continue;
+      }
+
+      this.pendingApprovals.delete(requestId);
+      pending.resolve(decision);
+      return true;
+    }
+
+    return false;
   }
 
   private resolveAllPendingApprovals(decision: string): void {

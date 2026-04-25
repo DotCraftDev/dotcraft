@@ -10,6 +10,12 @@ function renderWithLocale(node: JSX.Element): void {
   render(<LocaleProvider>{node}</LocaleProvider>)
 }
 
+function expectRunningGradientText(text: string | RegExp): HTMLElement {
+  const label = screen.getByText(text)
+  expect(label).toHaveClass('tool-running-gradient-text')
+  return label
+}
+
 const collapseAnimationMs = 200
 
 describe('ToolCallCard shell rendering', () => {
@@ -41,6 +47,7 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.queryByText('line 1')).toBeNull()
+    expectRunningGradientText(/Ran npm test/)
 
     fireEvent.click(screen.getByRole('button'))
 
@@ -128,7 +135,7 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('1.5s')).toBeInTheDocument()
-    expect(screen.getByText(/Ran ping -n 10 8\.8\.8\.8/)).toBeInTheDocument()
+    expectRunningGradientText(/Ran ping -n 10 8\.8\.8\.8/)
     expect(screen.queryByText('Calling')).not.toBeInTheDocument()
 
     vi.useRealTimers()
@@ -169,7 +176,7 @@ describe('ToolCallCard shell rendering', () => {
 
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
-    expect(screen.getByText(/Ran echo hello/)).toBeInTheDocument()
+    expectRunningGradientText(/Ran echo hello/)
     expect(screen.queryByText('Calling')).not.toBeInTheDocument()
   })
 
@@ -259,6 +266,9 @@ describe('ToolCallCard shell rendering', () => {
     }
 
     renderWithLocale(<ToolCallCard item={runningItem} turnId="turn-1" />)
+
+    expect(screen.getByText('0.0s')).toBeInTheDocument()
+    expectRunningGradientText('Fetched https://dotcraft.ai')
 
     act(() => {
       vi.advanceTimersByTime(450)
@@ -354,6 +364,7 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+    expect(document.querySelector('.tool-running-gradient-text')).toBeNull()
     expect(screen.queryByText('✓')).toBeNull()
     expect(screen.queryByText('350ms')).toBeNull()
 
