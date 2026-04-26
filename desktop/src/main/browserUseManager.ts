@@ -1152,8 +1152,9 @@ export class BrowserUseManager {
 
   private normalizeMouseButton(value: number | string | undefined): 'left' | 'right' | 'middle' {
     if (value === 2 || value === 'right') return 'right'
-    if (value === 3 || value === 'middle') return 'middle'
+    if (value === 1 || value === 'middle') return 'middle'
     return 'left'
+  }
   }
 
   private describeLocator(descriptor: BrowserUseLocatorDescriptor): string {
