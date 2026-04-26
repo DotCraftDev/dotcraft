@@ -196,6 +196,15 @@ interface BrowserUseElementMatch {
   } | null
 }
 
+interface BrowserUseSnapshotRefFilter {
+  ref?: string
+  href?: string
+  testId?: string
+  role?: string
+  expectedName?: string
+  tagName?: string
+}
+
 export function normalizeBrowserUseUrl(input: string): string | null {
   const trimmed = input.trim()
   if (!trimmed || /[\u0000-\u001f]/.test(trimmed)) return null
@@ -1373,7 +1382,7 @@ export class BrowserUseManager {
   private async ensurePlaywrightInjected(tab: BrowserUseTabRuntime): Promise<void> {
     const installed = await this.executeJavaScript<boolean>(
       tab,
-      'Boolean(window.__dotcraftPlaywrightInjected && window.__dotcraftBrowserUseSnapshot && window.__dotcraftBrowserUseResolveSelector)',
+      'Boolean(window.__dotcraftPlaywrightInjected && window.__dotcraftBrowserUseSnapshot && window.__dotcraftBrowserUseResolveSelector && window.__dotcraftBrowserUseElementInfo)',
       'playwright.inject.check').catch(() => false)
     if (installed === true) return
 
@@ -1636,6 +1645,7 @@ export class BrowserUseManager {
 
   private async locatorFill(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor, value: string): Promise<void> {
     const target = await this.waitForActionableLocator(tab, descriptor)
+    if (descriptor.kind === 'ref') this.selectorForResolvedLocator(tab, descriptor, target)
     const point = this.actionPoint(target)
     await this.cuaClick(tab, { ...point, preserveRefs: true })
     await this.mutateStrictLocator(tab, descriptor, String(value ?? ''))
@@ -1779,6 +1789,61 @@ export class BrowserUseManager {
     throw new Error(`Unsupported browser locator: ${this.describeLocator(descriptor)}`)
   }
 
+  private selectorForResolvedLocator(
+    tab: BrowserUseTabRuntime,
+    descriptor: BrowserUseLocatorDescriptor,
+    target: BrowserUseElementMatch
+  ): { parsed: unknown; snapshotRefFilter: BrowserUseSnapshotRefFilter | null } {
+    const snapshotRef = descriptor.kind === 'ref' ? target : null
+    const selector = target.selector ||
+      (snapshotRef ? this.fallbackSelectorForSnapshotRef(tab, snapshotRef) : this.playwrightSelectorFor(descriptor))
+    return {
+      parsed: parsePlaywrightSelector(selector),
+      snapshotRefFilter: snapshotRef ? this.snapshotRefFilter(snapshotRef) : null
+    }
+  }
+
+  private fallbackSelectorForSnapshotRef(tab: BrowserUseTabRuntime, snapshotRef: BrowserUseElementMatch): string {
+    const tag = this.cssTagName(snapshotRef.tagName || snapshotRef.tag || '')
+    if (snapshotRef.testId) {
+      const prefix = tag || ''
+      return `${prefix}[data-testid="${this.cssAttributeValue(snapshotRef.testId)}"]`
+    }
+    if (snapshotRef.href && (tag === 'a' || snapshotRef.role === 'link')) {
+      return `${tag || 'a'}[href="${this.cssAttributeValue(snapshotRef.href)}"]`
+    }
+    const name = snapshotRef.name || snapshotRef.ariaName
+    if (snapshotRef.role && name) {
+      return getByRoleSelector(snapshotRef.role, { name, exact: true })
+    }
+    const text = snapshotRef.visibleText || snapshotRef.text || name
+    if (text) {
+      return getByTextSelector(text, { exact: true })
+    }
+    if (tag) return tag
+    throw new Error(`Snapshot ref '${snapshotRef.ref ?? ''}' for tab ${tab.id} cannot be resolved to a live DOM selector. Take a fresh domSnapshot() and use a current ref or a stable selector.`)
+  }
+
+  private snapshotRefFilter(snapshotRef: BrowserUseElementMatch): BrowserUseSnapshotRefFilter {
+    return {
+      ref: snapshotRef.ref,
+      href: snapshotRef.href,
+      testId: snapshotRef.testId,
+      role: snapshotRef.role || undefined,
+      expectedName: snapshotRef.name || snapshotRef.text || snapshotRef.visibleText || undefined,
+      tagName: snapshotRef.tagName || snapshotRef.tag || undefined
+    }
+  }
+
+  private cssTagName(value: string): string {
+    const tag = value.toLowerCase()
+    return /^[a-z][a-z0-9-]*$/.test(tag) ? tag : ''
+  }
+
+  private cssAttributeValue(value: string): string {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  }
+
   private async locatorEvaluate(
     tab: BrowserUseTabRuntime,
     descriptor: BrowserUseLocatorDescriptor,
@@ -1786,18 +1851,43 @@ export class BrowserUseManager {
     arg?: string
   ): Promise<unknown> {
     const target = await this.strictLocator(tab, descriptor)
-    const selector = target.selector || this.playwrightSelectorFor(descriptor)
-    const parsed = parsePlaywrightSelector(selector)
+    const locator = this.selectorForResolvedLocator(tab, descriptor, target)
+    await this.ensurePlaywrightInjected(tab)
     const script = `
-      ((parsed, operation, arg) => {
+      ((parsed, snapshotRef, operation, arg) => {
         const injected = window.__dotcraftPlaywrightInjected;
-        const el = injected.querySelector(parsed, document, true);
+        const matchesSnapshotRef = (info) => {
+          if (!snapshotRef) return true;
+          if (snapshotRef.href && info.href !== snapshotRef.href) return false;
+          if (snapshotRef.testId && info.testId !== snapshotRef.testId) return false;
+          if (snapshotRef.role && info.role !== snapshotRef.role) return false;
+          if (snapshotRef.tagName && info.tagName !== snapshotRef.tagName && info.tag !== snapshotRef.tagName) return false;
+          if (snapshotRef.expectedName) {
+            const actualName = info.name || info.text || info.visibleText;
+            if (actualName !== snapshotRef.expectedName) return false;
+          }
+          return true;
+        };
+        let el = null;
+        if (snapshotRef) {
+          const candidates = injected.querySelectorAll(parsed, document);
+          const matches = candidates.map((candidate, index) => ({
+            el: candidate,
+            info: window.__dotcraftBrowserUseElementInfo(candidate, index)
+          })).filter((candidate) => matchesSnapshotRef(candidate.info));
+          if (matches.length !== 1) {
+            throw new Error('Snapshot ref ' + JSON.stringify(snapshotRef.ref || '') + ' resolved to ' + matches.length + ' live elements for locator evaluation. Take a fresh domSnapshot() or use a more stable selector. role=' + (snapshotRef.role || '') + ' name=' + (snapshotRef.expectedName || '') + ' href=' + (snapshotRef.href || '') + ' testId=' + (snapshotRef.testId || ''));
+          }
+          el = matches[0].el;
+        } else {
+          el = injected.querySelector(parsed, document, true);
+        }
         if (!el) return null;
         if (operation === 'textContent') return el.textContent;
         if (operation === 'getAttribute') return el.getAttribute(arg);
         if (operation === 'isEnabled') return !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
         return null;
-      })(${JSON.stringify(parsed)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
+      })(${JSON.stringify(locator.parsed)}, ${JSON.stringify(locator.snapshotRefFilter)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
     `
     return await this.executeJavaScript(tab, script, `locator.${operation}`)
   }
@@ -1808,12 +1898,37 @@ export class BrowserUseManager {
     value: string
   ): Promise<void> {
     const target = await this.strictLocator(tab, descriptor)
-    const selector = target.selector || this.playwrightSelectorFor(descriptor)
-    const parsed = parsePlaywrightSelector(selector)
+    const locator = this.selectorForResolvedLocator(tab, descriptor, target)
+    await this.ensurePlaywrightInjected(tab)
     const script = `
-      ((parsed, value) => {
+      ((parsed, snapshotRef, value) => {
         const injected = window.__dotcraftPlaywrightInjected;
-        const el = injected.querySelector(parsed, document, true);
+        const matchesSnapshotRef = (info) => {
+          if (!snapshotRef) return true;
+          if (snapshotRef.href && info.href !== snapshotRef.href) return false;
+          if (snapshotRef.testId && info.testId !== snapshotRef.testId) return false;
+          if (snapshotRef.role && info.role !== snapshotRef.role) return false;
+          if (snapshotRef.tagName && info.tagName !== snapshotRef.tagName && info.tag !== snapshotRef.tagName) return false;
+          if (snapshotRef.expectedName) {
+            const actualName = info.name || info.text || info.visibleText;
+            if (actualName !== snapshotRef.expectedName) return false;
+          }
+          return true;
+        };
+        let el = null;
+        if (snapshotRef) {
+          const candidates = injected.querySelectorAll(parsed, document);
+          const matches = candidates.map((candidate, index) => ({
+            el: candidate,
+            info: window.__dotcraftBrowserUseElementInfo(candidate, index)
+          })).filter((candidate) => matchesSnapshotRef(candidate.info));
+          if (matches.length !== 1) {
+            throw new Error('Snapshot ref ' + JSON.stringify(snapshotRef.ref || '') + ' resolved to ' + matches.length + ' live elements for locator fill. Take a fresh domSnapshot() or use a more stable selector. role=' + (snapshotRef.role || '') + ' name=' + (snapshotRef.expectedName || '') + ' href=' + (snapshotRef.href || '') + ' testId=' + (snapshotRef.testId || ''));
+          }
+          el = matches[0].el;
+        } else {
+          el = injected.querySelector(parsed, document, true);
+        }
         if (!el) throw new Error('Element is no longer available.');
         el.focus();
         if ('value' in el) {
@@ -1825,7 +1940,7 @@ export class BrowserUseManager {
         el.textContent = value;
         el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
         return true;
-      })(${JSON.stringify(parsed)}, ${JSON.stringify(value)})
+      })(${JSON.stringify(locator.parsed)}, ${JSON.stringify(locator.snapshotRefFilter)}, ${JSON.stringify(value)})
     `
     await this.executeJavaScript(tab, script, 'locator.fill')
   }

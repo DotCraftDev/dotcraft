@@ -1042,6 +1042,64 @@ describe('BrowserUseManager IAB backend', () => {
     }))
   })
 
+  it('fills snapshot refs that do not have generated selectors', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url: 'http://127.0.0.1:5173/',
+          title: 'DotCraft',
+          readyState: 'complete',
+          bodyTextLength: 46,
+          interactiveCount: 1,
+          appRootTextLength: 46
+        }
+      }
+      if (script.includes('__dotcraftPlaywrightInjected &&')) return false
+      if (script.includes('module.exports.InjectedScript')) return true
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
+          title: 'DotCraft',
+          url: 'http://127.0.0.1:5173/',
+          bodyText: 'Search',
+          elements: [{
+            tagName: 'input',
+            role: 'textbox',
+            name: 'Search',
+            text: '',
+            testId: 'search-input',
+            selector: '',
+            visible: true,
+            enabled: true,
+            visibleText: '',
+            ariaName: 'Search',
+            boundingBox: { x: 10, y: 20, width: 200, height: 32 }
+          }]
+        }
+      }
+      return true
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-ref-fill-empty-selector',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        const snapshot = JSON.parse(await tab.domSnapshot());
+        await tab.playwright.fillRef(snapshot.elements[0].ref, "query");
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(host.clickMouse).toHaveBeenCalledWith(owner, expect.objectContaining({
+      x: 110,
+      y: 36
+    }))
+  })
+
   it('reports stale or unknown snapshot refs clearly', async () => {
     const host = createFakeHost()
     const manager = new BrowserUseManager(host)
