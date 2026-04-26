@@ -225,7 +225,8 @@ Client                              Server
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
-| `capabilities.browserUse` | object | no | Desktop browser-use runtime capability. When present, the client can handle server-initiated `ext/browserUse/*` requests for thread-bound local browser automation. Default omitted (no browser-use support). |
+| `capabilities.nodeRepl` | object | no | Desktop persistent Node REPL capability. When present with `browserUse`, the client can handle server-initiated `ext/nodeRepl/*` requests for thread-bound local browser automation. Default omitted (no browser-use support). |
+| `capabilities.browserUse` | object | no | Desktop embedded browser IAB capability. When present with `nodeRepl`, the Node REPL is backed by Desktop browser tabs, CDP-style page state, screenshots, coordinate input, virtual mouse state, console logs, and named tab sessions. Default omitted (no browser-use support). |
 
 `capabilities.configChange` is an opt-out capability. When omitted, the server treats it as `true` and may push `workspace/configChanged` notifications. Modern clients should declare it explicitly for clarity, even when using the default behavior.
 
@@ -238,11 +239,19 @@ Client                              Server
 | `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
 | `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
 
+**`nodeRepl` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `backend` | string | Client runtime identifier, currently `desktop-node`. |
+
 **`browserUse` object** (when present):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `backend` | string | Client backend identifier, e.g. `desktop-webcontents`. Presence of `browserUse` means the client supports the current Desktop browser-use runtime: JavaScript evaluation, screenshots, Playwright-like locators, coordinate input, virtual mouse state, console logs, and named tab sessions. |
+| `backend` | string | Client browser backend identifier, currently `desktop-iab`. |
+| `protocolVersion` | number | Browser-use IAB protocol version. Current value is `2`. |
+| `supportsCancel` | boolean | Optional. When `true`, the client handles `ext/nodeRepl/cancel` for in-flight evaluations. |
 
 **`channelAdapter` object** (when present):
 
@@ -2282,6 +2291,58 @@ The ACP (Agent Client Protocol) integration allows the agent's tools to access t
 | `terminal/waitForExit` | `ext/acp/terminal/waitForExit` |
 | `terminal/kill` | `ext/acp/terminal/kill` |
 | `terminal/release` | `ext/acp/terminal/release` |
+
+### 11.4 Desktop Node REPL Browser Runtime
+
+The Desktop browser-use integration exposes agent tools through a **server → client** Node REPL backend. The server only sends these requests to a thread-bound client that declared both `capabilities.nodeRepl` and `capabilities.browserUse` during `initialize`.
+
+#### `ext/nodeRepl/evaluate`
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID whose Desktop runtime owns the persistent REPL. |
+| `evaluationId` | string | yes | Unique ID for this evaluation, used for cancellation and late-result suppression. |
+| `code` | string | yes | JavaScript source to evaluate in the thread-bound persistent Node REPL. |
+| `timeoutMs` | number | no | Requested overall timeout in milliseconds. Client may clamp to its supported range. |
+
+**Result**:
+
+```json
+{
+  "text": "optional stdout-like text",
+  "resultText": "serialized final expression result",
+  "images": [
+    { "mediaType": "image/png", "dataBase64": "..." }
+  ],
+  "logs": ["console output"],
+  "error": "optional user-readable error"
+}
+```
+
+The client should return before `timeoutMs` when possible. Browser sub-operations should use shorter internal timeouts and return a readable `error` rather than leaving the server request pending until the overall timeout.
+
+#### `ext/nodeRepl/cancel`
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID whose REPL evaluation should be cancelled. |
+| `evaluationId` | string | yes | Evaluation ID previously sent to `ext/nodeRepl/evaluate`. |
+
+**Result**:
+
+```json
+{ "ok": true }
+```
+
+If no matching in-flight evaluation exists, the client returns `{ "ok": false }`. Cancellation is best-effort: the client should abort pending browser operations, rebuild the thread's REPL context when needed, and ignore any late result from the cancelled evaluation.
 
 ---
 

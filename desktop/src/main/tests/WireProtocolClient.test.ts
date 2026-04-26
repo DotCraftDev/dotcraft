@@ -327,8 +327,13 @@ describe('WireProtocolClient', () => {
     expect(initReq.method).toBe('initialize')
     expect(initReq.params.clientInfo.name).toBe('dotcraft-desktop')
     expect(initReq.params.capabilities.approvalSupport).toBe(true)
+    expect(initReq.params.capabilities.nodeRepl).toEqual({
+      backend: 'desktop-node'
+    })
     expect(initReq.params.capabilities.browserUse).toEqual({
-      backend: 'desktop-webcontents'
+      backend: 'desktop-iab',
+      protocolVersion: 2,
+      supportsCancel: true
     })
 
     capturedId = initReq.id

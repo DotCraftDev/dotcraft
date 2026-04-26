@@ -6,6 +6,7 @@ import {
 } from './viewerFileProtocol'
 import { viewerBrowserManager } from './viewerBrowser'
 import { browserUseManager } from './browserUseManager'
+import { nodeReplManager } from './nodeReplManager'
 
 // Register the custom viewer scheme as privileged BEFORE app.whenReady().
 registerViewerScheme()
@@ -126,22 +127,30 @@ async function handleServerRequestInMain(method: string, params: unknown): Promi
     throw new Error('Window is not available to handle server request')
   }
 
-  if (method === 'ext/browserUse/evaluate') {
-    const p = (params ?? {}) as { threadId?: string; code?: string; timeoutMs?: number }
+  if (method === 'ext/nodeRepl/evaluate') {
+    const p = (params ?? {}) as { threadId?: string; evaluationId?: string; code?: string; timeoutMs?: number }
     if (!p.threadId || typeof p.code !== 'string') {
-      return { error: 'Invalid browser-use evaluate request.', images: [], logs: [] }
+      return { error: 'Invalid Node REPL evaluate request.', images: [], logs: [] }
     }
-    return browserUseManager.evaluate(mainWindow, {
+    return nodeReplManager.evaluate(mainWindow, {
       threadId: p.threadId,
+      evaluationId: p.evaluationId,
       code: p.code,
       timeoutMs: p.timeoutMs,
       workspacePath: currentWorkspacePath
     })
   }
 
-  if (method === 'ext/browserUse/reset') {
+  if (method === 'ext/nodeRepl/cancel') {
+    const p = (params ?? {}) as { threadId?: string; evaluationId?: string }
+    return p.threadId && p.evaluationId
+      ? nodeReplManager.cancel(p.threadId, p.evaluationId)
+      : { ok: false }
+  }
+
+  if (method === 'ext/nodeRepl/reset') {
     const p = (params ?? {}) as { threadId?: string }
-    return p.threadId ? browserUseManager.reset(p.threadId) : { ok: false }
+    return p.threadId ? nodeReplManager.reset(p.threadId) : { ok: false }
   }
 
   return undefined

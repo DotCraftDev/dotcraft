@@ -4,38 +4,38 @@ using Microsoft.Extensions.AI;
 namespace DotCraft.Tools;
 
 /// <summary>
-/// Provides Desktop-hosted browser automation tools when the current thread is bound
+/// Provides Desktop-hosted Node REPL tools when the current thread is bound
 /// to a browser-use capable AppServer client.
 /// </summary>
-public sealed class BrowserUseToolProvider : IAgentToolProvider
+public sealed class NodeReplToolProvider : IAgentToolProvider
 {
     public int Priority => 120;
 
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
-        var proxy = context.BrowserUseProxy;
+        var proxy = context.NodeReplProxy;
         if (proxy?.IsAvailable != true)
             yield break;
 
-        var tools = new BrowserUseTools(proxy);
-        yield return AIFunctionFactory.Create(tools.BrowserJs);
-        yield return AIFunctionFactory.Create(tools.BrowserJsReset);
+        var tools = new NodeReplTools(proxy);
+        yield return AIFunctionFactory.Create(tools.NodeReplJs);
+        yield return AIFunctionFactory.Create(tools.NodeReplReset);
     }
 
-    private sealed class BrowserUseTools(IBrowserUseProxy proxy)
+    private sealed class NodeReplTools(INodeReplProxy proxy)
     {
         /// <summary>
-        /// Evaluate JavaScript in the Desktop browser-use runtime for the current thread.
-        /// The runtime exposes agent.browser and display(), and can return text plus screenshots.
+        /// Evaluate JavaScript in the Desktop persistent Node REPL for the current thread.
+        /// The runtime supports top-level state, agent.browser, display(), and screenshot image output.
         /// </summary>
-        public async Task<IReadOnlyList<AIContent>> BrowserJs(
+        public async Task<IReadOnlyList<AIContent>> NodeReplJs(
             string code,
             int? timeoutSeconds = null,
             CancellationToken ct = default)
         {
             var result = await proxy.EvaluateAsync(code, timeoutSeconds, ct);
             if (result == null)
-                return [new TextContent("Browser-use is not available for this thread.")];
+                return [new TextContent("Node REPL browser runtime is not available for this thread.")];
 
             var contents = new List<AIContent>();
             var textParts = new List<string>();
@@ -50,7 +50,7 @@ public sealed class BrowserUseToolProvider : IAgentToolProvider
 
             contents.Add(new TextContent(textParts.Count > 0
                 ? string.Join("\n", textParts)
-                : "(browser-use completed with no text output)"));
+                : "(Node REPL completed with no text output)"));
 
             foreach (var image in result.Images)
             {
@@ -62,7 +62,7 @@ public sealed class BrowserUseToolProvider : IAgentToolProvider
                 }
                 catch (FormatException)
                 {
-                    contents.Add(new TextContent("[Invalid browser-use image payload]"));
+                    contents.Add(new TextContent("[Invalid Node REPL image payload]"));
                 }
             }
 
@@ -70,12 +70,12 @@ public sealed class BrowserUseToolProvider : IAgentToolProvider
         }
 
         /// <summary>
-        /// Reset the Desktop browser-use JavaScript context and close browser tabs for the current thread.
+        /// Reset the Desktop Node REPL JavaScript context and close browser tabs for the current thread.
         /// </summary>
-        public async Task<string> BrowserJsReset(CancellationToken ct = default)
+        public async Task<string> NodeReplReset(CancellationToken ct = default)
         {
             var ok = await proxy.ResetAsync(ct);
-            return ok ? "Browser-use runtime reset." : "Browser-use is not available for this thread.";
+            return ok ? "Node REPL browser runtime reset." : "Node REPL browser runtime is not available for this thread.";
         }
     }
 }

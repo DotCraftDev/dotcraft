@@ -104,8 +104,15 @@ public sealed class AppServerClientCapabilities
     public AcpExtensionCapability? AcpExtensions { get; set; }
 
     /// <summary>
-    /// Browser-use runtime capability. When set, the client can receive server-initiated
-    /// <c>ext/browserUse/*</c> requests for thread-bound browser automation.
+    /// Node REPL runtime capability. When set with <see cref="BrowserUse"/>, the client can
+    /// receive server-initiated <c>ext/nodeRepl/*</c> requests for thread-bound browser automation.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NodeReplCapability? NodeRepl { get; set; }
+
+    /// <summary>
+    /// Browser-use IAB capability. When set with <see cref="NodeRepl"/>, the client can back
+    /// the persistent Node REPL with Desktop embedded browser automation.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BrowserUseCapability? BrowserUse { get; set; }
@@ -127,11 +134,23 @@ public sealed class AcpExtensionCapability
 }
 
 /// <summary>
-/// Client-declared Desktop browser-use support during <c>initialize</c>.
+/// Client-declared Desktop Node REPL support during <c>initialize</c>.
+/// </summary>
+public sealed class NodeReplCapability
+{
+    public string Backend { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Client-declared Desktop browser-use IAB support during <c>initialize</c>.
 /// </summary>
 public sealed class BrowserUseCapability
 {
     public string Backend { get; set; } = string.Empty;
+
+    public int? ProtocolVersion { get; set; }
+
+    public bool? SupportsCancel { get; set; }
 }
 
 /// <summary>
@@ -2266,9 +2285,10 @@ public static class AppServerMethods
     public const string ExtAcpTerminalKill = "ext/acp/terminal/kill";
     public const string ExtAcpTerminalRelease = "ext/acp/terminal/release";
 
-    // Server → Client requests (Desktop browser-use runtime)
-    public const string ExtBrowserUseEvaluate = "ext/browserUse/evaluate";
-    public const string ExtBrowserUseReset = "ext/browserUse/reset";
+    // Server → Client requests (Desktop Node REPL + IAB browser-use runtime)
+    public const string ExtNodeReplEvaluate = "ext/nodeRepl/evaluate";
+    public const string ExtNodeReplCancel = "ext/nodeRepl/cancel";
+    public const string ExtNodeReplReset = "ext/nodeRepl/reset";
 
     // Client → Server requests (cron management, spec Section 16)
     public const string CronList = "cron/list";

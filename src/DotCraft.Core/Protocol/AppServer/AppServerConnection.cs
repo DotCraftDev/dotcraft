@@ -112,16 +112,26 @@ public sealed class AppServerConnection
     public IReadOnlyList<string> AcpCustomExtensions => AcpExtensions?.Extensions ?? [];
 
     // -------------------------------------------------------------------------
-    // Browser-use extension state
+    // Node REPL + browser-use extension state
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Browser-use runtime capabilities from <c>initialize</c>, or null when not declared.
+    /// Node REPL runtime capabilities from <c>initialize</c>, or null when not declared.
+    /// </summary>
+    public NodeReplCapability? NodeRepl => _clientCapabilities?.NodeRepl;
+
+    /// <summary>
+    /// True when the client sent a Node REPL capability object.
+    /// </summary>
+    public bool HasNodeRepl => NodeRepl != null;
+
+    /// <summary>
+    /// Browser-use IAB capabilities from <c>initialize</c>, or null when not declared.
     /// </summary>
     public BrowserUseCapability? BrowserUse => _clientCapabilities?.BrowserUse;
 
     /// <summary>
-    /// True when the client sent a browser-use capability object.
+    /// True when the client sent a browser-use IAB capability object.
     /// </summary>
     public bool HasBrowserUse => BrowserUse != null;
 

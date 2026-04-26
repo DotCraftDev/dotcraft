@@ -95,6 +95,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/browser-use",
+        "to": "browser-use",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

@@ -394,8 +394,13 @@ export class WireProtocolClient extends EventEmitter {
           commandExecutionStreaming: true,
           configChange: true,
           optOutNotificationMethods: [],
+          nodeRepl: {
+            backend: 'desktop-node'
+          },
           browserUse: {
-            backend: 'desktop-webcontents'
+            backend: 'desktop-iab',
+            protocolVersion: 2,
+            supportsCancel: true
           }
         }
       },

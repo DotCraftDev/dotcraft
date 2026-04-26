@@ -1,5 +1,4 @@
 import { BrowserWindow } from 'electron'
-import vm from 'vm'
 import { viewerBrowserManager } from './viewerBrowser'
 import type { AppSettings } from './settings'
 import {
@@ -11,25 +10,13 @@ import {
 const BROWSER_USE_OPEN_CHANNEL = 'viewer:browser-use:open'
 const BROWSER_USE_APPROVAL_REQUEST_CHANNEL = 'viewer:browser-use:approval-request'
 const BROWSER_USE_APPROVAL_TIMEOUT_MS = 120_000
-
-export interface BrowserUseEvaluateParams {
-  threadId: string
-  code: string
-  timeoutMs?: number
-  workspacePath?: string
-}
+const BROWSER_USE_OPERATION_TIMEOUT_MS = 10_000
+const BROWSER_USE_NAVIGATION_TIMEOUT_MS = 30_000
+const BROWSER_USE_BLANK_TAB_READY_TIMEOUT_MS = 5_000
 
 export interface BrowserUseImageResult {
   mediaType: string
   dataBase64: string
-}
-
-export interface BrowserUseEvaluateResult {
-  text?: string
-  resultText?: string
-  images: BrowserUseImageResult[]
-  logs: string[]
-  error?: string
 }
 
 export interface BrowserUseOpenPayload {
@@ -119,12 +106,21 @@ interface BrowserUseThreadRuntime {
   threadId: string
   workspacePath: string
   sessionName?: string
-  context: vm.Context
+  agent?: Record<string, unknown>
+  display?: (imageLike: unknown) => Promise<void>
   tabs: Map<string, BrowserUseTabRuntime>
   selectedTabId: string | null
   logs: string[]
   images: BrowserUseImageResult[]
   hasFocusedFirstTab: boolean
+  activeEvaluationId?: string
+  activeAbortSignal?: AbortSignal
+}
+
+interface BrowserUseOperationTimeouts {
+  operationMs?: number
+  navigationMs?: number
+  blankTabReadyMs?: number
 }
 
 type BrowserUseLocatorKind = 'css' | 'text' | 'role' | 'label' | 'placeholder' | 'testId'
@@ -177,16 +173,6 @@ function imageFromDataUrl(dataUrl: string): BrowserUseImageResult | null {
   return { mediaType: match[1], dataBase64: match[2] }
 }
 
-function describeResult(value: unknown): string {
-  if (value == null) return ''
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
 function sanitizeThreadId(threadId: string): string {
   return threadId.replace(/[^a-zA-Z0-9_-]/g, '_')
 }
@@ -203,7 +189,22 @@ export class BrowserUseManager {
   private nextApprovalId = 1
   private policyHost: BrowserUsePolicyHost | null = null
 
-  constructor(private readonly viewerHost: BrowserUseViewerHost = viewerBrowserManager) {}
+  constructor(
+    private readonly viewerHost: BrowserUseViewerHost = viewerBrowserManager,
+    private readonly timeouts: BrowserUseOperationTimeouts = {}
+  ) {}
+
+  private operationTimeoutMs(): number {
+    return this.timeouts.operationMs ?? BROWSER_USE_OPERATION_TIMEOUT_MS
+  }
+
+  private navigationTimeoutMs(): number {
+    return this.timeouts.navigationMs ?? BROWSER_USE_NAVIGATION_TIMEOUT_MS
+  }
+
+  private blankTabReadyTimeoutMs(): number {
+    return this.timeouts.blankTabReadyMs ?? BROWSER_USE_BLANK_TAB_READY_TIMEOUT_MS
+  }
 
   setPolicyHost(host: BrowserUsePolicyHost): void {
     this.policyHost = host
@@ -219,27 +220,28 @@ export class BrowserUseManager {
     return true
   }
 
-  async evaluate(owner: BrowserWindow, params: BrowserUseEvaluateParams): Promise<BrowserUseEvaluateResult> {
+  prepareNodeRepl(owner: BrowserWindow, params: {
+    threadId: string
+    workspacePath?: string
+    evaluationId?: string
+    signal?: AbortSignal
+  }): {
+    agent: Record<string, unknown>
+    display: (imageLike: unknown) => Promise<void>
+    collect: () => { images: BrowserUseImageResult[]; logs: string[] }
+  } {
     const runtime = this.getOrCreateRuntime(owner, params.threadId, params.workspacePath)
     runtime.logs = []
     runtime.images = []
-
-    const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000))
-    try {
-      const script = new vm.Script(`(async () => {\n${params.code}\n})()`)
-      const run = script.runInContext(runtime.context, { timeout: timeoutMs }) as Promise<unknown>
-      const value = await this.withTimeout(run, timeoutMs)
-      return {
-        resultText: describeResult(value),
+    runtime.activeEvaluationId = params.evaluationId
+    runtime.activeAbortSignal = params.signal
+    return {
+      agent: runtime.agent!,
+      display: runtime.display!,
+      collect: () => ({
         images: [...runtime.images],
         logs: [...runtime.logs]
-      }
-    } catch (error: unknown) {
-      return {
-        error: error instanceof Error ? error.message : String(error),
-        images: [...runtime.images],
-        logs: [...runtime.logs]
-      }
+      })
     }
   }
 
@@ -269,7 +271,6 @@ export class BrowserUseManager {
     const runtime: BrowserUseThreadRuntime = {
       threadId,
       workspacePath: resolvedWorkspace,
-      context: vm.createContext({}, { codeGeneration: { strings: false, wasm: false } }),
       tabs: new Map<string, BrowserUseTabRuntime>(),
       selectedTabId: null,
       logs: [],
@@ -329,21 +330,8 @@ export class BrowserUseManager {
       }
     }
 
-    const consoleApi = {
-      log: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' ')),
-      warn: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' ')),
-      error: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' '))
-    }
-
-    Object.assign(runtime.context, {
-      agent,
-      display,
-      console: consoleApi,
-      setTimeout,
-      clearTimeout,
-      Promise,
-      URL
-    })
+    runtime.agent = agent
+    runtime.display = display
 
     this.runtimes.set(threadId, runtime)
     return runtime
@@ -383,7 +371,16 @@ export class BrowserUseManager {
       focusMode
     })
 
-    if (normalizedInitial) await this.navigate(tab, normalizedInitial, { skipPolicyCheck: true })
+    if (normalizedInitial) {
+      await this.navigate(tab, normalizedInitial, { skipPolicyCheck: true })
+    } else {
+      await this.loadAutomationUrl(
+        tab,
+        'about:blank',
+        this.blankTabReadyTimeoutMs(),
+        'initial blank page')
+      await this.waitForScriptReady(tab, this.blankTabReadyTimeoutMs())
+    }
     return tab
   }
 
@@ -396,6 +393,110 @@ export class BrowserUseManager {
     const wc = this.viewerHost.getTabWebContents(owner, tabId)
     if (!wc || wc.isDestroyed()) throw new Error(`Browser tab is no longer available: ${tabId}`)
     return wc
+  }
+
+  private async withBrowserOperation<T>(
+    tab: BrowserUseTabRuntime,
+    operation: string,
+    run: () => Promise<T> | T,
+    timeoutMs?: number
+  ): Promise<T> {
+    const runtime = this.getRuntimeForTab(tab)
+    const signal = runtime.activeAbortSignal
+    if (signal?.aborted) {
+      throw new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id}.`)
+    }
+
+    let operationPromise: Promise<T>
+    try {
+      operationPromise = Promise.resolve(run())
+    } catch (error) {
+      throw error
+    }
+    operationPromise.catch(() => {})
+
+    return new Promise<T>((resolve, reject) => {
+      let settled = false
+      const cleanup = () => {
+        clearTimeout(timeout)
+        signal?.removeEventListener('abort', onAbort)
+      }
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        callback()
+      }
+      const currentUrl = () => {
+        try {
+          return this.webContentsFor(tab.owner, tab.id).getURL() || 'about:blank'
+        } catch {
+          return 'unknown'
+        }
+      }
+      const onAbort = () => {
+        finish(() => reject(new Error(
+          `Browser operation '${operation}' was cancelled for tab ${tab.id} at ${currentUrl()}.`)))
+      }
+      const effectiveTimeoutMs = Math.max(1, Math.min(timeoutMs ?? this.operationTimeoutMs(), 120_000))
+      const timeout = setTimeout(() => {
+        finish(() => reject(new Error(
+          `Browser operation '${operation}' timed out after ${effectiveTimeoutMs}ms for tab ${tab.id} at ${currentUrl()}.`)))
+      }, effectiveTimeoutMs)
+
+      signal?.addEventListener('abort', onAbort, { once: true })
+      operationPromise.then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error))
+      )
+    })
+  }
+
+  private async loadAutomationUrl(
+    tab: BrowserUseTabRuntime,
+    url: string,
+    timeoutMs = this.navigationTimeoutMs(),
+    operation = 'navigate'
+  ): Promise<void> {
+    await this.withBrowserOperation(
+      tab,
+      operation,
+      () => this.viewerHost.loadAutomationUrl(tab.owner, { tabId: tab.id, url }),
+      timeoutMs)
+  }
+
+  private async waitForScriptReady(
+    tab: BrowserUseTabRuntime,
+    timeoutMs = this.blankTabReadyTimeoutMs()
+  ): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
+    if (!wc.isLoading() && wc.getURL()) return
+    await this.withBrowserOperation(tab, 'wait for script-ready document', () => new Promise<void>((resolve) => {
+      const done = () => {
+        cleanup()
+        resolve()
+      }
+      const cleanup = () => {
+        wc.off('dom-ready', done)
+        wc.off('did-finish-load', done)
+        wc.off('did-stop-loading', done)
+      }
+      wc.once('dom-ready', done)
+      wc.once('did-finish-load', done)
+      wc.once('did-stop-loading', done)
+    }), timeoutMs)
+  }
+
+  private executeJavaScript<T = unknown>(
+    tab: BrowserUseTabRuntime,
+    source: string,
+    operation: string,
+    userGesture = true
+  ): Promise<T> {
+    return this.withBrowserOperation(
+      tab,
+      operation,
+      () => this.webContentsFor(tab.owner, tab.id).executeJavaScript(source, userGesture) as Promise<T>)
   }
 
   private getSelectedTab(runtime: BrowserUseThreadRuntime): BrowserUseTabRuntime | null {
@@ -484,10 +585,11 @@ export class BrowserUseManager {
         logs: async (options?: { filter?: string; levels?: string[]; limit?: number }) => this.devLogs(tab, options)
       },
       clipboard: {
-        readText: async () => this.webContentsFor(tab.owner, tab.id).executeJavaScript('navigator.clipboard.readText()'),
-        writeText: async (text: string) => this.webContentsFor(tab.owner, tab.id).executeJavaScript(
-          `navigator.clipboard.writeText(${JSON.stringify(String(text ?? ''))})`
-        )
+        readText: async () => this.executeJavaScript(tab, 'navigator.clipboard.readText()', 'clipboard.readText'),
+        writeText: async (text: string) => this.executeJavaScript(
+          tab,
+          `navigator.clipboard.writeText(${JSON.stringify(String(text ?? ''))})`,
+          'clipboard.writeText')
       }
     }
   }
@@ -663,7 +765,7 @@ export class BrowserUseManager {
       const runtime = this.getRuntimeForTab(tab)
       await this.ensureNavigationAllowed(tab.owner, runtime, tab.id, normalized)
     }
-    await this.viewerHost.loadAutomationUrl(tab.owner, { tabId: tab.id, url: normalized })
+    await this.loadAutomationUrl(tab, normalized)
     return this.tabSnapshot(tab)
   }
 
@@ -762,7 +864,10 @@ export class BrowserUseManager {
     options?: { fullPage?: boolean; clip?: Electron.Rectangle }
   ): Promise<BrowserUseImageResult> {
     this.markAutomation(tab, 'screenshot')
-    const image = await this.webContentsFor(tab.owner, tab.id).capturePage(options?.clip)
+    const image = await this.withBrowserOperation(
+      tab,
+      'screenshot',
+      () => this.webContentsFor(tab.owner, tab.id).capturePage(options?.clip))
     return {
       mediaType: 'image/png',
       dataBase64: image.toPNG().toString('base64')
@@ -770,7 +875,8 @@ export class BrowserUseManager {
   }
 
   private async domSnapshot(tab: BrowserUseTabRuntime): Promise<string> {
-    return String(await this.webContentsFor(tab.owner, tab.id).executeJavaScript(`
+    await this.waitForScriptReady(tab, this.blankTabReadyTimeoutMs())
+    return String(await this.executeJavaScript(tab, `
       (() => {
         const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
         const labels = Array.from(document.querySelectorAll(interesting.join(','))).slice(0, 200).map((el) => {
@@ -783,14 +889,15 @@ export class BrowserUseManager {
         const bodyText = (document.body?.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 4000);
         return JSON.stringify({ title: document.title, url: location.href, bodyText, elements: labels }, null, 2);
       })()
-    `))
+    `, 'domSnapshot'))
   }
 
   private async evaluateInPage(tab: BrowserUseTabRuntime, expressionOrFunction: string | (() => unknown)): Promise<unknown> {
     const source = typeof expressionOrFunction === 'function'
       ? `(${expressionOrFunction.toString()})()`
       : String(expressionOrFunction)
-    return this.webContentsFor(tab.owner, tab.id).executeJavaScript(source)
+    await this.waitForScriptReady(tab, this.blankTabReadyTimeoutMs())
+    return this.executeJavaScript(tab, source, 'evaluate')
   }
 
   private async click(tab: BrowserUseTabRuntime, selector: string): Promise<void> {
@@ -807,61 +914,66 @@ export class BrowserUseManager {
 
   private async cuaMove(tab: BrowserUseTabRuntime, options: { x: number; y: number; waitForArrival?: boolean }): Promise<void> {
     this.markAutomation(tab, 'move')
-    await this.viewerHost.moveMouse(tab.owner, {
+    await this.withBrowserOperation(tab, 'cua.move', () => this.viewerHost.moveMouse(tab.owner, {
       tabId: tab.id,
       x: Number(options.x),
       y: Number(options.y),
       waitForArrival: options.waitForArrival
-    })
+    }))
   }
 
   private async cuaClick(tab: BrowserUseTabRuntime, options: { x: number; y: number; button?: number | string }): Promise<void> {
     this.markAutomation(tab, 'click')
-    await this.viewerHost.clickMouse(tab.owner, {
+    await this.withBrowserOperation(tab, 'cua.click', () => this.viewerHost.clickMouse(tab.owner, {
       tabId: tab.id,
       x: Number(options.x),
       y: Number(options.y),
       button: this.normalizeMouseButton(options.button)
-    })
+    }))
   }
 
   private async cuaDoubleClick(tab: BrowserUseTabRuntime, options: { x: number; y: number; button?: number | string }): Promise<void> {
     this.markAutomation(tab, 'double click')
-    await this.viewerHost.doubleClickMouse(tab.owner, {
+    await this.withBrowserOperation(tab, 'cua.double_click', () => this.viewerHost.doubleClickMouse(tab.owner, {
       tabId: tab.id,
       x: Number(options.x),
       y: Number(options.y),
       button: this.normalizeMouseButton(options.button)
-    })
+    }))
   }
 
   private async cuaDrag(tab: BrowserUseTabRuntime, options: { path: Array<{ x: number; y: number }> }): Promise<void> {
     this.markAutomation(tab, 'drag')
-    await this.viewerHost.dragMouse(tab.owner, {
+    await this.withBrowserOperation(tab, 'cua.drag', () => this.viewerHost.dragMouse(tab.owner, {
       tabId: tab.id,
       path: Array.isArray(options.path) ? options.path : []
-    })
+    }))
   }
 
   private async cuaScroll(tab: BrowserUseTabRuntime, options: { x: number; y: number; scrollX: number; scrollY: number }): Promise<void> {
     this.markAutomation(tab, 'scroll')
-    await this.viewerHost.scrollMouse(tab.owner, {
+    await this.withBrowserOperation(tab, 'cua.scroll', () => this.viewerHost.scrollMouse(tab.owner, {
       tabId: tab.id,
       x: Number(options.x),
       y: Number(options.y),
       scrollX: Number(options.scrollX ?? 0),
       scrollY: Number(options.scrollY ?? 0)
-    })
+    }))
   }
 
   private async cuaType(tab: BrowserUseTabRuntime, options: { text: string }): Promise<void> {
     this.markAutomation(tab, 'type')
-    await this.viewerHost.typeText(tab.owner, { tabId: tab.id, text: String(options.text ?? '') })
+    await this.withBrowserOperation(
+      tab,
+      'cua.type',
+      () => this.viewerHost.typeText(tab.owner, { tabId: tab.id, text: String(options.text ?? '') }))
   }
 
   private async cuaKeypress(tab: BrowserUseTabRuntime, options: { keys: string[] }): Promise<void> {
     this.markAutomation(tab, 'keypress')
-    this.viewerHost.keypress(tab.owner, { tabId: tab.id, keys: Array.isArray(options.keys) ? options.keys.map(String) : [] })
+    await this.withBrowserOperation(tab, 'cua.keypress', async () => {
+      this.viewerHost.keypress(tab.owner, { tabId: tab.id, keys: Array.isArray(options.keys) ? options.keys.map(String) : [] })
+    })
   }
 
   private async locatorClick(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor): Promise<void> {
@@ -1007,7 +1119,7 @@ export class BrowserUseManager {
         });
       })(${JSON.stringify(descriptor)})
     `
-    return await this.webContentsFor(tab.owner, tab.id).executeJavaScript(script, true) as BrowserUseElementMatch[]
+    return await this.executeJavaScript<BrowserUseElementMatch[]>(tab, script, 'locator.resolve')
   }
 
   private async locatorEvaluate(
@@ -1053,7 +1165,7 @@ export class BrowserUseManager {
         return null;
       })(${JSON.stringify(descriptor)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
     `
-    return await this.webContentsFor(tab.owner, tab.id).executeJavaScript(script, true)
+    return await this.executeJavaScript(tab, script, `locator.${operation}`)
   }
 
   private async mutateStrictLocator(
@@ -1104,7 +1216,7 @@ export class BrowserUseManager {
         return true;
       })(${JSON.stringify(descriptor)}, ${JSON.stringify(value)})
     `
-    await this.webContentsFor(tab.owner, tab.id).executeJavaScript(script, true)
+    await this.executeJavaScript(tab, script, 'locator.fill')
   }
 
   private async locatorWaitFor(
@@ -1115,6 +1227,8 @@ export class BrowserUseManager {
     const expected = options?.state ?? 'visible'
     const deadline = Date.now() + Math.max(1_000, Math.min(options?.timeoutMs ?? 30_000, 120_000))
     for (;;) {
+      const signal = this.getRuntimeForTab(tab).activeAbortSignal
+      if (signal?.aborted) throw new Error(`Browser operation 'locator.waitFor' was cancelled for tab ${tab.id}.`)
       const count = (await this.resolveLocator(tab, descriptor)).length
       if ((expected === 'hidden' || expected === 'detached') ? count === 0 : count > 0) return
       if (Date.now() > deadline) throw new Error(`Timed out waiting for locator ${this.describeLocator(descriptor)} to be ${expected}.`)
@@ -1126,20 +1240,31 @@ export class BrowserUseManager {
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (wc.getURL() === expectedUrl) return Promise.resolve()
     return new Promise((resolve, reject) => {
+      const signal = this.getRuntimeForTab(tab).activeAbortSignal
+      if (signal?.aborted) {
+        reject(new Error(`Browser operation 'waitForURL' was cancelled for tab ${tab.id}.`))
+        return
+      }
       const timeout = setTimeout(() => {
         cleanup()
-        reject(new Error(`Timed out waiting for browser URL: ${expectedUrl}`))
+        reject(new Error(`Browser operation 'waitForURL' timed out after ${Math.max(1_000, Math.min(timeoutMs, 120_000))}ms for tab ${tab.id}: ${expectedUrl}`))
       }, Math.max(1_000, Math.min(timeoutMs, 120_000)))
       const done = () => {
         if (wc.getURL() !== expectedUrl) return
         cleanup()
         resolve()
       }
+      const onAbort = () => {
+        cleanup()
+        reject(new Error(`Browser operation 'waitForURL' was cancelled for tab ${tab.id}.`))
+      }
       const cleanup = () => {
         clearTimeout(timeout)
         wc.off('did-navigate', done)
         wc.off('did-stop-loading', done)
+        signal?.removeEventListener('abort', onAbort)
       }
+      signal?.addEventListener('abort', onAbort, { once: true })
       wc.on('did-navigate', done)
       wc.on('did-stop-loading', done)
     })
@@ -1170,39 +1295,35 @@ export class BrowserUseManager {
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (!wc.isLoading()) return Promise.resolve()
     return new Promise((resolve, reject) => {
+      const signal = this.getRuntimeForTab(tab).activeAbortSignal
+      if (signal?.aborted) {
+        reject(new Error(`Browser operation 'waitForLoadState' was cancelled for tab ${tab.id}.`))
+        return
+      }
       const timeout = setTimeout(() => {
         cleanup()
-        reject(new Error('Timed out waiting for browser load state.'))
+        reject(new Error(`Browser operation 'waitForLoadState' timed out after ${Math.max(1_000, Math.min(timeoutMs, 120_000))}ms for tab ${tab.id}.`))
       }, Math.max(1_000, Math.min(timeoutMs, 120_000)))
       const done = () => {
         cleanup()
         resolve()
       }
+      const onAbort = () => {
+        cleanup()
+        reject(new Error(`Browser operation 'waitForLoadState' was cancelled for tab ${tab.id}.`))
+      }
       const cleanup = () => {
         clearTimeout(timeout)
         wc.off('did-finish-load', done)
         wc.off('did-stop-loading', done)
+        signal?.removeEventListener('abort', onAbort)
       }
+      signal?.addEventListener('abort', onAbort, { once: true })
       wc.once('did-finish-load', done)
       wc.once('did-stop-loading', done)
     })
   }
 
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('BrowserJs timed out.')), timeoutMs)
-      promise.then(
-        (value) => {
-          clearTimeout(timeout)
-          resolve(value)
-        },
-        (error) => {
-          clearTimeout(timeout)
-          reject(error)
-        }
-      )
-    })
-  }
 }
 
 export const browserUseManager = new BrowserUseManager()

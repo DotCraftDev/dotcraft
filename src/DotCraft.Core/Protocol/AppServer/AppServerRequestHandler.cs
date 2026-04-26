@@ -43,7 +43,7 @@ public sealed class AppServerRequestHandler(
     IWelcomeSuggestionService? welcomeSuggestionService = null,
     string? dashboardUrl = null,
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
-    WireBrowserUseProxy? wireBrowserUseProxy = null,
+    WireNodeReplProxy? wireNodeReplProxy = null,
     CommandRegistry? commandRegistry = null,
     IChannelStatusProvider? channelStatusProvider = null,
     McpClientManager? mcpClientManager = null,
@@ -350,8 +350,8 @@ public sealed class AppServerRequestHandler(
 
         if (wireAcpExtensionProxy != null && connection.HasAcpExtensions)
             wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
-        if (wireBrowserUseProxy != null && connection.HasBrowserUse)
-            await BindBrowserUseThreadAndRefreshAgentAsync(thread.Id, ct);
+        if (wireNodeReplProxy != null && connection.HasNodeRepl && connection.HasBrowserUse)
+            await BindNodeReplThreadAndRefreshAgentAsync(thread.Id, ct);
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
@@ -374,8 +374,8 @@ public sealed class AppServerRequestHandler(
 
         if (wireAcpExtensionProxy != null && connection.HasAcpExtensions)
             wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
-        if (wireBrowserUseProxy != null && connection.HasBrowserUse)
-            await BindBrowserUseThreadAndRefreshAgentAsync(thread.Id, ct);
+        if (wireNodeReplProxy != null && connection.HasNodeRepl && connection.HasBrowserUse)
+            await BindNodeReplThreadAndRefreshAgentAsync(thread.Id, ct);
 
         // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
         var resumedBy = connection.ClientInfo?.Name ?? "appserver";
@@ -417,9 +417,9 @@ public sealed class AppServerRequestHandler(
         return new ThreadListResult { Data = [.. threads] };
     }
 
-    private async Task BindBrowserUseThreadAndRefreshAgentAsync(string threadId, CancellationToken ct)
+    private async Task BindNodeReplThreadAndRefreshAgentAsync(string threadId, CancellationToken ct)
     {
-        wireBrowserUseProxy!.BindThread(threadId, transport, connection);
+        wireNodeReplProxy!.BindThread(threadId, transport, connection);
         if (sessionService is IThreadAgentRefreshService refreshService)
             await refreshService.RefreshThreadAgentAsync(threadId, ct);
     }

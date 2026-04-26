@@ -83,6 +83,31 @@ function createFakeOwner() {
   } as unknown as Electron.BrowserWindow & { webContents: { send: ReturnType<typeof vi.fn> } }
 }
 
+async function runBrowserUse(
+  manager: BrowserUseManager,
+  owner: Electron.BrowserWindow,
+  params: { threadId: string; workspacePath?: string; code: string }
+) {
+  const runtime = manager.prepareNodeRepl(owner as BrowserWindow, params)
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+  try {
+    const value = await new AsyncFunction('agent', 'display', params.code)(runtime.agent, runtime.display)
+    const collected = runtime.collect()
+    return {
+      resultText: value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2),
+      images: collected.images,
+      logs: collected.logs
+    }
+  } catch (error) {
+    const collected = runtime.collect()
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      images: collected.images,
+      logs: collected.logs
+    }
+  }
+}
+
 describe('normalizeBrowserUseUrl', () => {
   it('defaults local host-like URLs to http', () => {
     expect(normalizeBrowserUseUrl('localhost:3000')).toBe('http://localhost:3000/')
@@ -143,25 +168,13 @@ describe('browser-use navigation policy', () => {
   })
 })
 
-describe('BrowserUseManager JavaScript runtime', () => {
-  it('does not expose external Node globals', async () => {
-    const manager = new BrowserUseManager()
-    const owner = createFakeOwner()
-    const result = await manager.evaluate(owner, {
-      threadId: 'thread-1',
-      code: 'return `${typeof process}:${typeof require}`;'
-    })
-
-    expect(result.error).toBeUndefined()
-    expect(result.resultText).toBe('undefined:undefined')
-  })
-
-  it('opens BrowserJs tabs through viewer browser and emits a first-open event', async () => {
+describe('BrowserUseManager IAB backend', () => {
+  it('opens tabs through viewer browser and emits a first-open event', async () => {
     const host = createFakeHost()
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: `
@@ -187,12 +200,85 @@ describe('BrowserUseManager JavaScript runtime', () => {
     expect(BrowserWindow).not.toHaveBeenCalled()
   })
 
+  it('creates a stable blank selected tab before taking the first DOM snapshot', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('document.title')) {
+        return JSON.stringify({
+          title: 'Test Page',
+          url: 'about:blank',
+          bodyText: '',
+          elements: []
+        }, null, 2)
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-blank',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.selected();
+        return await tab.domSnapshot();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(JSON.parse(result.resultText!)).toMatchObject({
+      title: 'Test Page',
+      url: 'about:blank'
+    })
+    expect(host.createAutomationTab).toHaveBeenCalledWith(owner, expect.objectContaining({
+      initialUrl: 'about:blank'
+    }))
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, expect.objectContaining({
+      url: 'about:blank'
+    }))
+    expect(wc.executeJavaScript).toHaveBeenCalled()
+  })
+
+  it('returns a readable timeout when page JavaScript evaluation hangs', async () => {
+    const wc = createFakeWebContents()
+    let releaseScript: (() => void) | undefined
+    let scriptPromise: Promise<unknown> | undefined
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise((resolve) => {
+      scriptPromise = new Promise((innerResolve) => {
+        releaseScript = () => {
+          resolve('late')
+          innerResolve('late')
+        }
+      })
+    }))
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host, { operationMs: 25 })
+    const owner = createFakeOwner()
+
+    const pending = runBrowserUse(manager, owner, {
+      threadId: 'thread-timeout',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.selected();
+        return await tab.domSnapshot();
+      `
+    })
+    const result = await pending
+
+    expect(result.error).toContain("Browser operation 'domSnapshot' timed out")
+    expect(result.error).toContain('browser-use-thread-timeout-')
+    expect(result.error).toContain('about:blank')
+    releaseScript?.()
+    await scriptPromise
+  }, 15_000)
+
   it('opens 127.0.0.1 dev server URLs through the viewer host', async () => {
     const host = createFakeHost()
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: `
@@ -214,11 +300,11 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: 'await agent.browser.tabs.new("localhost:3000");'
     })
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: 'await agent.browser.tabs.new("localhost:3001");'
     })
@@ -231,7 +317,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     }))
   })
 
-  it('adopts the current thread browser tab for default BrowserJs navigation', async () => {
+  it('adopts the current thread browser tab for default Node REPL navigation', async () => {
     const host = createFakeHost()
     host.getAutomationTargetTab.mockReturnValue({
       tabId: 'user-browser-tab',
@@ -242,7 +328,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.goto("localhost:5173"); return await tab.url();'
@@ -261,7 +347,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     }))
   })
 
-  it('reuses an adopted selected tab across BrowserJs calls', async () => {
+  it('reuses an adopted selected tab across Node REPL calls', async () => {
     const host = createFakeHost()
     host.getAutomationTargetTab.mockReturnValue({
       tabId: 'user-browser-tab',
@@ -272,12 +358,12 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'await agent.browser.tabs.selected();'
     })
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.tabs.selected(); await tab.goto("localhost:5174");'
@@ -295,7 +381,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'await agent.browser.tabs.new("localhost:3000");'
@@ -308,7 +394,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       loading: false
     })
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.goto("localhost:5174"); return tab.id;'
@@ -338,7 +424,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'await agent.browser.goto("localhost:5173");'
@@ -357,7 +443,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    await manager.evaluate(owner, {
+    await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: 'await agent.browser.tabs.new("localhost:3000");'
     })
@@ -375,7 +461,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       updateSettings: vi.fn()
     })
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
@@ -397,7 +483,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       updateSettings: vi.fn()
     })
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'await agent.browser.tabs.new("https://example.com");'
@@ -419,7 +505,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       })
     })
 
-    const pending = manager.evaluate(owner, {
+    const pending = runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
@@ -451,7 +537,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       updateSettings
     })
 
-    const pending = manager.evaluate(owner, {
+    const pending = runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: 'const tab = await agent.browser.tabs.new("https://example.com"); return await tab.url();'
@@ -487,7 +573,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
       updateSettings: vi.fn()
     })
 
-    const pending = manager.evaluate(owner, {
+    const pending = runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       workspacePath: 'F:/workspace',
       code: `
@@ -526,7 +612,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: `
         const tab = await agent.browser.tabs.new("localhost:3000");
@@ -563,7 +649,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: `
         const tab = await agent.browser.tabs.new("localhost:3000");
@@ -593,7 +679,7 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const manager = new BrowserUseManager(host)
     const owner = createFakeOwner()
 
-    const result = await manager.evaluate(owner, {
+    const result = await runBrowserUse(manager, owner, {
       threadId: 'thread-1',
       code: `
         const tab = await agent.browser.tabs.new("localhost:3000");
