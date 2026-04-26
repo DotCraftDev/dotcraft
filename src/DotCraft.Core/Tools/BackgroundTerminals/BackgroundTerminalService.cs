@@ -684,14 +684,16 @@ public sealed class BackgroundTerminalService : IBackgroundTerminalService, IAsy
 
         private void Append(string text)
         {
+            BackgroundTerminalSnapshot snapshot;
             lock (_sync)
             {
                 _output.Append(text);
+                Directory.CreateDirectory(Path.GetDirectoryName(OutputPath)!);
+                File.AppendAllText(OutputPath, text, Encoding.UTF8);
+                snapshot = CreateSnapshot(maxOutputChars: _owner._config.DefaultReadMaxOutputChars);
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(OutputPath)!);
-            File.AppendAllText(OutputPath, text, Encoding.UTF8);
-            _owner.Raise("outputDelta", CreateSnapshot(maxOutputChars: _owner._config.DefaultReadMaxOutputChars), text);
+            _owner.Raise("outputDelta", snapshot, text);
         }
     }
 

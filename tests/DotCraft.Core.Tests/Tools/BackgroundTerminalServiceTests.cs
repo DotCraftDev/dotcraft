@@ -72,6 +72,29 @@ public sealed class BackgroundTerminalServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task StartAsync_ConcurrentStdoutAndStderr_AppendsToSameLog()
+    {
+        var started = await Service.StartAsync(new BackgroundTerminalStartRequest
+        {
+            ThreadId = "thread_streams",
+            Command = ConcurrentStdoutAndStderrCommand(),
+            WorkingDirectory = _tempDir,
+            RunInBackground = true,
+            YieldTimeMs = 100,
+            MaxOutputChars = 20_000
+        });
+
+        var completed = await Service.ReadAsync(started.SessionId, waitMs: 3000, maxOutputChars: 20_000);
+        var log = await File.ReadAllTextAsync(started.OutputPath);
+
+        Assert.Equal(BackgroundTerminalStatus.Completed, completed.Status);
+        Assert.Contains("out-1", completed.Output);
+        Assert.Contains("err-1", completed.Output);
+        Assert.Contains("out-100", log);
+        Assert.Contains("err-100", log);
+    }
+
+    [Fact]
     public async Task StopAsync_KillsRunningBackgroundCommand()
     {
         var started = await Service.StartAsync(new BackgroundTerminalStartRequest
@@ -130,6 +153,11 @@ public sealed class BackgroundTerminalServiceTests : IAsyncLifetime
 
     private static string SleepCommand() =>
         OperatingSystem.IsWindows() ? "Start-Sleep -Seconds 5" : "sleep 5";
+
+    private static string ConcurrentStdoutAndStderrCommand() =>
+        OperatingSystem.IsWindows()
+            ? "1..100 | ForEach-Object { [Console]::Out.WriteLine(\"out-$_\"); [Console]::Error.WriteLine(\"err-$_\") }"
+            : "for i in $(seq 1 100); do echo out-$i; echo err-$i >&2; done";
 
     private static string QuotePowerShell(string value) => "'" + value.Replace("'", "''") + "'";
 
