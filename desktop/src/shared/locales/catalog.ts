@@ -64,7 +64,7 @@ const MESSAGES_EN = {
   'settings.personalization.description': 'Customize suggestions for this workspace.',
   'settings.personalization.welcomeSuggestions': 'Enable suggestions',
   'settings.personalization.welcomeSuggestionsHint':
-    'Show suggestions based on recent threads and memory.',
+    'Show suggestions based on recent sessions and memory.',
   'settings.personalization.welcomeSuggestionsSaveFailed': 'Failed to save welcome suggestions setting: {{error}}',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
@@ -1563,7 +1563,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.tab.personalization': '个性化',
   'settings.tab.connection': '连接',
   'settings.tab.proxy': 'API 代理',
-  'settings.tab.usage': '用量',
+  'settings.tab.usage': '使用情况',
   'settings.tab.channels': '渠道',
   'settings.tab.subAgents': '子 Agent',
   'settings.tab.archivedThreads': '归档会话',
@@ -1589,7 +1589,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.description': '自定义当前工作区的建议。',
   'settings.personalization.welcomeSuggestions': '启用建议',
   'settings.personalization.welcomeSuggestionsHint':
-    '基于最近线程和记忆显示建议。',
+    '基于最近会话和记忆显示建议。',
   'settings.personalization.welcomeSuggestionsSaveFailed': '保存欢迎建议设置失败：{{error}}',
   'settings.theme.dark': '深色',
   'settings.theme.light': '浅色',
