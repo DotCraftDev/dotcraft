@@ -6,7 +6,7 @@ tools: NodeReplJs
 
 # Browser Use
 
-Use `NodeReplJs` for DotCraft Desktop browser work. The browser runtime is a persistent Node REPL bound to the current thread, so `globalThis` state survives between calls.
+Use `NodeReplJs` for DotCraft Desktop browser work. The browser runtime is a thread-bound JavaScript cell runner. `globalThis` state survives between calls; cell-local `const` and `let` bindings do not.
 
 ## Start here
 
@@ -43,23 +43,25 @@ await globalThis.tab.domSnapshot();
 
 ## Runtime rules
 
-- Reuse `globalThis.agent` and `globalThis.tab`; do not repeatedly redeclare `const tab` across REPL calls.
-- Store useful locators or state on `globalThis` when a multi-step task needs them.
-- Return values directly, use `console.log(...)`, or call `display(await globalThis.tab.screenshot())` when visual inspection matters.
-- Use `NodeReplReset` only when the REPL state is confused, stale, or polluted by failed experiments.
+- Reuse `globalThis.tab` for the active browser tab. Use temporary `const`/`let` freely inside one `NodeReplJs` call.
+- Store only cross-call state on `globalThis`, such as `globalThis.tab`, `globalThis.lastSnapshot`, or a current ref chosen from the latest snapshot.
+- Use `console.log(...)` for values you need to inspect, or `display(await globalThis.tab.screenshot())` when visual inspection matters.
+- A single-expression cell can return a result. In multi-statement cells, use explicit `return ...` if you need `resultText`; otherwise rely on `console.log`.
+- Use `NodeReplReset` only when you intentionally want to clear the JS cell state and close browser-use tabs.
 
 ## Observation loop
 
 - After every navigation, reload, modal open, significant click, or UI state change, observe again with `domSnapshot()` or screenshot.
 - Prefer `domSnapshot()` for choosing locators. Use screenshots for visual layout, canvas, hover, cursor, drag, animation, or rendering issues.
-- `domSnapshot()` element entries include role/name/text/href/selector/bounds; use those fields directly when they identify the target.
+- `domSnapshot()` returns an accessibility-style snapshot plus element entries. Interactive elements have short refs such as `e1`, plus role/name/text/href/selector/bounds.
+- Prefer snapshot refs for immediate interactions on the current page: `await globalThis.tab.playwright.clickRef("e1")`. Refs are only valid for the current observed page state.
 - Do not click from memory after the page changes. Refresh the snapshot and choose from the current state.
 - Do not call both snapshot and screenshot by default; use the cheapest observation that answers the question.
 
 ## Locator rules
 
-- Build locators from the latest snapshot. Prefer stable identifiers: `data-testid`, stable `data-*`, `href`, role plus accessible name, label, placeholder, then visible text.
-- Prefer the selector or `href` shown by `domSnapshot()` when it clearly identifies the target.
+- Build interactions from the latest snapshot. Prefer snapshot `ref` first, then stable identifiers: `data-testid`, stable `data-*`, `href`, role plus accessible name, label, placeholder, then visible text.
+- Prefer the selector or `href` shown by `domSnapshot()` when the ref is stale or you need to reconstruct a locator.
 - If uniqueness is not obvious, call `count()` before acting. Locator actions are strict: zero or multiple matches should be treated as useful feedback, not as a reason to guess.
 - Scope locators to a nearby stable region when repeated labels exist.
 - Avoid positional shortcuts such as `first()`, `last()`, or `nth()` unless the surrounding context proves the position is the actual user target.
@@ -69,18 +71,20 @@ await globalThis.tab.domSnapshot();
 
 - Before clicking or typing, confirm the element exists, is visible, and is enabled when the state is uncertain.
 - `tab.click(...)` and `locator.click()` mean the input action was sent; they do not prove navigation or SPA state completed.
+- `clickRef(...)`, `fillRef(...)`, and `pressRef(...)` also only prove the input action was sent. Re-observe or wait for the result after using them.
 - After click or submit actions, wait for a concrete result: `waitForURL(...)`, text appears, dialog opens, network-driven state completes, or a fresh `domSnapshot()`.
 - Use `waitForLoadState("networkidle", timeoutMs)` when SPA work depends on network quietness. If it times out, observe the page and explain the visible state instead of looping.
-- Avoid fixed sleeps. Use `waitForLoadState`, `waitForURL`, `expectNavigation`, or locator `waitFor` when possible.
+- Avoid fixed sleeps. Prefer explicit `waitForURL`, `waitForLoadState`, or locator `waitFor` after the action. For SPA navigation, call the click first, then wait for the expected URL or observe again.
 - Do not `goto` the current URL unless a reload is intended. Use `reload()` after local code changes, then observe again.
 - For real pointer behavior, use `tab.cua.move`, `click`, `drag`, or `scroll`; these show the Desktop virtual cursor when the page overlay is available.
 
 ## Error recovery
 
 - Strict locator failure means ambiguity or absence; inspect the snapshot and choose a more specific locator.
+- Unknown or stale ref errors mean the page changed or the ref came from an old snapshot; take a fresh `domSnapshot()` and use a current ref.
 - If `getByRole(...).count()` is `0` but the snapshot lists the element, use the snapshot selector or `href`, then observe again.
 - Timeout usually means stale state, hidden/disabled UI, or an unexpected route. Observe before retrying.
-- Syntax or reference errors usually mean REPL state or a bad snippet; fix the snippet or use `NodeReplReset` when state is polluted.
+- Syntax, reference, and promise rejection errors should return quickly as ToolResults. Fix the snippet and retry; use `NodeReplReset` only when you want to clear persistent `globalThis` state.
 - If navigation is denied or blocked, explain that Desktop Browser Use policy controls access and ask the user to approve the domain or update allow/block settings. Do not bypass policy.
 - After two failed attempts on the same goal, stop narrowing blindly. Summarize what is visible, what failed, and the next user-friendly option.
 
@@ -119,6 +123,7 @@ Tab:
 - `tab.domSnapshot()` / `tab.screenshot()`
 - `tab.evaluate(expressionOrFunction)`
 - `tab.click(selector)` / `tab.type(selector, text)` / `tab.press(selector, key)`
+- `tab.clickRef(ref)` / `tab.fillRef(ref, text)` / `tab.pressRef(ref, key)`
 - `tab.waitForLoadState(state?, timeoutMs?)`
 - `tab.consoleLogs()`
 
@@ -128,7 +133,7 @@ Playwright-like:
 - `tab.playwright.screenshot(options?)`
 - `tab.playwright.waitForLoadState(state?, timeoutMs?)`
 - `tab.playwright.waitForURL(urlOrPattern, options?)`
-- `tab.playwright.expectNavigation(action, options?)`
+- `tab.playwright.clickRef(ref)` / `tab.playwright.fillRef(ref, text)` / `tab.playwright.pressRef(ref, key)`
 - `tab.playwright.locator(selector)`
 - `tab.playwright.getByRole(role, { name?, exact? })`
 - `tab.playwright.getByText(text, { exact? })`

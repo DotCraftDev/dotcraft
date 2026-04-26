@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { viewerBrowserManager } from './viewerBrowser'
 import type { AppSettings } from './settings'
@@ -6,6 +8,26 @@ import {
   normalizeBrowserUseDomainList,
   resolveBrowserUseNavigationDecision
 } from './browserUsePolicy'
+
+const require = createRequire(import.meta.url)
+const playwrightCoreRoot = dirname(require.resolve('playwright-core/package.json'))
+const { source: playwrightInjectedScriptSource } = require(join(playwrightCoreRoot, 'lib/generated/injectedScriptSource.js')) as { source: string }
+const { parseSelector: parsePlaywrightSelector } = require(join(playwrightCoreRoot, 'lib/utils/isomorphic/selectorParser.js')) as {
+  parseSelector: (selector: string) => unknown
+}
+const {
+  getByLabelSelector,
+  getByPlaceholderSelector,
+  getByRoleSelector,
+  getByTestIdSelector,
+  getByTextSelector
+} = require(join(playwrightCoreRoot, 'lib/utils/isomorphic/locatorUtils.js')) as {
+  getByLabelSelector: (text: string, options?: { exact?: boolean }) => string
+  getByPlaceholderSelector: (text: string, options?: { exact?: boolean }) => string
+  getByRoleSelector: (role: string, options?: { exact?: boolean; name?: string }) => string
+  getByTestIdSelector: (testIdAttributeName: string, testId: string) => string
+  getByTextSelector: (text: string, options?: { exact?: boolean }) => string
+}
 
 const BROWSER_USE_OPEN_CHANNEL = 'viewer:browser-use:open'
 const BROWSER_USE_APPROVAL_REQUEST_CHANNEL = 'viewer:browser-use:approval-request'
@@ -96,6 +118,9 @@ interface BrowserUseTabRuntime {
   owner: BrowserWindow
   logs: BrowserUseLogEntry[]
   adopted?: boolean
+  cdpAttached?: boolean
+  snapshotRefs: Map<string, BrowserUseElementMatch>
+  snapshotGeneration: number
 }
 
 interface BrowserUseOperationTrace {
@@ -139,7 +164,7 @@ interface BrowserUseOperationTimeouts {
   blankTabReadyMs?: number
 }
 
-type BrowserUseLocatorKind = 'css' | 'text' | 'role' | 'label' | 'placeholder' | 'testId'
+type BrowserUseLocatorKind = 'css' | 'text' | 'role' | 'label' | 'placeholder' | 'testId' | 'ref'
 
 interface BrowserUseLocatorDescriptor {
   kind: BrowserUseLocatorKind
@@ -149,12 +174,15 @@ interface BrowserUseLocatorDescriptor {
 }
 
 interface BrowserUseElementMatch {
+  ref?: string
   index: number
   tagName: string
+  tag?: string
   role: string
   name: string
   text: string
   href?: string
+  testId?: string
   selector: string
   visible: boolean
   enabled: boolean
@@ -256,6 +284,8 @@ export class BrowserUseManager {
     const runtime = this.getOrCreateRuntime(owner, params.threadId, params.workspacePath)
     runtime.logs = []
     runtime.images = []
+    runtime.operationHistory = []
+    runtime.activeOperation = undefined
     runtime.activeEvaluationId = params.evaluationId
     runtime.activeAbortSignal = params.signal
     return {
@@ -294,6 +324,7 @@ export class BrowserUseManager {
     const runtime = this.runtimes.get(threadId)
     if (!runtime) return { ok: false }
     for (const tab of [...runtime.tabs.values()]) {
+      this.detachDebugger(tab)
       if (tab.adopted) {
         this.setAutomationState(runtime, tab, false)
       } else {
@@ -439,6 +470,38 @@ export class BrowserUseManager {
     const wc = this.viewerHost.getTabWebContents(owner, tabId)
     if (!wc || wc.isDestroyed()) throw new Error(`Browser tab is no longer available: ${tabId}`)
     return wc
+  }
+
+  private async ensureDebuggerAttached(tab: BrowserUseTabRuntime): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
+    const debuggerApi = wc.debugger
+    if (!debuggerApi) {
+      throw new Error(`Browser tab ${tab.id} does not expose Electron debugger/CDP.`)
+    }
+    if (!tab.cdpAttached || !debuggerApi.isAttached()) {
+      debuggerApi.attach('1.3')
+      tab.cdpAttached = true
+    }
+  }
+
+  private detachDebugger(tab: BrowserUseTabRuntime): void {
+    try {
+      const debuggerApi = this.webContentsFor(tab.owner, tab.id).debugger
+      if (debuggerApi?.isAttached()) debuggerApi.detach()
+    } catch {
+      // Best effort only. Browser tab teardown should not be blocked by debugger cleanup.
+    } finally {
+      tab.cdpAttached = false
+    }
+  }
+
+  private async cdpCommand<T = unknown>(
+    tab: BrowserUseTabRuntime,
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<T> {
+    await this.ensureDebuggerAttached(tab)
+    return await this.webContentsFor(tab.owner, tab.id).debugger.sendCommand(method, params) as T
   }
 
   private operationUrl(tab: BrowserUseTabRuntime): string {
@@ -638,7 +701,32 @@ export class BrowserUseManager {
     return this.withBrowserOperation(
       tab,
       operation,
-      () => this.webContentsFor(tab.owner, tab.id).executeJavaScript(source, userGesture) as Promise<T>)
+      async () => {
+        const result = await this.cdpCommand<{
+          result?: { value?: T; unserializableValue?: string }
+          exceptionDetails?: {
+            text?: string
+            exception?: { description?: string; value?: unknown }
+          }
+        }>(tab, 'Runtime.evaluate', {
+          expression: source,
+          awaitPromise: true,
+          returnByValue: true,
+          userGesture
+        })
+        if (result.exceptionDetails) {
+          const details = result.exceptionDetails
+          const message = details.exception?.description ||
+            (details.exception?.value == null ? undefined : String(details.exception.value)) ||
+            details.text ||
+            `JavaScript evaluation failed during ${operation}`
+          throw new Error(message)
+        }
+        if (result.result?.unserializableValue != null) {
+          return result.result.unserializableValue as T
+        }
+        return result.result?.value as T
+      })
   }
 
   private async waitForPageReady(
@@ -778,7 +866,14 @@ export class BrowserUseManager {
     const existing = runtime.tabs.get(id)
     if (existing) return existing
     const wc = this.webContentsFor(owner, id)
-    const tab: BrowserUseTabRuntime = { id, owner, logs: [], adopted }
+    const tab: BrowserUseTabRuntime = {
+      id,
+      owner,
+      logs: [],
+      adopted,
+      snapshotRefs: new Map(),
+      snapshotGeneration: 0
+    }
     runtime.tabs.set(id, tab)
 
     wc.on('console-message', (_event, level, message) => {
@@ -791,6 +886,7 @@ export class BrowserUseManager {
       })
     })
     wc.once('destroyed', () => {
+      this.detachDebugger(tab)
       runtime.tabs.delete(id)
       if (runtime.selectedTabId === id) runtime.selectedTabId = null
     })
@@ -812,6 +908,9 @@ export class BrowserUseManager {
       domSnapshot: async () => this.domSnapshot(tab),
       evaluate: async (expressionOrFunction: string | (() => unknown)) => this.evaluateInPage(tab, expressionOrFunction),
       click: async (selector: string) => this.click(tab, selector),
+      clickRef: async (ref: string) => this.locatorClick(tab, { kind: 'ref', value: String(ref) }),
+      fillRef: async (ref: string, value: string) => this.locatorFill(tab, { kind: 'ref', value: String(ref) }, value),
+      pressRef: async (ref: string, key: string) => this.locatorPress(tab, { kind: 'ref', value: String(ref) }, key),
       type: async (selector: string, text: string) => this.type(tab, selector, text),
       press: async (selector: string, key: string) => this.press(tab, selector, key),
       waitForLoadState: async (state = 'load', timeoutMs = 30_000) => this.waitForLoad(tab, state, timeoutMs),
@@ -869,6 +968,9 @@ export class BrowserUseManager {
         }
         return result
       },
+      clickRef: async (ref: string) => this.locatorClick(tab, { kind: 'ref', value: String(ref) }),
+      fillRef: async (ref: string, value: string) => this.locatorFill(tab, { kind: 'ref', value: String(ref) }, value),
+      pressRef: async (ref: string, key: string) => this.locatorPress(tab, { kind: 'ref', value: String(ref) }, key),
       locator: (selector: string) => this.createLocatorApi(tab, { kind: 'css', value: String(selector) }),
       getByTestId: (testId: string) => this.createLocatorApi(tab, { kind: 'testId', value: String(testId) }),
       getByText: (text: string, options?: { exact?: boolean }) => this.createLocatorApi(tab, {
@@ -909,7 +1011,7 @@ export class BrowserUseManager {
       innerText: async () => (await this.strictLocator(tab, descriptor)).visibleText,
       textContent: async () => this.locatorEvaluate(tab, descriptor, 'textContent'),
       getAttribute: async (name: string) => this.locatorEvaluate(tab, descriptor, 'getAttribute', name),
-      isVisible: async () => (await this.resolveLocator(tab, descriptor)).length > 0,
+      isVisible: async () => (await this.resolveLocator(tab, descriptor)).some((match) => match.visible),
       isEnabled: async () => this.locatorEvaluate(tab, descriptor, 'isEnabled'),
       waitFor: async (options?: { state?: string; timeoutMs?: number }) => this.locatorWaitFor(tab, descriptor, options),
       getByText: (text: string, options?: { exact?: boolean }) => this.createLocatorApi(tab, {
@@ -971,6 +1073,7 @@ export class BrowserUseManager {
 
   private async goBack(tab: BrowserUseTabRuntime): Promise<Record<string, unknown>> {
     this.markAutomation(tab, 'back')
+    this.invalidateSnapshotRefs(tab)
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
     await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
@@ -979,6 +1082,7 @@ export class BrowserUseManager {
 
   private async goForward(tab: BrowserUseTabRuntime): Promise<Record<string, unknown>> {
     this.markAutomation(tab, 'forward')
+    this.invalidateSnapshotRefs(tab)
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
     await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
@@ -987,6 +1091,7 @@ export class BrowserUseManager {
 
   private async reload(tab: BrowserUseTabRuntime): Promise<Record<string, unknown>> {
     this.markAutomation(tab, 'reload')
+    this.invalidateSnapshotRefs(tab)
     this.webContentsFor(tab.owner, tab.id).reload()
     await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
     return this.tabSnapshot(tab)
@@ -994,6 +1099,7 @@ export class BrowserUseManager {
 
   private closeTab(tab: BrowserUseTabRuntime): void {
     this.markAutomation(tab, 'close')
+    this.detachDebugger(tab)
     this.viewerHost.destroyTab(tab.owner, tab.id)
   }
 
@@ -1005,12 +1111,18 @@ export class BrowserUseManager {
     const normalized = normalizeBrowserUseUrl(url)
     if (!normalized) throw new Error(`Invalid browser URL: ${url}`)
     this.markAutomation(tab, 'navigate')
+    this.invalidateSnapshotRefs(tab)
     if (options.skipPolicyCheck !== true) {
       const runtime = this.getRuntimeForTab(tab)
       await this.ensureNavigationAllowed(tab.owner, runtime, tab.id, normalized)
     }
     await this.loadAutomationUrl(tab, normalized)
     return this.tabSnapshot(tab)
+  }
+
+  private invalidateSnapshotRefs(tab: BrowserUseTabRuntime): void {
+    tab.snapshotRefs.clear()
+    tab.snapshotGeneration += 1
   }
 
   private getRuntimeForTab(tab: BrowserUseTabRuntime): BrowserUseThreadRuntime {
@@ -1129,8 +1241,155 @@ export class BrowserUseManager {
       requireContent: true,
       timeoutMs: this.operationTimeoutMs()
     })
-    return String(await this.executeJavaScript(tab, `
+    await this.ensurePlaywrightInjected(tab)
+    const rawSnapshot = await this.executeJavaScript<unknown>(
+      tab,
+      'window.__dotcraftBrowserUseSnapshot()',
+      'domSnapshot')
+    const snapshot = this.normalizeSnapshotPayload(rawSnapshot)
+    const elements = this.assignSnapshotRefs(tab, snapshot.elements)
+    const accessibilitySnapshot = this.formatAccessibilitySnapshot(elements)
+    return JSON.stringify({
+      ...snapshot,
+      accessibilitySnapshot,
+      elements
+    }, null, 2)
+  }
+
+  private normalizeSnapshotPayload(rawSnapshot: unknown): {
+    title: string
+    url: string
+    bodyText: string
+    elements: BrowserUseElementMatch[]
+  } {
+    const parsed = typeof rawSnapshot === 'string'
+      ? this.tryParseJson(rawSnapshot) ?? {}
+      : rawSnapshot
+    const obj = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+    const elements = Array.isArray(obj.elements)
+      ? obj.elements.map((item, index) => this.normalizeElementMatch(item, index))
+      : []
+    return {
+      title: typeof obj.title === 'string' ? obj.title : '',
+      url: typeof obj.url === 'string' ? obj.url : '',
+      bodyText: typeof obj.bodyText === 'string' ? obj.bodyText : '',
+      elements
+    }
+  }
+
+  private tryParseJson(value: string): unknown | null {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+
+  private normalizeElementMatch(value: unknown, index: number): BrowserUseElementMatch {
+    if (!value || typeof value !== 'object') {
+      const text = String(value ?? '')
+      return {
+        index,
+        tagName: '',
+        tag: '',
+        role: '',
+        name: text,
+        text,
+        selector: '',
+        visible: true,
+        enabled: true,
+        visibleText: text,
+        ariaName: text,
+        boundingBox: null
+      }
+    }
+    const obj = value as Record<string, unknown>
+    const boundingBox = obj.boundingBox && typeof obj.boundingBox === 'object'
+      ? obj.boundingBox as BrowserUseElementMatch['boundingBox']
+      : null
+    const tagName = this.stringValue(obj.tagName ?? obj.tag)
+    const text = this.stringValue(obj.text ?? obj.visibleText)
+    const name = this.stringValue(obj.name ?? obj.ariaName)
+    return {
+      ref: typeof obj.ref === 'string' ? obj.ref : undefined,
+      index: typeof obj.index === 'number' ? obj.index : index,
+      tagName,
+      tag: this.stringValue(obj.tag ?? tagName),
+      role: this.stringValue(obj.role),
+      name,
+      text,
+      href: typeof obj.href === 'string' ? obj.href : undefined,
+      testId: typeof obj.testId === 'string' ? obj.testId : undefined,
+      selector: this.stringValue(obj.selector),
+      visible: obj.visible !== false,
+      enabled: obj.enabled !== false,
+      visibleText: this.stringValue(obj.visibleText ?? text),
+      ariaName: this.stringValue(obj.ariaName ?? name),
+      boundingBox
+    }
+  }
+
+  private stringValue(value: unknown): string {
+    return typeof value === 'string' ? value : value == null ? '' : String(value)
+  }
+
+  private assignSnapshotRefs(
+    tab: BrowserUseTabRuntime,
+    elements: BrowserUseElementMatch[]
+  ): BrowserUseElementMatch[] {
+    tab.snapshotGeneration += 1
+    tab.snapshotRefs.clear()
+    return elements.map((element, index) => {
+      const ref = `e${index + 1}`
+      const withRef = {
+        ...element,
+        ref,
+        index
+      }
+      tab.snapshotRefs.set(ref, withRef)
+      return withRef
+    })
+  }
+
+  private formatAccessibilitySnapshot(elements: BrowserUseElementMatch[]): string {
+    return elements.map((element) => {
+      const role = element.role || element.tagName || 'element'
+      const label = this.escapeSnapshotText(element.name || element.text || element.visibleText || element.selector)
+      const details = [
+        `[ref=${element.ref ?? ''}]`,
+        element.href ? `[href=${this.escapeSnapshotText(element.href)}]` : '',
+        element.testId ? `[testId=${this.escapeSnapshotText(element.testId)}]` : '',
+        element.selector ? `[selector=${this.escapeSnapshotText(element.selector)}]` : '',
+        element.enabled ? '' : '[disabled]'
+      ].filter(Boolean).join(' ')
+      return `- ${role} "${label}" ${details}`.trim()
+    }).join('\n')
+  }
+
+  private escapeSnapshotText(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').slice(0, 160)
+  }
+
+  private async ensurePlaywrightInjected(tab: BrowserUseTabRuntime): Promise<void> {
+    const installed = await this.executeJavaScript<boolean>(
+      tab,
+      'Boolean(window.__dotcraftPlaywrightInjected && window.__dotcraftBrowserUseSnapshot && window.__dotcraftBrowserUseResolveSelector)',
+      'playwright.inject.check').catch(() => false)
+    if (installed === true) return
+
+    await this.executeJavaScript(tab, `
       (() => {
+        const module = { exports: {} };
+        ${playwrightInjectedScriptSource}
+        const injected = new (module.exports.InjectedScript())(globalThis, {
+          isUnderTest: false,
+          sdkLanguage: "javascript",
+          testIdAttributeName: "data-testid",
+          stableRafCount: 2,
+          browserName: "chromium",
+          isUtilityWorld: false,
+          customEngines: []
+        });
         const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
         const cssEscape = (value) => window.CSS?.escape
           ? CSS.escape(String(value))
@@ -1169,18 +1428,20 @@ export class BrowserUseManager {
           el.getAttribute('value') ||
           ''
         );
-        const nameOf = (el) => normalize(
-          el.getAttribute('aria-label') ||
-          el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ') ||
-          el.getAttribute('title') ||
-          el.getAttribute('alt') ||
-          el.innerText ||
-          el.textContent ||
-          el.getAttribute('placeholder') ||
-          el.getAttribute('value') ||
-          ''
-        );
-        const selectorOf = (el) => {
+        const nameOf = (el) => {
+          return normalize(
+            el.getAttribute('aria-label') ||
+            el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ') ||
+            el.getAttribute('title') ||
+            el.getAttribute('alt') ||
+            el.innerText ||
+            el.textContent ||
+            el.getAttribute('placeholder') ||
+            el.getAttribute('value') ||
+            ''
+          );
+        };
+        const fallbackSelectorOf = (el) => {
           const tag = el.tagName.toLowerCase();
           if (el.id) return tag + '#' + cssEscape(el.id);
           const testId = el.getAttribute('data-testid');
@@ -1193,33 +1454,71 @@ export class BrowserUseManager {
           if (aria) return tag + '[aria-label="' + attrValue(aria) + '"]';
           return tag;
         };
-        const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
-        const elements = Array.from(document.querySelectorAll(interesting.join(','))).filter(visible).slice(0, 200).map((el, index) => {
-          const tag = el.tagName.toLowerCase();
+        const selectorOf = (el) => {
+          try {
+            return injected.generateSelectorSimple(el) || fallbackSelectorOf(el);
+          } catch {
+            return fallbackSelectorOf(el);
+          }
+        };
+        const elementInfo = (el, index) => {
+          const tagName = el.tagName.toLowerCase();
           const rect = el.getBoundingClientRect();
           const text = textOf(el);
           const name = nameOf(el);
-          const role = roleOf(el);
-          const selector = selectorOf(el);
           return {
             index,
-            tag,
-            role,
+            tagName,
+            tag: tagName,
+            role: roleOf(el),
             name,
             text,
             href: el.getAttribute('href') || undefined,
             testId: el.getAttribute('data-testid') || undefined,
-            selector,
-            visible: true,
+            selector: selectorOf(el),
+            visible: visible(el),
             enabled: enabled(el),
-            boundingBox: rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : null,
-            summary: tag + (role ? '[' + role + ']' : '') + ' ' + selector + (name || text ? ' "' + (name || text).slice(0, 120) + '"' : '')
+            visibleText: text,
+            ariaName: name,
+            boundingBox: rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : null
           };
-        });
-        const bodyText = (document.body?.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 4000);
-        return JSON.stringify({ title: document.title, url: location.href, bodyText, elements }, null, 2);
+        };
+        window.__dotcraftPlaywrightInjected = injected;
+        window.__dotcraftBrowserUseElementInfo = elementInfo;
+        window.__dotcraftBrowserUseResolveSelector = (parsed) => {
+          const elements = injected.querySelectorAll(parsed, document);
+          injected.checkDeprecatedSelectorUsage(parsed, elements);
+          return elements.slice(0, 100).map(elementInfo);
+        };
+        window.__dotcraftBrowserUseSnapshot = () => {
+          const interesting = [
+            'a',
+            'button',
+            'input',
+            'textarea',
+            'select',
+            'summary',
+            '[role="button"]',
+            '[role="link"]',
+            '[role="menuitem"]',
+            '[role="tab"]',
+            '[contenteditable="true"]'
+          ];
+          const seen = new Set();
+          const elements = Array.from(document.querySelectorAll(interesting.join(',')))
+            .filter((el) => {
+              if (!el || seen.has(el) || !visible(el)) return false;
+              seen.add(el);
+              return true;
+            })
+            .slice(0, 200)
+            .map(elementInfo);
+          const bodyText = (document.body?.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 4000);
+          return { title: document.title, url: location.href, bodyText, elements };
+        };
+        return true;
       })()
-    `, 'domSnapshot'))
+    `, 'playwright.inject')
   }
 
   private async evaluateInPage(tab: BrowserUseTabRuntime, expressionOrFunction: string | (() => unknown)): Promise<unknown> {
@@ -1256,7 +1555,7 @@ export class BrowserUseManager {
     }))
   }
 
-  private async cuaClick(tab: BrowserUseTabRuntime, options: { x: number; y: number; button?: number | string }): Promise<void> {
+  private async cuaClick(tab: BrowserUseTabRuntime, options: { x: number; y: number; button?: number | string; preserveRefs?: boolean }): Promise<void> {
     this.markAutomation(tab, 'click')
     await this.withBrowserOperation(tab, 'cua.click', () => this.viewerHost.clickMouse(tab.owner, {
       tabId: tab.id,
@@ -1264,6 +1563,7 @@ export class BrowserUseManager {
       y: Number(options.y),
       button: this.normalizeMouseButton(options.button)
     }))
+    if (options.preserveRefs !== true) this.invalidateSnapshotRefs(tab)
   }
 
   private async cuaDoubleClick(tab: BrowserUseTabRuntime, options: { x: number; y: number; button?: number | string }): Promise<void> {
@@ -1274,6 +1574,7 @@ export class BrowserUseManager {
       y: Number(options.y),
       button: this.normalizeMouseButton(options.button)
     }))
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async cuaDrag(tab: BrowserUseTabRuntime, options: { path: Array<{ x: number; y: number }> }): Promise<void> {
@@ -1282,6 +1583,7 @@ export class BrowserUseManager {
       tabId: tab.id,
       path: Array.isArray(options.path) ? options.path : []
     }))
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async cuaScroll(tab: BrowserUseTabRuntime, options: { x: number; y: number; scrollX: number; scrollY: number }): Promise<void> {
@@ -1301,6 +1603,7 @@ export class BrowserUseManager {
       tab,
       'cua.type',
       () => this.viewerHost.typeText(tab.owner, { tabId: tab.id, text: String(options.text ?? '') }))
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async cuaKeypress(tab: BrowserUseTabRuntime, options: { keys: string[] }): Promise<void> {
@@ -1308,39 +1611,79 @@ export class BrowserUseManager {
     await this.withBrowserOperation(tab, 'cua.keypress', async () => {
       this.viewerHost.keypress(tab.owner, { tabId: tab.id, keys: Array.isArray(options.keys) ? options.keys.map(String) : [] })
     })
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async locatorClick(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor): Promise<void> {
-    const target = await this.strictLocator(tab, descriptor)
+    const target = await this.waitForActionableLocator(tab, descriptor)
     const point = this.actionPoint(target)
-    await this.cuaClick(tab, { ...point })
+    await this.cuaClick(tab, { ...point, preserveRefs: true })
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async locatorDoubleClick(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor): Promise<void> {
-    const target = await this.strictLocator(tab, descriptor)
+    const target = await this.waitForActionableLocator(tab, descriptor)
     const point = this.actionPoint(target)
     await this.cuaDoubleClick(tab, { ...point })
   }
 
   private async locatorType(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor, value: string): Promise<void> {
-    const target = await this.strictLocator(tab, descriptor)
+    const target = await this.waitForActionableLocator(tab, descriptor)
     const point = this.actionPoint(target)
-    await this.cuaClick(tab, { ...point })
+    await this.cuaClick(tab, { ...point, preserveRefs: true })
     await this.cuaType(tab, { text: String(value ?? '') })
   }
 
   private async locatorFill(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor, value: string): Promise<void> {
-    const target = await this.strictLocator(tab, descriptor)
+    const target = await this.waitForActionableLocator(tab, descriptor)
     const point = this.actionPoint(target)
-    await this.cuaClick(tab, { ...point })
+    await this.cuaClick(tab, { ...point, preserveRefs: true })
     await this.mutateStrictLocator(tab, descriptor, String(value ?? ''))
+    this.invalidateSnapshotRefs(tab)
   }
 
   private async locatorPress(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor, value: string): Promise<void> {
-    const target = await this.strictLocator(tab, descriptor)
+    const target = await this.waitForActionableLocator(tab, descriptor)
     const point = this.actionPoint(target)
-    await this.cuaClick(tab, { ...point })
+    await this.cuaClick(tab, { ...point, preserveRefs: true })
     await this.cuaKeypress(tab, { keys: [String(value)] })
+  }
+
+  private async waitForActionableLocator(
+    tab: BrowserUseTabRuntime,
+    descriptor: BrowserUseLocatorDescriptor
+  ): Promise<BrowserUseElementMatch> {
+    const deadline = Date.now() + this.operationTimeoutMs()
+    let lastError: Error | null = null
+    for (;;) {
+      try {
+        const target = await this.strictLocator(tab, descriptor)
+        this.assertActionable(target, descriptor)
+        return target
+      } catch (error) {
+        const current = error instanceof Error ? error : new Error(String(error))
+        if (
+          current.message.startsWith('Strict mode violation') ||
+          current.message.startsWith('Unknown browser snapshot ref')
+        ) {
+          throw current
+        }
+        lastError = current
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for locator ${this.describeLocator(descriptor)} to become visible and enabled. Last error: ${lastError?.message ?? 'unknown'}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
+  private assertActionable(match: BrowserUseElementMatch, descriptor: BrowserUseLocatorDescriptor): void {
+    if (!match.visible) {
+      throw new Error(`Locator ${this.describeLocator(descriptor)} resolved to a hidden element: ${this.describeElementMatch(match)}`)
+    }
+    if (!match.enabled) {
+      throw new Error(`Locator ${this.describeLocator(descriptor)} resolved to a disabled element: ${this.describeElementMatch(match)}`)
+    }
   }
 
   private async strictLocator(tab: BrowserUseTabRuntime, descriptor: BrowserUseLocatorDescriptor): Promise<BrowserUseElementMatch> {
@@ -1349,17 +1692,21 @@ export class BrowserUseManager {
       throw new Error(`No element found for locator: ${this.describeLocator(descriptor)}`)
     }
     if (matches.length > 1) {
-      const examples = matches.slice(0, 5).map((match) => {
-        const box = match.boundingBox
-          ? `@${Math.round(match.boundingBox.x)},${Math.round(match.boundingBox.y)} ${Math.round(match.boundingBox.width)}x${Math.round(match.boundingBox.height)}`
-          : '@no-box'
-        const label = match.name || match.text || match.visibleText || match.ariaName || ''
-        const href = match.href ? ` href=${match.href}` : ''
-        return `${match.tagName}[${match.role}] "${label}" ${match.selector}${href} ${box}`
-      }).join('; ')
+      const examples = matches.slice(0, 5).map((match) => this.describeElementMatch(match)).join('; ')
       throw new Error(`Strict mode violation for locator ${this.describeLocator(descriptor)}: ${matches.length} elements matched. Matches: ${examples}`)
     }
     return matches[0]!
+  }
+
+  private describeElementMatch(match: BrowserUseElementMatch): string {
+    const box = match.boundingBox
+      ? `@${Math.round(match.boundingBox.x)},${Math.round(match.boundingBox.y)} ${Math.round(match.boundingBox.width)}x${Math.round(match.boundingBox.height)}`
+      : '@no-box'
+    const label = match.name || match.text || match.visibleText || match.ariaName || ''
+    const href = match.href ? ` href=${match.href}` : ''
+    const ref = match.ref ? ` ref=${match.ref}` : ''
+    const state = `${match.visible ? 'visible' : 'hidden'}/${match.enabled ? 'enabled' : 'disabled'}`
+    return `${match.tagName || match.tag || 'element'}[${match.role || 'generic'}] "${label}" ${match.selector}${href}${ref} ${state} ${box}`
   }
 
   private actionPoint(match: BrowserUseElementMatch): { x: number; y: number } {
@@ -1377,122 +1724,59 @@ export class BrowserUseManager {
     tab: BrowserUseTabRuntime,
     descriptor: BrowserUseLocatorDescriptor
   ): Promise<BrowserUseElementMatch[]> {
-    const script = `
-      ((descriptor) => {
-        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
-        const cssEscape = (value) => window.CSS?.escape
-          ? CSS.escape(String(value))
-          : String(value).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\\\' + ch);
-        const attrValue = (value) => String(value ?? '').replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
-        const matchesText = (actual, expected, exact) => {
-          const a = normalize(actual);
-          const e = normalize(expected);
-          return exact ? a === e : a.toLowerCase().includes(e.toLowerCase());
-        };
-        const visible = (el) => {
-          const style = window.getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
-          return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-        };
-        const roleOf = (el) => {
-          const explicit = el.getAttribute('role');
-          if (explicit) return normalize(explicit).split(' ')[0];
-          const tag = el.tagName.toLowerCase();
-          if (tag === 'a' && el.hasAttribute('href')) return 'link';
-          if (tag === 'button') return 'button';
-          if (tag === 'input') {
-            const type = (el.getAttribute('type') || 'text').toLowerCase();
-            if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
-            if (type === 'checkbox') return 'checkbox';
-            if (type === 'radio') return 'radio';
-            if (type === 'search') return 'searchbox';
-            return 'textbox';
-          }
-          if (tag === 'textarea') return 'textbox';
-          if (tag === 'select') return 'combobox';
-          if (tag === 'summary') return 'button';
-          return '';
-        };
-        const nameOf = (el) => normalize(
-          el.getAttribute('aria-label') ||
-          el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ') ||
-          el.getAttribute('title') ||
-          el.getAttribute('alt') ||
-          el.innerText ||
-          el.textContent ||
-          el.getAttribute('placeholder') ||
-          el.getAttribute('value') ||
-          ''
-        );
-        const textOf = (el) => normalize(
-          el.innerText ||
-          el.textContent ||
-          el.getAttribute('aria-label') ||
-          el.getAttribute('placeholder') ||
-          el.getAttribute('value') ||
-          ''
-        );
-        const selectorOf = (el) => {
-          const tag = el.tagName.toLowerCase();
-          if (el.id) return tag + '#' + cssEscape(el.id);
-          const testId = el.getAttribute('data-testid');
-          if (testId) return tag + '[data-testid="' + attrValue(testId) + '"]';
-          const href = el.getAttribute('href');
-          if (tag === 'a' && href) return 'a[href="' + attrValue(href) + '"]';
-          const name = el.getAttribute('name');
-          if (name) return tag + '[name="' + attrValue(name) + '"]';
-          const aria = el.getAttribute('aria-label');
-          if (aria) return tag + '[aria-label="' + attrValue(aria) + '"]';
-          return tag;
-        };
-        const enabled = (el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
-        let candidates = [];
-        if (descriptor.kind === 'css') {
-          candidates = Array.from(document.querySelectorAll(descriptor.value));
-        } else if (descriptor.kind === 'testId') {
-          candidates = Array.from(document.querySelectorAll('[data-testid="' + CSS.escape(descriptor.value) + '"]'));
-        } else if (descriptor.kind === 'placeholder') {
-          candidates = Array.from(document.querySelectorAll('input, textarea')).filter((el) => matchesText(el.getAttribute('placeholder'), descriptor.value, descriptor.exact));
-        } else if (descriptor.kind === 'label') {
-          const fromLabels = Array.from(document.querySelectorAll('label')).filter((el) => matchesText(textOf(el), descriptor.value, descriptor.exact)).map((label) => label.control).filter(Boolean);
-          const aria = Array.from(document.querySelectorAll('input, textarea, select, button')).filter((el) => matchesText(el.getAttribute('aria-label'), descriptor.value, descriptor.exact));
-          candidates = [...fromLabels, ...aria];
-        } else if (descriptor.kind === 'role') {
-          candidates = Array.from(document.querySelectorAll('body *')).filter((el) => {
-            if (roleOf(el) !== descriptor.value) return false;
-            return descriptor.name == null || matchesText(nameOf(el), descriptor.name, descriptor.exact);
-          });
-        } else if (descriptor.kind === 'text') {
-          candidates = Array.from(document.querySelectorAll('body *')).filter((el) => matchesText(textOf(el), descriptor.value, descriptor.exact));
-        }
-        const seen = new Set();
-        return candidates.filter((el) => {
-          if (!el || seen.has(el) || !visible(el)) return false;
-          seen.add(el);
-          return true;
-        }).slice(0, 100).map((el, index) => {
-          const rect = el.getBoundingClientRect();
-          const text = textOf(el);
-          const name = nameOf(el);
-          const role = roleOf(el);
-          return {
-            index,
-            tagName: el.tagName.toLowerCase(),
-            role,
-            name,
-            text,
-            href: el.getAttribute('href') || undefined,
-            selector: selectorOf(el),
-            visible: true,
-            enabled: enabled(el),
-            visibleText: text,
-            ariaName: name,
-            boundingBox: rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : null
-          };
-        });
-      })(${JSON.stringify(descriptor)})
-    `
-    return await this.executeJavaScript<BrowserUseElementMatch[]>(tab, script, 'locator.resolve')
+    const snapshotRef = descriptor.kind === 'ref'
+      ? this.snapshotRef(tab, descriptor.value)
+      : null
+    const selector = snapshotRef?.selector || this.playwrightSelectorFor(descriptor)
+    if (!selector && snapshotRef) return [snapshotRef]
+    await this.ensurePlaywrightInjected(tab)
+    const parsed = parsePlaywrightSelector(selector)
+    const matches = await this.executeJavaScript<BrowserUseElementMatch[]>(
+      tab,
+      `window.__dotcraftBrowserUseResolveSelector(${JSON.stringify(parsed)})`,
+      'locator.resolve')
+    const normalized = Array.isArray(matches)
+      ? matches.map((match, index) => this.normalizeElementMatch(match, index))
+      : []
+    if (!snapshotRef) return normalized
+    return normalized
+      .filter((match) => this.matchesSnapshotRef(match, snapshotRef))
+      .map((match) => ({ ...match, ref: snapshotRef.ref }))
+  }
+
+  private snapshotRef(tab: BrowserUseTabRuntime, ref: string): BrowserUseElementMatch {
+    const snapshotRef = tab.snapshotRefs.get(ref)
+    if (!snapshotRef) {
+      throw new Error(`Unknown browser snapshot ref '${ref}' for tab ${tab.id}. Take a fresh domSnapshot() and use a current ref.`)
+    }
+    return snapshotRef
+  }
+
+  private matchesSnapshotRef(current: BrowserUseElementMatch, snapshotRef: BrowserUseElementMatch): boolean {
+    if (snapshotRef.href && current.href !== snapshotRef.href) return false
+    if (snapshotRef.testId && current.testId !== snapshotRef.testId) return false
+    if (snapshotRef.role && current.role !== snapshotRef.role) return false
+    const expectedName = snapshotRef.name || snapshotRef.text || snapshotRef.visibleText
+    if (expectedName) {
+      const actualName = current.name || current.text || current.visibleText
+      if (actualName !== expectedName) return false
+    }
+    return true
+  }
+
+  private playwrightSelectorFor(descriptor: BrowserUseLocatorDescriptor): string {
+    if (descriptor.kind === 'css') return descriptor.value
+    if (descriptor.kind === 'text') return getByTextSelector(descriptor.value, { exact: descriptor.exact === true })
+    if (descriptor.kind === 'label') return getByLabelSelector(descriptor.value, { exact: descriptor.exact === true })
+    if (descriptor.kind === 'placeholder') return getByPlaceholderSelector(descriptor.value, { exact: descriptor.exact === true })
+    if (descriptor.kind === 'testId') return getByTestIdSelector('data-testid', descriptor.value)
+    if (descriptor.kind === 'role') {
+      return getByRoleSelector(descriptor.value, {
+        name: descriptor.name,
+        exact: descriptor.exact === true
+      })
+    }
+    throw new Error(`Unsupported browser locator: ${this.describeLocator(descriptor)}`)
   }
 
   private async locatorEvaluate(
@@ -1502,15 +1786,18 @@ export class BrowserUseManager {
     arg?: string
   ): Promise<unknown> {
     const target = await this.strictLocator(tab, descriptor)
+    const selector = target.selector || this.playwrightSelectorFor(descriptor)
+    const parsed = parsePlaywrightSelector(selector)
     const script = `
-      ((selector, operation, arg) => {
-        const el = document.querySelector(selector);
+      ((parsed, operation, arg) => {
+        const injected = window.__dotcraftPlaywrightInjected;
+        const el = injected.querySelector(parsed, document, true);
         if (!el) return null;
         if (operation === 'textContent') return el.textContent;
         if (operation === 'getAttribute') return el.getAttribute(arg);
         if (operation === 'isEnabled') return !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
         return null;
-      })(${JSON.stringify(target.selector)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
+      })(${JSON.stringify(parsed)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
     `
     return await this.executeJavaScript(tab, script, `locator.${operation}`)
   }
@@ -1521,9 +1808,12 @@ export class BrowserUseManager {
     value: string
   ): Promise<void> {
     const target = await this.strictLocator(tab, descriptor)
+    const selector = target.selector || this.playwrightSelectorFor(descriptor)
+    const parsed = parsePlaywrightSelector(selector)
     const script = `
-      ((selector, value) => {
-        const el = document.querySelector(selector);
+      ((parsed, value) => {
+        const injected = window.__dotcraftPlaywrightInjected;
+        const el = injected.querySelector(parsed, document, true);
         if (!el) throw new Error('Element is no longer available.');
         el.focus();
         if ('value' in el) {
@@ -1535,7 +1825,7 @@ export class BrowserUseManager {
         el.textContent = value;
         el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
         return true;
-      })(${JSON.stringify(target.selector)}, ${JSON.stringify(value)})
+      })(${JSON.stringify(parsed)}, ${JSON.stringify(value)})
     `
     await this.executeJavaScript(tab, script, 'locator.fill')
   }

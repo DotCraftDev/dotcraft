@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NodeReplManager } from '../nodeReplManager'
 
 vi.mock('electron', () => ({
@@ -40,22 +40,49 @@ function createFakeBrowserManager() {
 }
 
 describe('NodeReplManager', () => {
-  it('persists thread variables across evaluations', async () => {
-    const browserManager = createFakeBrowserManager()
+  const managers: NodeReplManager[] = []
+  const createManager = (browserManager: ReturnType<typeof createFakeBrowserManager>) => {
     const manager = new NodeReplManager(browserManager as never)
+    managers.push(manager)
+    return manager
+  }
+
+  afterEach(async () => {
+    await Promise.all(managers.map((manager) => manager.disposeAllForTests()))
+    managers.length = 0
+  })
+
+  it('persists explicit globalThis variables across evaluations', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
-    await manager.evaluate(owner, { threadId: 'thread-1', code: 'let count = 1' })
-    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'count += 1; count' })
+    await manager.evaluate(owner, { threadId: 'thread-1', code: 'globalThis.count = 1' })
+    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'globalThis.count += 1' })
 
     expect(result.error).toBeUndefined()
     expect(result.resultText).toBe('2')
     manager.reset('thread-1')
   })
 
+  it('keeps cell-local const declarations from poisoning later evaluations', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
+    const owner = {} as Electron.BrowserWindow
+
+    const first = await manager.evaluate(owner, { threadId: 'thread-1', code: 'const snapshot = 1; return snapshot' })
+    const second = await manager.evaluate(owner, { threadId: 'thread-1', code: 'const snapshot = 2; return snapshot' })
+
+    expect(first.error).toBeUndefined()
+    expect(first.resultText).toBe('1')
+    expect(second.error).toBeUndefined()
+    expect(second.resultText).toBe('2')
+    manager.reset('thread-1')
+  })
+
   it('returns console logs and displayed images', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
     const result = await manager.evaluate(owner, {
@@ -63,7 +90,7 @@ describe('NodeReplManager', () => {
       code: `
         console.log("hello", 42)
         await display({ mediaType: "image/png", dataBase64: "AQID" })
-        "done"
+        return "done"
       `
     })
 
@@ -75,7 +102,7 @@ describe('NodeReplManager', () => {
 
   it('loads browser-client.mjs and initializes IAB globals', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
     const result = await manager.evaluate(owner, {
@@ -84,7 +111,7 @@ describe('NodeReplManager', () => {
         const { setupAtlasRuntime } = await import(dotcraft.browserUseClientPath)
         const initialized = await setupAtlasRuntime({ globals: globalThis, backend: "iab" })
         await agent.browser.nameSession("docs")
-        initialized
+        return initialized
       `
     })
 
@@ -95,12 +122,12 @@ describe('NodeReplManager', () => {
 
   it('resets the REPL and browser runtime for a thread', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
-    await manager.evaluate(owner, { threadId: 'thread-1', code: 'let count = 1' })
+    await manager.evaluate(owner, { threadId: 'thread-1', code: 'globalThis.count = 1' })
     const reset = manager.reset('thread-1')
-    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'typeof count' })
+    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'typeof globalThis.count' })
 
     expect(reset.ok).toBe(true)
     expect(browserManager.reset).toHaveBeenCalledWith('thread-1')
@@ -108,9 +135,36 @@ describe('NodeReplManager', () => {
     manager.reset('thread-1')
   })
 
+  it('returns JavaScript runtime errors instead of waiting for tool timeout', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
+    const owner = {} as Electron.BrowserWindow
+
+    const thrown = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'throw new Error("boom")',
+      timeoutMs: 5_000
+    })
+    const rejected = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'await Promise.reject(new Error("nope"))',
+      timeoutMs: 5_000
+    })
+    const typeError = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'await globalThis.missing.url()',
+      timeoutMs: 5_000
+    })
+
+    expect(thrown.error).toContain('Error: boom')
+    expect(rejected.error).toContain('Error: nope')
+    expect(typeError.error).toContain('TypeError')
+    manager.reset('thread-1')
+  })
+
   it('passes evaluation id and abort signal into the browser runtime', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
     const result = await manager.evaluate(owner, {
@@ -130,7 +184,7 @@ describe('NodeReplManager', () => {
 
   it('resets the REPL runtime after timeout so the next evaluation is fresh', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
     const pending = manager.evaluate(owner, {
@@ -144,7 +198,7 @@ describe('NodeReplManager', () => {
     expect(timedOut.error).toContain('timed out')
     expect(timedOut.logs.join('\n')).toContain('Recent browser operations')
     expect(browserManager.abortEvaluation).toHaveBeenCalledWith('thread-1', expect.stringMatching(/^node-repl-/))
-    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'typeof count' })
+    const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'typeof globalThis.count' })
     expect(result.error).toBeUndefined()
     expect(result.resultText).toBe('undefined')
     manager.reset('thread-1')
@@ -152,7 +206,7 @@ describe('NodeReplManager', () => {
 
   it('cancels an active evaluation and allows a later evaluation to run', async () => {
     const browserManager = createFakeBrowserManager()
-    const manager = new NodeReplManager(browserManager as never)
+    const manager = createManager(browserManager)
     const owner = {} as Electron.BrowserWindow
 
     const pending = manager.evaluate(owner, {
@@ -173,4 +227,5 @@ describe('NodeReplManager', () => {
     expect(result.resultText).toBe('2')
     manager.reset('thread-1')
   })
+
 })

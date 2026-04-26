@@ -1,9 +1,8 @@
 import { BrowserWindow, app } from 'electron'
 import { existsSync } from 'fs'
-import { PassThrough } from 'stream'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import repl from 'repl'
+import { createContext, Script, type Context } from 'vm'
 import { browserUseManager, type BrowserUseImageResult, type BrowserUseManager } from './browserUseManager'
 
 export interface NodeReplEvaluateParams {
@@ -23,10 +22,17 @@ export interface NodeReplEvaluateResult {
 }
 
 interface NodeReplThreadRuntime {
-  replServer: repl.REPLServer
+  context: Context
+  globals: Record<string, unknown>
   logs: string[]
   activeEvaluationId?: string
   activeAbortController?: AbortController
+  phase?: string
+}
+
+interface BrowserRuntimeBindings {
+  agent: Record<string, unknown>
+  display: (imageLike: unknown) => Promise<void>
 }
 
 function describeResult(value: unknown): string {
@@ -37,6 +43,12 @@ function describeResult(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function formatError(error: unknown, phase: string | undefined): string {
+  const prefix = `phase=${phase ?? 'js-runtime'}`
+  if (error instanceof Error) return `${prefix} ${error.name}: ${error.message}`
+  return `${prefix} ${String(error)}`
 }
 
 function resolveBrowserClientPath(): string {
@@ -51,21 +63,46 @@ function resolveBrowserClientPath(): string {
 }
 
 function createReplRuntime(): NodeReplThreadRuntime {
-  const input = new PassThrough()
-  const output = new PassThrough()
-  const replServer = repl.start({
-    prompt: '',
-    input,
-    output,
-    terminal: false,
-    useGlobal: false,
-    ignoreUndefined: true
-  })
-  return { replServer, logs: [] }
+  const globals: Record<string, unknown> = {}
+  return {
+    globals,
+    context: createContext(globals),
+    logs: [],
+    phase: 'idle'
+  }
 }
 
 function newEvaluationId(): string {
   return `node-repl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function normalizeCellCode(code: string): string {
+  return String(code ?? '').replace(/\bimport\s*\(/g, '__dotcraftDynamicImport(')
+}
+
+function compileCell(code: string): { script: Script; kind: 'expression' | 'statement' } {
+  const normalized = normalizeCellCode(code)
+  const trimmed = normalized.trim()
+  if (!trimmed) {
+    return {
+      script: new Script('(async () => {})()', { filename: 'NodeReplJs' }),
+      kind: 'statement'
+    }
+  }
+
+  const expressionSource = `(async () => { return (${trimmed}\n); })()`
+  try {
+    return {
+      script: new Script(expressionSource, { filename: 'NodeReplJs' }),
+      kind: 'expression'
+    }
+  } catch {
+    const statementSource = `(async () => {\n${normalized}\n})()`
+    return {
+      script: new Script(statementSource, { filename: 'NodeReplJs' }),
+      kind: 'statement'
+    }
+  }
 }
 
 export class NodeReplManager {
@@ -79,30 +116,37 @@ export class NodeReplManager {
     }
 
     const runtime = this.getOrCreateRuntime(params.threadId)
+    if (runtime.activeEvaluationId) {
+      return { error: `NodeReplJs is already running for this thread: ${runtime.activeEvaluationId}`, images: [], logs: [] }
+    }
+
     const evaluationId = params.evaluationId?.trim() || newEvaluationId()
     const abortController = new AbortController()
     runtime.activeEvaluationId = evaluationId
     runtime.activeAbortController = abortController
     runtime.logs = []
+    runtime.phase = 'prepare'
     const browserRuntime = this.browserManager.prepareNodeRepl(owner, {
       threadId: params.threadId,
       workspacePath: params.workspacePath,
       evaluationId,
       signal: abortController.signal
     })
-    this.refreshContext(runtime, browserRuntime)
+    this.refreshContext(runtime, browserRuntime, evaluationId, abortController.signal)
 
     const timeoutMs = Math.max(1_000, Math.min(params.timeoutMs ?? 30_000, 120_000))
     try {
+      runtime.phase = 'js-compile'
+      const cell = compileCell(params.code)
+      runtime.phase = `js-runtime:${cell.kind}`
       const value = await this.withTimeout(
-        new Promise<unknown>((resolve, reject) => {
-          runtime.replServer.eval(params.code, runtime.replServer.context, 'NodeReplJs', (error, result) => {
-            if (error) reject(error)
-            else resolve(result)
-          })
-        }),
+        Promise.resolve(cell.script.runInContext(runtime.context, {
+          displayErrors: true,
+          timeout: 1_000
+        })),
         timeoutMs,
-        abortController.signal)
+        abortController.signal,
+        () => runtime.phase)
       const collected = browserRuntime.collect()
       return {
         resultText: describeResult(value),
@@ -110,12 +154,18 @@ export class NodeReplManager {
         logs: [...runtime.logs, ...collected.logs]
       }
     } catch (error: unknown) {
-      abortController.abort()
-      this.browserManager.abortEvaluation(params.threadId, evaluationId)
-      this.disposeReplRuntime(params.threadId, runtime)
+      const isTimeoutOrCancel = error instanceof Error &&
+        (error.message.includes('timed out') || error.message.includes('cancelled'))
+      if (isTimeoutOrCancel) {
+        abortController.abort()
+        this.browserManager.abortEvaluation(params.threadId, evaluationId)
+        this.disposeReplRuntime(params.threadId, runtime)
+      }
       const collected = browserRuntime.collect()
       return {
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error && isTimeoutOrCancel
+          ? error.message
+          : formatError(error, runtime.phase),
         images: collected.images,
         logs: [...runtime.logs, ...collected.logs]
       }
@@ -123,6 +173,7 @@ export class NodeReplManager {
       if (runtime.activeEvaluationId === evaluationId) {
         runtime.activeEvaluationId = undefined
         runtime.activeAbortController = undefined
+        runtime.phase = 'idle'
       }
     }
   }
@@ -130,7 +181,7 @@ export class NodeReplManager {
   cancel(threadId: string, evaluationId: string): { ok: boolean } {
     const runtime = this.runtimes.get(threadId)
     if (!runtime || runtime.activeEvaluationId !== evaluationId) return { ok: false }
-    runtime.activeAbortController?.abort(new Error('NodeReplJs cancelled.'))
+    runtime.activeAbortController?.abort(new Error(`NodeReplJs cancelled (phase=${runtime.phase ?? 'unknown'}).`))
     this.browserManager.abortEvaluation(threadId, evaluationId)
     this.disposeReplRuntime(threadId, runtime)
     return { ok: true }
@@ -141,6 +192,12 @@ export class NodeReplManager {
     if (runtime) this.disposeReplRuntime(threadId, runtime)
     const browserReset = this.browserManager.reset(threadId)
     return { ok: Boolean(runtime) || browserReset.ok }
+  }
+
+  async disposeAllForTests(): Promise<void> {
+    for (const [threadId, runtime] of [...this.runtimes]) {
+      this.disposeReplRuntime(threadId, runtime)
+    }
   }
 
   private getOrCreateRuntime(threadId: string): NodeReplThreadRuntime {
@@ -154,28 +211,44 @@ export class NodeReplManager {
 
   private refreshContext(
     runtime: NodeReplThreadRuntime,
-    browserRuntime: {
-      agent: Record<string, unknown>
-      display: (imageLike: unknown) => Promise<void>
-    }
+    browserRuntime: BrowserRuntimeBindings,
+    evaluationId: string,
+    signal: AbortSignal
   ): void {
-    const context = runtime.replServer.context as Record<string, unknown>
-    const consoleApi = {
-      log: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' ')),
-      warn: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' ')),
-      error: (...args: unknown[]) => runtime.logs.push(args.map(describeResult).join(' '))
+    const globals = runtime.globals
+    const ensureActive = () => {
+      if (signal.aborted || runtime.activeEvaluationId !== evaluationId) {
+        throw new Error(`NodeReplJs evaluation is no longer active (phase=${runtime.phase ?? 'unknown'}).`)
+      }
     }
-    context.agent = browserRuntime.agent
-    context.display = browserRuntime.display
-    context.console = consoleApi
-    context.dotcraft = { browserUseClientPath: resolveBrowserClientPath() }
-    context.__dotcraftSetupAtlasRuntime = async (
+    const consoleApi = {
+      log: (...args: unknown[]) => {
+        if (runtime.activeEvaluationId === evaluationId) runtime.logs.push(args.map(describeResult).join(' '))
+      },
+      warn: (...args: unknown[]) => {
+        if (runtime.activeEvaluationId === evaluationId) runtime.logs.push(args.map(describeResult).join(' '))
+      },
+      error: (...args: unknown[]) => {
+        if (runtime.activeEvaluationId === evaluationId) runtime.logs.push(args.map(describeResult).join(' '))
+      }
+    }
+    const display = async (imageLike: unknown) => {
+      ensureActive()
+      await browserRuntime.display(imageLike)
+    }
+    globals.agent = browserRuntime.agent
+    globals.display = display
+    globals.console = consoleApi
+    globals.dotcraft = { browserUseClientPath: resolveBrowserClientPath() }
+    globals.__dotcraftDynamicImport = async (specifier: unknown) => import(String(specifier))
+    globals.__dotcraftSetupAtlasRuntime = async (
       options?: { globals?: Record<string, unknown>; backend?: string }
     ) => {
-      const globals = options?.globals ?? context
-      globals.agent = browserRuntime.agent
-      globals.display = browserRuntime.display
-      globals.dotcraft = context.dotcraft
+      ensureActive()
+      const targetGlobals = options?.globals ?? globals
+      targetGlobals.agent = browserRuntime.agent
+      targetGlobals.display = display
+      targetGlobals.dotcraft = globals.dotcraft
       return { backend: options?.backend ?? 'iab' }
     }
   }
@@ -184,15 +257,15 @@ export class NodeReplManager {
     if (this.runtimes.get(threadId) !== runtime) return
     runtime.activeEvaluationId = undefined
     runtime.activeAbortController = undefined
-    try {
-      runtime.replServer.close()
-    } catch {
-      // Best effort cleanup. A fresh REPL will be created for the next call.
-    }
     this.runtimes.delete(threadId)
   }
 
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal: AbortSignal): Promise<T> {
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    signal: AbortSignal,
+    phase: () => string | undefined
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       let settled = false
       const cleanup = () => {
@@ -207,10 +280,13 @@ export class NodeReplManager {
       }
       const onAbort = () => {
         const reason = signal.reason
-        finish(() => reject(reason instanceof Error ? reason : new Error('NodeReplJs cancelled.')))
+        finish(() => reject(reason instanceof Error
+          ? reason
+          : new Error(`NodeReplJs cancelled (phase=${phase() ?? 'unknown'}).`)))
       }
       const timeout = setTimeout(
-        () => finish(() => reject(new Error(`NodeReplJs timed out after ${timeoutMs}ms.`))),
+        () => finish(() => reject(new Error(
+          `NodeReplJs timed out after ${timeoutMs}ms (phase=${phase() ?? 'unknown'}).`))),
         timeoutMs)
       if (signal.aborted) {
         onAbort()

@@ -20,7 +20,8 @@ import { resolveBrowserUseNavigationDecision } from '../browserUsePolicy'
 function createFakeWebContents() {
   const emitter = new EventEmitter()
   let url = 'about:blank'
-  return {
+  let debuggerAttached = false
+  const api = {
     ...emitter,
     on: emitter.on.bind(emitter),
     once: emitter.once.bind(emitter),
@@ -34,6 +35,8 @@ function createFakeWebContents() {
       url = nextUrl
     }),
     executeJavaScript: vi.fn(async (script: string) => {
+      if (script.includes('__dotcraftPlaywrightInjected &&')) return false
+      if (script.includes('module.exports.InjectedScript')) return true
       if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
         return {
           url,
@@ -44,15 +47,73 @@ function createFakeWebContents() {
           appRootTextLength: url === 'about:blank' ? 0 : 12
         }
       }
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
+          title: 'Test Page',
+          url,
+          bodyText: url === 'about:blank' ? '' : 'Test Page',
+          elements: url === 'about:blank'
+            ? []
+            : [{
+                index: 0,
+                tagName: 'a',
+                tag: 'a',
+                role: 'link',
+                name: 'Test Link',
+                text: 'Test Link',
+                href: '/test',
+                selector: 'a[href="/test"]',
+                visible: true,
+                enabled: true,
+                visibleText: 'Test Link',
+                ariaName: 'Test Link',
+                boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+              }]
+        }
+      }
+      if (script.includes('__dotcraftBrowserUseResolveSelector')) {
+        return [{
+          index: 0,
+          tagName: 'a',
+          tag: 'a',
+          role: 'link',
+          name: 'Test Link',
+          text: 'Test Link',
+          href: '/test',
+          selector: 'a[href="/test"]',
+          visible: true,
+          enabled: true,
+          visibleText: 'Test Link',
+          ariaName: 'Test Link',
+          boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+        }]
+      }
       return 'ok'
     }),
     capturePage: vi.fn(async () => ({ toPNG: () => Buffer.from([1, 2, 3]) })),
     insertText: vi.fn(),
     sendInputEvent: vi.fn(),
+    debugger: {
+      isAttached: vi.fn(() => debuggerAttached),
+      attach: vi.fn(() => {
+        debuggerAttached = true
+      }),
+      detach: vi.fn(() => {
+        debuggerAttached = false
+      }),
+      sendCommand: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === 'Runtime.evaluate') {
+          const value = await api.executeJavaScript(String(params?.expression ?? ''), Boolean(params?.userGesture))
+          return { result: { value } }
+        }
+        return {}
+      })
+    },
     setUrl(nextUrl: string) {
       url = nextUrl
     }
-  } as unknown as Electron.WebContents & { setUrl(nextUrl: string): void }
+  }
+  return api as unknown as Electron.WebContents & { setUrl(nextUrl: string): void }
 }
 
 function createFakeHost(webContents = createFakeWebContents()) {
@@ -226,13 +287,13 @@ describe('BrowserUseManager IAB backend', () => {
           appRootTextLength: 0
         }
       }
-      if (script.includes('document.title')) {
-        return JSON.stringify({
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
           title: 'Test Page',
           url: 'about:blank',
           bodyText: '',
           elements: []
-        }, null, 2)
+        }
       }
       return 'ok'
     })
@@ -331,13 +392,13 @@ describe('BrowserUseManager IAB backend', () => {
           appRootTextLength: 46
         }
       }
-      if (script.includes('interesting')) {
-        return JSON.stringify({
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
           title: 'DotCraft',
           url: 'http://127.0.0.1:5173/',
           bodyText: 'DotCraft Search Guide Blog',
           elements: ['a "/" "Guide"', 'button "Search"', 'a "/blog/" "Blog"']
-        }, null, 2)
+        }
       }
       return 'ok'
     })
@@ -795,10 +856,16 @@ describe('BrowserUseManager IAB backend', () => {
   it('resolves locator clicks strictly and sends coordinate input', async () => {
     const wc = createFakeWebContents()
     ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
-      if (script.includes('querySelectorAll')) {
+      if (script.includes('__dotcraftBrowserUseResolveSelector')) {
         return [{
           index: 0,
           tagName: 'button',
+          role: 'button',
+          name: 'Save',
+          text: 'Save',
+          selector: 'button',
+          visible: true,
+          enabled: true,
           visibleText: 'Save',
           ariaName: 'Save',
           boundingBox: { x: 10, y: 20, width: 100, height: 40 }
@@ -838,8 +905,8 @@ describe('BrowserUseManager IAB backend', () => {
           appRootTextLength: 46
         }
       }
-      if (script.includes('bodyText') && script.includes('selector')) {
-        return JSON.stringify({
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
           title: 'DotCraft',
           url: 'http://127.0.0.1:5173/',
           bodyText: 'DotCraft Desktop',
@@ -854,9 +921,9 @@ describe('BrowserUseManager IAB backend', () => {
             enabled: true,
             boundingBox: { x: 10, y: 20, width: 100, height: 40 }
           }]
-        }, null, 2)
+        }
       }
-      if (script.includes('descriptor') && script.includes('roleOf')) {
+      if (script.includes('__dotcraftBrowserUseResolveSelector')) {
         return [{
           index: 0,
           tagName: 'a',
@@ -893,6 +960,7 @@ describe('BrowserUseManager IAB backend', () => {
     expect(JSON.parse(result.resultText!)).toMatchObject({
       count: 1,
       element: {
+        ref: 'e1',
         role: 'link',
         name: 'Desktop',
         selector: 'a[href="/desktop_guide"]'
@@ -900,13 +968,106 @@ describe('BrowserUseManager IAB backend', () => {
     })
   })
 
+  it('lets agents click current snapshot refs without guessing selectors', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url: 'http://127.0.0.1:5173/',
+          title: 'DotCraft',
+          readyState: 'complete',
+          bodyTextLength: 46,
+          interactiveCount: 1,
+          appRootTextLength: 46
+        }
+      }
+      if (script.includes('__dotcraftBrowserUseSnapshot')) {
+        return {
+          title: 'DotCraft',
+          url: 'http://127.0.0.1:5173/',
+          bodyText: 'DotCraft Desktop',
+          elements: [{
+            tagName: 'a',
+            role: 'link',
+            name: 'Desktop',
+            text: 'Desktop',
+            href: '/desktop_guide',
+            selector: 'a[href="/desktop_guide"]',
+            visible: true,
+            enabled: true,
+            visibleText: 'Desktop',
+            ariaName: 'Desktop',
+            boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+          }]
+        }
+      }
+      if (script.includes('__dotcraftBrowserUseResolveSelector')) {
+        return [{
+          index: 0,
+          tagName: 'a',
+          role: 'link',
+          name: 'Desktop',
+          text: 'Desktop',
+          href: '/desktop_guide',
+          selector: 'a[href="/desktop_guide"]',
+          visible: true,
+          enabled: true,
+          visibleText: 'Desktop',
+          ariaName: 'Desktop',
+          boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+        }]
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-ref-click',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        const snapshot = JSON.parse(await tab.domSnapshot());
+        await tab.playwright.clickRef(snapshot.elements[0].ref);
+        return snapshot.accessibilitySnapshot;
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toContain('link "Desktop" [ref=e1]')
+    expect(host.clickMouse).toHaveBeenCalledWith(owner, expect.objectContaining({
+      x: 60,
+      y: 40
+    }))
+  })
+
+  it('reports stale or unknown snapshot refs clearly', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-ref-missing',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        await tab.playwright.clickRef("e404");
+      `
+    })
+
+    expect(result.error).toContain("Unknown browser snapshot ref 'e404'")
+    expect(result.error).toContain('Take a fresh domSnapshot()')
+    expect(host.clickMouse).not.toHaveBeenCalled()
+  })
+
   it('reports strict locator violations instead of guessing', async () => {
     const wc = createFakeWebContents()
     ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
-      if (script.includes('querySelectorAll')) {
+      if (script.includes('__dotcraftBrowserUseResolveSelector')) {
         return [
-          { index: 0, tagName: 'button', visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
-          { index: 1, tagName: 'button', visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 20, y: 0, width: 10, height: 10 } }
+          { index: 0, tagName: 'button', role: 'button', name: 'Save', text: 'Save', selector: 'button', visible: true, enabled: true, visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+          { index: 1, tagName: 'button', role: 'button', name: 'Save', text: 'Save', selector: 'button', visible: true, enabled: true, visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 20, y: 0, width: 10, height: 10 } }
         ]
       }
       return 'ok'

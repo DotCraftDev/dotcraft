@@ -1351,7 +1351,7 @@ app.whenReady().then(() => {
 
   win.webContents.once('did-finish-load', () => {
     emitWorkspaceStatus(win, initialWorkspaceStatus)
-    scheduleAddTabPopupWarmup(win, initialTheme)
+    scheduleAddTabPopupWarmup(win, resolveInitialTheme(sharedSettings))
     if (workspacePath && initialWorkspaceStatus.status === 'ready') {
       void connectToAppServer(workspacePath)
     } else {
