@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { RichInputArea, type RichInputAreaHandle } from '../components/conversation/RichInputArea'
 import {
@@ -157,5 +157,59 @@ describe('RichInputArea selection helpers', () => {
     expect(textbox).toHaveAttribute('spellcheck', 'false')
     expect(textbox).toHaveAttribute('autocorrect', 'off')
     expect(textbox).toHaveAttribute('autocapitalize', 'off')
+  })
+})
+
+describe('RichInputArea keyboard submit behavior', () => {
+  it('submits on plain Enter but not Shift+Enter', () => {
+    const onSubmit = vi.fn()
+
+    render(<RichInputArea onSubmit={onSubmit} />)
+
+    const textbox = screen.getByRole('textbox')
+    expect(fireEvent.keyDown(textbox, { key: 'Enter', shiftKey: true })).toBe(true)
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    expect(fireEvent.keyDown(textbox, { key: 'Enter' })).toBe(false)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets Enter confirm active IME composition without submitting or preventing default', () => {
+    const onSubmit = vi.fn()
+
+    render(<RichInputArea onSubmit={onSubmit} />)
+
+    const textbox = screen.getByRole('textbox')
+    fireEvent.compositionStart(textbox)
+
+    expect(fireEvent.keyDown(textbox, { key: 'Enter' })).toBe(true)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('treats native composing Enter and keyCode 229 as IME confirmation', () => {
+    const onSubmit = vi.fn()
+
+    render(<RichInputArea onSubmit={onSubmit} />)
+
+    const textbox = screen.getByRole('textbox')
+    expect(fireEvent.keyDown(textbox, { key: 'Enter', isComposing: true })).toBe(true)
+    expect(fireEvent.keyDown(textbox, { key: 'Enter', keyCode: 229 })).toBe(true)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('ignores the Enter immediately after composition ends, then allows the next Enter to submit', () => {
+    const onSubmit = vi.fn()
+
+    render(<RichInputArea onSubmit={onSubmit} />)
+
+    const textbox = screen.getByRole('textbox')
+    fireEvent.compositionStart(textbox)
+    fireEvent.compositionEnd(textbox)
+
+    expect(fireEvent.keyDown(textbox, { key: 'Enter' })).toBe(true)
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    expect(fireEvent.keyDown(textbox, { key: 'Enter' })).toBe(false)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 })
