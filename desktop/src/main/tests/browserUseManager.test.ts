@@ -32,7 +32,19 @@ function createFakeWebContents() {
     loadURL: vi.fn(async (nextUrl: string) => {
       url = nextUrl
     }),
-    executeJavaScript: vi.fn(async () => 'ok'),
+    executeJavaScript: vi.fn(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url,
+          title: 'Test Page',
+          readyState: 'complete',
+          bodyTextLength: url === 'about:blank' ? 0 : 12,
+          interactiveCount: url === 'about:blank' ? 0 : 1,
+          appRootTextLength: url === 'about:blank' ? 0 : 12
+        }
+      }
+      return 'ok'
+    }),
     capturePage: vi.fn(async () => ({ toPNG: () => Buffer.from([1, 2, 3]) })),
     insertText: vi.fn(),
     sendInputEvent: vi.fn(),
@@ -203,6 +215,16 @@ describe('BrowserUseManager IAB backend', () => {
   it('creates a stable blank selected tab before taking the first DOM snapshot', async () => {
     const wc = createFakeWebContents()
     ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url: 'about:blank',
+          title: 'Test Page',
+          readyState: 'complete',
+          bodyTextLength: 0,
+          interactiveCount: 0,
+          appRootTextLength: 0
+        }
+      }
       if (script.includes('document.title')) {
         return JSON.stringify({
           title: 'Test Page',
@@ -266,7 +288,7 @@ describe('BrowserUseManager IAB backend', () => {
     })
     const result = await pending
 
-    expect(result.error).toContain("Browser operation 'domSnapshot' timed out")
+    expect(result.error).toContain("Browser operation 'domSnapshot.ready' timed out")
     expect(result.error).toContain('browser-use-thread-timeout-')
     expect(result.error).toContain('about:blank')
     releaseScript?.()
@@ -293,6 +315,93 @@ describe('BrowserUseManager IAB backend', () => {
       tabId: expect.stringMatching(/^browser-use-thread-1-/),
       url: 'http://127.0.0.1:5173/'
     })
+  })
+
+  it('waits for VitePress-like content before returning a DOM snapshot', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url: 'http://127.0.0.1:5173/',
+          title: 'DotCraft',
+          readyState: 'complete',
+          bodyTextLength: 46,
+          interactiveCount: 3,
+          appRootTextLength: 46
+        }
+      }
+      if (script.includes('interesting')) {
+        return JSON.stringify({
+          title: 'DotCraft',
+          url: 'http://127.0.0.1:5173/',
+          bodyText: 'DotCraft Search Guide Blog',
+          elements: ['a "/" "Guide"', 'button "Search"', 'a "/blog/" "Blog"']
+        }, null, 2)
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-vitepress',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        await tab.waitForLoadState("load");
+        return await tab.domSnapshot();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(JSON.parse(result.resultText!)).toMatchObject({
+      title: 'DotCraft',
+      bodyText: expect.stringContaining('Search')
+    })
+  })
+
+  it('supports networkidle load state without hanging', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-networkidle',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        await tab.waitForLoadState("networkidle", 1000);
+        return await tab.url();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('http://127.0.0.1:5173/')
+  })
+
+  it('returns a readable timeout when screenshot capture hangs', async () => {
+    const wc = createFakeWebContents()
+    let releaseCapture: (() => void) | undefined
+    ;(wc.capturePage as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise((resolve) => {
+      releaseCapture = () => resolve({ toPNG: () => Buffer.from([9, 9, 9]) })
+    }))
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host, { operationMs: 25 })
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-shot-timeout',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        return await tab.screenshot();
+      `
+    })
+
+    expect(result.error).toContain("Browser operation 'screenshot' timed out")
+    expect(result.error).toContain('http://127.0.0.1:5173/')
+    releaseCapture?.()
   })
 
   it('does not force focus for additional tabs in the same thread', async () => {

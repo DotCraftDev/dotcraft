@@ -111,6 +111,7 @@ export class NodeReplManager {
       }
     } catch (error: unknown) {
       abortController.abort()
+      this.browserManager.abortEvaluation(params.threadId, evaluationId)
       this.disposeReplRuntime(params.threadId, runtime)
       const collected = browserRuntime.collect()
       return {
@@ -130,6 +131,7 @@ export class NodeReplManager {
     const runtime = this.runtimes.get(threadId)
     if (!runtime || runtime.activeEvaluationId !== evaluationId) return { ok: false }
     runtime.activeAbortController?.abort(new Error('NodeReplJs cancelled.'))
+    this.browserManager.abortEvaluation(threadId, evaluationId)
     this.disposeReplRuntime(threadId, runtime)
     return { ok: true }
   }

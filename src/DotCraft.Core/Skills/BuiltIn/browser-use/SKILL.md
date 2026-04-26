@@ -67,6 +67,7 @@ await globalThis.tab.domSnapshot();
 
 - Before clicking or typing, confirm the element exists, is visible, and is enabled when the state is uncertain.
 - After click or submit actions, wait for a concrete result: URL change, text appears, dialog opens, network-driven state completes, or `waitForLoadState(...)` when navigation is expected.
+- Use `waitForLoadState("networkidle", timeoutMs)` when SPA work depends on network quietness. If it times out, observe the page and explain the visible state instead of looping.
 - Avoid fixed sleeps. Use `waitForLoadState`, `waitForURL`, `expectNavigation`, or locator `waitFor` when possible.
 - Do not `goto` the current URL unless a reload is intended. Use `reload()` after local code changes, then observe again.
 - For real pointer behavior, use `tab.cua.move`, `click`, `drag`, or `scroll`; these show the Desktop virtual cursor when the page overlay is available.
@@ -103,6 +104,8 @@ Runtime:
 - `agent.browser.tabs.selected()`
 - `agent.browser.tabs.get(id)`
 - `display(imageLike)`
+
+`tabs.list()` returns metadata snapshots: `{ id, url, title, loading }`. To operate on a listed tab, first call `agent.browser.tabs.get(id)`.
 
 Tab:
 

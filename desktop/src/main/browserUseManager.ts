@@ -13,6 +13,9 @@ const BROWSER_USE_APPROVAL_TIMEOUT_MS = 120_000
 const BROWSER_USE_OPERATION_TIMEOUT_MS = 10_000
 const BROWSER_USE_NAVIGATION_TIMEOUT_MS = 30_000
 const BROWSER_USE_BLANK_TAB_READY_TIMEOUT_MS = 5_000
+const BROWSER_USE_NETWORK_IDLE_QUIET_MS = 500
+
+type BrowserUseLoadState = 'commit' | 'domcontentloaded' | 'load' | 'networkidle'
 
 export interface BrowserUseImageResult {
   mediaType: string
@@ -245,6 +248,25 @@ export class BrowserUseManager {
     }
   }
 
+  abortEvaluation(threadId: string, evaluationId?: string): { ok: boolean } {
+    const runtime = this.runtimes.get(threadId)
+    if (!runtime) return { ok: false }
+    if (evaluationId && runtime.activeEvaluationId && runtime.activeEvaluationId !== evaluationId) {
+      return { ok: false }
+    }
+    runtime.activeEvaluationId = undefined
+    runtime.activeAbortSignal = undefined
+    for (const tab of runtime.tabs.values()) {
+      try {
+        this.webContentsFor(tab.owner, tab.id).stop()
+      } catch {
+        // Best effort: stopping a destroyed or unavailable tab should not block cancellation.
+      }
+      this.setAutomationState(runtime, tab, false)
+    }
+    return { ok: true }
+  }
+
   reset(threadId: string): { ok: boolean } {
     const runtime = this.runtimes.get(threadId)
     if (!runtime) return { ok: false }
@@ -403,6 +425,7 @@ export class BrowserUseManager {
   ): Promise<T> {
     const runtime = this.getRuntimeForTab(tab)
     const signal = runtime.activeAbortSignal
+    const evaluationId = runtime.activeEvaluationId
     if (signal?.aborted) {
       throw new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id}.`)
     }
@@ -427,6 +450,15 @@ export class BrowserUseManager {
         cleanup()
         callback()
       }
+      const ensureStillActive = () => {
+        if (signal?.aborted) {
+          return new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id} at ${currentUrl()}.`)
+        }
+        if (evaluationId && runtime.activeEvaluationId !== evaluationId) {
+          return new Error(`Browser operation '${operation}' result arrived after evaluation ${evaluationId} was no longer active for tab ${tab.id} at ${currentUrl()}.`)
+        }
+        return null
+      }
       const currentUrl = () => {
         try {
           return this.webContentsFor(tab.owner, tab.id).getURL() || 'about:blank'
@@ -446,7 +478,11 @@ export class BrowserUseManager {
 
       signal?.addEventListener('abort', onAbort, { once: true })
       operationPromise.then(
-        (value) => finish(() => resolve(value)),
+        (value) => finish(() => {
+          const stale = ensureStillActive()
+          if (stale) reject(stale)
+          else resolve(value)
+        }),
         (error) => finish(() => reject(error))
       )
     })
@@ -497,6 +533,101 @@ export class BrowserUseManager {
       tab,
       operation,
       () => this.webContentsFor(tab.owner, tab.id).executeJavaScript(source, userGesture) as Promise<T>)
+  }
+
+  private async waitForPageReady(
+    tab: BrowserUseTabRuntime,
+    options: { operation: string; requireContent: boolean; timeoutMs: number }
+  ): Promise<void> {
+    await this.waitForScriptReady(tab, Math.min(options.timeoutMs, this.blankTabReadyTimeoutMs()))
+    const deadline = Date.now() + Math.max(1, Math.min(options.timeoutMs, 120_000))
+    for (;;) {
+      const signal = this.getRuntimeForTab(tab).activeAbortSignal
+      if (signal?.aborted) throw new Error(`Browser operation '${options.operation}' was cancelled for tab ${tab.id}.`)
+      const rawState = await this.executeJavaScript<unknown>(tab, `
+        new Promise((resolve) => {
+          const sample = () => {
+            const bodyText = (document.body?.innerText || '').trim();
+            const interactive = document.querySelectorAll('a,button,input,textarea,select,summary,[role="button"],[role="link"]').length;
+            const appRoot = document.querySelector('#app, #root, [data-v-app], main, nav, header');
+            resolve({
+              url: location.href,
+              title: document.title,
+              readyState: document.readyState,
+              bodyTextLength: bodyText.length,
+              interactiveCount: interactive,
+              appRootTextLength: (appRoot?.textContent || '').trim().length
+            });
+          };
+          requestAnimationFrame(() => requestAnimationFrame(sample));
+        })
+      `, options.operation)
+      const state = this.normalizeReadinessState(rawState)
+      if (!state) {
+        if (Date.now() >= deadline) {
+          throw new Error(`Browser operation '${options.operation}' timed out after ${Math.max(1, Math.min(options.timeoutMs, 120_000))}ms for tab ${tab.id} at ${this.webContentsFor(tab.owner, tab.id).getURL() || 'about:blank'}.`)
+        }
+        await this.delay(tab, 100, options.operation)
+        continue
+      }
+      const documentReady = state.readyState === 'interactive' || state.readyState === 'complete'
+      const blank = state.url === 'about:blank'
+      const hasUsefulContent =
+        state.bodyTextLength > 0 ||
+        state.interactiveCount > 0 ||
+        state.appRootTextLength > 0 ||
+        state.title.trim().length > 0
+      if (documentReady && (blank || !options.requireContent || hasUsefulContent)) return
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Browser operation '${options.operation}' timed out after ${Math.max(1, Math.min(options.timeoutMs, 120_000))}ms for tab ${tab.id} at ${state.url || this.webContentsFor(tab.owner, tab.id).getURL() || 'about:blank'}.`)
+      }
+      await this.delay(tab, 100, options.operation)
+    }
+  }
+
+  private normalizeReadinessState(rawState: unknown): {
+        url: string
+        title: string
+        readyState: string
+        bodyTextLength: number
+        interactiveCount: number
+        appRootTextLength: number
+      } | null {
+    let parsed = rawState
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed)
+      } catch {
+        return null
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') return null
+    const state = parsed as Record<string, unknown>
+    return {
+      url: typeof state.url === 'string' ? state.url : '',
+      title: typeof state.title === 'string' ? state.title : '',
+      readyState: typeof state.readyState === 'string' ? state.readyState : '',
+      bodyTextLength: typeof state.bodyTextLength === 'number' ? state.bodyTextLength : 0,
+      interactiveCount: typeof state.interactiveCount === 'number' ? state.interactiveCount : 0,
+      appRootTextLength: typeof state.appRootTextLength === 'number' ? state.appRootTextLength : 0
+    }
+  }
+
+  private delay(tab: BrowserUseTabRuntime, timeoutMs: number, operation: string): Promise<void> {
+    const signal = this.getRuntimeForTab(tab).activeAbortSignal
+    if (signal?.aborted) return Promise.reject(new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id}.`))
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, timeoutMs)
+      const onAbort = () => {
+        clearTimeout(timeout)
+        reject(new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id}.`))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
   }
 
   private getSelectedTab(runtime: BrowserUseThreadRuntime): BrowserUseTabRuntime | null {
@@ -577,7 +708,7 @@ export class BrowserUseManager {
       click: async (selector: string) => this.click(tab, selector),
       type: async (selector: string, text: string) => this.type(tab, selector, text),
       press: async (selector: string, key: string) => this.press(tab, selector, key),
-      waitForLoadState: async (_state = 'load', timeoutMs = 30_000) => this.waitForLoad(tab, timeoutMs),
+      waitForLoadState: async (state = 'load', timeoutMs = 30_000) => this.waitForLoad(tab, state, timeoutMs),
       consoleLogs: async () => tab.logs.map((entry) => entry.message),
       playwright: this.createPlaywrightApi(tab),
       cua: this.createCuaApi(tab),
@@ -611,7 +742,11 @@ export class BrowserUseManager {
     return {
       domSnapshot: async () => this.domSnapshot(tab),
       screenshot: async (options?: { fullPage?: boolean; clip?: Electron.Rectangle }) => this.screenshot(tab, options),
-      waitForLoadState: async (options?: { state?: string; timeoutMs?: number }) => this.waitForLoad(tab, options?.timeoutMs ?? 30_000),
+      waitForLoadState: async (stateOrOptions?: string | { state?: string; timeoutMs?: number }, timeoutMs?: number) => {
+        const state = typeof stateOrOptions === 'string' ? stateOrOptions : stateOrOptions?.state
+        const timeout = typeof stateOrOptions === 'object' ? stateOrOptions.timeoutMs : timeoutMs
+        return this.waitForLoad(tab, state ?? 'load', timeout ?? 30_000)
+      },
       waitForTimeout: async (timeoutMs: number) => new Promise((resolve) => {
         setTimeout(resolve, Math.max(0, Math.min(timeoutMs, 120_000)))
       }),
@@ -621,7 +756,7 @@ export class BrowserUseManager {
         if (options?.url) {
           await this.waitForUrl(tab, options.url, options.timeoutMs ?? 30_000)
         } else {
-          await this.waitForLoad(tab, options?.timeoutMs ?? 30_000)
+          await this.waitForLoad(tab, 'load', options?.timeoutMs ?? 30_000)
         }
         return result
       },
@@ -729,7 +864,7 @@ export class BrowserUseManager {
     this.markAutomation(tab, 'back')
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
-    await this.waitForLoad(tab, 30_000).catch(() => {})
+    await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
     return this.tabSnapshot(tab)
   }
 
@@ -737,14 +872,14 @@ export class BrowserUseManager {
     this.markAutomation(tab, 'forward')
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
-    await this.waitForLoad(tab, 30_000).catch(() => {})
+    await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
     return this.tabSnapshot(tab)
   }
 
   private async reload(tab: BrowserUseTabRuntime): Promise<Record<string, unknown>> {
     this.markAutomation(tab, 'reload')
     this.webContentsFor(tab.owner, tab.id).reload()
-    await this.waitForLoad(tab, 30_000).catch(() => {})
+    await this.waitForLoad(tab, 'load', 30_000).catch(() => {})
     return this.tabSnapshot(tab)
   }
 
@@ -864,6 +999,11 @@ export class BrowserUseManager {
     options?: { fullPage?: boolean; clip?: Electron.Rectangle }
   ): Promise<BrowserUseImageResult> {
     this.markAutomation(tab, 'screenshot')
+    await this.waitForPageReady(tab, {
+      operation: 'screenshot.ready',
+      requireContent: false,
+      timeoutMs: this.operationTimeoutMs()
+    })
     const image = await this.withBrowserOperation(
       tab,
       'screenshot',
@@ -875,7 +1015,11 @@ export class BrowserUseManager {
   }
 
   private async domSnapshot(tab: BrowserUseTabRuntime): Promise<string> {
-    await this.waitForScriptReady(tab, this.blankTabReadyTimeoutMs())
+    await this.waitForPageReady(tab, {
+      operation: 'domSnapshot.ready',
+      requireContent: true,
+      timeoutMs: this.operationTimeoutMs()
+    })
     return String(await this.executeJavaScript(tab, `
       (() => {
         const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
@@ -896,7 +1040,11 @@ export class BrowserUseManager {
     const source = typeof expressionOrFunction === 'function'
       ? `(${expressionOrFunction.toString()})()`
       : String(expressionOrFunction)
-    await this.waitForScriptReady(tab, this.blankTabReadyTimeoutMs())
+    await this.waitForPageReady(tab, {
+      operation: 'evaluate.ready',
+      requireContent: false,
+      timeoutMs: this.operationTimeoutMs()
+    })
     return this.executeJavaScript(tab, source, 'evaluate')
   }
 
@@ -1291,7 +1439,78 @@ export class BrowserUseManager {
     return `${descriptor.kind}=${descriptor.name ?? descriptor.value}`
   }
 
-  private waitForLoad(tab: BrowserUseTabRuntime, timeoutMs: number): Promise<void> {
+  private normalizeLoadState(state: string): BrowserUseLoadState {
+    const normalized = String(state ?? 'load').toLowerCase()
+    if (normalized === 'commit' || normalized === 'domcontentloaded' || normalized === 'load' || normalized === 'networkidle') {
+      return normalized
+    }
+    throw new Error(`Unsupported browser load state: ${state}`)
+  }
+
+  private async waitForLoad(
+    tab: BrowserUseTabRuntime,
+    state: string = 'load',
+    timeoutMs: number = 30_000
+  ): Promise<void> {
+    const loadState = this.normalizeLoadState(state)
+    const effectiveTimeoutMs = Math.max(1, Math.min(timeoutMs, 120_000))
+    if (loadState === 'commit') {
+      await this.waitForCommit(tab, effectiveTimeoutMs)
+      return
+    }
+    if (loadState === 'domcontentloaded') {
+      await this.waitForPageReady(tab, {
+        operation: 'waitForLoadState.domcontentloaded',
+        requireContent: false,
+        timeoutMs: effectiveTimeoutMs
+      })
+      return
+    }
+    await this.waitForLoadEvent(tab, effectiveTimeoutMs)
+    await this.waitForPageReady(tab, {
+      operation: `waitForLoadState.${loadState}`,
+      requireContent: loadState === 'networkidle',
+      timeoutMs: effectiveTimeoutMs
+    })
+    if (loadState === 'networkidle') {
+      await this.waitForNetworkIdle(tab, effectiveTimeoutMs)
+    }
+  }
+
+  private waitForCommit(tab: BrowserUseTabRuntime, timeoutMs: number): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
+    if (wc.getURL()) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const signal = this.getRuntimeForTab(tab).activeAbortSignal
+      if (signal?.aborted) {
+        reject(new Error(`Browser operation 'waitForLoadState.commit' was cancelled for tab ${tab.id}.`))
+        return
+      }
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error(`Browser operation 'waitForLoadState.commit' timed out after ${timeoutMs}ms for tab ${tab.id}.`))
+      }, timeoutMs)
+      const done = () => {
+        cleanup()
+        resolve()
+      }
+      const onAbort = () => {
+        cleanup()
+        reject(new Error(`Browser operation 'waitForLoadState.commit' was cancelled for tab ${tab.id}.`))
+      }
+      const cleanup = () => {
+        clearTimeout(timeout)
+        wc.off('did-start-loading', done)
+        wc.off('did-navigate', done)
+        signal?.removeEventListener('abort', onAbort)
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      wc.once('did-start-loading', done)
+      wc.once('did-navigate', done)
+    })
+  }
+
+  private waitForLoadEvent(tab: BrowserUseTabRuntime, timeoutMs: number): Promise<void> {
     const wc = this.webContentsFor(tab.owner, tab.id)
     if (!wc.isLoading()) return Promise.resolve()
     return new Promise((resolve, reject) => {
@@ -1322,6 +1541,53 @@ export class BrowserUseManager {
       wc.once('did-finish-load', done)
       wc.once('did-stop-loading', done)
     })
+  }
+
+  private async waitForNetworkIdle(tab: BrowserUseTabRuntime, timeoutMs: number): Promise<void> {
+    const wc = this.webContentsFor(tab.owner, tab.id)
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (Date.now() >= deadline) {
+        throw new Error(`Browser operation 'waitForLoadState.networkidle' timed out after ${timeoutMs}ms for tab ${tab.id} at ${wc.getURL() || 'about:blank'}.`)
+      }
+      await this.waitForLoadEvent(tab, Math.max(1, deadline - Date.now()))
+      await new Promise<void>((resolve, reject) => {
+        const signal = this.getRuntimeForTab(tab).activeAbortSignal
+        if (signal?.aborted) {
+          reject(new Error(`Browser operation 'waitForLoadState.networkidle' was cancelled for tab ${tab.id}.`))
+          return
+        }
+        let quietTimer: ReturnType<typeof setTimeout>
+        const hardTimer = setTimeout(() => {
+          cleanup()
+          reject(new Error(`Browser operation 'waitForLoadState.networkidle' timed out after ${timeoutMs}ms for tab ${tab.id} at ${wc.getURL() || 'about:blank'}.`))
+        }, Math.max(1, deadline - Date.now()))
+        const finish = () => {
+          cleanup()
+          resolve()
+        }
+        const restart = () => {
+          clearTimeout(quietTimer)
+          quietTimer = setTimeout(finish, BROWSER_USE_NETWORK_IDLE_QUIET_MS)
+        }
+        const onAbort = () => {
+          cleanup()
+          reject(new Error(`Browser operation 'waitForLoadState.networkidle' was cancelled for tab ${tab.id}.`))
+        }
+        const cleanup = () => {
+          clearTimeout(quietTimer)
+          clearTimeout(hardTimer)
+          wc.off('did-start-loading', restart)
+          wc.off('did-stop-loading', restart)
+          signal?.removeEventListener('abort', onAbort)
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+        wc.on('did-start-loading', restart)
+        wc.on('did-stop-loading', restart)
+        restart()
+      })
+      if (!wc.isLoading()) return
+    }
   }
 
 }

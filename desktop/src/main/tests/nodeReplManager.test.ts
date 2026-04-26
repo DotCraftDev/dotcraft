@@ -28,6 +28,7 @@ function createFakeBrowserManager() {
       }),
       collect: () => ({ images: [...images], logs: [...logs] })
     })),
+    abortEvaluation: vi.fn(() => ({ ok: true })),
     reset: vi.fn(() => ({ ok: true })),
     releasePending: () => {
       while (pendingActions.length) pendingActions.shift()?.()
@@ -138,6 +139,7 @@ describe('NodeReplManager', () => {
     browserManager.releasePending()
 
     expect(timedOut.error).toContain('timed out')
+    expect(browserManager.abortEvaluation).toHaveBeenCalledWith('thread-1', expect.stringMatching(/^node-repl-/))
     const result = await manager.evaluate(owner, { threadId: 'thread-1', code: 'typeof count' })
     expect(result.error).toBeUndefined()
     expect(result.resultText).toBe('undefined')
@@ -161,6 +163,7 @@ describe('NodeReplManager', () => {
 
     expect(cancel).toEqual({ ok: true })
     expect(cancelled.error).toContain('cancelled')
+    expect(browserManager.abortEvaluation).toHaveBeenCalledWith('thread-1', 'eval-1')
     const result = await manager.evaluate(owner, { threadId: 'thread-1', code: '1 + 1' })
     expect(result.error).toBeUndefined()
     expect(result.resultText).toBe('2')

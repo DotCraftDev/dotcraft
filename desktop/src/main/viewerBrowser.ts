@@ -10,6 +10,7 @@ const VIEWER_SCHEME = 'dotcraft-viewer:'
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', VIEWER_SCHEME])
 const EXTERNAL_HANDOFF_SCHEMES = new Set(['mailto:', 'tel:'])
 const DEFAULT_START_TITLE = 'DotCraft Browser'
+const VIRTUAL_MOUSE_SCRIPT_TIMEOUT_MS = 750
 
 interface BrowserTabRuntime {
   tabId: string
@@ -28,6 +29,9 @@ interface BrowserTabRuntime {
   automationActive?: boolean
   virtualMouseX?: number
   virtualMouseY?: number
+  virtualMouseMoved?: boolean
+  viewportWidth?: number
+  viewportHeight?: number
 }
 
 interface WindowRuntime {
@@ -134,6 +138,13 @@ function clampViewportCoordinate(value: number): number {
 
 function mouseButton(button?: BrowserAutomationMouseButton): BrowserAutomationMouseButton {
   return button === 'right' || button === 'middle' ? button : 'left'
+}
+
+function viewportCenter(tab: BrowserTabRuntime): { x: number; y: number } {
+  return {
+    x: Math.max(0, Math.round((tab.viewportWidth ?? 1280) / 2)),
+    y: Math.max(0, Math.round((tab.viewportHeight ?? 900) / 2))
+  }
 }
 
 function normalizeKeyboardKey(key: string): string {
@@ -323,7 +334,9 @@ export class ViewerBrowserManager {
       boundsInitialized: false,
       currentUrl: START_URL,
       title: DEFAULT_START_TITLE,
-      allowFileScheme: params.allowFileScheme === true
+      allowFileScheme: params.allowFileScheme === true,
+      viewportWidth: 1280,
+      viewportHeight: 900
     }
     runtime.tabs.set(params.tabId, tabRuntime)
     this.bindWebContentsEvents(win, tabRuntime)
@@ -394,15 +407,21 @@ export class ViewerBrowserManager {
     const tab = this.getTab(win, params.tabId)
     if (tab) {
       tab.automationEnabled = true
+      const width = Math.max(1, Math.round(params.width ?? 1280))
+      const height = Math.max(1, Math.round(params.height ?? 900))
+      tab.viewportWidth = width
+      tab.viewportHeight = height
+      this.centerVirtualMouse(tab)
       // Keep automation pages at a useful capture size before the renderer has
       // measured the actual detail-panel slot. This must not count as initialized
       // UI bounds, otherwise addChildView can briefly cover the whole window.
       tab.view.setBounds({
         x: -10000,
         y: -10000,
-        width: Math.max(1, Math.round(params.width ?? 1280)),
-        height: Math.max(1, Math.round(params.height ?? 900))
+        width,
+        height
       })
+      this.emitVirtualCursor(win, tab, tab.virtualMouseX!, tab.virtualMouseY!)
     }
     return snapshot
   }
@@ -502,6 +521,8 @@ export class ViewerBrowserManager {
     if (!tab) return
     const width = Math.max(1, Math.round(params.width))
     const height = Math.max(1, Math.round(params.height))
+    tab.viewportWidth = width
+    tab.viewportHeight = height
     tab.view.setBounds({
       x: Math.round(params.x),
       y: Math.round(params.y),
@@ -511,6 +532,11 @@ export class ViewerBrowserManager {
     tab.boundsInitialized = true
     if (tab.desiredVisible && !tab.visible) {
       this.attachView(win, tab)
+    }
+    if (tab.automationEnabled && !tab.virtualMouseMoved) {
+      this.centerVirtualMouse(tab)
+      this.emitVirtualCursor(win, tab, tab.virtualMouseX!, tab.virtualMouseY!)
+      if (tab.automationActive) void this.injectVirtualMouse(tab)
     }
   }
 
@@ -572,13 +598,20 @@ export class ViewerBrowserManager {
       sessionName: tab.automationSessionName,
       action: params.action
     })
-    if (params.active) void this.injectVirtualMouse(tab)
+    if (params.active) {
+      if (!tab.virtualMouseMoved) {
+        this.centerVirtualMouse(tab)
+        this.emitVirtualCursor(win, tab, tab.virtualMouseX!, tab.virtualMouseY!)
+      }
+      void this.injectVirtualMouse(tab)
+    }
   }
 
   async moveMouse(win: BrowserWindow, params: BrowserAutomationMoveParams): Promise<void> {
     const tab = this.requireTab(win, params.tabId)
     const x = clampViewportCoordinate(params.x)
     const y = clampViewportCoordinate(params.y)
+    tab.virtualMouseMoved = true
     await this.moveVirtualMouse(tab, x, y, params.waitForArrival !== false)
     tab.view.webContents.sendInputEvent({
       type: 'mouseMove',
@@ -713,14 +746,50 @@ export class ViewerBrowserManager {
     return tab
   }
 
+  private centerVirtualMouse(tab: BrowserTabRuntime): void {
+    const center = viewportCenter(tab)
+    tab.virtualMouseX = center.x
+    tab.virtualMouseY = center.y
+  }
+
+  private executeOverlayScript(tab: BrowserTabRuntime, script: string): Promise<unknown> {
+    const execution = tab.view.webContents.executeJavaScript(script, true)
+    execution.catch(() => {})
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const timeout = setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error(`Virtual mouse overlay script timed out after ${VIRTUAL_MOUSE_SCRIPT_TIMEOUT_MS}ms.`))
+      }, VIRTUAL_MOUSE_SCRIPT_TIMEOUT_MS)
+      execution.then(
+        (value) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          resolve(value)
+        },
+        (error) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          reject(error)
+        }
+      )
+    })
+  }
+
   private async injectVirtualMouse(tab: BrowserTabRuntime): Promise<void> {
     if (!tab.automationEnabled || tab.view.webContents.isDestroyed()) return
     try {
-      await tab.view.webContents.executeJavaScript(VIRTUAL_MOUSE_BOOTSTRAP, true)
+      if (!tab.virtualMouseMoved && (tab.virtualMouseX === undefined || tab.virtualMouseY === undefined)) {
+        this.centerVirtualMouse(tab)
+      }
+      await this.executeOverlayScript(tab, VIRTUAL_MOUSE_BOOTSTRAP)
       if (tab.virtualMouseX !== undefined && tab.virtualMouseY !== undefined) {
-        await tab.view.webContents.executeJavaScript(
+        await this.executeOverlayScript(
+          tab,
           `window.__dotcraftVirtualMouseMove?.(${tab.virtualMouseX}, ${tab.virtualMouseY}, 0)`,
-          true
         )
       }
     } catch {
@@ -740,7 +809,7 @@ export class ViewerBrowserManager {
       tab.virtualMouseY = y
       const duration = waitForArrival ? 140 : 0
       const script = `window.__dotcraftVirtualMouseMove?.(${x}, ${y}, ${duration})`
-      const result = tab.view.webContents.executeJavaScript(script, true)
+      const result = this.executeOverlayScript(tab, script)
       if (waitForArrival) await result
     } catch {
       // Best effort visual cursor.
@@ -750,7 +819,7 @@ export class ViewerBrowserManager {
   private async showVirtualClick(tab: BrowserTabRuntime, x: number, y: number): Promise<void> {
     try {
       await this.injectVirtualMouse(tab)
-      await tab.view.webContents.executeJavaScript(`window.__dotcraftVirtualMouseClick?.(${x}, ${y})`, true)
+      await this.executeOverlayScript(tab, `window.__dotcraftVirtualMouseClick?.(${x}, ${y})`)
     } catch {
       // Best effort click ripple.
     }
@@ -790,7 +859,13 @@ export class ViewerBrowserManager {
       tab.currentUrl = wc.getURL() || tab.currentUrl
       emitBrowserEvent(win, { tabId: tab.tabId, threadId: tab.threadId, type: 'did-stop-loading', url: tab.currentUrl })
       this.emitHistoryFlags(win, tab)
-      if (tab.automationEnabled) void this.injectVirtualMouse(tab)
+      if (tab.automationEnabled) {
+        if (!tab.virtualMouseMoved) {
+          this.centerVirtualMouse(tab)
+          this.emitVirtualCursor(win, tab, tab.virtualMouseX!, tab.virtualMouseY!)
+        }
+        void this.injectVirtualMouse(tab)
+      }
     })
     wc.on('did-navigate', (_event, url) => {
       tab.currentUrl = url

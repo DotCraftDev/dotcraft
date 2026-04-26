@@ -253,6 +253,7 @@ describe('ViewerBrowserManager automation input', () => {
       insertText: vi.fn(),
       executeJavaScript: vi.fn(async () => undefined)
     }
+    const setBounds = vi.fn()
     const win = {
       id: 1,
       isDestroyed: () => false,
@@ -276,7 +277,7 @@ describe('ViewerBrowserManager automation input', () => {
       tabs: new Map([['tab-1', {
         tabId: 'tab-1',
         workspacePath: 'F:/workspace',
-        view: { webContents },
+        view: { webContents, setBounds },
         desiredVisible: true,
         visible: true,
         boundsInitialized: true,
@@ -285,8 +286,74 @@ describe('ViewerBrowserManager automation input', () => {
         automationEnabled: true
       }]])
     })
-    return { manager, win, webContents, events }
+    return { manager, win, webContents, setBounds, events }
   }
+
+  it('initializes the virtual cursor at the automation tab center', () => {
+    const manager = new ViewerBrowserManager()
+    const win = {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow & { webContents: { send: ReturnType<typeof vi.fn> } }
+
+    manager.createAutomationTab(win, {
+      tabId: 'tab-center',
+      workspacePath: 'F:/workspace',
+      width: 1280,
+      height: 900
+    })
+
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-center',
+        type: 'virtual-cursor',
+        x: 640,
+        y: 450
+      })
+    )
+  })
+
+  it('recenters the virtual cursor on real bounds until the agent moves it', async () => {
+    const { manager, win, setBounds } = createAutomationHarness()
+
+    manager.setBounds(win, { tabId: 'tab-1', x: 20, y: 30, width: 800, height: 600 })
+
+    expect(setBounds).toHaveBeenCalledWith({ x: 20, y: 30, width: 800, height: 600 })
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-1',
+        type: 'virtual-cursor',
+        x: 400,
+        y: 300
+      })
+    )
+
+    win.webContents.send.mockClear()
+    await manager.moveMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
+    win.webContents.send.mockClear()
+
+    manager.setBounds(win, { tabId: 'tab-1', x: 20, y: 30, width: 1000, height: 700 })
+
+    expect(win.webContents.send).not.toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-1',
+        type: 'virtual-cursor',
+        x: 500,
+        y: 350
+      })
+    )
+  })
 
   it('clickMouse sends move, down, and up input events', async () => {
     const { manager, win, webContents, events } = createAutomationHarness()
