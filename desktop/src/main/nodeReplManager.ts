@@ -142,7 +142,7 @@ export class NodeReplManager {
       const value = await this.withTimeout(
         Promise.resolve(cell.script.runInContext(runtime.context, {
           displayErrors: true,
-          timeout: 1_000
+          timeout: timeoutMs
         })),
         timeoutMs,
         abortController.signal,
