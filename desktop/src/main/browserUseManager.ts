@@ -1727,7 +1727,7 @@ export class BrowserUseManager {
     const snapshotRef = descriptor.kind === 'ref'
       ? this.snapshotRef(tab, descriptor.value)
       : null
-    const selector = snapshotRef?.selector || this.playwrightSelectorFor(descriptor)
+    const selector = snapshotRef?.selector || (descriptor.kind !== 'ref' ? this.playwrightSelectorFor(descriptor) : '')
     if (!selector && snapshotRef) return [snapshotRef]
     await this.ensurePlaywrightInjected(tab)
     const parsed = parsePlaywrightSelector(selector)
