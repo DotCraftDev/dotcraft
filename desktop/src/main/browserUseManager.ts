@@ -439,12 +439,14 @@ export class BrowserUseManager {
     runtime.tabs.set(id, tab)
 
     wc.on('console-message', (_event, level, message) => {
+      const levelNames = ['verbose', 'info', 'warning', 'error'] as const
       tab.logs.push({
-        level: String(level ?? 'log'),
+        level: levelNames[level as number] ?? String(level ?? 'log'),
         message,
         timestamp: new Date().toISOString(),
         url: wc.getURL()
       })
+    })
     })
     wc.once('destroyed', () => {
       runtime.tabs.delete(id)
