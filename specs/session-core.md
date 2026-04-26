@@ -404,12 +404,22 @@ Delta payload (during streaming):
   "command": string,              // Shell command text
   "workingDirectory": string,     // Effective working directory
   "source": string,               // "host" or "sandbox"
-  "status": string,               // "inProgress", "completed", "failed", or "cancelled"
+  "status": string,               // "inProgress", "completed", "failed", "cancelled", "backgrounded", "killed", or "lost"
   "aggregatedOutput": string,     // Full accumulated output shown to the user
+  "sessionId": string | null,     // Background terminal id when the command continues after tool return
+  "outputPath": string | null,    // Host-local output log for background terminal sessions
+  "originalOutputChars": number | null,
+  "truncated": boolean | null,
+  "backgroundReason": string | null,
   "exitCode": number | null,      // Process exit code when available
   "durationMs": number | null     // Total wall-clock duration when available
 }
 ```
+
+When an `Exec`-style tool returns while its process is still alive, the
+`CommandExecution` Item is completed with `status = "backgrounded"`. Later
+process lifecycle changes are represented by the background terminal runtime,
+not by appending deltas to an already completed Turn.
 
 #### ApprovalRequest
 
@@ -671,7 +681,7 @@ SessionEvent
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/renamed` notification on the AppServer Wire Protocol after the display name is updated, including when the change originates from another channel or from automatic titling, so clients such as DotCraft Desktop can refresh thread titles **without** relying on `turn/completed` (which may not be delivered to connections that did not subscribe to that thread). See [AppServer Protocol §4.11 `thread/rename`](appserver-protocol.md#411-threadrename) and [§6.1 `thread/renamed`](appserver-protocol.md#61-thread-notifications).
 
 - **`thread/deleted` (Wire Protocol only; not a `SessionEvent`)**
-  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state, persisted thread/session data, and all tracing sessions/events bound to that thread; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
+  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state, persisted thread/session data, all tracing sessions/events bound to that thread, and dashboard usage rows associated with the thread or its bound trace sessions; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/deleted` notification on the AppServer Wire Protocol after deletion completes, including when deletion is initiated outside Wire (e.g. DashBoard HTTP `DELETE` on `/dashboard/api/sessions/{sessionKey}`), so UIs stay consistent. See [AppServer Protocol §4.9 `thread/delete`](appserver-protocol.md#49-threaddelete) and [§6.1 Thread Notifications](appserver-protocol.md#61-thread-notifications).
 
 #### Turn Events
@@ -1028,6 +1038,8 @@ The supported persistence contract is:
 
 - Canonical thread history in `.craft/threads/active|archived/*.jsonl`
 - Queryable metadata and serialized agent sessions in `.craft/state.db`
+
+Dashboard trace-session deletion follows the same persistence contract. Deleting one trace session removes that session's trace rows and associated dashboard usage rows; if the session is bound to a thread, deletion cascades through permanent thread deletion. Clearing all trace sessions deletes the selected trace/thread state and associated usage rows, but preserves global usage rows that have no `thread_id` or `session_key`. Bulk trace clearing may run SQLite maintenance (`wal_checkpoint(TRUNCATE)` and conditional `VACUUM`) after deletion to reclaim WAL/free-page space.
 
 ### 9.7 Persistence Failure Handling
 
@@ -1488,7 +1500,7 @@ QQ and WeCom use `ActiveRunRegistry` to track and cancel in-flight runs. Under S
 
 Bidirectional capabilities are outside the session model.
 
-The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns.
+The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns. Background terminals follow the same boundary: Session Core records the observable `CommandExecution` Item for the originating tool call. The model-facing shell surface stays minimal (`Exec` plus `WriteStdin`, where empty stdin polls output); terminal listing, direct reads, stopping, and cleanup are AppServer/control-plane capabilities.
 
 The design rule is simple:
 

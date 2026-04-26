@@ -3,7 +3,7 @@ import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useConversationStore } from '../../stores/conversationStore'
-import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe, PanelRightClose } from 'lucide-react'
+import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe, PanelRightClose, MousePointer2 } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
 import { AddTabPopup } from '../detail/AddTabPopup'
@@ -213,9 +213,11 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         {/* Viewer tabs */}
         {viewerTabs.map((tab) => {
           const isActive = !isSystemTab && activeViewerId === tab.id
+          const automationActive = tab.kind === 'browser' && tab.automationActive === true
           return (
             <div
               key={tab.id}
+              className={automationActive ? 'dotcraft-automation-viewer-tab' : undefined}
               role="tab"
               aria-selected={isActive}
               title={
@@ -234,7 +236,13 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                 fontSize: '13px',
                 fontWeight: isActive ? 500 : 400,
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                backgroundColor: 'transparent',
+                backgroundColor: automationActive ? 'rgba(47, 138, 245, 0.10)' : 'transparent',
+                backgroundImage: automationActive
+                  ? 'repeating-linear-gradient(90deg, rgba(47,138,245,0.05) 0px, rgba(47,138,245,0.18) 24px, rgba(47,138,245,0.05) 48px, rgba(47,138,245,0.05) 96px)'
+                  : 'none',
+                backgroundSize: automationActive ? '96px 100%' : undefined,
+                animation: automationActive ? 'dotcraft-automation-tab-flow 1.8s linear infinite' : undefined,
+                borderRadius: automationActive ? '6px' : undefined,
                 boxSizing: 'border-box',
                 boxShadow: isActive ? 'inset 0 -2px 0 var(--accent)' : 'none',
                 cursor: 'pointer',
@@ -253,7 +261,9 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               }}
             >
               {tab.kind === 'browser'
-                ? browserTabIcon(tab.faviconDataUrl)
+                ? automationActive
+                  ? <MousePointer2 size={14} strokeWidth={2} aria-hidden style={{ display: 'block', color: 'var(--accent)' }} />
+                  : browserTabIcon(tab.faviconDataUrl)
                 : tab.kind === 'terminal'
                   ? <SquareTerminal size={14} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
                   : contentClassIcon(tab.contentClass)}

@@ -4,6 +4,9 @@ namespace DotCraft.State;
 
 public sealed class StateRuntime
 {
+    private const double DefaultCompactFreelistRatio = 0.25;
+    private const int DefaultCompactMinFreelistPages = 32;
+
     private readonly string _connectionString;
     private readonly object _initLock = new();
     private bool _initialized;
@@ -33,9 +36,51 @@ public sealed class StateRuntime
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             PRAGMA foreign_keys=ON;
+            PRAGMA secure_delete=ON;
             """;
         pragma.ExecuteNonQuery();
         return connection;
+    }
+
+    /// <summary>
+    /// Truncates the SQLite write-ahead log for this workspace state database.
+    /// </summary>
+    public void CheckpointWalTruncate()
+    {
+        using var connection = OpenConnection();
+        CheckpointWalTruncate(connection);
+    }
+
+    /// <summary>
+    /// Reclaims free SQLite pages when the database has enough reusable space to justify compaction.
+    /// </summary>
+    /// <returns><c>true</c> when VACUUM was executed; otherwise <c>false</c>.</returns>
+    public bool CompactIfWorthwhile(
+        bool force = false,
+        double minFreelistRatio = DefaultCompactFreelistRatio,
+        int minFreelistPages = DefaultCompactMinFreelistPages)
+    {
+        using var connection = OpenConnection();
+        var pageCount = ReadPragmaLong(connection, "page_count");
+        var freelistCount = ReadPragmaLong(connection, "freelist_count");
+        var ratio = pageCount <= 0 ? 0 : (double)freelistCount / pageCount;
+        var shouldCompact = force
+            || (freelistCount >= minFreelistPages && ratio >= minFreelistRatio);
+
+        if (!shouldCompact)
+        {
+            CheckpointWalTruncate(connection);
+            return false;
+        }
+
+        using (var vacuum = connection.CreateCommand())
+        {
+            vacuum.CommandText = "VACUUM";
+            vacuum.ExecuteNonQuery();
+        }
+
+        CheckpointWalTruncate(connection);
+        return true;
     }
 
     public string? GetInfo(string key)
@@ -78,6 +123,7 @@ public sealed class StateRuntime
                 PRAGMA journal_mode=WAL;
                 PRAGMA synchronous=NORMAL;
                 PRAGMA foreign_keys=ON;
+                PRAGMA secure_delete=ON;
 
                 CREATE TABLE IF NOT EXISTS state_info (
                     key TEXT PRIMARY KEY,
@@ -222,6 +268,25 @@ public sealed class StateRuntime
             command.ExecuteNonQuery();
 
             _initialized = true;
+        }
+    }
+
+    private static long ReadPragmaLong(SqliteConnection connection, string pragmaName)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA {pragmaName}";
+        var value = command.ExecuteScalar();
+        return value == null || value == DBNull.Value ? 0 : Convert.ToInt64(value);
+    }
+
+    private static void CheckpointWalTruncate(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            // Drain the pragma result set.
         }
     }
 }

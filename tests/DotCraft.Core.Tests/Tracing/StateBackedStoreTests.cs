@@ -391,6 +391,21 @@ public sealed class StateBackedStoreTests : IDisposable
     }
 
     [Fact]
+    public void TokenUsageStore_DeleteDashboardUsageRecords_Removes_Linked_Rows_Only()
+    {
+        var store = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        store.Record(CreateUsageRecord("thread-1", "thread-1"));
+        store.Record(CreateUsageRecord("thread-2", "thread-2"));
+        store.Record(CreateUsageRecord(null, null));
+
+        var deleted = store.DeleteDashboardUsageRecords(["thread-1"], ["thread-2"]);
+
+        Assert.Equal(2, deleted);
+        Assert.Equal(1L, CountRows("dashboard_usage_records"));
+        Assert.Equal(1L, CountRows("dashboard_usage_records", "thread_id IS NULL AND session_key IS NULL"));
+    }
+
+    [Fact]
     public async Task TraceSessionBindingStore_InferBindings_For_Main_Child_And_Unbound_Sessions()
     {
         var threadStore = new ThreadStore(_craftPath, _stateRuntime);
@@ -436,11 +451,16 @@ public sealed class StateBackedStoreTests : IDisposable
     {
         var threadStore = new ThreadStore(_craftPath, _stateRuntime);
         var traceStore = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
-        var persistence = new SessionPersistenceService(threadStore, traceStore);
+        var tokenUsageStore = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        var persistence = new SessionPersistenceService(threadStore, traceStore, tokenUsageStore, _stateRuntime);
         var thread = CreateThread();
         await threadStore.SaveThreadAsync(thread);
 
         InsertThreadSession(thread.Id);
+        InsertThreadContextUsage(thread.Id);
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, thread.Id));
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, $"{thread.Id}:sub:child1"));
+        tokenUsageStore.Record(CreateUsageRecord(null, null));
 
         traceStore.Record(new TraceEvent
         {
@@ -475,6 +495,11 @@ public sealed class StateBackedStoreTests : IDisposable
         eventCommand.CommandText = "SELECT COUNT(*) FROM trace_events WHERE session_key LIKE $session_key";
         eventCommand.Parameters.AddWithValue("$session_key", $"{thread.Id}%");
         Assert.Equal(0L, (long)(eventCommand.ExecuteScalar() ?? 0L));
+        Assert.Equal(0L, CountRows("thread_sessions", $"thread_id = '{thread.Id}'"));
+        Assert.Equal(0L, CountRows("thread_context_usage", $"thread_id = '{thread.Id}'"));
+        Assert.Equal(0L, CountRows("trace_session_bindings", $"root_thread_id = '{thread.Id}'"));
+        Assert.Equal(0L, CountRows("dashboard_usage_records", $"thread_id = '{thread.Id}' OR session_key = '{thread.Id}' OR session_key = '{thread.Id}:sub:child1'"));
+        Assert.Equal(1L, CountRows("dashboard_usage_records", "thread_id IS NULL AND session_key IS NULL"));
     }
 
     [Fact]
@@ -482,9 +507,12 @@ public sealed class StateBackedStoreTests : IDisposable
     {
         var threadStore = new ThreadStore(_craftPath, _stateRuntime);
         var traceStore = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
-        var persistence = new SessionPersistenceService(threadStore, traceStore);
+        var tokenUsageStore = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        var persistence = new SessionPersistenceService(threadStore, traceStore, tokenUsageStore, _stateRuntime);
         var thread = CreateThread();
         await threadStore.SaveThreadAsync(thread);
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, thread.Id));
+        tokenUsageStore.Record(CreateUsageRecord(null, "ag-ui:standalone"));
 
         traceStore.Record(new TraceEvent
         {
@@ -508,6 +536,8 @@ public sealed class StateBackedStoreTests : IDisposable
         Assert.NotNull(traceStore.GetSession(thread.Id));
         Assert.Null(traceStore.GetSession("ag-ui:standalone"));
         Assert.Equal("unbound", traceStore.DescribeSessionDeletion("ag-ui:standalone").BindingKind);
+        Assert.Equal(0L, CountRows("dashboard_usage_records", "session_key = 'ag-ui:standalone'"));
+        Assert.Equal(1L, CountRows("dashboard_usage_records", $"thread_id = '{thread.Id}'"));
     }
 
     [Fact]
@@ -515,9 +545,12 @@ public sealed class StateBackedStoreTests : IDisposable
     {
         var threadStore = new ThreadStore(_craftPath, _stateRuntime);
         var traceStore = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
-        var persistence = new SessionPersistenceService(threadStore, traceStore);
+        var tokenUsageStore = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        var persistence = new SessionPersistenceService(threadStore, traceStore, tokenUsageStore, _stateRuntime);
         var thread = CreateThread();
         await threadStore.SaveThreadAsync(thread);
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, thread.Id));
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, $"{thread.Id}:sub:child1"));
 
         traceStore.Record(new TraceEvent
         {
@@ -546,6 +579,73 @@ public sealed class StateBackedStoreTests : IDisposable
         Assert.Null(await threadStore.LoadThreadAsync(thread.Id));
         Assert.Null(traceStore.GetSession(thread.Id));
         Assert.Null(traceStore.GetSession($"{thread.Id}:sub:child1"));
+        Assert.Equal(0L, CountRows("dashboard_usage_records"));
+    }
+
+    [Fact]
+    public async Task ThreadTraceDeletionService_DeleteTraceSessionsAsync_Removes_Related_Usage_And_Preserves_Global_Usage()
+    {
+        var threadStore = new ThreadStore(_craftPath, _stateRuntime);
+        var traceStore = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
+        var tokenUsageStore = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);
+        var persistence = new SessionPersistenceService(threadStore, traceStore, tokenUsageStore, _stateRuntime);
+        var thread = CreateThread();
+        await threadStore.SaveThreadAsync(thread);
+        tokenUsageStore.Record(CreateUsageRecord(thread.Id, thread.Id));
+        tokenUsageStore.Record(CreateUsageRecord(null, "ag-ui:standalone"));
+        tokenUsageStore.Record(CreateUsageRecord(null, null));
+
+        traceStore.Record(new TraceEvent
+        {
+            SessionKey = thread.Id,
+            Type = TraceEventType.Request,
+            Content = "root"
+        });
+        traceStore.Record(new TraceEvent
+        {
+            SessionKey = "ag-ui:standalone",
+            Type = TraceEventType.Request,
+            Content = "standalone"
+        });
+        traceStore.WaitForPendingPersistence();
+
+        await persistence.DeleteTraceSessionsAsync([thread.Id, "ag-ui:standalone"]);
+        var compacted = persistence.CompactStateIfWorthwhile(force: true);
+
+        Assert.True(compacted);
+        Assert.Null(await threadStore.LoadThreadAsync(thread.Id));
+        Assert.Null(traceStore.GetSession(thread.Id));
+        Assert.Null(traceStore.GetSession("ag-ui:standalone"));
+        Assert.Equal(1L, CountRows("dashboard_usage_records"));
+        Assert.Equal(1L, CountRows("dashboard_usage_records", "thread_id IS NULL AND session_key IS NULL"));
+    }
+
+    [Fact]
+    public void StateRuntime_CompactIfWorthwhile_ForcedVacuum_ReclaimsFreePages()
+    {
+        using (var connection = _stateRuntime.OpenConnection())
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE cleanup_probe(payload TEXT NOT NULL);
+                WITH RECURSIVE n(x) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT x + 1 FROM n WHERE x < 200
+                )
+                INSERT INTO cleanup_probe(payload)
+                SELECT printf('%4096s', 'x') FROM n;
+                DELETE FROM cleanup_probe;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var beforeFreelist = ReadPragmaLong("freelist_count");
+
+        var compacted = _stateRuntime.CompactIfWorthwhile(force: true);
+
+        Assert.True(compacted);
+        Assert.True(ReadPragmaLong("freelist_count") <= beforeFreelist);
     }
 
     private void InsertThreadSession(string threadId)
@@ -561,6 +661,51 @@ public sealed class StateBackedStoreTests : IDisposable
         command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
         command.ExecuteNonQuery();
     }
+
+    private void InsertThreadContextUsage(string threadId)
+    {
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_context_usage(thread_id, context_usage_tokens, updated_at)
+            VALUES ($thread_id, $context_usage_tokens, $updated_at)
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$context_usage_tokens", 123);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private long CountRows(string tableName, string? whereClause = null)
+    {
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = string.IsNullOrWhiteSpace(whereClause)
+            ? $"SELECT COUNT(*) FROM {tableName}"
+            : $"SELECT COUNT(*) FROM {tableName} WHERE {whereClause}";
+        return Convert.ToInt64(command.ExecuteScalar());
+    }
+
+    private long ReadPragmaLong(string pragmaName)
+    {
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA {pragmaName}";
+        return Convert.ToInt64(command.ExecuteScalar());
+    }
+
+    private static TokenUsageRecord CreateUsageRecord(string? threadId, string? sessionKey) => new()
+    {
+        SourceId = "dashboard",
+        SourceMode = TokenUsageSourceModes.ServerManaged,
+        SubjectKind = threadId == null ? TokenUsageSubjectKinds.User : TokenUsageSubjectKinds.Thread,
+        SubjectId = threadId ?? "global-user",
+        SubjectLabel = threadId ?? "Global User",
+        ThreadId = threadId,
+        SessionKey = sessionKey,
+        InputTokens = 10,
+        OutputTokens = 5
+    };
 
     private static SessionThread CreateThread() => new()
     {

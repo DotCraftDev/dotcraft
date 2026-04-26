@@ -165,6 +165,7 @@ public static class DashBoardMiddleware
             if (persistence != null)
             {
                 await persistence.DeleteTraceSessionsAsync(sessionKeys, deleteThreadAsync, http.RequestAborted);
+                persistence.CompactStateIfWorthwhile();
                 return Results.Json(new { cleared = true }, JsonOptions);
             }
 

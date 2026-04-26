@@ -1,4 +1,77 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const electronMock = vi.hoisted(() => {
+  let currentUrl = 'about:blank'
+  const loadURL = vi.fn(async (nextUrl: string) => {
+    currentUrl = nextUrl
+  })
+  const webContents = {
+    on: vi.fn(),
+    once: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    close: vi.fn(),
+    getURL: vi.fn(() => currentUrl),
+    getTitle: vi.fn(() => 'DotCraft Browser'),
+    isLoading: vi.fn(() => false),
+    loadURL,
+    reload: vi.fn(),
+    stop: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+    sendInputEvent: vi.fn(),
+    insertText: vi.fn(),
+    executeJavaScript: vi.fn(async () => undefined),
+    navigationHistory: {
+      canGoBack: vi.fn(() => false),
+      canGoForward: vi.fn(() => false),
+      goBack: vi.fn(),
+      goForward: vi.fn()
+    }
+  }
+  const setBounds = vi.fn()
+  const WebContentsView = vi.fn(() => ({ webContents, setBounds }))
+  const fromPartition = vi.fn(() => ({
+    protocol: { handle: vi.fn() },
+    on: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setPermissionRequestHandler: vi.fn()
+  }))
+  return {
+    loadURL,
+    webContents,
+    setBounds,
+    WebContentsView,
+    fromPartition,
+    reset() {
+      currentUrl = 'about:blank'
+      loadURL.mockClear()
+      webContents.on.mockClear()
+      webContents.once.mockClear()
+      webContents.close.mockClear()
+      webContents.reload.mockClear()
+      webContents.stop.mockClear()
+      webContents.setWindowOpenHandler.mockClear()
+      webContents.sendInputEvent.mockClear()
+      webContents.insertText.mockClear()
+      webContents.executeJavaScript.mockClear()
+      webContents.navigationHistory.canGoBack.mockClear()
+      webContents.navigationHistory.canGoForward.mockClear()
+      webContents.navigationHistory.goBack.mockClear()
+      webContents.navigationHistory.goForward.mockClear()
+      setBounds.mockClear()
+      WebContentsView.mockClear()
+      fromPartition.mockClear()
+    }
+  }
+})
+
+vi.mock('electron', () => ({
+  BrowserWindow: { fromWebContents: vi.fn(() => null) },
+  WebContentsView: electronMock.WebContentsView,
+  nativeImage: { createFromBuffer: vi.fn(() => ({ isEmpty: () => true })) },
+  session: { fromPartition: electronMock.fromPartition },
+  shell: { openExternal: vi.fn(), openPath: vi.fn() }
+}))
+
 import {
   classifyBrowserUrl,
   loadOrReport,
@@ -6,6 +79,10 @@ import {
   partitionForWorkspace,
   ViewerBrowserManager
 } from '../viewerBrowser'
+
+beforeEach(() => {
+  electronMock.reset()
+})
 
 describe('normalizeBrowserUrl', () => {
   it('normalizes absolute http/https urls', () => {
@@ -102,5 +179,203 @@ describe('loadOrReport', () => {
       message: undefined,
       url: 'https://example.com/'
     })
+  })
+
+  it('ignores Electron ERR_ABORTED navigation cancellations', async () => {
+    const events: unknown[] = []
+    await expect(loadOrReport({
+      tabId: 'tab-1',
+      url: 'http://127.0.0.1:5173/',
+      load: () => Promise.reject(new Error("ERR_ABORTED (-3) loading 'http://127.0.0.1:5173/'")),
+      emit: (payload) => {
+        events.push(payload)
+      }
+    })).resolves.toBeUndefined()
+
+    expect(events).toHaveLength(0)
+  })
+})
+
+describe('ViewerBrowserManager tab creation', () => {
+  function createFakeWindow() {
+    return {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow
+  }
+
+  it('keeps the start page load for regular blank browser tabs', () => {
+    const manager = new ViewerBrowserManager()
+
+    manager.createTab(createFakeWindow(), {
+      tabId: 'tab-regular',
+      workspacePath: 'F:/workspace',
+      initialUrl: 'about:blank'
+    })
+
+    expect(electronMock.loadURL).toHaveBeenCalledTimes(1)
+    expect(electronMock.loadURL.mock.calls[0]?.[0]).toContain('data:text/html')
+  })
+
+  it('does not load the start page for automation tabs before target navigation', () => {
+    const manager = new ViewerBrowserManager()
+
+    manager.createAutomationTab(createFakeWindow(), {
+      tabId: 'tab-automation',
+      workspacePath: 'F:/workspace',
+      initialUrl: 'about:blank'
+    })
+
+    expect(electronMock.loadURL).not.toHaveBeenCalled()
+    expect(electronMock.setBounds).toHaveBeenCalledWith({
+      x: -10000,
+      y: -10000,
+      width: 1280,
+      height: 900
+    })
+  })
+})
+
+describe('ViewerBrowserManager automation input', () => {
+  function createAutomationHarness() {
+    const events: unknown[] = []
+    const webContents = {
+      isDestroyed: vi.fn(() => false),
+      sendInputEvent: vi.fn((event: unknown) => events.push(event)),
+      insertText: vi.fn(),
+      executeJavaScript: vi.fn(async () => undefined)
+    }
+    const win = {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow & { webContents: { send: ReturnType<typeof vi.fn> } }
+    const manager = new ViewerBrowserManager()
+    ;(manager as unknown as {
+      byWindowId: Map<number, {
+        tabs: Map<string, unknown>
+        activeTabId: string | null
+      }>
+    }).byWindowId.set(1, {
+      activeTabId: null,
+      tabs: new Map([['tab-1', {
+        tabId: 'tab-1',
+        workspacePath: 'F:/workspace',
+        view: { webContents },
+        desiredVisible: true,
+        visible: true,
+        boundsInitialized: true,
+        currentUrl: 'http://localhost:3000/',
+        title: 'Test',
+        automationEnabled: true
+      }]])
+    })
+    return { manager, win, webContents, events }
+  }
+
+  it('clickMouse sends move, down, and up input events', async () => {
+    const { manager, win, webContents, events } = createAutomationHarness()
+
+    await manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
+
+    expect(webContents.executeJavaScript).toHaveBeenCalled()
+    expect(events).toMatchObject([
+      { type: 'mouseMove', x: 10, y: 20 },
+      { type: 'mouseDown', x: 10, y: 20, button: 'left' },
+      { type: 'mouseUp', x: 10, y: 20, button: 'left' }
+    ])
+  })
+
+  it('scrollMouse sends wheel input through the tab webContents', async () => {
+    const { manager, win, events } = createAutomationHarness()
+
+    await manager.scrollMouse(win, { tabId: 'tab-1', x: 5, y: 6, scrollX: 0, scrollY: 120 })
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'mouseWheel',
+      x: 5,
+      y: 6,
+      deltaY: 120
+    })
+  })
+
+  it('keypress sends keyDown and keyUp with modifiers', () => {
+    const { manager, win, events } = createAutomationHarness()
+
+    manager.keypress(win, { tabId: 'tab-1', keys: ['Control', 'A'] })
+
+    expect(events).toMatchObject([
+      { type: 'keyDown', keyCode: 'A', modifiers: ['control'] },
+      { type: 'keyUp', keyCode: 'A', modifiers: ['control'] }
+    ])
+  })
+
+  it('returns the active browser tab for the requested thread as automation target', () => {
+    const { manager, win } = createAutomationHarness()
+    const webContents = {
+      isDestroyed: vi.fn(() => false),
+      getURL: vi.fn(() => 'http://localhost:5173/'),
+      getTitle: vi.fn(() => 'Local app'),
+      isLoading: vi.fn(() => false),
+      navigationHistory: {
+        canGoBack: vi.fn(() => false),
+        canGoForward: vi.fn(() => false)
+      }
+    }
+    ;(manager as unknown as {
+      byWindowId: Map<number, {
+        tabs: Map<string, unknown>
+        activeTabId: string | null
+      }>
+    }).byWindowId.set(1, {
+      activeTabId: 'tab-current',
+      tabs: new Map([
+        ['tab-other', {
+          tabId: 'tab-other',
+          threadId: 'thread-other',
+          workspacePath: 'F:/workspace',
+          view: { webContents },
+          desiredVisible: true,
+          visible: true,
+          boundsInitialized: true,
+          currentUrl: 'http://localhost:4000/',
+          title: 'Other'
+        }],
+        ['tab-current', {
+          tabId: 'tab-current',
+          threadId: 'thread-a',
+          workspacePath: 'F:/workspace',
+          view: { webContents },
+          desiredVisible: true,
+          visible: true,
+          boundsInitialized: true,
+          currentUrl: 'http://localhost:5173/',
+          title: 'Local app'
+        }]
+      ])
+    })
+
+    expect(manager.getAutomationTargetTab(win, 'thread-a')).toMatchObject({
+      tabId: 'tab-current',
+      threadId: 'thread-a',
+      currentUrl: 'http://localhost:5173/',
+      title: 'Local app'
+    })
+    expect(manager.getAutomationTargetTab(win, 'thread-missing')).toBeNull()
   })
 })

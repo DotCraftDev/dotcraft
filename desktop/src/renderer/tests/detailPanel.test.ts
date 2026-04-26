@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement, useRef } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
@@ -69,14 +69,14 @@ beforeEach(() => {
       workspace: {
         viewer: {
           browser: {
-            create: async () => ({
+            create: vi.fn(async () => ({
               tabId: 'browser-created',
               currentUrl: 'about:blank',
               title: 'New Tab',
               canGoBack: false,
               canGoForward: false,
               loading: false
-            })
+            }))
           }
         }
       }
@@ -341,5 +341,8 @@ describe('AddTabPopup browser tab action', () => {
     expect(active.kind).toBe('viewer')
     const tabs = useViewerTabStore.getState().getThreadState('thread-1').tabs
     expect(tabs.some((tab) => tab.kind === 'browser')).toBe(true)
+    expect(window.api.workspace.viewer.browser.create).toHaveBeenCalledWith(expect.objectContaining({
+      threadId: 'thread-1'
+    }))
   })
 })

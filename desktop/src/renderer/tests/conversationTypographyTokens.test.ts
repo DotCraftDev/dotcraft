@@ -29,4 +29,14 @@ describe('conversation typography tokens', () => {
     expect(tokensCss).not.toContain('background-position: -240px 50%')
     expect(tokensCss).not.toContain('animation: tool-running-gradient 1.8s linear infinite')
   })
+
+  it('uses a seamless fixed-period automation tab shimmer', () => {
+    const tokensCss = readFileSync(tokensCssPath, 'utf8')
+
+    expect(tokensCss).toContain('@keyframes dotcraft-automation-tab-flow')
+    expect(tokensCss).toContain('background-position: 96px 50%')
+    expect(tokensCss).toContain('.dotcraft-automation-viewer-tab')
+    expect(tokensCss).toContain('animation: none !important')
+    expect(tokensCss).not.toContain('background-position: 220% 50%')
+  })
 })

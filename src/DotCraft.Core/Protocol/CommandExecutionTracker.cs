@@ -72,7 +72,15 @@ internal sealed class CommandExecutionTracker
         _emitItemDelta(_item, new CommandExecutionOutputDelta { TextDelta = text });
     }
 
-    public void Complete(string aggregatedOutput, string status, int? exitCode)
+    public void Complete(
+        string aggregatedOutput,
+        string status,
+        int? exitCode,
+        string? sessionId = null,
+        string? outputPath = null,
+        int? originalOutputChars = null,
+        bool? truncated = null,
+        string? backgroundReason = null)
     {
         var currentPayload = _item.AsCommandExecution;
         var effectiveOutput = string.IsNullOrEmpty(aggregatedOutput)
@@ -88,6 +96,11 @@ internal sealed class CommandExecutionTracker
             Source = currentPayload?.Source ?? "host",
             Status = status,
             AggregatedOutput = effectiveOutput,
+            SessionId = sessionId ?? currentPayload?.SessionId,
+            OutputPath = outputPath ?? currentPayload?.OutputPath,
+            OriginalOutputChars = originalOutputChars ?? currentPayload?.OriginalOutputChars,
+            Truncated = truncated ?? currentPayload?.Truncated,
+            BackgroundReason = backgroundReason ?? currentPayload?.BackgroundReason,
             ExitCode = exitCode,
             DurationMs = (long)Math.Max(0, (completedAt - _startedAt).TotalMilliseconds),
             CallId = currentPayload?.CallId

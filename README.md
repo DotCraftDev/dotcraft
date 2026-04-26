@@ -8,9 +8,7 @@
 
 面向项目的 Agent Harness，打造持久的 AI 工作空间。
 
-*围绕你的项目，打造一个持久的 AI 工作空间。*
-
-由 .NET 10 与 Unified Session Core 驱动，DotCraft 在终端、桌面应用、IDE 编辑器与即时社交软件之间提供统一且可观测的 AI 编排体验。
+DotCraft 在终端、桌面应用、IDE 编辑器与即时社交软件之间提供统一且可观测的 AI 编排体验。
 
 ![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 

@@ -44,6 +44,7 @@ import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
+import { handleBrowserEvent } from './utils/browserEventHandler'
 import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
 import {
   resolveWorkspaceConfigChangedPayload,
@@ -1066,6 +1067,18 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     const unsubscribe = window.api.workspace.viewer.browserUse.onOpen(handleBrowserUseOpen)
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.api.workspace.viewer.browser.onEvent((event) => {
+      handleBrowserEvent(event, {
+        locale: localeRef.current,
+        workspacePath: workspacePathRef.current
+      })
+    })
     return () => {
       unsubscribe()
     }

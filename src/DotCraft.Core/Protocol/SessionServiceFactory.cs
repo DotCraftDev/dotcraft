@@ -4,6 +4,7 @@ using DotCraft.Hooks;
 using DotCraft.Logging;
 using DotCraft.Security;
 using DotCraft.Sessions;
+using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +44,7 @@ public static class SessionServiceFactory
             logger: loggerFactory?.CreateLogger<SessionService>(),
             approvalStore: sp.GetService<ApprovalStore>(),
             toolProfileRegistry: sp.GetService<IToolProfileRegistry>(),
-            sessionStreamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
+            sessionStreamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
+            backgroundTerminalService: sp.GetService<IBackgroundTerminalService>());
     }
 }

@@ -20,7 +20,7 @@ public sealed class WireBrowserUseProxy : IBrowserUseProxy
     private readonly ConcurrentDictionary<string, BrowserUseThreadBinding> _byThread = new();
 
     /// <inheritdoc />
-    public bool IsAvailable => GetCurrentBinding()?.Connection.SupportsBrowserUseJsRuntime == true;
+    public bool IsAvailable => GetCurrentBinding()?.Connection.HasBrowserUse == true;
 
     /// <summary>
     /// Binds a thread to the transport that created/resumed it.

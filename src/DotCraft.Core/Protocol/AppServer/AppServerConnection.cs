@@ -126,16 +126,6 @@ public sealed class AppServerConnection
     public bool HasBrowserUse => BrowserUse != null;
 
     /// <summary>
-    /// True when the client can evaluate JavaScript in its browser-use runtime.
-    /// </summary>
-    public bool SupportsBrowserUseJsRuntime => BrowserUse?.JsRuntime == true;
-
-    /// <summary>
-    /// True when the client can return screenshots/images from browser-use calls.
-    /// </summary>
-    public bool SupportsBrowserUseImages => BrowserUse?.Images == true;
-
-    /// <summary>
     /// Marks the connection as initialized and stores the client's identity and capabilities.
     /// Returns <c>false</c> if already initialized (caller should reject with AlreadyInitialized).
     /// </summary>
@@ -212,6 +202,12 @@ public sealed class AppServerConnection
     /// </summary>
     public bool SupportsCommandExecutionStreaming =>
         _clientCapabilities?.CommandExecutionStreaming == true;
+
+    /// <summary>
+    /// Returns true when the client declared background terminal notification support.
+    /// </summary>
+    public bool SupportsBackgroundTerminals =>
+        _clientCapabilities?.BackgroundTerminals == true;
 
     /// <summary>
     /// Returns <c>true</c> if the client wants workspace/configChanged notifications.

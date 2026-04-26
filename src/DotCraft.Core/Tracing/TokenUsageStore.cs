@@ -205,6 +205,47 @@ public sealed class TokenUsageStore
         }
     }
 
+    /// <summary>
+    /// Deletes dashboard usage records associated with a server-managed thread.
+    /// </summary>
+    public int DeleteDashboardUsageForThread(string threadId)
+        => DeleteDashboardUsageRecords([threadId], []);
+
+    /// <summary>
+    /// Deletes dashboard usage records associated with a trace session.
+    /// </summary>
+    public int DeleteDashboardUsageForSession(string sessionKey)
+        => DeleteDashboardUsageRecords([], [sessionKey]);
+
+    /// <summary>
+    /// Deletes dashboard usage records associated with the supplied threads or trace sessions.
+    /// </summary>
+    public int DeleteDashboardUsageRecords(
+        IEnumerable<string> threadIds,
+        IEnumerable<string> sessionKeys)
+    {
+        if (_stateRuntime == null)
+            return 0;
+
+        var normalizedThreadIds = NormalizeKeys(threadIds);
+        var normalizedSessionKeys = NormalizeKeys(sessionKeys);
+        if (normalizedThreadIds.Length == 0 && normalizedSessionKeys.Length == 0)
+            return 0;
+
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        var predicates = new List<string>(2);
+
+        if (normalizedThreadIds.Length > 0)
+            predicates.Add(BuildInPredicate(command, "thread_id", "thread", normalizedThreadIds));
+
+        if (normalizedSessionKeys.Length > 0)
+            predicates.Add(BuildInPredicate(command, "session_key", "session", normalizedSessionKeys));
+
+        command.CommandText = $"DELETE FROM dashboard_usage_records WHERE {string.Join(" OR ", predicates)}";
+        return command.ExecuteNonQuery();
+    }
+
     #region Database Queries
 
     private IReadOnlyList<UsageSourceSummary> GetSourceSummariesFromDb()
@@ -413,6 +454,30 @@ public sealed class TokenUsageStore
         {
             // Preserve current best-effort persistence semantics.
         }
+    }
+
+    private static string[] NormalizeKeys(IEnumerable<string> keys)
+        => keys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    private static string BuildInPredicate(
+        Microsoft.Data.Sqlite.SqliteCommand command,
+        string columnName,
+        string parameterPrefix,
+        IReadOnlyList<string> values)
+    {
+        var placeholders = new List<string>(values.Count);
+        for (var i = 0; i < values.Count; i++)
+        {
+            var parameterName = $"${parameterPrefix}{i}";
+            placeholders.Add(parameterName);
+            command.Parameters.AddWithValue(parameterName, values[i]);
+        }
+
+        return $"{columnName} IN ({string.Join(", ", placeholders)})";
     }
 
     #region File Fallback Aggregation

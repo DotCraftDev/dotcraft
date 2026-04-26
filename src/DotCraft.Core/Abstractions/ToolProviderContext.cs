@@ -9,6 +9,7 @@ using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Lsp;
 using DotCraft.Tools;
+using DotCraft.Tools.BackgroundTerminals;
 using OpenAI.Chat;
 
 namespace DotCraft.Abstractions;
@@ -68,6 +69,12 @@ public sealed class ToolProviderContext
     /// Optional path blacklist for security restrictions.
     /// </summary>
     public PathBlacklist? PathBlacklist { get; init; }
+
+    /// <summary>
+    /// Optional process manager for host shell commands that may continue running
+    /// after a tool call returns.
+    /// </summary>
+    public IBackgroundTerminalService? BackgroundTerminalService { get; init; }
 
     /// <summary>
     /// Optional cron tools for scheduled tasks.

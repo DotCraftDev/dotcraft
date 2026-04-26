@@ -3,6 +3,15 @@
 
 @import "tailwindcss";
 
+@keyframes dotcraft-automation-tab-flow {
+  0% {
+    background-position: 0 50%;
+  }
+  100% {
+    background-position: 96px 50%;
+  }
+}
+
 /* ─── Color Tokens (spec §15.1) ─── */
 @theme {
   /* Backgrounds */
@@ -417,6 +426,10 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dotcraft-automation-viewer-tab {
+    animation: none !important;
+  }
+
   .tool-running-gradient-text {
     background-image: none;
     color: var(--text-primary);

@@ -14,6 +14,7 @@ using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -168,6 +169,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
 
             var traceCollector = Services.GetService<TraceCollector>();
             var cronTools = Services.GetService<CronTools>();
+            var backgroundTerminalService = Services.GetService<IBackgroundTerminalService>();
 
             ToolProviderCollector.ScanToolIcons(moduleRegistry, Config);
             var toolProviders = ToolProviderCollector.Collect(moduleRegistry, Config);
@@ -203,6 +205,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                         SkillsLoader = SkillsLoader,
                         ApprovalService = scopedApproval,
                         PathBlacklist = PathBlacklist,
+                        BackgroundTerminalService = backgroundTerminalService,
                         CronTools = cronTools,
                         McpClientManager = McpClientManager.Tools.Count > 0 ? McpClientManager : null,
                         LspServerManager = LspServerManager,

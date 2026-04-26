@@ -19,6 +19,7 @@ using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Protocol;
@@ -127,6 +128,8 @@ public sealed class AppServerHost(
         _runtime.CronStateChanged += OnCronStateChanged;
         _runtime.BackgroundJobResultProduced += OnBackgroundJobResultProduced;
         _runtime.AutomationTaskUpdated += BroadcastAutomationTaskUpdated;
+        if (_services.GetService<IBackgroundTerminalService>() is { } terminals)
+            terminals.TerminalEvent += BroadcastBackgroundTerminalEvent;
     }
 
     private void UnsubscribeRuntimeEvents()
@@ -141,6 +144,8 @@ public sealed class AppServerHost(
         _runtime.CronStateChanged -= OnCronStateChanged;
         _runtime.BackgroundJobResultProduced -= OnBackgroundJobResultProduced;
         _runtime.AutomationTaskUpdated -= BroadcastAutomationTaskUpdated;
+        if (_services.GetService<IBackgroundTerminalService>() is { } terminals)
+            terminals.TerminalEvent -= BroadcastBackgroundTerminalEvent;
     }
 
     private AppServerRequestHandler CreateRequestHandler(
@@ -173,7 +178,8 @@ public sealed class AppServerHost(
             onExternalChannelRemoved: _runtime.ApplyExternalChannelRemoveAsync,
             streamDebugLogger: _services.GetService<SessionStreamDebugLogger>(),
             configSchema: _runtime.ConfigSchema,
-            appConfigMonitor: _services.GetRequiredService<IAppConfigMonitor>());
+            appConfigMonitor: _services.GetRequiredService<IAppConfigMonitor>(),
+            backgroundTerminalService: _services.GetService<IBackgroundTerminalService>());
     }
 
     // -------------------------------------------------------------------------
@@ -739,6 +745,47 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.SupportsConfigChange || !connection.ShouldSendNotification(AppServerMethods.WorkspaceConfigChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private void BroadcastBackgroundTerminalEvent(BackgroundTerminalEvent evt)
+    {
+        var method = evt.EventType switch
+        {
+            "started" => AppServerMethods.TerminalStarted,
+            "outputDelta" => AppServerMethods.TerminalOutputDelta,
+            "completed" => AppServerMethods.TerminalCompleted,
+            "stalled" => AppServerMethods.TerminalStalled,
+            "cleaned" => AppServerMethods.TerminalCleaned,
+            _ => "terminal/event"
+        };
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method,
+            @params = new
+            {
+                terminal = evt.Terminal,
+                delta = evt.Delta
+            }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.SupportsBackgroundTerminals || !connection.ShouldSendNotification(method))
                 continue;
 
             _ = Task.Run(async () =>

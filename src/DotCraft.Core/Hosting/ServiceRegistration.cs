@@ -16,6 +16,7 @@ using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.State;
 using DotCraft.Tools;
+using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -74,6 +75,11 @@ public static class ServiceRegistration
         });
         services.AddSingleton(new StateRuntime(botPath));
         services.AddSingleton(new PathBlacklist(config.Security.BlacklistedPaths));
+        services.AddSingleton<IBackgroundTerminalService>(sp =>
+            new BackgroundTerminalService(
+                botPath,
+                config.Tools.Shell.Background,
+                sp.GetService<ILoggerFactory>()?.CreateLogger<BackgroundTerminalService>()));
         services.AddSingleton(new MemoryStore(botPath));
         services.AddSingleton(new ApprovalStore(botPath));
         var skillsLoader = new SkillsLoader(botPath);
@@ -159,7 +165,9 @@ public static class ServiceRegistration
 
         services.AddSingleton(sp => new SessionPersistenceService(
             sp.GetRequiredService<ThreadStore>(),
-            sp.GetService<TraceStore>()));
+            sp.GetService<TraceStore>(),
+            sp.GetService<TokenUsageStore>(),
+            sp.GetRequiredService<StateRuntime>()));
         services.AddSingleton<IWorkspaceRuntimeFactory, WorkspaceRuntimeFactory>();
         services.AddSingleton(sp => sp.GetRequiredService<IWorkspaceRuntimeFactory>().Create(sp));
 
@@ -230,5 +238,8 @@ public static class ServiceProviderExtensions
 
         var lspManager = provider.GetRequiredService<LspServerManager>();
         await lspManager.DisposeAsync();
+
+        if (provider.GetService<IBackgroundTerminalService>() is IAsyncDisposable terminals)
+            await terminals.DisposeAsync();
     }
 }

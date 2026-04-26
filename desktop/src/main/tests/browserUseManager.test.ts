@@ -46,6 +46,7 @@ function createFakeHost(webContents = createFakeWebContents()) {
   return {
     createAutomationTab: vi.fn(),
     getTabWebContents: vi.fn(() => webContents),
+    getAutomationTargetTab: vi.fn((): { tabId: string; currentUrl: string; title: string; loading: boolean } | null => null),
     loadAutomationUrl: vi.fn(async (_win: Electron.BrowserWindow, params: { tabId: string; url: string }) => {
       webContents.setUrl(params.url)
     }),
@@ -55,7 +56,15 @@ function createFakeHost(webContents = createFakeWebContents()) {
       currentUrl: webContents.getURL(),
       title: webContents.getTitle(),
       loading: webContents.isLoading()
-    }))
+    })),
+    setAutomationState: vi.fn(),
+    moveMouse: vi.fn(),
+    clickMouse: vi.fn(),
+    doubleClickMouse: vi.fn(),
+    dragMouse: vi.fn(),
+    scrollMouse: vi.fn(),
+    typeText: vi.fn(),
+    keypress: vi.fn()
   }
 }
 
@@ -178,6 +187,28 @@ describe('BrowserUseManager JavaScript runtime', () => {
     expect(BrowserWindow).not.toHaveBeenCalled()
   })
 
+  it('opens 127.0.0.1 dev server URLs through the viewer host', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.new("127.0.0.1:5173");
+        return await tab.url();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('http://127.0.0.1:5173/')
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: expect.stringMatching(/^browser-use-thread-1-/),
+      url: 'http://127.0.0.1:5173/'
+    })
+  })
+
   it('does not force focus for additional tabs in the same thread', async () => {
     const host = createFakeHost()
     const manager = new BrowserUseManager(host)
@@ -197,6 +228,127 @@ describe('BrowserUseManager JavaScript runtime', () => {
     }))
     expect(owner.webContents.send).toHaveBeenNthCalledWith(2, 'viewer:browser-use:open', expect.objectContaining({
       focusMode: 'none'
+    }))
+  })
+
+  it('adopts the current thread browser tab for default BrowserJs navigation', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.goto("localhost:5173"); return await tab.url();'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(host.createAutomationTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5173/'
+    })
+    expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
+      tabId: 'user-browser-tab',
+      active: true,
+      action: 'navigate'
+    }))
+  })
+
+  it('reuses an adopted selected tab across BrowserJs calls', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.tabs.selected();'
+    })
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.tabs.selected(); await tab.goto("localhost:5174");'
+    })
+
+    expect(host.createAutomationTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5174/'
+    })
+  })
+
+  it('keeps an existing selected runtime tab over a later automation target', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.tabs.new("localhost:3000");'
+    })
+    host.loadAutomationUrl.mockClear()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.goto("localhost:5174"); return tab.id;'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toMatch(/^browser-use-thread-1-/)
+    expect(host.getAutomationTargetTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: expect.stringMatching(/^browser-use-thread-1-/),
+      url: 'http://localhost:5174/'
+    })
+    expect(host.loadAutomationUrl).not.toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5174/'
+    })
+  })
+
+  it('reset leaves adopted user browser tabs open but clears automation state', async () => {
+    const host = createFakeHost()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.goto("localhost:5173");'
+    })
+    expect(manager.reset('thread-1')).toEqual({ ok: true })
+
+    expect(host.destroyTab).not.toHaveBeenCalled()
+    expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
+      tabId: 'user-browser-tab',
+      active: false
     }))
   })
 
@@ -367,5 +519,89 @@ describe('BrowserUseManager JavaScript runtime', () => {
     const result = await pending
     expect(result.error).toBeUndefined()
     expect(result.resultText).toBe('https://another.example/')
+  })
+
+  it('routes CUA click through the viewer host input layer', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: `
+        const tab = await agent.browser.tabs.new("localhost:3000");
+        await tab.cua.click({ x: 40, y: 50 });
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(host.clickMouse).toHaveBeenCalledWith(owner, expect.objectContaining({
+      x: 40,
+      y: 50
+    }))
+    expect(host.setAutomationState).toHaveBeenCalledWith(owner, expect.objectContaining({
+      active: true,
+      action: 'click'
+    }))
+  })
+
+  it('resolves locator clicks strictly and sends coordinate input', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('querySelectorAll')) {
+        return [{
+          index: 0,
+          tagName: 'button',
+          visibleText: 'Save',
+          ariaName: 'Save',
+          boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+        }]
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: `
+        const tab = await agent.browser.tabs.new("localhost:3000");
+        await tab.playwright.getByRole("button", { name: "Save" }).click();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(host.clickMouse).toHaveBeenCalledWith(owner, expect.objectContaining({
+      x: 60,
+      y: 40
+    }))
+  })
+
+  it('reports strict locator violations instead of guessing', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('querySelectorAll')) {
+        return [
+          { index: 0, tagName: 'button', visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+          { index: 1, tagName: 'button', visibleText: 'Save', ariaName: 'Save', boundingBox: { x: 20, y: 0, width: 10, height: 10 } }
+        ]
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: `
+        const tab = await agent.browser.tabs.new("localhost:3000");
+        await tab.playwright.getByText("Save").click();
+      `
+    })
+
+    expect(result.error).toContain('Strict mode violation')
+    expect(host.clickMouse).not.toHaveBeenCalled()
   })
 })
