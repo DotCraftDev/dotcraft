@@ -1840,8 +1840,9 @@ export class BrowserUseManager {
     for (;;) {
       const signal = this.getRuntimeForTab(tab).activeAbortSignal
       if (signal?.aborted) throw new Error(`Browser operation 'locator.waitFor' was cancelled for tab ${tab.id}.`)
-      const count = (await this.resolveLocator(tab, descriptor)).length
-      if ((expected === 'hidden' || expected === 'detached') ? count === 0 : count > 0) return
+      const matches = await this.resolveLocator(tab, descriptor)
+      const visibleCount = matches.filter((m) => m.visible).length
+      if ((expected === 'hidden' || expected === 'detached') ? matches.length === 0 : visibleCount > 0) return
       if (Date.now() > deadline) throw new Error(`Timed out waiting for locator ${this.describeLocator(descriptor)} to be ${expected}.`)
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
