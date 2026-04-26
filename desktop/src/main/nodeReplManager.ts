@@ -239,8 +239,11 @@ export class NodeReplManager {
     globals.agent = browserRuntime.agent
     globals.display = display
     globals.console = consoleApi
+    globals.setTimeout = setTimeout
+    globals.clearTimeout = clearTimeout
+    globals.setInterval = setInterval
+    globals.clearInterval = clearInterval
     globals.dotcraft = { browserUseClientPath: resolveBrowserClientPath() }
-    globals.__dotcraftDynamicImport = async (specifier: unknown) => import(String(specifier))
     globals.__dotcraftSetupAtlasRuntime = async (
       options?: { globals?: Record<string, unknown>; backend?: string }
     ) => {
