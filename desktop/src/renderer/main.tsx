@@ -2,9 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { LocaleProvider } from './contexts/LocaleContext'
-import { applyTheme } from './utils/theme'
+import { applyTheme, resolveTheme } from './utils/theme'
+import './styles/tokens.css'
 
-applyTheme('dark')
+const params = new URLSearchParams(window.location.search)
+const initialTheme = resolveTheme(params.get('theme') ?? window.api?.initialTheme)
+applyTheme(initialTheme)
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

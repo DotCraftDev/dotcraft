@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
+import { useViewerTabStore } from '../stores/viewerTabStore'
 import type { ConversationItem } from '../types/conversation'
 import type { FileDiff } from '../types/toolCall'
 
@@ -21,6 +22,11 @@ const collapseAnimationMs = 200
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
+    useViewerTabStore.setState({
+      byThread: new Map(),
+      currentThreadId: null,
+      currentWorkspacePath: null
+    })
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -314,6 +320,79 @@ describe('ToolCallCard shell rendering', () => {
 
     expect(screen.getAllByText('Searched "dotcraft"').length).toBeGreaterThan(0)
     vi.useRealTimers()
+  })
+
+  it('renders completed WebSearch results as a clickable table that opens the internal browser', () => {
+    const item: ConversationItem = {
+      id: 'tool-web-search-table',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WebSearch',
+      toolCallId: 'websearch-table-1',
+      arguments: { query: 'dotcraft docs' },
+      result: JSON.stringify({
+        query: 'dotcraft docs',
+        provider: 'exa',
+        results: [
+          { title: 'DotCraft Docs', url: 'https://docs.dotcraft.ai/start', snippet: 'Guide' },
+          { title: 'GitHub', url: 'https://github.com/DotHarness/dotcraft' }
+        ]
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    useConversationStore.setState({ workspacePath: 'F:\\dotcraft' })
+    useViewerTabStore.getState().onThreadSwitched('thread-1')
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Searched "dotcraft docs"/ }))
+
+    expect(screen.getByRole('columnheader', { name: 'Title' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Link' })).toBeInTheDocument()
+    expect(screen.queryByText('Web search')).toBeNull()
+    expect(screen.getAllByText('Searched "dotcraft docs"')).toHaveLength(1)
+    expect(screen.getByTestId('tool-expanded-content')).toHaveStyle({ padding: '0px' })
+    expect(screen.getByRole('button', { name: 'DotCraft Docs' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'docs.dotcraft.ai' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DotCraft Docs' }))
+
+    const threadState = useViewerTabStore.getState().getThreadState('thread-1')
+    expect(threadState.tabs).toHaveLength(1)
+    expect(threadState.tabs[0]).toMatchObject({
+      kind: 'browser',
+      currentUrl: 'https://docs.dotcraft.ai/start'
+    })
+    expect(threadState.activeTabId).toBe(threadState.tabs[0]?.id)
+  })
+
+  it('renders completed WebFetch as a non-expandable title row', () => {
+    const item: ConversationItem = {
+      id: 'tool-web-fetch-summary',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WebFetch',
+      toolCallId: 'webfetch-summary-1',
+      arguments: { url: 'https://dotcraft.ai' },
+      result: JSON.stringify({
+        status: 200,
+        length: 12345,
+        extractor: 'readability',
+        truncated: true
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const row = screen.getByRole('button', { name: /Fetched https:\/\/dotcraft\.ai/ })
+
+    expect(screen.queryByText('▼')).toBeNull()
+    fireEvent.click(row)
+
+    expect(screen.queryByText('200 · 12,345 chars · readability · truncated')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
   })
 
   it('keeps content mounted during manual collapse animation before removing it', () => {

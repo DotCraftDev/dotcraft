@@ -15,7 +15,9 @@ import {
   getWebToolIcon,
   getWebToolSectionLabel,
   invocationNeedsCallingPrefix,
-  isWebToolName
+  isWebToolName,
+  parseWebSearchResultDisplay,
+  type WebSearchResultRow
 } from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 import { isShellToolName } from '../../utils/shellTools'
@@ -33,6 +35,8 @@ import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { CollapsibleContent } from './CollapsibleContent'
 import { AnsiPre } from './AnsiPre'
 import { stripAnsi } from '../../utils/ansi'
+import { useViewerTabStore } from '../../stores/viewerTabStore'
+import { openConversationLink } from '../../utils/conversationDeepLink'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -88,10 +92,12 @@ export const ToolCallCard = memo(function ToolCallCard({
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
+  const isWebFetchTool = toolName === 'WebFetch'
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
   const autoExpandEligible = isShellTool || isStreamingFileTool
-  const canExpandWhileRunning = true
+  const canExpandWhileRunning = !isWebFetchTool
+  const canExpandCompleted = !isWebFetchTool
   const streamingDisplay = getStreamingToolDisplay(
     toolName,
     item.argumentsPreview ?? null,
@@ -141,7 +147,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   )
 
   function toggleExpand(): void {
-    if (!isRunning || canExpandWhileRunning) {
+    if ((isRunning && canExpandWhileRunning) || (!isRunning && canExpandCompleted)) {
       setUserInteracted(true)
       if (autoExpandTimerRef.current != null) {
         clearTimeout(autoExpandTimerRef.current)
@@ -305,6 +311,10 @@ export const ToolCallCard = memo(function ToolCallCard({
 
   const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
   const failedPreview = stripAnsi(item.result ?? shellOutput)
+  const hasFlushWebSearchTable =
+    toolName === 'WebSearch'
+    && parseWebSearchResultDisplay(item.result)?.kind === 'results'
+  const completedExpanded = canExpandCompleted && expanded
 
   return (
     <div
@@ -313,7 +323,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       style={{
         borderRadius: '4px',
         overflow: 'hidden',
-        border: expanded ? '1px solid var(--border-default)' : 'none'
+        border: completedExpanded ? '1px solid var(--border-default)' : 'none'
       }}
     >
       <button
@@ -324,14 +334,14 @@ export const ToolCallCard = memo(function ToolCallCard({
           gap: '6px',
           width: '100%',
           padding: '3px 6px',
-          background: expanded ? 'var(--bg-tertiary)' : 'transparent',
+          background: completedExpanded ? 'var(--bg-tertiary)' : 'transparent',
           border: 'none',
-          borderBottom: expanded ? '1px solid var(--border-default)' : 'none',
-          cursor: 'pointer',
+          borderBottom: completedExpanded ? '1px solid var(--border-default)' : 'none',
+          cursor: canExpandCompleted ? 'pointer' : 'default',
           color: 'var(--text-secondary)',
           fontSize: '12px',
           textAlign: 'left',
-          borderRadius: expanded ? '4px 4px 0 0' : '4px'
+          borderRadius: completedExpanded ? '4px 4px 0 0' : '4px'
         }}
       >
         <span style={{ flex: 1, color: success ? 'var(--text-secondary)' : 'var(--error)' }}>
@@ -342,27 +352,37 @@ export const ToolCallCard = memo(function ToolCallCard({
             </span>
           )}
         </span>
-        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+        {canExpandCompleted && (
+          <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+        )}
       </button>
 
-      <CollapsibleContent
-        expanded={expanded}
-        renderExpanded={renderExpanded}
-        setRenderExpanded={setRenderExpanded}
-      >
-        <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
-          <ExpandedContent
-            itemId={item.id}
-            toolName={toolName}
-            args={args}
-            result={isShellTool ? shellOutput : item.result}
-            success={success}
-            fileDiff={fileDiff ? { diff: fileDiff } : undefined}
-            locale={locale}
-            planTodos={planTodos}
-          />
-        </div>
-      </CollapsibleContent>
+      {canExpandCompleted && (
+        <CollapsibleContent
+          expanded={expanded}
+          renderExpanded={renderExpanded}
+          setRenderExpanded={setRenderExpanded}
+        >
+          <div
+            data-testid="tool-expanded-content"
+            style={{
+              background: 'var(--bg-secondary)',
+              padding: hasFlushWebSearchTable ? 0 : '8px'
+            }}
+          >
+            <ExpandedContent
+              itemId={item.id}
+              toolName={toolName}
+              args={args}
+              result={isShellTool ? shellOutput : item.result}
+              success={success}
+              fileDiff={fileDiff ? { diff: fileDiff } : undefined}
+              locale={locale}
+              planTodos={planTodos}
+            />
+          </div>
+        </CollapsibleContent>
+      )}
     </div>
   )
 })
@@ -429,6 +449,13 @@ function ExpandedContent({
   }
 
   if (isWebToolName(toolName)) {
+    if (toolName === 'WebSearch') {
+      const parsedSearch = parseWebSearchResultDisplay(result)
+      if (parsedSearch?.kind === 'results') {
+        return <WebSearchResultsTable rows={parsedSearch.rows} locale={locale} />
+      }
+    }
+
     const lines = formatResultSummary(toolName, result)
     const inv = formatInvocationDisplay(toolName, args, locale)
     const section = getWebToolSectionLabel(toolName, locale)
@@ -500,6 +527,144 @@ function ExpandedContent({
         />
       )}
     </div>
+  )
+}
+
+export function WebSearchResultsTable({
+  rows,
+  locale
+}: {
+  rows: WebSearchResultRow[]
+  locale: AppLocale
+}): JSX.Element {
+  const workspacePath = useConversationStore((s) => s.workspacePath)
+  const currentThreadId = useViewerTabStore((s) => s.currentThreadId)
+
+  const openResult = (url: string): void => {
+    if (!workspacePath || !currentThreadId) return
+    void openConversationLink({
+      target: url,
+      workspacePath,
+      threadId: currentThreadId,
+      t: (key) => translate(locale, key)
+    })
+  }
+
+  return (
+    <div
+      style={{
+        overflow: 'hidden',
+        border: 'none',
+        borderRadius: 0
+      }}
+    >
+      <table
+        style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          tableLayout: 'fixed',
+          fontSize: '12px'
+        }}
+      >
+        <thead>
+          <tr style={{ background: 'var(--bg-tertiary)', color: 'var(--text-dimmed)' }}>
+            <th
+              scope="col"
+              style={{
+                width: '64%',
+                padding: '6px 8px',
+                textAlign: 'left',
+                fontWeight: 500,
+                borderBottom: '1px solid var(--border-default)'
+              }}
+            >
+              {translate(locale, 'toolCall.webSearch.tableTitle')}
+            </th>
+            <th
+              scope="col"
+              style={{
+                width: '36%',
+                padding: '6px 8px',
+                textAlign: 'left',
+                fontWeight: 500,
+                borderBottom: '1px solid var(--border-default)'
+              }}
+            >
+              {translate(locale, 'toolCall.webSearch.tableLink')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={`${row.url}-${index}`}
+              style={{
+                borderTop: index === 0 ? 'none' : '1px solid var(--border-muted, var(--border-default))'
+              }}
+            >
+              <WebSearchResultCell
+                label={row.title}
+                title={row.url}
+                onClick={() => openResult(row.url)}
+              />
+              <WebSearchResultCell
+                label={row.linkLabel}
+                title={row.url}
+                onClick={() => openResult(row.url)}
+                monospace
+              />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function WebSearchResultCell({
+  label,
+  title,
+  onClick,
+  monospace = false
+}: {
+  label: string
+  title: string
+  onClick: () => void
+  monospace?: boolean
+}): JSX.Element {
+  return (
+    <td style={{ padding: 0, minWidth: 0 }}>
+      <button
+        type="button"
+        title={title}
+        onClick={onClick}
+        style={{
+          width: '100%',
+          minHeight: '30px',
+          padding: '5px 8px',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          textAlign: 'left',
+          fontSize: '12px',
+          fontFamily: monospace ? 'var(--font-mono)' : 'inherit',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}
+        onMouseEnter={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+        }}
+      >
+        {label}
+      </button>
+    </td>
   )
 }
 

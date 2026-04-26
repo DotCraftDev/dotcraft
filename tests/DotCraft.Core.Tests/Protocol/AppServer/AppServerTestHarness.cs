@@ -45,7 +45,7 @@ internal sealed class AppServerTestHarness : IDisposable
         SkillsLoader? skillsLoader = null,
         McpClientManager? mcpClientManager = null,
         IWelcomeSuggestionService? welcomeSuggestionService = null,
-        WireBrowserUseProxy? wireBrowserUseProxy = null,
+        WireNodeReplProxy? wireNodeReplProxy = null,
         IBackgroundTerminalService? backgroundTerminalService = null)
     {
         _tempDir = Path.Combine(
@@ -73,7 +73,7 @@ internal sealed class AppServerTestHarness : IDisposable
             appConfigMonitor: Monitor,
             skillsLoader: skillsLoader,
             mcpClientManager: mcpClientManager,
-            wireBrowserUseProxy: wireBrowserUseProxy,
+            wireNodeReplProxy: wireNodeReplProxy,
             backgroundTerminalService: backgroundTerminalService);
 
         Identity = new SessionIdentity
@@ -98,7 +98,7 @@ internal sealed class AppServerTestHarness : IDisposable
         bool streamingSupport = true,
         bool? configChange = null,
         List<string>? optOutMethods = null,
-        bool browserUse = false)
+        bool nodeReplBrowserUse = false)
     {
         var caps = new
         {
@@ -106,10 +106,18 @@ internal sealed class AppServerTestHarness : IDisposable
             streamingSupport,
             configChange,
             optOutNotificationMethods = optOutMethods ?? [],
-            browserUse = browserUse
+            nodeRepl = nodeReplBrowserUse
                 ? new
                 {
-                    backend = "desktop-webcontents"
+                    backend = "desktop-node"
+                }
+                : null,
+            browserUse = nodeReplBrowserUse
+                ? new
+                {
+                    backend = "desktop-iab",
+                    protocolVersion = 2,
+                    supportsCancel = true
                 }
                 : null
         };

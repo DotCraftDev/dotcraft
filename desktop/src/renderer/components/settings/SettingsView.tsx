@@ -1,4 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
+import {
+  Archive,
+  BarChart3,
+  Bot,
+  Cable,
+  Globe2,
+  KeyRound,
+  MessageSquare,
+  Server,
+  Settings as SettingsIcon,
+  UserRound,
+  type LucideIcon
+} from 'lucide-react'
 import { addToast } from '../../stores/toastStore'
 import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 import { normalizeLocale, type AppLocale } from '../../../shared/locales'
@@ -1891,24 +1904,24 @@ export function SettingsView({
     }
   }
 
-  const tabs: Array<{ id: SettingsTab; label: string }> = [
-    { id: 'general', label: t('settings.tab.general') },
-    { id: 'connection', label: t('settings.tab.connection') },
-    { id: 'proxy', label: t('settings.tab.proxy') },
-    { id: 'browserUse', label: t('settings.tab.browserUse') },
-    { id: 'usage', label: t('settings.tab.usage') },
-    { id: 'channels', label: t('settings.tab.channels') }
+  const tabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
+    { id: 'general', label: t('settings.tab.general'), icon: SettingsIcon },
+    { id: 'connection', label: t('settings.tab.connection'), icon: Cable },
+    { id: 'proxy', label: t('settings.tab.proxy'), icon: KeyRound },
+    { id: 'browserUse', label: t('settings.tab.browserUse'), icon: Globe2 },
+    { id: 'usage', label: t('settings.tab.usage'), icon: BarChart3 },
+    { id: 'channels', label: t('settings.tab.channels'), icon: MessageSquare }
   ]
   if (workspaceCoreApiAvailable) {
-    tabs.splice(1, 0, { id: 'personalization', label: t('settings.tab.personalization') })
+    tabs.splice(1, 0, { id: 'personalization', label: t('settings.tab.personalization'), icon: UserRound })
   }
   if (mcpEnabled) {
-    tabs.push({ id: 'mcp', label: 'MCP' })
+    tabs.push({ id: 'mcp', label: 'MCP', icon: Server })
   }
   if (subAgentEnabled) {
-    tabs.push({ id: 'subAgents', label: t('settings.tab.subAgents') })
+    tabs.push({ id: 'subAgents', label: t('settings.tab.subAgents'), icon: Bot })
   }
-  tabs.push({ id: 'archivedThreads', label: t('settings.tab.archivedThreads') })
+  tabs.push({ id: 'archivedThreads', label: t('settings.tab.archivedThreads'), icon: Archive })
 
   return (
     <div
@@ -1932,6 +1945,7 @@ export function SettingsView({
       >
         {tabs.map((tab) => {
           const active = activeSettingsTab === tab.id
+          const TabIcon = tab.icon
           return (
             <button
               key={tab.id}
@@ -1939,6 +1953,9 @@ export function SettingsView({
               onClick={() => setActiveSettingsTab(tab.id)}
               style={{
                 width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
                 textAlign: 'left',
                 padding: '10px 14px',
                 border: 'none',
@@ -1950,7 +1967,10 @@ export function SettingsView({
                 cursor: 'pointer'
               }}
             >
-              {tab.label}
+              <TabIcon size={16} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {tab.label}
+              </span>
             </button>
           )
         })}
@@ -1982,7 +2002,7 @@ export function SettingsView({
         </header>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          <div style={{ maxWidth: activeSettingsTab === 'mcp' || activeSettingsTab === 'subAgents' || activeSettingsTab === 'browserUse' ? '760px' : '560px' }}>
+          <div style={{ width: '100%', maxWidth: '760px', margin: '0 auto' }}>
             {(connectionDirty || llmDirty || proxyDirty) && (
               <div
                 style={{

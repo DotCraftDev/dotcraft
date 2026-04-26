@@ -4,14 +4,14 @@ using DotCraft.Tracing;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 
-public sealed class AppServerBrowserUseTests
+public sealed class AppServerNodeReplTests
 {
     [Fact]
-    public async Task ThreadStart_WithBrowserUseCapability_BindsThreadAndRefreshesAgent()
+    public async Task ThreadStart_WithNodeReplAndBrowserUseCapabilities_BindsThreadAndRefreshesAgent()
     {
-        var proxy = new WireBrowserUseProxy();
-        using var harness = new AppServerTestHarness(wireBrowserUseProxy: proxy);
-        await harness.InitializeAsync(browserUse: true);
+        var proxy = new WireNodeReplProxy();
+        using var harness = new AppServerTestHarness(wireNodeReplProxy: proxy);
+        await harness.InitializeAsync(nodeReplBrowserUse: true);
 
         var msg = harness.BuildRequest(AppServerMethods.ThreadStart, new
         {
@@ -23,25 +23,25 @@ public sealed class AppServerBrowserUseTests
         var threadId = response.RootElement.GetProperty("result").GetProperty("thread").GetProperty("id").GetString()!;
 
         Assert.Contains(threadId, harness.Service.RefreshedThreadAgents);
-        AssertThreadBrowserUseAvailable(proxy, threadId);
+        AssertThreadNodeReplAvailable(proxy, threadId);
     }
 
     [Fact]
-    public async Task ThreadResume_WithBrowserUseCapability_BindsExistingThreadAndRefreshesAgent()
+    public async Task ThreadResume_WithNodeReplAndBrowserUseCapabilities_BindsExistingThreadAndRefreshesAgent()
     {
-        var proxy = new WireBrowserUseProxy();
-        using var harness = new AppServerTestHarness(wireBrowserUseProxy: proxy);
+        var proxy = new WireNodeReplProxy();
+        using var harness = new AppServerTestHarness(wireNodeReplProxy: proxy);
         var thread = await harness.Service.CreateThreadAsync(harness.Identity);
-        await harness.InitializeAsync(browserUse: true);
+        await harness.InitializeAsync(nodeReplBrowserUse: true);
 
         var msg = harness.BuildRequest(AppServerMethods.ThreadResume, new { threadId = thread.Id });
         await harness.ExecuteRequestAsync(msg);
 
         Assert.Contains(thread.Id, harness.Service.RefreshedThreadAgents);
-        AssertThreadBrowserUseAvailable(proxy, thread.Id);
+        AssertThreadNodeReplAvailable(proxy, thread.Id);
     }
 
-    private static void AssertThreadBrowserUseAvailable(WireBrowserUseProxy proxy, string threadId)
+    private static void AssertThreadNodeReplAvailable(WireNodeReplProxy proxy, string threadId)
     {
         var previous = TracingChatClient.CurrentSessionKey;
         try

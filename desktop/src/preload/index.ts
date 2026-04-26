@@ -4,6 +4,7 @@ import {
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
+import type { AddTabMenuAction, AddTabMenuRequest, AddTabPopupPayload } from '../shared/addTabMenu'
 import type {
   BrowserUseApprovalRequestPayload,
   BrowserUseOpenPayload,
@@ -21,6 +22,7 @@ export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'bl
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
+export type ThemeMode = 'dark' | 'light'
 export type EditorId =
   | 'explorer'
   | 'vs'
@@ -38,6 +40,25 @@ export interface EditorInfo {
   labelKey: string
   iconKey: string
   iconDataUrl?: string
+}
+
+function readInitialTheme(): ThemeMode {
+  const arg = process.argv.find((value) => value.startsWith('--dotcraft-initial-theme='))
+  const raw = arg?.slice('--dotcraft-initial-theme='.length)
+  return raw === 'light' ? 'light' : 'dark'
+}
+
+const initialTheme = readInitialTheme()
+
+function applyInitialThemeToDocument(): void {
+  document.documentElement?.setAttribute('data-theme', initialTheme)
+}
+
+if (typeof document !== 'undefined') {
+  applyInitialThemeToDocument()
+  if (!document.documentElement) {
+    document.addEventListener('DOMContentLoaded', applyInitialThemeToDocument, { once: true })
+  }
 }
 
 export interface NotificationPayload {
@@ -296,6 +317,8 @@ ipcRenderer.on(
 const api = {
   platform: process.platform as 'darwin' | 'win32' | 'linux',
 
+  initialTheme,
+
   titleBarOverlayHeight: TITLE_BAR_OVERLAY_HEIGHT,
 
   /** Matches CustomMenuBar / ToastContainer right inset on Windows / Linux. */
@@ -304,6 +327,20 @@ const api = {
   menu: {
     popupTopLevel(menuId: TopLevelMenuId, x: number, y: number): Promise<void> {
       return ipcRenderer.invoke('menu:popup-top-level', { menuId, x, y })
+    },
+    popupAddTabMenu(request: AddTabMenuRequest): Promise<AddTabMenuAction | null> {
+      return ipcRenderer.invoke('menu:popup-add-tab', request)
+    },
+    getAddTabMenuPayload(): Promise<AddTabPopupPayload | null> {
+      return ipcRenderer.invoke('menu:add-tab-popup-payload')
+    },
+    onAddTabMenuPayload(listener: (payload: AddTabPopupPayload) => void): UnsubscribeFn {
+      const wrapped = (_event: Electron.IpcRendererEvent, payload: AddTabPopupPayload) => listener(payload)
+      ipcRenderer.on('menu:add-tab-popup-payload', wrapped)
+      return () => ipcRenderer.removeListener('menu:add-tab-popup-payload', wrapped)
+    },
+    resolveAddTabMenu(action: AddTabMenuAction | null): Promise<void> {
+      return ipcRenderer.invoke('menu:add-tab-popup-result', action)
     }
   },
 

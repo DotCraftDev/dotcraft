@@ -20,7 +20,10 @@ function getHljsHref(mode: ThemeMode): string {
 /**
  * Sets `data-theme` on `<html>` and swaps the single highlight.js stylesheet.
  */
-export function applyTheme(mode: ThemeMode): void {
+export function applyTheme(
+  mode: ThemeMode,
+  options: { syncTitleBarOverlay?: boolean } = {}
+): void {
   document.documentElement.setAttribute('data-theme', mode)
 
   let link = document.getElementById(HLJS_LINK_ID) as HTMLLinkElement | null
@@ -32,7 +35,11 @@ export function applyTheme(mode: ThemeMode): void {
   }
   link.href = getHljsHref(mode)
 
-  if (typeof window !== 'undefined' && window.api?.platform !== 'darwin') {
+  if (
+    options.syncTitleBarOverlay !== false &&
+    typeof window !== 'undefined' &&
+    window.api?.platform !== 'darwin'
+  ) {
     void window.api.window.setTitleBarOverlayTheme(mode)
   }
 }

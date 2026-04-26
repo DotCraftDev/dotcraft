@@ -13,6 +13,7 @@ const electronMock = vi.hoisted(() => {
     getURL: vi.fn(() => currentUrl),
     getTitle: vi.fn(() => 'DotCraft Browser'),
     isLoading: vi.fn(() => false),
+    focus: vi.fn(),
     loadURL,
     reload: vi.fn(),
     stop: vi.fn(),
@@ -49,6 +50,7 @@ const electronMock = vi.hoisted(() => {
       webContents.close.mockClear()
       webContents.reload.mockClear()
       webContents.stop.mockClear()
+      webContents.focus.mockClear()
       webContents.setWindowOpenHandler.mockClear()
       webContents.sendInputEvent.mockClear()
       webContents.insertText.mockClear()
@@ -249,10 +251,12 @@ describe('ViewerBrowserManager automation input', () => {
     const events: unknown[] = []
     const webContents = {
       isDestroyed: vi.fn(() => false),
+      focus: vi.fn(),
       sendInputEvent: vi.fn((event: unknown) => events.push(event)),
       insertText: vi.fn(),
       executeJavaScript: vi.fn(async () => undefined)
     }
+    const setBounds = vi.fn()
     const win = {
       id: 1,
       isDestroyed: () => false,
@@ -276,7 +280,7 @@ describe('ViewerBrowserManager automation input', () => {
       tabs: new Map([['tab-1', {
         tabId: 'tab-1',
         workspacePath: 'F:/workspace',
-        view: { webContents },
+        view: { webContents, setBounds },
         desiredVisible: true,
         visible: true,
         boundsInitialized: true,
@@ -285,8 +289,74 @@ describe('ViewerBrowserManager automation input', () => {
         automationEnabled: true
       }]])
     })
-    return { manager, win, webContents, events }
+    return { manager, win, webContents, setBounds, events }
   }
+
+  it('initializes the virtual cursor at the automation tab center', () => {
+    const manager = new ViewerBrowserManager()
+    const win = {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow & { webContents: { send: ReturnType<typeof vi.fn> } }
+
+    manager.createAutomationTab(win, {
+      tabId: 'tab-center',
+      workspacePath: 'F:/workspace',
+      width: 1280,
+      height: 900
+    })
+
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-center',
+        type: 'virtual-cursor',
+        x: 640,
+        y: 450
+      })
+    )
+  })
+
+  it('recenters the virtual cursor on real bounds until the agent moves it', async () => {
+    const { manager, win, setBounds } = createAutomationHarness()
+
+    manager.setBounds(win, { tabId: 'tab-1', x: 20, y: 30, width: 800, height: 600 })
+
+    expect(setBounds).toHaveBeenCalledWith({ x: 20, y: 30, width: 800, height: 600 })
+    expect(win.webContents.send).toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-1',
+        type: 'virtual-cursor',
+        x: 400,
+        y: 300
+      })
+    )
+
+    win.webContents.send.mockClear()
+    await manager.moveMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
+    win.webContents.send.mockClear()
+
+    manager.setBounds(win, { tabId: 'tab-1', x: 20, y: 30, width: 1000, height: 700 })
+
+    expect(win.webContents.send).not.toHaveBeenCalledWith(
+      'viewer:browser:event',
+      expect.objectContaining({
+        tabId: 'tab-1',
+        type: 'virtual-cursor',
+        x: 500,
+        y: 350
+      })
+    )
+  })
 
   it('clickMouse sends move, down, and up input events', async () => {
     const { manager, win, webContents, events } = createAutomationHarness()
@@ -294,6 +364,23 @@ describe('ViewerBrowserManager automation input', () => {
     await manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
 
     expect(webContents.executeJavaScript).toHaveBeenCalled()
+    const scripts = webContents.executeJavaScript.mock.calls.map((call) => String(call[0]))
+    expect(scripts.join('\n')).toContain("width: '28px'")
+    expect(scripts.join('\n')).toContain("width: '40px'")
+    expect(events).toMatchObject([
+      { type: 'mouseMove', x: 10, y: 20 },
+      { type: 'mouseDown', x: 10, y: 20, button: 'left' },
+      { type: 'mouseUp', x: 10, y: 20, button: 'left' }
+    ])
+  })
+
+  it('does not block native click input when the visual overlay hangs', async () => {
+    const { manager, win, webContents, events } = createAutomationHarness()
+    webContents.executeJavaScript.mockImplementation(() => new Promise(() => {}))
+
+    await expect(manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })).resolves.toBeUndefined()
+
+    expect(webContents.focus).toHaveBeenCalled()
     expect(events).toMatchObject([
       { type: 'mouseMove', x: 10, y: 20 },
       { type: 'mouseDown', x: 10, y: 20, button: 'left' },

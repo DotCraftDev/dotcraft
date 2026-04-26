@@ -3,8 +3,9 @@ import type { ConversationItem } from '../types/conversation'
 const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles'])
 const WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
 const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
+const WEB_TOOLS = new Set(['WebSearch', 'WebFetch'])
 
-export type ToolGroupCategory = 'explore' | 'write' | 'shell'
+export type ToolGroupCategory = 'explore' | 'write' | 'shell' | 'web'
 
 export type AggregatedToolCall =
   | { kind: 'single'; item: ConversationItem }
@@ -14,6 +15,7 @@ function getGroupCategory(toolName: string): ToolGroupCategory | null {
   if (EXPLORE_TOOLS.has(toolName)) return 'explore'
   if (WRITE_TOOLS.has(toolName)) return 'write'
   if (SHELL_TOOLS.has(toolName)) return 'shell'
+  if (WEB_TOOLS.has(toolName)) return 'web'
   return null
 }
 

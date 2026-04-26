@@ -85,6 +85,18 @@ export function formatToolGroupLabel(
     return translate(locale, 'toolCall.group.ran', { count })
   }
 
+  if (category === 'web') {
+    const allSearch = items.every((item) => item.toolName === 'WebSearch')
+    const allFetch = items.every((item) => item.toolName === 'WebFetch')
+    if (allSearch) {
+      return translate(locale, 'toolCall.group.webSearched', { count })
+    }
+    if (allFetch) {
+      return translate(locale, 'toolCall.group.webFetched', { count })
+    }
+    return translate(locale, 'toolCall.group.webUsed', { count })
+  }
+
   const { createdCount, modifiedCount } = getWriteCounts(items, changedFiles)
   if (createdCount > 0 && modifiedCount > 0) {
     return translate(locale, 'toolCall.group.createdAndModified', {
