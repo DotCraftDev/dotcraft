@@ -8,9 +8,16 @@ namespace DotCraft.Context;
 /// <summary>
 /// Builds the complete system prompt from workspace context, memory, and skills.
 /// </summary>
-public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
-    CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
-    Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false,
+public sealed class PromptBuilder(
+    MemoryStore memoryStore,
+    SkillsLoader skillsLoader,
+    string craftPath,
+    string workspacePath,
+    CustomCommandLoader? customCommandLoader = null,
+    AgentModeManager? modeManager = null,
+    PlanStore? planStore = null,
+    Func<string?>? sessionIdProvider = null,
+    bool sandboxEnabled = false,
     IReadOnlyList<string>? deferredMcpServerNames = null,
     string? subAgentProfilesSection = null,
     Func<IReadOnlyList<string>>? toolNamesProvider = null)

@@ -4,21 +4,21 @@ using System.Text.Json.Serialization;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-namespace DotCraft.AGUI;
+namespace DotCraft.Agui;
 
 /// <summary>
 /// A delegating agent that handles function approval requests for the AG-UI channel.
-/// Transforms FunctionApprovalRequestContent / FunctionApprovalResponseContent into
+/// Transforms ToolApprovalRequestContent / ToolApprovalResponseContent into
 /// the standard "request_approval" tool call pattern so that CopilotKit on the frontend
 /// can render an approval UI and return the user's decision.
 /// </summary>
 /// <remarks>
 /// Adapted from AgentFramework Step04_HumanInLoop sample.
 /// Flow:
-///   Outgoing – FunctionApprovalRequestContent → TOOL_CALL_START(request_approval) via SSE
-///   Incoming – request_approval tool result     → FunctionApprovalResponseContent → inner agent
+///   Outgoing – ToolApprovalRequestContent → TOOL_CALL_START(request_approval) via SSE
+///   Incoming – request_approval tool result → ToolApprovalResponseContent → inner agent
 /// </remarks>
-internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOptions jsonSerializerOptions)
+internal sealed class AguiApprovalAgent(AIAgent innerAgent, JsonSerializerOptions jsonSerializerOptions)
     : DelegatingAIAgent(innerAgent)
 {
     protected override Task<AgentResponse> RunCoreAsync(
@@ -47,7 +47,7 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
         }
     }
 
-    // ── Outgoing: intercept FunctionApprovalRequestContent, replace with request_approval tool call ──
+    // ── Outgoing: intercept function tool approval requests, replace with request_approval tool call ──
 
     private static AgentResponseUpdate ProcessOutgoingApprovals(
         AgentResponseUpdate update,
@@ -59,16 +59,17 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
         {
             var content = update.Contents[i];
 #pragma warning disable MEAI001
-            if (content is FunctionApprovalRequestContent request)
+            if (content is ToolApprovalRequestContent request &&
+                request.ToolCall is FunctionCallContent functionCall)
             {
                 updatedContents ??= [.. update.Contents];
 
                 var approvalData = new ApprovalRequest
                 {
-                    ApprovalId = request.Id,
-                    FunctionName = request.FunctionCall.Name,
-                    FunctionArguments = request.FunctionCall.Arguments,
-                    Message = $"Approve execution of '{request.FunctionCall.Name}'?"
+                    ApprovalId = request.RequestId,
+                    FunctionName = functionCall.Name,
+                    FunctionArguments = functionCall.Arguments,
+                    Message = $"Approve execution of '{functionCall.Name}'?"
                 };
 
                 // Pre-serialize to JsonElement so the AGUI framework writes it as raw JSON
@@ -77,7 +78,7 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
                 // Use a distinct callId so the frontend never concatenates this tool call's args
                 // with the original tool call that shares the same LLM-generated ID.
                 updatedContents[i] = new FunctionCallContent(
-                    callId: $"approval_{request.Id}",
+                    callId: $"approval_{request.RequestId}",
                     name: "request_approval",
                     arguments: new Dictionary<string, object?> { ["request"] = approvalElement });
             }
@@ -113,7 +114,7 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
     {
         List<ChatMessage>? result = null;
 #pragma warning disable MEAI001
-        var trackedApprovals = new Dictionary<string, FunctionApprovalRequestContent>();
+        var trackedApprovals = new Dictionary<string, ToolApprovalRequestContent>();
 
         for (var msgIdx = 0; msgIdx < messages.Count; msgIdx++)
         {
@@ -170,7 +171,7 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
     }
 
 #pragma warning disable MEAI001
-    private static FunctionApprovalRequestContent ConvertToolCallToApprovalRequest(
+    private static ToolApprovalRequestContent ConvertToolCallToApprovalRequest(
         FunctionCallContent toolCall,
         JsonSerializerOptions jsonSerializerOptions)
     {
@@ -185,17 +186,17 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
         if (approvalRequest == null)
             throw new InvalidOperationException("Failed to deserialize ApprovalRequest from tool call.");
 
-        return new FunctionApprovalRequestContent(
-            id: approvalRequest.ApprovalId,
-            new FunctionCallContent(
+        return new ToolApprovalRequestContent(
+            requestId: approvalRequest.ApprovalId,
+            toolCall: new FunctionCallContent(
                 callId: approvalRequest.ApprovalId,
                 name: approvalRequest.FunctionName,
                 arguments: approvalRequest.FunctionArguments));
     }
 
-    private static FunctionApprovalResponseContent ConvertToolResultToApprovalResponse(
+    private static ToolApprovalResponseContent ConvertToolResultToApprovalResponse(
         FunctionResultContent result,
-        FunctionApprovalRequestContent approval,
+        ToolApprovalRequestContent approval,
         JsonSerializerOptions jsonSerializerOptions)
     {
         var approvalResponse = result.Result is JsonElement je

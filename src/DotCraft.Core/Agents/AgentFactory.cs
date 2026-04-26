@@ -6,6 +6,7 @@ using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Context.Compaction;
 using DotCraft.Tracing;
+using DotCraft.Hosting;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Security;
@@ -367,7 +368,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     .ToArray();
             }
 
-            options.AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
+            options.AIContextProviders =
+            [
                 new MemoryContextProvider(
                     ctx.MemoryStore,
                     ctx.SkillsLoader,
@@ -381,7 +383,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     () => TracingChatClient.CurrentSessionKey,
                     sandboxEnabled: _config.Tools.Sandbox.Enabled,
                     deferredMcpServerNames: deferredServerNames,
-                    subAgentProfilesSection: subAgentProfilesSection));
+                    subAgentProfilesSection: subAgentProfilesSection)
+            ];
         }
 
         return configuredChatClient.AsAIAgent(options);

@@ -556,31 +556,19 @@ public sealed class ThreadStoreTests : IDisposable
     private static AIAgent CreateAgent()
         => new TestChatClient().AsAIAgent(new ChatClientAgentOptions());
 
-    private static async Task<List<string>> ExtractHistoryAsync(AIAgent agent, AgentSession session)
+    private static Task<List<string>> ExtractHistoryAsync(AIAgent _, AgentSession session)
     {
-        var serialized = await agent.SerializeSessionAsync(session, SessionPersistenceJsonOptions.Default, CancellationToken.None);
-        Assert.True(serialized.TryGetProperty("chatHistoryProviderState", out var providerState));
-        Assert.True(providerState.TryGetProperty("messages", out var chatHistory));
+        Assert.True(session.TryGetInMemoryChatHistory(
+            out var chatHistory,
+            jsonSerializerOptions: SessionPersistenceJsonOptions.Default));
+
         var history = new List<string>();
-        foreach (var message in chatHistory.EnumerateArray())
+        foreach (var message in chatHistory)
         {
-            var role = message.GetProperty("role").GetString() ?? string.Empty;
-            history.Add($"{role}:{ExtractMessageText(message)}");
+            history.Add($"{message.Role}:{message.Text}");
         }
 
-        return history;
-    }
-
-    private static string ExtractMessageText(JsonElement message)
-    {
-        if (!message.TryGetProperty("contents", out var contents) || contents.ValueKind != JsonValueKind.Array)
-            return string.Empty;
-
-        return string.Concat(
-            contents.EnumerateArray()
-                .Where(content => content.TryGetProperty("$type", out var type) && type.GetString() == "text")
-                .Select(content => content.TryGetProperty("text", out var text) ? text.GetString() : null)
-                .Where(text => !string.IsNullOrEmpty(text)));
+        return Task.FromResult(history);
     }
 
     private static void AddTurnWithMessages(

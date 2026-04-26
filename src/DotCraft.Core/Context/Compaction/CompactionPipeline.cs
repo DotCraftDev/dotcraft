@@ -145,7 +145,7 @@ public sealed class CompactionPipeline
                 EvaluateThreshold(0), EvaluateThreshold(0),
                 FailureReason: "circuit_breaker_tripped");
 
-        var history = SnapshotHistory(provider);
+        var history = SnapshotHistory(session, provider);
         var before = inputTokenHint > 0
             ? (int)Math.Min(int.MaxValue, inputTokenHint)
             : MessageTokenEstimator.Estimate(history);
@@ -158,6 +158,7 @@ public sealed class CompactionPipeline
 
         return await RunCompactionAsync(
             provider,
+            session,
             history,
             before,
             beforeThreshold,
@@ -198,12 +199,13 @@ public sealed class CompactionPipeline
                 EvaluateThreshold(0), EvaluateThreshold(0),
                 FailureReason: "circuit_breaker_tripped");
 
-        var history = SnapshotHistory(provider);
+        var history = SnapshotHistory(session, provider);
         var before = MessageTokenEstimator.Estimate(history);
         var beforeThreshold = EvaluateThreshold(before);
 
         return await RunCompactionAsync(
             provider,
+            session,
             history,
             before,
             beforeThreshold,
@@ -238,12 +240,13 @@ public sealed class CompactionPipeline
                 EvaluateThreshold(0), EvaluateThreshold(0),
                 FailureReason: "circuit_breaker_tripped");
 
-        var history = SnapshotHistory(provider);
+        var history = SnapshotHistory(session, provider);
         var before = MessageTokenEstimator.Estimate(history);
         var beforeThreshold = EvaluateThreshold(before);
 
         return await RunCompactionAsync(
             provider,
+            session,
             history,
             before,
             beforeThreshold,
@@ -260,6 +263,7 @@ public sealed class CompactionPipeline
 
     private async Task<CompactionStatus> RunCompactionAsync(
         InMemoryChatHistoryProvider provider,
+        AgentSession session,
         IReadOnlyList<ChatMessage> history,
         int before,
         CompactionThreshold beforeThreshold,
@@ -275,7 +279,7 @@ public sealed class CompactionPipeline
 
         if (microResult.Trigger != MicroCompactTrigger.None && !forcePartial)
         {
-            ApplyHistoryReplacement(provider, afterMicroHistory);
+            ApplyHistoryReplacement(session, provider, afterMicroHistory);
             if (!afterMicroThreshold.AboveAuto)
             {
                 _failures.RecordSuccess(threadId);
@@ -331,7 +335,7 @@ public sealed class CompactionPipeline
         var summaryMessage = new ChatMessage(ChatRole.Assistant, partial.FormattedSummary);
         var newHistory = new List<ChatMessage>(1 + partial.PreservedTail.Count) { summaryMessage };
         newHistory.AddRange(partial.PreservedTail);
-        ApplyHistoryReplacement(provider, newHistory);
+        ApplyHistoryReplacement(session, provider, newHistory);
 
         if (_memoryConsolidator != null && ShouldConsolidate(partial))
         {
@@ -363,23 +367,19 @@ public sealed class CompactionPipeline
             || partial.SummarizedPrefix.Count >= 10;
     }
 
-    private static IReadOnlyList<ChatMessage> SnapshotHistory(InMemoryChatHistoryProvider provider)
+    private static IReadOnlyList<ChatMessage> SnapshotHistory(
+        AgentSession session,
+        InMemoryChatHistoryProvider provider)
     {
-        var snapshot = new List<ChatMessage>(provider.Count);
-        for (var i = 0; i < provider.Count; i++)
-            snapshot.Add(provider[i]);
-        return snapshot;
+        return [.. provider.GetMessages(session)];
     }
 
     private static void ApplyHistoryReplacement(
+        AgentSession session,
         InMemoryChatHistoryProvider provider,
         IReadOnlyList<ChatMessage> newHistory)
     {
-        while (provider.Count > 0)
-            provider.RemoveAt(provider.Count - 1);
-
-        foreach (var msg in newHistory)
-            provider.Add(msg);
+        provider.SetMessages(session, [.. newHistory]);
     }
 
     private static bool TryGetProvider(
