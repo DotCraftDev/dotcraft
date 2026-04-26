@@ -788,11 +788,18 @@ export function registerIpcHandlers(
     if (!win || win.isDestroyed()) return
     const t = theme === 'light' ? 'light' : 'dark'
     const { color, symbolColor } = TITLE_BAR_OVERLAY_BY_THEME[t]
-    win.setTitleBarOverlay({
-      color,
-      symbolColor,
-      height: TITLE_BAR_OVERLAY_HEIGHT
-    })
+    try {
+      win.setTitleBarOverlay({
+        color,
+        symbolColor,
+        height: TITLE_BAR_OVERLAY_HEIGHT
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Titlebar overlay is not enabled')) {
+        return
+      }
+      throw error
+    }
   })
 
   // Renderer -> Main: get workspace path

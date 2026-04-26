@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { createElement, useRef } from 'react'
+import { createElement } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
 import { useUIStore } from '../stores/uiStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useViewerTabStore } from '../stores/viewerTabStore'
 import { LocaleProvider } from '../contexts/LocaleContext'
-import { AddTabPopup } from '../components/detail/AddTabPopup'
+import { DetailPanel } from '../components/layout/DetailPanel'
 import type { FileDiff } from '../types/toolCall'
+
+vi.mock('../components/detail/ViewerTab', () => ({
+  ViewerTab: () => null
+}))
 
 const cs = () => useConversationStore.getState()
 const ui = () => useUIStore.getState()
@@ -65,6 +69,10 @@ beforeEach(() => {
     value: {
       settings: {
         get: async () => ({ locale: 'en' })
+      },
+      platform: 'win32',
+      menu: {
+        popupAddTabMenu: vi.fn(async () => null)
       },
       workspace: {
         viewer: {
@@ -311,28 +319,91 @@ describe('viewer tab in uiStore', () => {
   })
 })
 
-describe('AddTabPopup browser tab action', () => {
-  function Harness({ onClose }: { onClose: () => void }): JSX.Element {
-    const anchorRef = useRef<HTMLButtonElement>(null)
+describe('detail panel add-tab menu', () => {
+  function Harness({ workspacePath = '/workspace/path' }: { workspacePath?: string }): JSX.Element {
     return createElement(
       LocaleProvider,
       null,
-      createElement('button', { ref: anchorRef, type: 'button' }, '+'),
-      createElement(AddTabPopup, { anchorRef, onClose })
+      createElement(DetailPanel, { workspacePath })
     )
   }
 
-  it('enables New Browser Tab and opens a browser viewer tab', async () => {
+  it('passes anchor and enabled state to the popover request', async () => {
+    cs().setWorkspacePath('/workspace/path')
+    useThreadStore.getState().setActiveThreadId('thread-1')
+    useViewerTabStore.getState().onThreadSwitched('thread-1')
+    render(createElement(Harness, {}))
+
+    fireEvent.click(screen.getByLabelText('Add tab'))
+
+    await waitFor(() => {
+      expect(window.api.menu.popupAddTabMenu).toHaveBeenCalledWith(expect.objectContaining({
+        anchor: expect.objectContaining({
+          left: expect.any(Number),
+          top: expect.any(Number),
+          right: expect.any(Number),
+          bottom: expect.any(Number)
+        }),
+        items: expect.arrayContaining([
+          expect.objectContaining({ action: 'openFile', enabled: true }),
+          expect.objectContaining({ action: 'newBrowser', enabled: true }),
+          expect.objectContaining({ action: 'newTerminal', enabled: true })
+        ])
+      }))
+    })
+  })
+
+  it('disables browser and terminal menu items without an active workspace thread', async () => {
+    render(createElement(Harness, { workspacePath: '' }))
+
+    fireEvent.click(screen.getByLabelText('Add tab'))
+
+    await waitFor(() => {
+      expect(window.api.menu.popupAddTabMenu).toHaveBeenCalledWith(expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({ action: 'openFile', enabled: true }),
+          expect.objectContaining({ action: 'newBrowser', enabled: false }),
+          expect.objectContaining({ action: 'newTerminal', enabled: false })
+        ])
+      }))
+    })
+  })
+
+  it('opens Quick Open when the menu returns openFile', async () => {
+    window.api.menu.popupAddTabMenu = vi.fn(async () => 'openFile')
+
+    render(createElement(Harness, {}))
+
+    fireEvent.click(screen.getByLabelText('Add tab'))
+
+    await waitFor(() => {
+      expect(useUIStore.getState().quickOpenVisible).toBe(true)
+    })
+  })
+
+  it('does nothing when the menu is dismissed', async () => {
+    window.api.menu.popupAddTabMenu = vi.fn(async () => null)
+
+    render(createElement(Harness, {}))
+
+    fireEvent.click(screen.getByLabelText('Add tab'))
+
+    await waitFor(() => {
+      expect(window.api.menu.popupAddTabMenu).toHaveBeenCalled()
+    })
+    expect(useUIStore.getState().activeDetailTab).toEqual({ kind: 'system', id: 'changes' })
+    expect(useViewerTabStore.getState().getThreadState('thread-1').tabs).toHaveLength(0)
+  })
+
+  it('opens a browser viewer tab when the menu returns newBrowser', async () => {
+    window.api.menu.popupAddTabMenu = vi.fn(async () => 'newBrowser')
     cs().setWorkspacePath('/workspace/path')
     useThreadStore.getState().setActiveThreadId('thread-1')
     useViewerTabStore.getState().onThreadSwitched('thread-1')
 
-    const onClose = () => {}
-    render(createElement(Harness, { onClose }))
+    render(createElement(Harness, {}))
 
-    const button = screen.getByRole('menuitem', { name: 'New Browser Tab' })
-    expect((button as HTMLButtonElement).disabled).toBe(false)
-    fireEvent.click(button)
+    fireEvent.click(screen.getByLabelText('Add tab'))
 
     await waitFor(() => {
       expect(useUIStore.getState().activeDetailTab.kind).toBe('viewer')
@@ -344,5 +415,23 @@ describe('AddTabPopup browser tab action', () => {
     expect(window.api.workspace.viewer.browser.create).toHaveBeenCalledWith(expect.objectContaining({
       threadId: 'thread-1'
     }))
+  })
+
+  it('opens a terminal viewer tab when the menu returns newTerminal', async () => {
+    window.api.menu.popupAddTabMenu = vi.fn(async () => 'newTerminal')
+    cs().setWorkspacePath('/workspace/path')
+    useThreadStore.getState().setActiveThreadId('thread-1')
+    useViewerTabStore.getState().onThreadSwitched('thread-1')
+
+    render(createElement(Harness, {}))
+
+    fireEvent.click(screen.getByLabelText('Add tab'))
+
+    await waitFor(() => {
+      const active = useUIStore.getState().activeDetailTab
+      expect(active.kind).toBe('viewer')
+    })
+    const tabs = useViewerTabStore.getState().getThreadState('thread-1').tabs
+    expect(tabs.some((tab) => tab.kind === 'terminal')).toBe(true)
   })
 })

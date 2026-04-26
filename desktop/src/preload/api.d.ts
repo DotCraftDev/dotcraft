@@ -4,6 +4,8 @@ export type BinarySource = 'bundled' | 'path' | 'custom'
 export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
 export type BrowserUseApprovalMode = 'alwaysAsk' | 'askUnknown' | 'neverAsk'
 export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'blockDomain' | 'deny'
+export type ThemeMode = 'dark' | 'light'
+export type AddTabMenuAction = 'openFile' | 'newBrowser' | 'newTerminal'
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
@@ -257,10 +259,43 @@ export interface EditorInfo {
   iconDataUrl?: string
 }
 
+export interface AddTabMenuItem {
+  action: AddTabMenuAction
+  label: string
+  shortcut?: string
+  enabled: boolean
+}
+
+export interface AddTabMenuAnchor {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+export interface AddTabMenuPosition {
+  left: number
+  top: number
+  width: number
+}
+
+export interface AddTabMenuRequest {
+  x: number
+  y: number
+  anchor?: AddTabMenuAnchor
+  theme: ThemeMode
+  items: AddTabMenuItem[]
+}
+
+export interface AddTabPopupPayload extends AddTabMenuRequest {
+  position: AddTabMenuPosition
+}
+
 declare global {
   interface Window {
     api: {
       platform: 'darwin' | 'win32' | 'linux'
+      initialTheme: ThemeMode
       titleBarOverlayHeight: number
       titleBarOverlayRightReserve: number
       menu: {
@@ -269,6 +304,10 @@ declare global {
           x: number,
           y: number
         ): Promise<void>
+        popupAddTabMenu(request: AddTabMenuRequest): Promise<AddTabMenuAction | null>
+        getAddTabMenuPayload(): Promise<AddTabPopupPayload | null>
+        onAddTabMenuPayload(callback: (payload: AddTabPopupPayload) => void): UnsubscribeFn
+        resolveAddTabMenu(action: AddTabMenuAction | null): Promise<void>
       }
       appServer: {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>

@@ -21,6 +21,14 @@ export default defineConfig({
         '@': resolve('src/renderer')
       }
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          addTabPopup: resolve('src/renderer/add-tab-popup.html')
+        }
+      }
+    },
     plugins: [react(), tailwindcss()]
   }
 })

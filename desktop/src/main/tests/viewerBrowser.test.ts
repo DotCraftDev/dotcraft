@@ -364,6 +364,9 @@ describe('ViewerBrowserManager automation input', () => {
     await manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
 
     expect(webContents.executeJavaScript).toHaveBeenCalled()
+    const scripts = webContents.executeJavaScript.mock.calls.map((call) => String(call[0]))
+    expect(scripts.join('\n')).toContain("width: '28px'")
+    expect(scripts.join('\n')).toContain("width: '40px'")
     expect(events).toMatchObject([
       { type: 'mouseMove', x: 10, y: 20 },
       { type: 'mouseDown', x: 10, y: 20, button: 'left' },

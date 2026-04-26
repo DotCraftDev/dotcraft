@@ -1,13 +1,14 @@
-import { useRef, useState, lazy, Suspense } from 'react'
+import { useRef, lazy, Suspense } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useConversationStore } from '../../stores/conversationStore'
+import { useThreadStore } from '../../stores/threadStore'
 import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe, PanelRightClose, MousePointer2 } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
-import { AddTabPopup } from '../detail/AddTabPopup'
 import type { ViewerContentClass } from '../../../shared/viewer/types'
+import type { AddTabMenuAction, AddTabMenuRequest } from '../../../shared/addTabMenu'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
@@ -55,18 +56,22 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
     setActiveDetailTab,
     setActiveViewerTab,
     closeViewerTab,
-    toggleDetailPanel
+    toggleDetailPanel,
+    setQuickOpenVisible,
+    setDetailPanelVisible
   } = useUIStore()
 
   const currentThreadId = useViewerTabStore((s) => s.currentThreadId)
   const viewerTabs = useViewerTabStore((s) => s.getThreadState(s.currentThreadId ?? '').tabs)
   const closeViewerTabInStore = useViewerTabStore((s) => s.closeTab)
+  const openBrowser = useViewerTabStore((s) => s.openBrowser)
+  const openTerminal = useViewerTabStore((s) => s.openTerminal)
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
 
   const changedFiles = useConversationStore((s) => s.changedFiles)
 
   const changedFileCount = changedFiles.size
 
-  const [addPopupOpen, setAddPopupOpen] = useState(false)
   const addButtonRef = useRef<HTMLButtonElement>(null)
 
   const isSystemTab = activeDetailTab.kind === 'system'
@@ -103,6 +108,81 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         closeViewerTab()
       }
     }
+  }
+
+  const handleAddTabAction = (action: AddTabMenuAction | null): void => {
+    if (action === 'openFile') {
+      setQuickOpenVisible(true)
+      setDetailPanelVisible(true)
+      return
+    }
+
+    if (!activeThreadId || !workspacePath) return
+
+    if (action === 'newBrowser') {
+      const tabId = openBrowser({
+        threadId: activeThreadId,
+        initialLabel: t('viewer.newBrowserTab')
+      })
+      setActiveViewerTab(tabId)
+      void window.api.workspace.viewer.browser.create({
+        tabId,
+        threadId: activeThreadId,
+        workspacePath
+      })
+      return
+    }
+
+    if (action === 'newTerminal') {
+      const tabId = openTerminal({
+        threadId: activeThreadId,
+        cwd: workspacePath,
+        initialLabel: t('viewer.newTerminalTab')
+      })
+      setActiveViewerTab(tabId)
+    }
+  }
+
+  const handleOpenAddTabMenu = async (): Promise<void> => {
+    const anchor = addButtonRef.current?.getBoundingClientRect()
+    if (!anchor) return
+    const canOpenWorkspaceTab = Boolean(activeThreadId && workspacePath)
+    const shortcutText =
+      window.api.platform === 'darwin'
+        ? t('detailPanel.addTabOpenFileShortcut').replace('Ctrl', 'Cmd')
+        : t('detailPanel.addTabOpenFileShortcut')
+    const theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+    const request: AddTabMenuRequest = {
+      x: anchor.left,
+      y: anchor.bottom + 4,
+      anchor: {
+        left: anchor.left,
+        top: anchor.top,
+        right: anchor.right,
+        bottom: anchor.bottom
+      },
+      theme,
+      items: [
+        {
+          action: 'openFile',
+          label: t('detailPanel.addTabOpenFile'),
+          shortcut: shortcutText,
+          enabled: true
+        },
+        {
+          action: 'newBrowser',
+          label: t('detailPanel.addTabNewBrowser'),
+          enabled: canOpenWorkspaceTab
+        },
+        {
+          action: 'newTerminal',
+          label: t('detailPanel.addTabNewTerminal'),
+          enabled: canOpenWorkspaceTab
+        }
+      ]
+    }
+    const action = await window.api.menu.popupAddTabMenu(request)
+    handleAddTabAction(action)
   }
 
   const systemTabs = [
@@ -319,7 +399,9 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         <ActionTooltip label={t('detailPanel.addTab')} placement="bottom" wrapperStyle={{ height: '100%' }}>
           <button
             ref={addButtonRef}
-            onClick={() => setAddPopupOpen((v) => !v)}
+            onClick={() => {
+              void handleOpenAddTabMenu()
+            }}
             aria-label={t('detailPanel.addTab')}
             style={{
               display: 'flex',
@@ -403,13 +485,6 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         )}
       </div>
 
-      {/* AddTabPopup — rendered as portal above everything */}
-      {addPopupOpen && (
-        <AddTabPopup
-          anchorRef={addButtonRef}
-          onClose={() => setAddPopupOpen(false)}
-        />
-      )}
     </div>
   )
 }

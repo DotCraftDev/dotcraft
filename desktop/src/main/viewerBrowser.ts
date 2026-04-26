@@ -176,15 +176,15 @@ const VIRTUAL_MOUSE_BOOTSTRAP = `
       position: 'fixed',
       left: '0px',
       top: '0px',
-      width: '18px',
-      height: '18px',
+      width: '28px',
+      height: '28px',
       pointerEvents: 'none',
       zIndex: '2147483647',
       transform: 'translate3d(var(--dotcraft-cursor-x, 0px), var(--dotcraft-cursor-y, 0px), 0)',
       transition: 'transform var(--dotcraft-cursor-duration, 120ms) cubic-bezier(.2,.8,.2,1)',
-      filter: 'drop-shadow(0 2px 4px rgba(0,0,0,.35))'
+      filter: 'drop-shadow(0 3px 7px rgba(0,0,0,.42))'
     });
-    cursor.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2.5 14 9l-5.3 1.1L6.1 15 3 2.5Z" fill="#2f8af5" stroke="white" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+    cursor.innerHTML = '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.7 3.9 21.8 14l-8.2 1.7L9.5 23.3 4.7 3.9Z" fill="#2f8af5" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>';
     document.documentElement.appendChild(cursor);
   }
   window.__dotcraftVirtualMouseMove = (x, y, duration) => new Promise((resolve) => {
@@ -197,10 +197,10 @@ const VIRTUAL_MOUSE_BOOTSTRAP = `
     const ripple = document.createElement('div');
     Object.assign(ripple.style, {
       position: 'fixed',
-      left: Math.max(0, x - 13) + 'px',
-      top: Math.max(0, y - 13) + 'px',
-      width: '26px',
-      height: '26px',
+      left: Math.max(0, x - 20) + 'px',
+      top: Math.max(0, y - 20) + 'px',
+      width: '40px',
+      height: '40px',
       borderRadius: '999px',
       pointerEvents: 'none',
       zIndex: '2147483646',

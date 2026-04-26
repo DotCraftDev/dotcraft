@@ -60,6 +60,14 @@ import {
   TITLE_BAR_OVERLAY_BY_THEME,
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
+import type { AddTabMenuRequest } from '../shared/addTabMenu'
+import {
+  popupAddTabMenuWindow,
+  registerAddTabPopupWindowIpc,
+  warmAddTabPopupWindow,
+  type AddTabPopupWindowOptions
+} from './addTabPopupWindow'
+import { resolveInitialTheme } from './windowTheme'
 import { WORKSPACE_LOCKED_IPC_PREFIX } from '../shared/workspaceSwitchErrors'
 import {
   normalizeLocale,
@@ -121,6 +129,22 @@ let finalQuitCleanupDone = false
 let finalQuitCleanupRunning = false
 let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
+
+function buildAddTabPopupWindowOptions(): AddTabPopupWindowOptions {
+  return {
+    isDev: import.meta.env.DEV,
+    preloadPath: join(__dirname, '../preload/index.js'),
+    rendererPopupIndexPath: join(__dirname, '../renderer/add-tab-popup.html'),
+    rendererDevUrl: 'http://localhost:5173'
+  }
+}
+
+function scheduleAddTabPopupWarmup(win: BrowserWindow, theme: 'dark' | 'light'): void {
+  setTimeout(() => {
+    if (win.isDestroyed()) return
+    void warmAddTabPopupWindow(win, buildAddTabPopupWindowOptions(), theme).catch(() => {})
+  }, 300)
+}
 
 async function handleServerRequestInMain(method: string, params: unknown): Promise<unknown | undefined> {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -546,12 +570,13 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   const isMac = process.platform === 'darwin'
   const isDev = import.meta.env.DEV
   const iconPath = resolveWindowIconPath()
+  const initialTheme = resolveInitialTheme(sharedSettings)
   const win = new BrowserWindow({
     width: 1400,
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: TITLE_BAR_OVERLAY_BY_THEME[initialTheme].color,
     ...(iconPath
       ? {
           icon: nativeImage.createFromPath(iconPath)
@@ -563,13 +588,14 @@ function createWindow(workspacePath: string | null): BrowserWindow {
       ? {}
       : {
           titleBarOverlay: {
-            ...TITLE_BAR_OVERLAY_BY_THEME.dark,
+            ...TITLE_BAR_OVERLAY_BY_THEME[initialTheme],
             height: TITLE_BAR_OVERLAY_HEIGHT
           }
         }),
     autoHideMenuBar: !isMac,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      additionalArguments: [`--dotcraft-initial-theme=${initialTheme}`],
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -1241,6 +1267,8 @@ function emitWorkspaceStatus(win: BrowserWindow, payload: WorkspaceStatusPayload
 
 function registerMenuPopupIpc(): void {
   ipcMain.removeHandler('menu:popup-top-level')
+  ipcMain.removeHandler('menu:popup-add-tab')
+  registerAddTabPopupWindowIpc()
   ipcMain.handle(
     'menu:popup-top-level',
     (event, payload: { menuId: TopLevelMenuId; x: number; y: number }) => {
@@ -1255,6 +1283,14 @@ function registerMenuPopupIpc(): void {
         x: Math.round(payload.x),
         y: Math.round(payload.y)
       })
+    }
+  )
+  ipcMain.handle(
+    'menu:popup-add-tab',
+    async (event, payload: AddTabMenuRequest) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return null
+      return popupAddTabMenuWindow(win, payload, buildAddTabPopupWindowOptions())
     }
   )
 }
@@ -1315,6 +1351,7 @@ app.whenReady().then(() => {
 
   win.webContents.once('did-finish-load', () => {
     emitWorkspaceStatus(win, initialWorkspaceStatus)
+    scheduleAddTabPopupWarmup(win, initialTheme)
     if (workspacePath && initialWorkspaceStatus.status === 'ready') {
       void connectToAppServer(workspacePath)
     } else {
@@ -1356,6 +1393,7 @@ app.whenReady().then(() => {
 
       newWin.webContents.once('did-finish-load', () => {
         emitWorkspaceStatus(newWin, workspaceStatus)
+        scheduleAddTabPopupWarmup(newWin, resolveInitialTheme(sharedSettings))
         if (wsPath && workspaceStatus.status === 'ready') {
           void connectToAppServer(wsPath)
         } else {
