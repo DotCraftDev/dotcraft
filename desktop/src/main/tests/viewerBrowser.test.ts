@@ -1,4 +1,77 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const electronMock = vi.hoisted(() => {
+  let currentUrl = 'about:blank'
+  const loadURL = vi.fn(async (nextUrl: string) => {
+    currentUrl = nextUrl
+  })
+  const webContents = {
+    on: vi.fn(),
+    once: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    close: vi.fn(),
+    getURL: vi.fn(() => currentUrl),
+    getTitle: vi.fn(() => 'DotCraft Browser'),
+    isLoading: vi.fn(() => false),
+    loadURL,
+    reload: vi.fn(),
+    stop: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+    sendInputEvent: vi.fn(),
+    insertText: vi.fn(),
+    executeJavaScript: vi.fn(async () => undefined),
+    navigationHistory: {
+      canGoBack: vi.fn(() => false),
+      canGoForward: vi.fn(() => false),
+      goBack: vi.fn(),
+      goForward: vi.fn()
+    }
+  }
+  const setBounds = vi.fn()
+  const WebContentsView = vi.fn(() => ({ webContents, setBounds }))
+  const fromPartition = vi.fn(() => ({
+    protocol: { handle: vi.fn() },
+    on: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setPermissionRequestHandler: vi.fn()
+  }))
+  return {
+    loadURL,
+    webContents,
+    setBounds,
+    WebContentsView,
+    fromPartition,
+    reset() {
+      currentUrl = 'about:blank'
+      loadURL.mockClear()
+      webContents.on.mockClear()
+      webContents.once.mockClear()
+      webContents.close.mockClear()
+      webContents.reload.mockClear()
+      webContents.stop.mockClear()
+      webContents.setWindowOpenHandler.mockClear()
+      webContents.sendInputEvent.mockClear()
+      webContents.insertText.mockClear()
+      webContents.executeJavaScript.mockClear()
+      webContents.navigationHistory.canGoBack.mockClear()
+      webContents.navigationHistory.canGoForward.mockClear()
+      webContents.navigationHistory.goBack.mockClear()
+      webContents.navigationHistory.goForward.mockClear()
+      setBounds.mockClear()
+      WebContentsView.mockClear()
+      fromPartition.mockClear()
+    }
+  }
+})
+
+vi.mock('electron', () => ({
+  BrowserWindow: { fromWebContents: vi.fn(() => null) },
+  WebContentsView: electronMock.WebContentsView,
+  nativeImage: { createFromBuffer: vi.fn(() => ({ isEmpty: () => true })) },
+  session: { fromPartition: electronMock.fromPartition },
+  shell: { openExternal: vi.fn(), openPath: vi.fn() }
+}))
+
 import {
   classifyBrowserUrl,
   loadOrReport,
@@ -6,6 +79,10 @@ import {
   partitionForWorkspace,
   ViewerBrowserManager
 } from '../viewerBrowser'
+
+beforeEach(() => {
+  electronMock.reset()
+})
 
 describe('normalizeBrowserUrl', () => {
   it('normalizes absolute http/https urls', () => {
@@ -101,6 +178,68 @@ describe('loadOrReport', () => {
       type: 'did-stop-loading',
       message: undefined,
       url: 'https://example.com/'
+    })
+  })
+
+  it('ignores Electron ERR_ABORTED navigation cancellations', async () => {
+    const events: unknown[] = []
+    await expect(loadOrReport({
+      tabId: 'tab-1',
+      url: 'http://127.0.0.1:5173/',
+      load: () => Promise.reject(new Error("ERR_ABORTED (-3) loading 'http://127.0.0.1:5173/'")),
+      emit: (payload) => {
+        events.push(payload)
+      }
+    })).resolves.toBeUndefined()
+
+    expect(events).toHaveLength(0)
+  })
+})
+
+describe('ViewerBrowserManager tab creation', () => {
+  function createFakeWindow() {
+    return {
+      id: 1,
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send: vi.fn()
+      },
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn()
+      }
+    } as unknown as Electron.BrowserWindow
+  }
+
+  it('keeps the start page load for regular blank browser tabs', () => {
+    const manager = new ViewerBrowserManager()
+
+    manager.createTab(createFakeWindow(), {
+      tabId: 'tab-regular',
+      workspacePath: 'F:/workspace',
+      initialUrl: 'about:blank'
+    })
+
+    expect(electronMock.loadURL).toHaveBeenCalledTimes(1)
+    expect(electronMock.loadURL.mock.calls[0]?.[0]).toContain('data:text/html')
+  })
+
+  it('does not load the start page for automation tabs before target navigation', () => {
+    const manager = new ViewerBrowserManager()
+
+    manager.createAutomationTab(createFakeWindow(), {
+      tabId: 'tab-automation',
+      workspacePath: 'F:/workspace',
+      initialUrl: 'about:blank'
+    })
+
+    expect(electronMock.loadURL).not.toHaveBeenCalled()
+    expect(electronMock.setBounds).toHaveBeenCalledWith({
+      x: -10000,
+      y: -10000,
+      width: 1280,
+      height: 900
     })
   })
 })

@@ -217,6 +217,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
           return (
             <div
               key={tab.id}
+              className={automationActive ? 'dotcraft-automation-viewer-tab' : undefined}
               role="tab"
               aria-selected={isActive}
               title={
@@ -237,9 +238,9 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                 backgroundColor: automationActive ? 'rgba(47, 138, 245, 0.10)' : 'transparent',
                 backgroundImage: automationActive
-                  ? 'linear-gradient(90deg, rgba(47,138,245,0.05), rgba(47,138,245,0.18), rgba(47,138,245,0.05))'
+                  ? 'repeating-linear-gradient(90deg, rgba(47,138,245,0.05) 0px, rgba(47,138,245,0.18) 24px, rgba(47,138,245,0.05) 48px, rgba(47,138,245,0.05) 96px)'
                   : 'none',
-                backgroundSize: automationActive ? '220% 100%' : undefined,
+                backgroundSize: automationActive ? '96px 100%' : undefined,
                 animation: automationActive ? 'dotcraft-automation-tab-flow 1.8s linear infinite' : undefined,
                 borderRadius: automationActive ? '6px' : undefined,
                 boxSizing: 'border-box',

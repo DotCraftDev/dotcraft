@@ -240,6 +240,15 @@ export function normalizeBrowserUrl(input: string): string | null {
   }
 }
 
+function isNavigationAbortError(error: unknown): boolean {
+  if (typeof error === 'string') return error.includes('ERR_ABORTED') || error.includes('(-3)')
+  if (!error || typeof error !== 'object') return false
+  const details = error as { code?: unknown; errno?: unknown; message?: unknown }
+  if (details.code === -3 || details.errno === -3 || details.code === 'ERR_ABORTED') return true
+  if (typeof details.message !== 'string') return false
+  return details.message.includes('ERR_ABORTED') || details.message.includes('(-3)')
+}
+
 export async function loadOrReport(params: {
   tabId: string
   threadId?: string
@@ -250,6 +259,7 @@ export async function loadOrReport(params: {
   try {
     await params.load()
   } catch (error: unknown) {
+    if (isNavigationAbortError(error)) return
     const message = error instanceof Error ? error.message : String(error)
     params.emit({
       tabId: params.tabId,
@@ -282,6 +292,7 @@ export class ViewerBrowserManager {
     workspacePath: string
     initialUrl?: string
     allowFileScheme?: boolean
+    skipStartPageLoad?: boolean
   }): BrowserSnapshot {
     const runtime = this.ensureWindowRuntime(win)
     const existing = runtime.tabs.get(params.tabId)
@@ -318,7 +329,7 @@ export class ViewerBrowserManager {
     this.bindWebContentsEvents(win, tabRuntime)
 
     const desired = normalizeBrowserUrl(params.initialUrl ?? '') ?? START_URL
-    if (desired === START_URL) {
+    if (desired === START_URL && params.skipStartPageLoad !== true) {
       const startPageUrl = ensureDataUrl(buildStartPageHtml(this.startPageHint))
       void loadOrReport({
         tabId: params.tabId,
@@ -377,7 +388,8 @@ export class ViewerBrowserManager {
       threadId: params.threadId,
       workspacePath: params.workspacePath,
       initialUrl: params.initialUrl,
-      allowFileScheme: params.allowFileScheme
+      allowFileScheme: params.allowFileScheme,
+      skipStartPageLoad: true
     })
     const tab = this.getTab(win, params.tabId)
     if (tab) {

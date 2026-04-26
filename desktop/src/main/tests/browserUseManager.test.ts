@@ -187,6 +187,28 @@ describe('BrowserUseManager JavaScript runtime', () => {
     expect(BrowserWindow).not.toHaveBeenCalled()
   })
 
+  it('opens 127.0.0.1 dev server URLs through the viewer host', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.new("127.0.0.1:5173");
+        return await tab.url();
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('http://127.0.0.1:5173/')
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: expect.stringMatching(/^browser-use-thread-1-/),
+      url: 'http://127.0.0.1:5173/'
+    })
+  })
+
   it('does not force focus for additional tabs in the same thread', async () => {
     const host = createFakeHost()
     const manager = new BrowserUseManager(host)
