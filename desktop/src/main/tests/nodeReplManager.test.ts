@@ -120,6 +120,58 @@ describe('NodeReplManager', () => {
     manager.reset('thread-1')
   })
 
+  it('provides URL in the REPL VM context', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
+    const owner = {} as Electron.BrowserWindow
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'new URL("http://127.0.0.1:5173/docs?q=1").hostname'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('127.0.0.1')
+    manager.reset('thread-1')
+  })
+
+  it('disallows string code generation in the REPL VM context', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
+    const owner = {} as Electron.BrowserWindow
+
+    const evalResult = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'eval("1")',
+      timeoutMs: 5_000
+    })
+    const functionResult = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'new Function("return 1")()',
+      timeoutMs: 5_000
+    })
+
+    expect(evalResult.error).toContain('EvalError: Code generation from strings disallowed')
+    expect(functionResult.error).toContain('EvalError: Code generation from strings disallowed')
+    manager.reset('thread-1')
+  })
+
+  it('disallows WebAssembly code generation in the REPL VM context', async () => {
+    const browserManager = createFakeBrowserManager()
+    const manager = createManager(browserManager)
+    const owner = {} as Electron.BrowserWindow
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      code: 'await WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0]))',
+      timeoutMs: 5_000
+    })
+
+    expect(result.error).toContain('CompileError')
+    expect(result.error).toContain('Wasm code generation disallowed')
+    manager.reset('thread-1')
+  })
+
   it('resets the REPL and browser runtime for a thread', async () => {
     const browserManager = createFakeBrowserManager()
     const manager = createManager(browserManager)

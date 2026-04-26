@@ -1,7 +1,7 @@
 import { BrowserWindow, app } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { pathToFileURL } from 'url'
+import { pathToFileURL, URL as NodeUrl } from 'url'
 import { createContext, Script, type Context } from 'vm'
 import { browserUseManager, type BrowserUseImageResult, type BrowserUseManager } from './browserUseManager'
 
@@ -66,7 +66,7 @@ function createReplRuntime(): NodeReplThreadRuntime {
   const globals: Record<string, unknown> = {}
   return {
     globals,
-    context: createContext(globals),
+    context: createContext(globals, { codeGeneration: { strings: false, wasm: false } }),
     logs: [],
     phase: 'idle'
   }
@@ -244,6 +244,7 @@ export class NodeReplManager {
     globals.setInterval = setInterval
     globals.clearInterval = clearInterval
     globals.dotcraft = { browserUseClientPath: resolveBrowserClientPath() }
+    globals.URL = NodeUrl
     globals.__dotcraftDynamicImport = async (specifier: unknown) => import(String(specifier))
     globals.__dotcraftSetupAtlasRuntime = async (
       options?: { globals?: Record<string, unknown>; backend?: string }
