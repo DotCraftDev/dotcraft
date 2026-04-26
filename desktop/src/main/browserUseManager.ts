@@ -411,6 +411,11 @@ export class BrowserUseManager {
     owner: BrowserWindow,
     runtime: BrowserUseThreadRuntime
   ): Promise<BrowserUseTabRuntime> {
+    if (runtime.selectedTabId) {
+      const existing = runtime.tabs.get(runtime.selectedTabId)
+      if (existing) return existing
+    }
+
     const candidate = this.viewerHost.getAutomationTargetTab?.(owner, runtime.threadId)
     if (candidate) {
       const adopted = this.registerTab(owner, runtime, candidate.tabId, true)

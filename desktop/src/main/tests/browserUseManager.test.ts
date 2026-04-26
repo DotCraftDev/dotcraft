@@ -290,6 +290,43 @@ describe('BrowserUseManager JavaScript runtime', () => {
     })
   })
 
+  it('keeps an existing selected runtime tab over a later automation target', async () => {
+    const host = createFakeHost()
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'await agent.browser.tabs.new("localhost:3000");'
+    })
+    host.loadAutomationUrl.mockClear()
+    host.getAutomationTargetTab.mockReturnValue({
+      tabId: 'user-browser-tab',
+      currentUrl: 'about:blank',
+      title: 'User tab',
+      loading: false
+    })
+
+    const result = await manager.evaluate(owner, {
+      threadId: 'thread-1',
+      workspacePath: 'F:/workspace',
+      code: 'const tab = await agent.browser.goto("localhost:5174"); return tab.id;'
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toMatch(/^browser-use-thread-1-/)
+    expect(host.getAutomationTargetTab).not.toHaveBeenCalled()
+    expect(host.loadAutomationUrl).toHaveBeenCalledWith(owner, {
+      tabId: expect.stringMatching(/^browser-use-thread-1-/),
+      url: 'http://localhost:5174/'
+    })
+    expect(host.loadAutomationUrl).not.toHaveBeenCalledWith(owner, {
+      tabId: 'user-browser-tab',
+      url: 'http://localhost:5174/'
+    })
+  })
+
   it('reset leaves adopted user browser tabs open but clears automation state', async () => {
     const host = createFakeHost()
     host.getAutomationTargetTab.mockReturnValue({
