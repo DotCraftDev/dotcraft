@@ -1156,7 +1156,6 @@ export class BrowserUseManager {
     if (value === 1 || value === 'middle') return 'middle'
     return 'left'
   }
-  }
 
   private describeLocator(descriptor: BrowserUseLocatorDescriptor): string {
     return `${descriptor.kind}=${descriptor.name ?? descriptor.value}`
