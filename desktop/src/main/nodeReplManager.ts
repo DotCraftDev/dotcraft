@@ -189,7 +189,13 @@ export class NodeReplManager {
 
   reset(threadId: string): { ok: boolean } {
     const runtime = this.runtimes.get(threadId)
-    if (runtime) this.disposeReplRuntime(threadId, runtime)
+    if (runtime) {
+      runtime.activeAbortController?.abort(new Error('NodeReplJs reset.'))
+      if (runtime.activeEvaluationId) {
+        this.browserManager.abortEvaluation(threadId, runtime.activeEvaluationId)
+      }
+      this.disposeReplRuntime(threadId, runtime)
+    }
     const browserReset = this.browserManager.reset(threadId)
     return { ok: Boolean(runtime) || browserReset.ok }
   }
