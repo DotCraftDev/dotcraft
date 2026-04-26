@@ -447,7 +447,6 @@ export class BrowserUseManager {
         url: wc.getURL()
       })
     })
-    })
     wc.once('destroyed', () => {
       runtime.tabs.delete(id)
       if (runtime.selectedTabId === id) runtime.selectedTabId = null
