@@ -13,6 +13,7 @@ const electronMock = vi.hoisted(() => {
     getURL: vi.fn(() => currentUrl),
     getTitle: vi.fn(() => 'DotCraft Browser'),
     isLoading: vi.fn(() => false),
+    focus: vi.fn(),
     loadURL,
     reload: vi.fn(),
     stop: vi.fn(),
@@ -49,6 +50,7 @@ const electronMock = vi.hoisted(() => {
       webContents.close.mockClear()
       webContents.reload.mockClear()
       webContents.stop.mockClear()
+      webContents.focus.mockClear()
       webContents.setWindowOpenHandler.mockClear()
       webContents.sendInputEvent.mockClear()
       webContents.insertText.mockClear()
@@ -249,6 +251,7 @@ describe('ViewerBrowserManager automation input', () => {
     const events: unknown[] = []
     const webContents = {
       isDestroyed: vi.fn(() => false),
+      focus: vi.fn(),
       sendInputEvent: vi.fn((event: unknown) => events.push(event)),
       insertText: vi.fn(),
       executeJavaScript: vi.fn(async () => undefined)
@@ -361,6 +364,20 @@ describe('ViewerBrowserManager automation input', () => {
     await manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })
 
     expect(webContents.executeJavaScript).toHaveBeenCalled()
+    expect(events).toMatchObject([
+      { type: 'mouseMove', x: 10, y: 20 },
+      { type: 'mouseDown', x: 10, y: 20, button: 'left' },
+      { type: 'mouseUp', x: 10, y: 20, button: 'left' }
+    ])
+  })
+
+  it('does not block native click input when the visual overlay hangs', async () => {
+    const { manager, win, webContents, events } = createAutomationHarness()
+    webContents.executeJavaScript.mockImplementation(() => new Promise(() => {}))
+
+    await expect(manager.clickMouse(win, { tabId: 'tab-1', x: 10, y: 20 })).resolves.toBeUndefined()
+
+    expect(webContents.focus).toHaveBeenCalled()
     expect(events).toMatchObject([
       { type: 'mouseMove', x: 10, y: 20 },
       { type: 'mouseDown', x: 10, y: 20, button: 'left' },

@@ -628,10 +628,11 @@ export class ViewerBrowserManager {
     const x = clampViewportCoordinate(params.x)
     const y = clampViewportCoordinate(params.y)
     const button = mouseButton(params.button)
-    await this.moveMouse(win, { tabId: params.tabId, x, y })
+    this.focusTabWebContents(tab)
+    await this.moveMouse(win, { tabId: params.tabId, x, y, waitForArrival: false })
     tab.view.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount: 1 } as Electron.MouseInputEvent)
     tab.view.webContents.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount: 1 } as Electron.MouseInputEvent)
-    await this.showVirtualClick(tab, x, y)
+    void this.showVirtualClick(tab, x, y)
   }
 
   async doubleClickMouse(win: BrowserWindow, params: BrowserAutomationClickParams): Promise<void> {
@@ -639,12 +640,13 @@ export class ViewerBrowserManager {
     const x = clampViewportCoordinate(params.x)
     const y = clampViewportCoordinate(params.y)
     const button = mouseButton(params.button)
-    await this.moveMouse(win, { tabId: params.tabId, x, y })
+    this.focusTabWebContents(tab)
+    await this.moveMouse(win, { tabId: params.tabId, x, y, waitForArrival: false })
     tab.view.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount: 1 } as Electron.MouseInputEvent)
     tab.view.webContents.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount: 1 } as Electron.MouseInputEvent)
     tab.view.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount: 2 } as Electron.MouseInputEvent)
     tab.view.webContents.sendInputEvent({ type: 'mouseUp', x, y, button, clickCount: 2 } as Electron.MouseInputEvent)
-    await this.showVirtualClick(tab, x, y)
+    void this.showVirtualClick(tab, x, y)
   }
 
   async dragMouse(win: BrowserWindow, params: BrowserAutomationDragParams): Promise<void> {
@@ -655,7 +657,8 @@ export class ViewerBrowserManager {
       y: clampViewportCoordinate(point.y)
     }))
     const first = points[0]!
-    await this.moveMouse(win, { tabId: params.tabId, x: first.x, y: first.y })
+    this.focusTabWebContents(tab)
+    await this.moveMouse(win, { tabId: params.tabId, x: first.x, y: first.y, waitForArrival: false })
     tab.view.webContents.sendInputEvent({ type: 'mouseDown', x: first.x, y: first.y, button: 'left', clickCount: 1 } as Electron.MouseInputEvent)
     for (const point of points.slice(1)) {
       await this.moveVirtualMouse(tab, point.x, point.y, true)
@@ -752,6 +755,14 @@ export class ViewerBrowserManager {
     tab.virtualMouseY = center.y
   }
 
+  private focusTabWebContents(tab: BrowserTabRuntime): void {
+    try {
+      ;(tab.view.webContents as Electron.WebContents & { focus?: () => void }).focus?.()
+    } catch {
+      // Best effort focus before native input.
+    }
+  }
+
   private executeOverlayScript(tab: BrowserTabRuntime, script: string): Promise<unknown> {
     const execution = tab.view.webContents.executeJavaScript(script, true)
     execution.catch(() => {})
@@ -804,13 +815,16 @@ export class ViewerBrowserManager {
     waitForArrival: boolean
   ): Promise<void> {
     try {
-      await this.injectVirtualMouse(tab)
       tab.virtualMouseX = x
       tab.virtualMouseY = y
       const duration = waitForArrival ? 140 : 0
       const script = `window.__dotcraftVirtualMouseMove?.(${x}, ${y}, ${duration})`
-      const result = this.executeOverlayScript(tab, script)
-      if (waitForArrival) await result
+      const move = async () => {
+        await this.injectVirtualMouse(tab)
+        await this.executeOverlayScript(tab, script)
+      }
+      if (waitForArrival) await move()
+      else void move().catch(() => {})
     } catch {
       // Best effort visual cursor.
     }

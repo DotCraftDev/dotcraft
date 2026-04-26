@@ -98,6 +98,17 @@ interface BrowserUseTabRuntime {
   adopted?: boolean
 }
 
+interface BrowserUseOperationTrace {
+  operation: string
+  tabId: string
+  startedAt: number
+  elapsedMs?: number
+  timeoutMs: number
+  url: string
+  status: 'active' | 'completed' | 'failed' | 'timeout' | 'cancelled' | 'stale'
+  error?: string
+}
+
 interface BrowserUseLogEntry {
   level: string
   message: string
@@ -118,6 +129,8 @@ interface BrowserUseThreadRuntime {
   hasFocusedFirstTab: boolean
   activeEvaluationId?: string
   activeAbortSignal?: AbortSignal
+  activeOperation?: BrowserUseOperationTrace
+  operationHistory: BrowserUseOperationTrace[]
 }
 
 interface BrowserUseOperationTimeouts {
@@ -138,6 +151,13 @@ interface BrowserUseLocatorDescriptor {
 interface BrowserUseElementMatch {
   index: number
   tagName: string
+  role: string
+  name: string
+  text: string
+  href?: string
+  selector: string
+  visible: boolean
+  enabled: boolean
   visibleText: string
   ariaName: string
   boundingBox: {
@@ -256,6 +276,9 @@ export class BrowserUseManager {
     }
     runtime.activeEvaluationId = undefined
     runtime.activeAbortSignal = undefined
+    this.recordActiveOperation(runtime, 'cancelled')
+    runtime.activeOperation = undefined
+    this.appendOperationDiagnostics(runtime, 'Browser evaluation aborted.')
     for (const tab of runtime.tabs.values()) {
       try {
         this.webContentsFor(tab.owner, tab.id).stop()
@@ -297,7 +320,8 @@ export class BrowserUseManager {
       selectedTabId: null,
       logs: [],
       images: [],
-      hasFocusedFirstTab: false
+      hasFocusedFirstTab: false,
+      operationHistory: []
     }
 
     const display = async (imageLike: unknown): Promise<void> => {
@@ -417,6 +441,72 @@ export class BrowserUseManager {
     return wc
   }
 
+  private operationUrl(tab: BrowserUseTabRuntime): string {
+    try {
+      return this.webContentsFor(tab.owner, tab.id).getURL() || 'about:blank'
+    } catch {
+      return 'unknown'
+    }
+  }
+
+  private beginOperation(
+    runtime: BrowserUseThreadRuntime,
+    tab: BrowserUseTabRuntime,
+    operation: string,
+    timeoutMs: number
+  ): BrowserUseOperationTrace {
+    const trace: BrowserUseOperationTrace = {
+      operation,
+      tabId: tab.id,
+      startedAt: Date.now(),
+      timeoutMs,
+      url: this.operationUrl(tab),
+      status: 'active'
+    }
+    runtime.activeOperation = trace
+    return trace
+  }
+
+  private finishOperation(
+    runtime: BrowserUseThreadRuntime,
+    trace: BrowserUseOperationTrace,
+    status: BrowserUseOperationTrace['status'],
+    error?: string
+  ): void {
+    if (runtime.activeOperation === trace) {
+      runtime.activeOperation = undefined
+    }
+    trace.elapsedMs = Math.max(0, Date.now() - trace.startedAt)
+    trace.status = status
+    trace.error = error
+    runtime.operationHistory.push({ ...trace })
+    runtime.operationHistory = runtime.operationHistory.slice(-8)
+  }
+
+  private recordActiveOperation(
+    runtime: BrowserUseThreadRuntime,
+    status: BrowserUseOperationTrace['status'],
+    error?: string
+  ): void {
+    if (!runtime.activeOperation) return
+    this.finishOperation(runtime, runtime.activeOperation, status, error)
+  }
+
+  private appendOperationDiagnostics(runtime: BrowserUseThreadRuntime, prefix: string): void {
+    const traces = [...runtime.operationHistory]
+    if (runtime.activeOperation) traces.push({
+      ...runtime.activeOperation,
+      elapsedMs: Math.max(0, Date.now() - runtime.activeOperation.startedAt)
+    })
+    if (traces.length === 0) return
+    const tail = traces.slice(-5).map((trace) => {
+      const elapsed = trace.elapsedMs ?? Math.max(0, Date.now() - trace.startedAt)
+      const error = trace.error ? ` error=${trace.error}` : ''
+      return `${trace.operation} status=${trace.status} tab=${trace.tabId} url=${trace.url} elapsedMs=${elapsed} timeoutMs=${trace.timeoutMs}${error}`
+    })
+    runtime.logs.push(`${prefix}\nRecent browser operations:\n${tail.join('\n')}`)
+  }
+
   private async withBrowserOperation<T>(
     tab: BrowserUseTabRuntime,
     operation: string,
@@ -429,11 +519,14 @@ export class BrowserUseManager {
     if (signal?.aborted) {
       throw new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id}.`)
     }
+    const effectiveTimeoutMs = Math.max(1, Math.min(timeoutMs ?? this.operationTimeoutMs(), 120_000))
+    const trace = this.beginOperation(runtime, tab, operation, effectiveTimeoutMs)
 
     let operationPromise: Promise<T>
     try {
       operationPromise = Promise.resolve(run())
     } catch (error) {
+      this.finishOperation(runtime, trace, 'failed', error instanceof Error ? error.message : String(error))
       throw error
     }
     operationPromise.catch(() => {})
@@ -452,9 +545,11 @@ export class BrowserUseManager {
       }
       const ensureStillActive = () => {
         if (signal?.aborted) {
+          this.finishOperation(runtime, trace, 'cancelled')
           return new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id} at ${currentUrl()}.`)
         }
         if (evaluationId && runtime.activeEvaluationId !== evaluationId) {
+          this.finishOperation(runtime, trace, 'stale')
           return new Error(`Browser operation '${operation}' result arrived after evaluation ${evaluationId} was no longer active for tab ${tab.id} at ${currentUrl()}.`)
         }
         return null
@@ -467,13 +562,18 @@ export class BrowserUseManager {
         }
       }
       const onAbort = () => {
-        finish(() => reject(new Error(
-          `Browser operation '${operation}' was cancelled for tab ${tab.id} at ${currentUrl()}.`)))
+        finish(() => {
+          this.finishOperation(runtime, trace, 'cancelled')
+          reject(new Error(`Browser operation '${operation}' was cancelled for tab ${tab.id} at ${currentUrl()}.`))
+        })
       }
-      const effectiveTimeoutMs = Math.max(1, Math.min(timeoutMs ?? this.operationTimeoutMs(), 120_000))
       const timeout = setTimeout(() => {
-        finish(() => reject(new Error(
-          `Browser operation '${operation}' timed out after ${effectiveTimeoutMs}ms for tab ${tab.id} at ${currentUrl()}.`)))
+        finish(() => {
+          const message = `Browser operation '${operation}' timed out after ${effectiveTimeoutMs}ms for tab ${tab.id} at ${currentUrl()}.`
+          this.finishOperation(runtime, trace, 'timeout', message)
+          this.appendOperationDiagnostics(runtime, message)
+          reject(new Error(message))
+        })
       }, effectiveTimeoutMs)
 
       signal?.addEventListener('abort', onAbort, { once: true })
@@ -481,9 +581,15 @@ export class BrowserUseManager {
         (value) => finish(() => {
           const stale = ensureStillActive()
           if (stale) reject(stale)
-          else resolve(value)
+          else {
+            this.finishOperation(runtime, trace, 'completed')
+            resolve(value)
+          }
         }),
-        (error) => finish(() => reject(error))
+        (error) => finish(() => {
+          this.finishOperation(runtime, trace, 'failed', error instanceof Error ? error.message : String(error))
+          reject(error)
+        })
       )
     })
   }
@@ -750,7 +856,10 @@ export class BrowserUseManager {
       waitForTimeout: async (timeoutMs: number) => new Promise((resolve) => {
         setTimeout(resolve, Math.max(0, Math.min(timeoutMs, 120_000)))
       }),
-      waitForURL: async (url: string, options?: { timeoutMs?: number }) => this.waitForUrl(tab, url, options?.timeoutMs ?? 30_000),
+      waitForURL: async (url: unknown, options?: { timeoutMs?: number; timeout?: number }) => {
+        const timeout = options?.timeoutMs ?? options?.timeout ?? 30_000
+        return this.waitForUrl(tab, url, timeout)
+      },
       expectNavigation: async <T>(action: () => Promise<T>, options?: { timeoutMs?: number; url?: string }) => {
         const result = await action()
         if (options?.url) {
@@ -1022,16 +1131,93 @@ export class BrowserUseManager {
     })
     return String(await this.executeJavaScript(tab, `
       (() => {
-        const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
-        const labels = Array.from(document.querySelectorAll(interesting.join(','))).slice(0, 200).map((el) => {
+        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const cssEscape = (value) => window.CSS?.escape
+          ? CSS.escape(String(value))
+          : String(value).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\\\' + ch);
+        const attrValue = (value) => String(value ?? '').replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
+        const visible = (el) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+        };
+        const enabled = (el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
+        const roleOf = (el) => {
+          const explicit = el.getAttribute('role');
+          if (explicit) return normalize(explicit).split(' ')[0];
           const tag = el.tagName.toLowerCase();
-          const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().replace(/\\s+/g, ' ');
-          const id = el.id ? '#' + el.id : '';
-          const name = el.getAttribute('name') ? '[name="' + el.getAttribute('name') + '"]' : '';
-          return tag + id + name + (text ? ' "' + text.slice(0, 120) + '"' : '');
+          if (tag === 'a' && el.hasAttribute('href')) return 'link';
+          if (tag === 'button') return 'button';
+          if (tag === 'input') {
+            const type = (el.getAttribute('type') || 'text').toLowerCase();
+            if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
+            if (type === 'checkbox') return 'checkbox';
+            if (type === 'radio') return 'radio';
+            if (type === 'search') return 'searchbox';
+            return 'textbox';
+          }
+          if (tag === 'textarea') return 'textbox';
+          if (tag === 'select') return 'combobox';
+          if (tag === 'summary') return 'button';
+          return '';
+        };
+        const textOf = (el) => normalize(
+          el.innerText ||
+          el.textContent ||
+          el.getAttribute('aria-label') ||
+          el.getAttribute('placeholder') ||
+          el.getAttribute('value') ||
+          ''
+        );
+        const nameOf = (el) => normalize(
+          el.getAttribute('aria-label') ||
+          el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ') ||
+          el.getAttribute('title') ||
+          el.getAttribute('alt') ||
+          el.innerText ||
+          el.textContent ||
+          el.getAttribute('placeholder') ||
+          el.getAttribute('value') ||
+          ''
+        );
+        const selectorOf = (el) => {
+          const tag = el.tagName.toLowerCase();
+          if (el.id) return tag + '#' + cssEscape(el.id);
+          const testId = el.getAttribute('data-testid');
+          if (testId) return tag + '[data-testid="' + attrValue(testId) + '"]';
+          const href = el.getAttribute('href');
+          if (tag === 'a' && href) return 'a[href="' + attrValue(href) + '"]';
+          const name = el.getAttribute('name');
+          if (name) return tag + '[name="' + attrValue(name) + '"]';
+          const aria = el.getAttribute('aria-label');
+          if (aria) return tag + '[aria-label="' + attrValue(aria) + '"]';
+          return tag;
+        };
+        const interesting = ['a','button','input','textarea','select','summary','[role="button"]','[role="link"]'];
+        const elements = Array.from(document.querySelectorAll(interesting.join(','))).filter(visible).slice(0, 200).map((el, index) => {
+          const tag = el.tagName.toLowerCase();
+          const rect = el.getBoundingClientRect();
+          const text = textOf(el);
+          const name = nameOf(el);
+          const role = roleOf(el);
+          const selector = selectorOf(el);
+          return {
+            index,
+            tag,
+            role,
+            name,
+            text,
+            href: el.getAttribute('href') || undefined,
+            testId: el.getAttribute('data-testid') || undefined,
+            selector,
+            visible: true,
+            enabled: enabled(el),
+            boundingBox: rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : null,
+            summary: tag + (role ? '[' + role + ']' : '') + ' ' + selector + (name || text ? ' "' + (name || text).slice(0, 120) + '"' : '')
+          };
         });
         const bodyText = (document.body?.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 4000);
-        return JSON.stringify({ title: document.title, url: location.href, bodyText, elements: labels }, null, 2);
+        return JSON.stringify({ title: document.title, url: location.href, bodyText, elements }, null, 2);
       })()
     `, 'domSnapshot'))
   }
@@ -1163,7 +1349,15 @@ export class BrowserUseManager {
       throw new Error(`No element found for locator: ${this.describeLocator(descriptor)}`)
     }
     if (matches.length > 1) {
-      throw new Error(`Strict mode violation for locator ${this.describeLocator(descriptor)}: ${matches.length} elements matched.`)
+      const examples = matches.slice(0, 5).map((match) => {
+        const box = match.boundingBox
+          ? `@${Math.round(match.boundingBox.x)},${Math.round(match.boundingBox.y)} ${Math.round(match.boundingBox.width)}x${Math.round(match.boundingBox.height)}`
+          : '@no-box'
+        const label = match.name || match.text || match.visibleText || match.ariaName || ''
+        const href = match.href ? ` href=${match.href}` : ''
+        return `${match.tagName}[${match.role}] "${label}" ${match.selector}${href} ${box}`
+      }).join('; ')
+      throw new Error(`Strict mode violation for locator ${this.describeLocator(descriptor)}: ${matches.length} elements matched. Matches: ${examples}`)
     }
     return matches[0]!
   }
@@ -1186,6 +1380,10 @@ export class BrowserUseManager {
     const script = `
       ((descriptor) => {
         const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const cssEscape = (value) => window.CSS?.escape
+          ? CSS.escape(String(value))
+          : String(value).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\\\' + ch);
+        const attrValue = (value) => String(value ?? '').replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
         const matchesText = (actual, expected, exact) => {
           const a = normalize(actual);
           const e = normalize(expected);
@@ -1198,7 +1396,7 @@ export class BrowserUseManager {
         };
         const roleOf = (el) => {
           const explicit = el.getAttribute('role');
-          if (explicit) return explicit;
+          if (explicit) return normalize(explicit).split(' ')[0];
           const tag = el.tagName.toLowerCase();
           if (tag === 'a' && el.hasAttribute('href')) return 'link';
           if (tag === 'button') return 'button';
@@ -1207,6 +1405,7 @@ export class BrowserUseManager {
             if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
             if (type === 'checkbox') return 'checkbox';
             if (type === 'radio') return 'radio';
+            if (type === 'search') return 'searchbox';
             return 'textbox';
           }
           if (tag === 'textarea') return 'textbox';
@@ -1216,10 +1415,12 @@ export class BrowserUseManager {
         };
         const nameOf = (el) => normalize(
           el.getAttribute('aria-label') ||
+          el.getAttribute('aria-labelledby')?.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ') ||
           el.getAttribute('title') ||
           el.getAttribute('alt') ||
           el.innerText ||
           el.textContent ||
+          el.getAttribute('placeholder') ||
           el.getAttribute('value') ||
           ''
         );
@@ -1231,6 +1432,20 @@ export class BrowserUseManager {
           el.getAttribute('value') ||
           ''
         );
+        const selectorOf = (el) => {
+          const tag = el.tagName.toLowerCase();
+          if (el.id) return tag + '#' + cssEscape(el.id);
+          const testId = el.getAttribute('data-testid');
+          if (testId) return tag + '[data-testid="' + attrValue(testId) + '"]';
+          const href = el.getAttribute('href');
+          if (tag === 'a' && href) return 'a[href="' + attrValue(href) + '"]';
+          const name = el.getAttribute('name');
+          if (name) return tag + '[name="' + attrValue(name) + '"]';
+          const aria = el.getAttribute('aria-label');
+          if (aria) return tag + '[aria-label="' + attrValue(aria) + '"]';
+          return tag;
+        };
+        const enabled = (el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
         let candidates = [];
         if (descriptor.kind === 'css') {
           candidates = Array.from(document.querySelectorAll(descriptor.value));
@@ -1257,11 +1472,21 @@ export class BrowserUseManager {
           return true;
         }).slice(0, 100).map((el, index) => {
           const rect = el.getBoundingClientRect();
+          const text = textOf(el);
+          const name = nameOf(el);
+          const role = roleOf(el);
           return {
             index,
             tagName: el.tagName.toLowerCase(),
-            visibleText: textOf(el),
-            ariaName: nameOf(el),
+            role,
+            name,
+            text,
+            href: el.getAttribute('href') || undefined,
+            selector: selectorOf(el),
+            visible: true,
+            enabled: enabled(el),
+            visibleText: text,
+            ariaName: name,
             boundingBox: rect ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height } : null
           };
         });
@@ -1276,42 +1501,16 @@ export class BrowserUseManager {
     operation: 'textContent' | 'getAttribute' | 'isEnabled',
     arg?: string
   ): Promise<unknown> {
-    await this.strictLocator(tab, descriptor)
+    const target = await this.strictLocator(tab, descriptor)
     const script = `
-      ((descriptor, operation, arg) => {
-        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
-        const matchesText = (actual, expected, exact) => {
-          const a = normalize(actual);
-          const e = normalize(expected);
-          return exact ? a === e : a.toLowerCase().includes(e.toLowerCase());
-        };
-        const roleOf = (el) => {
-          const explicit = el.getAttribute('role');
-          if (explicit) return explicit;
-          const tag = el.tagName.toLowerCase();
-          if (tag === 'a' && el.hasAttribute('href')) return 'link';
-          if (tag === 'button') return 'button';
-          if (tag === 'input') return (el.getAttribute('type') || 'text').toLowerCase() === 'checkbox' ? 'checkbox' : 'textbox';
-          if (tag === 'textarea') return 'textbox';
-          if (tag === 'select') return 'combobox';
-          return '';
-        };
-        const textOf = (el) => normalize(el.innerText || el.textContent || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('value') || '');
-        const nameOf = (el) => normalize(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.textContent || '');
-        let candidates = [];
-        if (descriptor.kind === 'css') candidates = Array.from(document.querySelectorAll(descriptor.value));
-        else if (descriptor.kind === 'testId') candidates = Array.from(document.querySelectorAll('[data-testid="' + CSS.escape(descriptor.value) + '"]'));
-        else if (descriptor.kind === 'placeholder') candidates = Array.from(document.querySelectorAll('input, textarea')).filter((el) => matchesText(el.getAttribute('placeholder'), descriptor.value, descriptor.exact));
-        else if (descriptor.kind === 'label') candidates = Array.from(document.querySelectorAll('label')).filter((el) => matchesText(textOf(el), descriptor.value, descriptor.exact)).map((label) => label.control).filter(Boolean);
-        else if (descriptor.kind === 'role') candidates = Array.from(document.querySelectorAll('body *')).filter((el) => roleOf(el) === descriptor.value && (descriptor.name == null || matchesText(nameOf(el), descriptor.name, descriptor.exact)));
-        else if (descriptor.kind === 'text') candidates = Array.from(document.querySelectorAll('body *')).filter((el) => matchesText(textOf(el), descriptor.value, descriptor.exact));
-        const el = candidates[0];
+      ((selector, operation, arg) => {
+        const el = document.querySelector(selector);
         if (!el) return null;
         if (operation === 'textContent') return el.textContent;
         if (operation === 'getAttribute') return el.getAttribute(arg);
-        if (operation === 'isEnabled') return !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+        if (operation === 'isEnabled') return !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[aria-disabled="true"]');
         return null;
-      })(${JSON.stringify(descriptor)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
+      })(${JSON.stringify(target.selector)}, ${JSON.stringify(operation)}, ${JSON.stringify(arg ?? '')})
     `
     return await this.executeJavaScript(tab, script, `locator.${operation}`)
   }
@@ -1321,36 +1520,10 @@ export class BrowserUseManager {
     descriptor: BrowserUseLocatorDescriptor,
     value: string
   ): Promise<void> {
-    await this.strictLocator(tab, descriptor)
+    const target = await this.strictLocator(tab, descriptor)
     const script = `
-      ((descriptor, value) => {
-        const normalize = (item) => String(item ?? '').replace(/\\s+/g, ' ').trim();
-        const matchesText = (actual, expected, exact) => {
-          const a = normalize(actual);
-          const e = normalize(expected);
-          return exact ? a === e : a.toLowerCase().includes(e.toLowerCase());
-        };
-        const roleOf = (node) => {
-          const explicit = node.getAttribute('role');
-          if (explicit) return explicit;
-          const tag = node.tagName.toLowerCase();
-          if (tag === 'a' && node.hasAttribute('href')) return 'link';
-          if (tag === 'button') return 'button';
-          if (tag === 'input') return (node.getAttribute('type') || 'text').toLowerCase() === 'checkbox' ? 'checkbox' : 'textbox';
-          if (tag === 'textarea') return 'textbox';
-          if (tag === 'select') return 'combobox';
-          return '';
-        };
-        const textOf = (node) => normalize(node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.getAttribute('value') || '');
-        const nameOf = (node) => normalize(node.getAttribute('aria-label') || node.getAttribute('title') || node.innerText || node.textContent || '');
-        let candidates = [];
-        if (descriptor.kind === 'css') candidates = Array.from(document.querySelectorAll(descriptor.value));
-        else if (descriptor.kind === 'testId') candidates = Array.from(document.querySelectorAll('[data-testid="' + CSS.escape(descriptor.value) + '"]'));
-        else if (descriptor.kind === 'placeholder') candidates = Array.from(document.querySelectorAll('input, textarea')).filter((node) => matchesText(node.getAttribute('placeholder'), descriptor.value, descriptor.exact));
-        else if (descriptor.kind === 'label') candidates = Array.from(document.querySelectorAll('label')).filter((node) => matchesText(textOf(node), descriptor.value, descriptor.exact)).map((label) => label.control).filter(Boolean);
-        else if (descriptor.kind === 'role') candidates = Array.from(document.querySelectorAll('body *')).filter((node) => roleOf(node) === descriptor.value && (descriptor.name == null || matchesText(nameOf(node), descriptor.name, descriptor.exact)));
-        else if (descriptor.kind === 'text') candidates = Array.from(document.querySelectorAll('body *')).filter((node) => matchesText(textOf(node), descriptor.value, descriptor.exact));
-        const el = candidates[0];
+      ((selector, value) => {
+        const el = document.querySelector(selector);
         if (!el) throw new Error('Element is no longer available.');
         el.focus();
         if ('value' in el) {
@@ -1362,7 +1535,7 @@ export class BrowserUseManager {
         el.textContent = value;
         el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
         return true;
-      })(${JSON.stringify(descriptor)}, ${JSON.stringify(value)})
+      })(${JSON.stringify(target.selector)}, ${JSON.stringify(value)})
     `
     await this.executeJavaScript(tab, script, 'locator.fill')
   }
@@ -1384,38 +1557,69 @@ export class BrowserUseManager {
     }
   }
 
-  private waitForUrl(tab: BrowserUseTabRuntime, expectedUrl: string, timeoutMs: number): Promise<void> {
+  private waitForUrl(tab: BrowserUseTabRuntime, expectedUrl: unknown, timeoutMs: number): Promise<void> {
+    return this.withBrowserOperation(
+      tab,
+      'waitForURL',
+      () => this.waitForUrlInner(tab, expectedUrl, timeoutMs),
+      timeoutMs)
+  }
+
+  private waitForUrlInner(tab: BrowserUseTabRuntime, expectedUrl: unknown, timeoutMs: number): Promise<void> {
     const wc = this.webContentsFor(tab.owner, tab.id)
-    if (wc.getURL() === expectedUrl) return Promise.resolve()
+    const expectedDescription = this.describeExpectedUrl(expectedUrl)
+    const matches = (url: string) => this.urlMatches(url, expectedUrl)
+    if (matches(wc.getURL())) return Promise.resolve()
     return new Promise((resolve, reject) => {
       const signal = this.getRuntimeForTab(tab).activeAbortSignal
       if (signal?.aborted) {
         reject(new Error(`Browser operation 'waitForURL' was cancelled for tab ${tab.id}.`))
         return
       }
+      const effectiveTimeoutMs = Math.max(1_000, Math.min(timeoutMs, 120_000))
       const timeout = setTimeout(() => {
         cleanup()
-        reject(new Error(`Browser operation 'waitForURL' timed out after ${Math.max(1_000, Math.min(timeoutMs, 120_000))}ms for tab ${tab.id}: ${expectedUrl}`))
-      }, Math.max(1_000, Math.min(timeoutMs, 120_000)))
+        reject(new Error(`Browser operation 'waitForURL' timed out after ${effectiveTimeoutMs}ms for tab ${tab.id}: ${expectedDescription}; current=${wc.getURL() || 'about:blank'}`))
+      }, effectiveTimeoutMs)
       const done = () => {
-        if (wc.getURL() !== expectedUrl) return
+        if (!matches(wc.getURL())) return
         cleanup()
         resolve()
       }
+      const poll = setInterval(done, 100)
       const onAbort = () => {
         cleanup()
         reject(new Error(`Browser operation 'waitForURL' was cancelled for tab ${tab.id}.`))
       }
       const cleanup = () => {
         clearTimeout(timeout)
+        clearInterval(poll)
         wc.off('did-navigate', done)
+        wc.off('did-navigate-in-page', done)
         wc.off('did-stop-loading', done)
         signal?.removeEventListener('abort', onAbort)
       }
       signal?.addEventListener('abort', onAbort, { once: true })
       wc.on('did-navigate', done)
+      wc.on('did-navigate-in-page', done)
       wc.on('did-stop-loading', done)
+      done()
     })
+  }
+
+  private describeExpectedUrl(expectedUrl: unknown): string {
+    if (expectedUrl instanceof RegExp) return expectedUrl.toString()
+    if (typeof expectedUrl === 'string') return expectedUrl
+    return String(expectedUrl)
+  }
+
+  private urlMatches(actualUrl: string, expectedUrl: unknown): boolean {
+    if (expectedUrl instanceof RegExp) {
+      expectedUrl.lastIndex = 0
+      return expectedUrl.test(actualUrl)
+    }
+    if (typeof expectedUrl === 'string') return actualUrl === expectedUrl
+    return actualUrl === String(expectedUrl)
   }
 
   private devLogs(tab: BrowserUseTabRuntime, options?: { filter?: string; levels?: string[]; limit?: number }): BrowserUseLogEntry[] {

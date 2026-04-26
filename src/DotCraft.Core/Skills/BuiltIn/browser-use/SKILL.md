@@ -52,12 +52,14 @@ await globalThis.tab.domSnapshot();
 
 - After every navigation, reload, modal open, significant click, or UI state change, observe again with `domSnapshot()` or screenshot.
 - Prefer `domSnapshot()` for choosing locators. Use screenshots for visual layout, canvas, hover, cursor, drag, animation, or rendering issues.
+- `domSnapshot()` element entries include role/name/text/href/selector/bounds; use those fields directly when they identify the target.
 - Do not click from memory after the page changes. Refresh the snapshot and choose from the current state.
 - Do not call both snapshot and screenshot by default; use the cheapest observation that answers the question.
 
 ## Locator rules
 
 - Build locators from the latest snapshot. Prefer stable identifiers: `data-testid`, stable `data-*`, `href`, role plus accessible name, label, placeholder, then visible text.
+- Prefer the selector or `href` shown by `domSnapshot()` when it clearly identifies the target.
 - If uniqueness is not obvious, call `count()` before acting. Locator actions are strict: zero or multiple matches should be treated as useful feedback, not as a reason to guess.
 - Scope locators to a nearby stable region when repeated labels exist.
 - Avoid positional shortcuts such as `first()`, `last()`, or `nth()` unless the surrounding context proves the position is the actual user target.
@@ -66,7 +68,8 @@ await globalThis.tab.domSnapshot();
 ## Interaction recipe
 
 - Before clicking or typing, confirm the element exists, is visible, and is enabled when the state is uncertain.
-- After click or submit actions, wait for a concrete result: URL change, text appears, dialog opens, network-driven state completes, or `waitForLoadState(...)` when navigation is expected.
+- `tab.click(...)` and `locator.click()` mean the input action was sent; they do not prove navigation or SPA state completed.
+- After click or submit actions, wait for a concrete result: `waitForURL(...)`, text appears, dialog opens, network-driven state completes, or a fresh `domSnapshot()`.
 - Use `waitForLoadState("networkidle", timeoutMs)` when SPA work depends on network quietness. If it times out, observe the page and explain the visible state instead of looping.
 - Avoid fixed sleeps. Use `waitForLoadState`, `waitForURL`, `expectNavigation`, or locator `waitFor` when possible.
 - Do not `goto` the current URL unless a reload is intended. Use `reload()` after local code changes, then observe again.
@@ -75,6 +78,7 @@ await globalThis.tab.domSnapshot();
 ## Error recovery
 
 - Strict locator failure means ambiguity or absence; inspect the snapshot and choose a more specific locator.
+- If `getByRole(...).count()` is `0` but the snapshot lists the element, use the snapshot selector or `href`, then observe again.
 - Timeout usually means stale state, hidden/disabled UI, or an unexpected route. Observe before retrying.
 - Syntax or reference errors usually mean REPL state or a bad snippet; fix the snippet or use `NodeReplReset` when state is polluted.
 - If navigation is denied or blocked, explain that Desktop Browser Use policy controls access and ask the user to approve the domain or update allow/block settings. Do not bypass policy.

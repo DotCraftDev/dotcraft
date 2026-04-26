@@ -25,6 +25,7 @@ function createFakeWebContents() {
     on: emitter.on.bind(emitter),
     once: emitter.once.bind(emitter),
     off: emitter.off.bind(emitter),
+    emit: emitter.emit.bind(emitter),
     isDestroyed: vi.fn(() => false),
     getURL: vi.fn(() => url),
     getTitle: vi.fn(() => 'Test Page'),
@@ -380,6 +381,36 @@ describe('BrowserUseManager IAB backend', () => {
     expect(result.resultText).toBe('http://127.0.0.1:5173/')
   })
 
+  it('waitForURL observes SPA in-page navigation', async () => {
+    const wc = createFakeWebContents()
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    ;(globalThis as Record<string, unknown>).__simulateSpaNavigation = () => {
+      wc.setUrl('http://127.0.0.1:5173/desktop_guide')
+      ;(wc as unknown as EventEmitter).emit('did-navigate-in-page')
+    }
+    const pending = runBrowserUse(manager, owner, {
+      threadId: 'thread-spa-url',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        setTimeout(() => {
+          globalThis.__simulateSpaNavigation?.();
+        }, 20);
+        await tab.playwright.waitForURL(/desktop_guide/, { timeoutMs: 1000 });
+        return await tab.url();
+      `
+    })
+
+    const result = await pending
+    delete (globalThis as Record<string, unknown>).__simulateSpaNavigation
+
+    expect(result.error).toBeUndefined()
+    expect(result.resultText).toBe('http://127.0.0.1:5173/desktop_guide')
+  })
+
   it('returns a readable timeout when screenshot capture hangs', async () => {
     const wc = createFakeWebContents()
     let releaseCapture: (() => void) | undefined
@@ -402,6 +433,27 @@ describe('BrowserUseManager IAB backend', () => {
     expect(result.error).toContain("Browser operation 'screenshot' timed out")
     expect(result.error).toContain('http://127.0.0.1:5173/')
     releaseCapture?.()
+  })
+
+  it('includes browser operation diagnostics when page JavaScript times out', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}))
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host, { operationMs: 25 })
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-diag-timeout',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.tabs.selected();
+        return await tab.domSnapshot();
+      `
+    })
+
+    expect(result.error).toContain("Browser operation 'domSnapshot.ready' timed out")
+    expect(result.logs.join('\n')).toContain('Recent browser operations')
+    expect(result.logs.join('\n')).toContain('domSnapshot.ready')
   })
 
   it('does not force focus for additional tabs in the same thread', async () => {
@@ -771,6 +823,81 @@ describe('BrowserUseManager IAB backend', () => {
       x: 60,
       y: 40
     }))
+  })
+
+  it('aligns getByRole link matching with DOM snapshot output', async () => {
+    const wc = createFakeWebContents()
+    ;(wc.executeJavaScript as ReturnType<typeof vi.fn>).mockImplementation(async (script: string) => {
+      if (script.includes('requestAnimationFrame') && script.includes('readyState')) {
+        return {
+          url: 'http://127.0.0.1:5173/',
+          title: 'DotCraft',
+          readyState: 'complete',
+          bodyTextLength: 46,
+          interactiveCount: 1,
+          appRootTextLength: 46
+        }
+      }
+      if (script.includes('bodyText') && script.includes('selector')) {
+        return JSON.stringify({
+          title: 'DotCraft',
+          url: 'http://127.0.0.1:5173/',
+          bodyText: 'DotCraft Desktop',
+          elements: [{
+            tag: 'a',
+            role: 'link',
+            name: 'Desktop',
+            text: 'Desktop',
+            href: '/desktop_guide',
+            selector: 'a[href="/desktop_guide"]',
+            visible: true,
+            enabled: true,
+            boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+          }]
+        }, null, 2)
+      }
+      if (script.includes('descriptor') && script.includes('roleOf')) {
+        return [{
+          index: 0,
+          tagName: 'a',
+          role: 'link',
+          name: 'Desktop',
+          text: 'Desktop',
+          href: '/desktop_guide',
+          selector: 'a[href="/desktop_guide"]',
+          visible: true,
+          enabled: true,
+          visibleText: 'Desktop',
+          ariaName: 'Desktop',
+          boundingBox: { x: 10, y: 20, width: 100, height: 40 }
+        }]
+      }
+      return 'ok'
+    })
+    const host = createFakeHost(wc)
+    const manager = new BrowserUseManager(host)
+    const owner = createFakeOwner()
+
+    const result = await runBrowserUse(manager, owner, {
+      threadId: 'thread-role-align',
+      workspacePath: 'F:/workspace',
+      code: `
+        const tab = await agent.browser.goto("http://127.0.0.1:5173/");
+        const snapshot = JSON.parse(await tab.domSnapshot());
+        const count = await tab.playwright.getByRole("link", { name: "Desktop", exact: true }).count();
+        return { count, element: snapshot.elements[0] };
+      `
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(JSON.parse(result.resultText!)).toMatchObject({
+      count: 1,
+      element: {
+        role: 'link',
+        name: 'Desktop',
+        selector: 'a[href="/desktop_guide"]'
+      }
+    })
   })
 
   it('reports strict locator violations instead of guessing', async () => {
