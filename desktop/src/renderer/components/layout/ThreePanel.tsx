@@ -121,22 +121,23 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
         {effectiveDetailPanelVisible && detail}
       </div>
 
-      {/* Unified header bottom line — overlays the full window width exactly
-          at the bottom of the header row so the line is continuous across
-          the conversation column, the 4px DragHandle, and the detail panel
-          tab bar. This is the horizontal arm of the Codex-style T divider. */}
+      {/* Unified header bottom line — starts after the sidebar and overlays
+          the bottom of the header row so the line is continuous across the
+          conversation column, the 4px DragHandle, and the detail panel tab
+          bar. This is the horizontal arm of the Codex-style T divider. */}
       {effectiveDetailPanelVisible && (
         <div
           aria-hidden
           style={{
             position: 'absolute',
             top: 'calc(var(--chrome-header-height) - 1px)',
-            left: 0,
+            left: `${effectiveSidebarWidth}px`,
             right: 0,
             height: '1px',
             background: 'var(--border-default)',
             pointerEvents: 'none',
-            zIndex: 3
+            zIndex: 3,
+            transition: 'left 200ms ease-out'
           }}
         />
       )}
