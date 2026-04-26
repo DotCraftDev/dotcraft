@@ -13,6 +13,7 @@ vi.mock('fs', () => ({
 }))
 
 import { AppServerManager, resolveBinaryLocation } from '../AppServerManager'
+import { APP_SERVER_READY_POLL_MS, waitForReadyz } from '../appServerReady'
 import { spawn, execFileSync } from 'child_process'
 import { existsSync } from 'fs'
 
@@ -292,5 +293,31 @@ describe('AppServerManager', () => {
 
     proc.emit('exit', 0, null)
     expect(manager.isRunning).toBe(false)
+  })
+
+  it('keeps polling readyz beyond the old 15s startup timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn().mockRejectedValue(new Error('not ready'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      let settled = false
+      const readyPromise = waitForReadyz('127.0.0.1', 9100)
+      readyPromise.then(() => {
+        settled = true
+      })
+
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(fetchMock).toHaveBeenCalled()
+      expect(settled).toBe(false)
+
+      fetchMock.mockResolvedValue({ ok: true } as Response)
+      await vi.advanceTimersByTimeAsync(APP_SERVER_READY_POLL_MS)
+
+      await expect(readyPromise).resolves.toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
   })
 })

@@ -34,10 +34,12 @@ export interface InitializeResult {
   dashboardUrl?: string
 }
 
+export const INITIALIZE_REQUEST_TIMEOUT_MS: number | null = null
+
 interface PendingRequest {
   resolve: (value: unknown) => void
   reject: (reason: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 /** AppServer puts human-readable detail in `data.detail`; JSON-RPC `message` is often generic (e.g. "Invalid request"). */
@@ -324,16 +326,18 @@ export class WireProtocolClient extends EventEmitter {
   sendRequest<T = unknown>(
     method: string,
     params?: unknown,
-    timeoutMs?: number
+    timeoutMs?: number | null
   ): Promise<T> {
     const id = this.nextId++
-    const timeoutDuration = timeoutMs ?? this.defaultTimeoutMs
+    const timeoutDuration = timeoutMs === undefined ? this.defaultTimeoutMs : timeoutMs
 
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`Request '${method}' timed out after ${timeoutDuration}ms`))
-      }, timeoutDuration)
+      const timer = timeoutDuration == null
+        ? null
+        : setTimeout(() => {
+            this.pending.delete(id)
+            reject(new Error(`Request '${method}' timed out after ${timeoutDuration}ms`))
+          }, timeoutDuration)
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -343,7 +347,7 @@ export class WireProtocolClient extends EventEmitter {
 
       this.transport.writeLine(JSON.stringify({ jsonrpc: '2.0', id, method, params })).catch(
         (err) => {
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           this.pending.delete(id)
           reject(err)
         }
@@ -395,7 +399,7 @@ export class WireProtocolClient extends EventEmitter {
           }
         }
       },
-      10_000
+      INITIALIZE_REQUEST_TIMEOUT_MS
     )
 
     await this.sendNotification('initialized', {})
@@ -438,7 +442,7 @@ export class WireProtocolClient extends EventEmitter {
     if (!hasMethod && hasId) {
       const pending = this.pending.get(msg.id as number)
       if (pending) {
-        clearTimeout(pending.timer)
+        if (pending.timer) clearTimeout(pending.timer)
         this.pending.delete(msg.id as number)
 
         if ('error' in msg && msg.error) {
@@ -509,7 +513,7 @@ export class WireProtocolClient extends EventEmitter {
 
   private rejectAllPending(reason: Error): void {
     for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer)
+      if (pending.timer) clearTimeout(pending.timer)
       pending.reject(reason)
     }
     this.pending.clear()

@@ -17,6 +17,7 @@ import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
 import { ProxyProcessManager } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
+import { waitForReadyz } from './appServerReady'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
@@ -384,21 +385,6 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
       managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
     }
   })
-}
-
-async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Promise<void> {
-  const base = `http://${host}:${port}`
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const res = await fetch(`${base}/readyz`)
-      if (res.ok) return
-    } catch {
-      // Keep polling until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-  throw new Error(`AppServer WebSocket endpoint did not become ready in ${timeoutMs}ms`)
 }
 
 function clearCrashRetryTimer(): boolean {
@@ -1045,11 +1031,17 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   manager.on('started', async () => {
     crashRetries = 0
     clearCrashRetryTimer()
+    const isCurrentStartup = (): boolean =>
+      !isAppQuitting &&
+      manager.isRunning &&
+      appServerManager === manager &&
+      currentWorkspacePath === workspacePath
 
     if (connectionMode === 'websocket') {
       try {
         const { host, port } = resolveWebSocketHostPort(sharedSettings)
-        await waitForReadyz(host, port)
+        const ready = await waitForReadyz(host, port, isCurrentStartup)
+        if (!ready || !isCurrentStartup()) return
         await connectViaWebSocket(workspacePath, buildManagedWsUrl(sharedSettings))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -1092,6 +1084,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
     try {
       const result = await client.initialize()
+      if (!isCurrentStartup()) return
       if (mainWindow && !mainWindow.isDestroyed()) {
         emitConnectionStatus(mainWindow, {
           status: 'connected',
@@ -1102,6 +1095,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
       }
       await autoStartEnabledModules()
     } catch (err) {
+      if (!isCurrentStartup()) return
       console.error('[desktop] appserver initialize failed', err)
       const message = err instanceof Error ? err.message : String(err)
       const isTimeout = message.includes('timed out')
