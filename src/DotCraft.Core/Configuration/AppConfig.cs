@@ -422,7 +422,7 @@ public sealed class AppConfig
         public ShellBackgroundConfig Background { get; set; } = new();
     }
 
-    [ConfigSection("Tools.Shell.Background", DisplayName = "Tools > Shell > Background", Order = 22)]
+    [ConfigSection("Tools.Shell.Background", DisplayName = "Tools > Shell > Background", Order = 21)]
     public sealed class ShellBackgroundConfig
     {
         public bool Enabled { get; set; } = true;
