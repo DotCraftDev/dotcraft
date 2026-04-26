@@ -44,13 +44,13 @@ import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
+import { handleBrowserEvent } from './utils/browserEventHandler'
 import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
 } from './utils/workspaceConfigChanged'
 import type {
-  BrowserEventPayload,
   BrowserUseApprovalRequestPayload,
   BrowserUseApprovalResponseAction,
   DiscoveredModule,
@@ -1073,96 +1073,11 @@ export function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.api.workspace.viewer.browser.onEvent((event: BrowserEventPayload) => {
-      const state = useViewerTabStore.getState()
-      const threadId = event.threadId ?? state.currentThreadId
-      if (!threadId) return
-      switch (event.type) {
-        case 'did-start-loading':
-          state.updateBrowserTab(threadId, event.tabId, {
-            loading: true,
-            crashed: false,
-            blockedMessage: undefined,
-            downloadMessage: undefined
-          })
-          return
-        case 'did-stop-loading':
-          state.updateBrowserTab(threadId, event.tabId, {
-            loading: false,
-            ...(event.url ? { currentUrl: event.url } : {})
-          })
-          return
-        case 'did-navigate':
-          state.updateBrowserTab(threadId, event.tabId, {
-            ...(event.url ? { currentUrl: event.url } : {}),
-            blockedMessage: undefined,
-            loading: false
-          })
-          return
-        case 'did-fail-load':
-          state.updateBrowserTab(threadId, event.tabId, {
-            loading: false,
-            ...(event.message ? { errorMessage: event.message } : {})
-          })
-          return
-        case 'page-title-updated':
-          state.updateBrowserTab(threadId, event.tabId, {
-            ...(event.title ? { title: event.title } : {})
-          })
-          return
-        case 'page-favicon-updated':
-          state.updateBrowserTab(threadId, event.tabId, {
-            ...(event.faviconDataUrl ? { faviconDataUrl: event.faviconDataUrl } : {})
-          })
-          return
-        case 'blocked-navigation':
-          state.updateBrowserTab(threadId, event.tabId, {
-            loading: false,
-            blockedMessage: event.message ?? translate(localeRef.current, 'viewer.browser.blockedScheme')
-          })
-          return
-        case 'download-blocked':
-          state.updateBrowserTab(threadId, event.tabId, {
-            downloadMessage: event.message ?? translate(localeRef.current, 'viewer.browser.downloadBlocked')
-          })
-          return
-        case 'crashed':
-          state.updateBrowserTab(threadId, event.tabId, {
-            crashed: true,
-            loading: false
-          })
-          return
-        case 'update-history-flags':
-          state.updateBrowserTab(threadId, event.tabId, {
-            ...(typeof event.canGoBack === 'boolean' ? { canGoBack: event.canGoBack } : {}),
-            ...(typeof event.canGoForward === 'boolean' ? { canGoForward: event.canGoForward } : {})
-          })
-          return
-        case 'automation-started':
-        case 'automation-updated':
-          state.updateBrowserTab(threadId, event.tabId, {
-            automationActive: event.automationActive ?? true,
-            ...(event.sessionName !== undefined ? { automationSessionName: event.sessionName } : {}),
-            ...(event.action !== undefined ? { lastAutomationAction: event.action } : {})
-          })
-          return
-        case 'automation-stopped':
-          state.updateBrowserTab(threadId, event.tabId, {
-            automationActive: false,
-            ...(event.sessionName !== undefined ? { automationSessionName: event.sessionName } : {}),
-            ...(event.action !== undefined ? { lastAutomationAction: event.action } : {})
-          })
-          return
-        case 'virtual-cursor':
-          state.updateBrowserTab(threadId, event.tabId, {
-            ...(typeof event.x === 'number' && typeof event.y === 'number'
-              ? { virtualCursor: { x: event.x, y: event.y } }
-              : {})
-          })
-          return
-        default:
-          return
-      }
+    const unsubscribe = window.api.workspace.viewer.browser.onEvent((event) => {
+      handleBrowserEvent(event, {
+        locale: localeRef.current,
+        workspacePath: workspacePathRef.current
+      })
     })
     return () => {
       unsubscribe()
