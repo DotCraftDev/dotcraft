@@ -1500,7 +1500,7 @@ QQ and WeCom use `ActiveRunRegistry` to track and cancel in-flight runs. Under S
 
 Bidirectional capabilities are outside the session model.
 
-The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns. Background terminals follow the same boundary: Session Core records the observable `CommandExecution` Item for the originating tool call, while terminal listing, reading, stdin writes, stopping, and cleanup are exposed by tool/provider or AppServer capabilities.
+The Session Protocol models conversation state and turn execution. It does not model transport-specific request/response features such as IDE filesystem access, terminal control, extension calls, or API-specific REST flows. Those remain tool- or channel-level concerns. Background terminals follow the same boundary: Session Core records the observable `CommandExecution` Item for the originating tool call. The model-facing shell surface stays minimal (`Exec` plus `WriteStdin`, where empty stdin polls output); terminal listing, direct reads, stopping, and cleanup are AppServer/control-plane capabilities.
 
 The design rule is simple:
 

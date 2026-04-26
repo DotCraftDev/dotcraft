@@ -76,7 +76,7 @@ public sealed class ShellTools
     public async Task<string> Exec(
         [Description("The shell command to execute.")] string command,
         [Description("Optional working directory for the command.")] string? workingDir = null,
-        [Description("Run the command in the background and return a session ID for later ReadBackgroundTerminal, WriteStdin, or StopBackgroundTerminal calls.")] bool runInBackground = false,
+        [Description("Run the command in the background and return a session ID for later WriteStdin calls.")] bool runInBackground = false,
         [Description("Milliseconds to wait for initial output before returning when runInBackground is true.")] int? yieldTimeMs = null,
         [Description("Maximum output characters to return in this tool result.")] int? maxOutputChars = null,
         [Description("Keep stdin open so WriteStdin can send input to the running process. This is pipe-based, not a full PTY.")] bool interactive = false,
@@ -256,64 +256,6 @@ public sealed class ShellTools
         catch (Exception ex)
         {
             return $"Error writing to background terminal: {ex.Message}";
-        }
-    }
-
-    [Description("Read output and status from a background terminal session.")]
-    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
-    public async Task<string> ReadBackgroundTerminal(
-        [Description("Background terminal session ID returned by Exec.")] string sessionId,
-        [Description("Optional milliseconds to wait before reading.")] int? waitMs = null,
-        [Description("Maximum output characters to return.")] int? maxOutputChars = null)
-    {
-        if (_backgroundTerminals == null)
-            return "Error: Background terminals are not available.";
-
-        try
-        {
-            var snapshot = await _backgroundTerminals.ReadAsync(
-                sessionId,
-                waitMs ?? 0,
-                maxOutputChars ?? _maxOutputLength);
-            return FormatSnapshot(snapshot);
-        }
-        catch (Exception ex)
-        {
-            return $"Error reading background terminal: {ex.Message}";
-        }
-    }
-
-    [Description("List background terminal sessions for the current thread.")]
-    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
-    public async Task<string> ListBackgroundTerminals()
-    {
-        if (_backgroundTerminals == null)
-            return "Error: Background terminals are not available.";
-
-        var threadId = CommandExecutionRuntimeScope.Current?.ThreadId;
-        var sessions = await _backgroundTerminals.ListAsync(threadId);
-        if (sessions.Count == 0)
-            return "No background terminals.";
-
-        return string.Join(Environment.NewLine + Environment.NewLine, sessions.Select(FormatSnapshot));
-    }
-
-    [Description("Stop a running background terminal session.")]
-    [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec), MaxResultChars = 30_000)]
-    public async Task<string> StopBackgroundTerminal(
-        [Description("Background terminal session ID returned by Exec.")] string sessionId)
-    {
-        if (_backgroundTerminals == null)
-            return "Error: Background terminals are not available.";
-
-        try
-        {
-            var snapshot = await _backgroundTerminals.StopAsync(sessionId);
-            return FormatSnapshot(snapshot);
-        }
-        catch (Exception ex)
-        {
-            return $"Error stopping background terminal: {ex.Message}";
         }
     }
 

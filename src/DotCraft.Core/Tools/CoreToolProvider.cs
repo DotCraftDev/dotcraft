@@ -89,9 +89,6 @@ public sealed class CoreToolProvider : IAgentToolProvider
             backgroundTerminals: context.BackgroundTerminalService);
         tools.Add(AIFunctionFactory.Create(shellTools.Exec));
         tools.Add(AIFunctionFactory.Create(shellTools.WriteStdin));
-        tools.Add(AIFunctionFactory.Create(shellTools.ReadBackgroundTerminal));
-        tools.Add(AIFunctionFactory.Create(shellTools.ListBackgroundTerminals));
-        tools.Add(AIFunctionFactory.Create(shellTools.StopBackgroundTerminal));
 
         // Web tools
         var webTools = new WebTools(
