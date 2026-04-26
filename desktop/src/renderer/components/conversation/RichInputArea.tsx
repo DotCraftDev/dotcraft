@@ -5,7 +5,8 @@ import {
   useImperativeHandle,
   useRef,
   useState,
-  type ForwardedRef
+  type ForwardedRef,
+  type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
 import {
   COMMAND_REF_CLASS,
@@ -283,6 +284,20 @@ function isInlineTagElement(node: Node | null): node is HTMLElement {
   )
 }
 
+function isImeConfirmKey(
+  e: ReactKeyboardEvent<HTMLDivElement>,
+  compositionActive: boolean,
+  compositionJustEnded: boolean
+): boolean {
+  const nativeEvent = e.nativeEvent as KeyboardEvent & { keyCode?: number }
+  return (
+    compositionActive ||
+    compositionJustEnded ||
+    nativeEvent.isComposing === true ||
+    nativeEvent.keyCode === 229
+  )
+}
+
 function parseSkillMarkersFromText(text: string): ComposerDraftSegment[] {
   return parseLegacyComposerText(text)
 }
@@ -308,7 +323,22 @@ export const RichInputArea = forwardRef(function RichInputArea(
 ) {
     const editorRef = useRef<HTMLDivElement>(null)
     const lastSelectionRangeRef = useRef<SelectionRange | null>(null)
+    const compositionActiveRef = useRef(false)
+    const compositionJustEndedRef = useRef(false)
+    const compositionResetTimerRef = useRef<number | null>(null)
     const [showPh, setShowPh] = useState(true)
+
+    const clearCompositionJustEndedTimer = useCallback((): void => {
+      if (compositionResetTimerRef.current == null) return
+      window.clearTimeout(compositionResetTimerRef.current)
+      compositionResetTimerRef.current = null
+    }, [])
+
+    useEffect(() => {
+      return () => {
+        clearCompositionJustEndedTimer()
+      }
+    }, [clearCompositionJustEndedTimer])
 
     const syncEmpty = useCallback(() => {
       const el = editorRef.current
@@ -686,7 +716,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     }, [adjustHeight, captureSelectionRange, emitTriggerQueries, onContentChange, syncEmpty])
 
     const onKeyDown = useCallback(
-      (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      (e: ReactKeyboardEvent<HTMLDivElement>): void => {
         if (e.key === 'Tab' && e.shiftKey) {
           if (onToggleModeShortcut) {
             e.preventDefault()
@@ -695,6 +725,11 @@ export const RichInputArea = forwardRef(function RichInputArea(
           return
         }
         if (e.key === 'Enter' && !e.shiftKey) {
+          if (isImeConfirmKey(e, compositionActiveRef.current, compositionJustEndedRef.current)) {
+            compositionJustEndedRef.current = false
+            clearCompositionJustEndedTimer()
+            return
+          }
           if (suppressSubmit) {
             e.preventDefault()
             return
@@ -728,8 +763,24 @@ export const RichInputArea = forwardRef(function RichInputArea(
           }
         }
       },
-      [disabled, onInput, onSubmit, onToggleModeShortcut, suppressSubmit]
+      [clearCompositionJustEndedTimer, disabled, onInput, onSubmit, onToggleModeShortcut, suppressSubmit]
     )
+
+    const onCompositionStart = useCallback((): void => {
+      clearCompositionJustEndedTimer()
+      compositionActiveRef.current = true
+      compositionJustEndedRef.current = false
+    }, [clearCompositionJustEndedTimer])
+
+    const onCompositionEnd = useCallback((): void => {
+      compositionActiveRef.current = false
+      compositionJustEndedRef.current = true
+      clearCompositionJustEndedTimer()
+      compositionResetTimerRef.current = window.setTimeout(() => {
+        compositionJustEndedRef.current = false
+        compositionResetTimerRef.current = null
+      }, 0)
+    }, [clearCompositionJustEndedTimer])
 
     const insertClipboardSegmentsAtCaret = useCallback(
       (segments: ComposerDraftSegment[]): void => {
@@ -895,6 +946,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
           onClick={onEditorClick}
           onKeyDown={onKeyDown}
           onKeyUp={captureSelectionRange}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={onCompositionEnd}
           onMouseUp={captureSelectionRange}
           onCopy={(e) => onCopyOrCut(e, false)}
           onCut={(e) => onCopyOrCut(e, true)}

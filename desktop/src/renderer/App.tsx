@@ -46,6 +46,7 @@ import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
 import { handleBrowserEvent } from './utils/browserEventHandler'
 import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
+import { isFatalConnectionError, useSlowConnectingHint } from './utils/connectionUi'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
@@ -220,7 +221,7 @@ export function App(): JSX.Element {
   const { status, errorType, errorMessage } = useConnectionStore()
   const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
+  const showSlowConnectingHint = useSlowConnectingHint(status, workspacePath)
   const [browserUseApprovalRequests, setBrowserUseApprovalRequests] = useState<BrowserUseApprovalRequestPayload[]>([])
   const activeMainView = useUIStore((s) => s.activeMainView)
   const activeDetailTab = useUIStore((s) => s.activeDetailTab)
@@ -299,20 +300,6 @@ export function App(): JSX.Element {
       )
     }
   }, [workspacePath, workspaceName, locale])
-
-  useEffect(() => {
-    if (!workspacePath || status !== 'connecting') {
-      setShowSlowConnectingHint(false)
-      return
-    }
-    const timer = setTimeout(() => {
-      setShowSlowConnectingHint(true)
-    }, 6000)
-    return () => {
-      clearTimeout(timer)
-      setShowSlowConnectingHint(false)
-    }
-  }, [status, workspacePath])
 
   useEffect(() => {
     window.api.settings
@@ -1455,9 +1442,7 @@ export function App(): JSX.Element {
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
-  const isFatalError =
-    status === 'error' &&
-    (errorType === 'binary-not-found' || errorType === 'handshake-timeout')
+  const isFatalError = isFatalConnectionError(status, errorType)
 
   // No workspace configured yet (first launch or welcome screen)
   const showWelcome = !workspacePath && !isFatalError

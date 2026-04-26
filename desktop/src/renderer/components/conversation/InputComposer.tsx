@@ -562,7 +562,11 @@ export function InputComposer({
                     </button>
                   </ActionTooltip>
                 ) : (
-                  <ActionTooltip label={t('composer.stopTitle')} placement="top">
+                  <ActionTooltip
+                    label={t('composer.stopTitle')}
+                    shortcut={ACTION_SHORTCUTS.cancel}
+                    placement="top"
+                  >
                     <button
                       type="button"
                       onClick={stopTurn}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Readable, Writable, PassThrough } from 'stream'
-import { WireProtocolClient } from '../WireProtocolClient'
+import { INITIALIZE_REQUEST_TIMEOUT_MS, WireProtocolClient } from '../WireProtocolClient'
 
 function makeStreams(): { toServer: PassThrough; fromServer: PassThrough } {
   return {
@@ -254,6 +254,50 @@ describe('WireProtocolClient', () => {
     await expect(
       client.sendRequest('slow/method', undefined, 50)
     ).rejects.toThrow(/timed out/)
+  })
+
+  it('does not time out the initialize handshake while AppServer is still starting', async () => {
+    vi.useFakeTimers()
+    try {
+      expect(INITIALIZE_REQUEST_TIMEOUT_MS).toBeNull()
+
+      const lines: string[] = []
+      toServer.on('data', (chunk: Buffer) => {
+        chunk
+          .toString('utf8')
+          .split('\n')
+          .filter(Boolean)
+          .forEach((line) => lines.push(line))
+      })
+
+      let rejected = false
+      const initPromise = client.initialize()
+      initPromise.catch(() => {
+        rejected = true
+      })
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(rejected).toBe(false)
+
+      const initReq = JSON.parse(lines[0])
+      fromServer.push(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: initReq.id,
+          result: {
+            serverInfo: { name: 'dotcraft', version: '0.2.0' },
+            capabilities: { threadManagement: true }
+          }
+        }) + '\n'
+      )
+
+      await expect(initPromise).resolves.toMatchObject({
+        serverInfo: { name: 'dotcraft', version: '0.2.0' },
+        capabilities: { threadManagement: true }
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // ─── Initialize handshake ────────────────────────────────────────────────────

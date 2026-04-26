@@ -138,7 +138,7 @@ describe('InputComposer layout', () => {
     expect(modelButton.getAttribute('style')).toContain('height: 22px')
   })
 
-  it('matches the running stop button to the enabled send button style', () => {
+  it('matches the running stop button to the enabled send button style and shows Esc as a shortcut keycap', async () => {
     useConversationStore.setState({
       turnStatus: 'running',
       activeTurnId: 'turn-123'
@@ -154,6 +154,13 @@ describe('InputComposer layout', () => {
     expect(stopButton.getAttribute('style')).not.toContain('#ffffff')
     expect(stopButton.getAttribute('style')).toContain('rgb(245, 246, 247)')
     expect(stopButton.getAttribute('style')).toContain('rgb(31, 35, 40)')
+
+    fireEvent.mouseEnter(stopButton.parentElement as HTMLElement)
+    const tooltip = await screen.findByRole('tooltip')
+
+    expect(within(tooltip).getByText('Stop')).toBeInTheDocument()
+    expect(within(tooltip).getByText('Esc')).toBeInTheDocument()
+    expect(tooltip).not.toHaveTextContent('Stop (Esc)')
   })
 
   it('shows the queued send action instead of stop while running with draft text', () => {
