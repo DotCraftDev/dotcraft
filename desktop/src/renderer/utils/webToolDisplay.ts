@@ -7,6 +7,21 @@ import { translate, type AppLocale } from '../../shared/locales'
 
 const WEB_TOOLS = new Set(['WebSearch', 'WebFetch', 'SearchTools'])
 
+export interface WebSearchResultRow {
+  title: string
+  url: string
+  snippet?: string
+  author?: string
+  publishedDate?: string
+  domain: string
+  linkLabel: string
+}
+
+export type WebSearchResultDisplay =
+  | { kind: 'results'; query?: string; provider?: string; rows: WebSearchResultRow[] }
+  | { kind: 'empty'; message: string }
+  | { kind: 'error'; message: string }
+
 export function isWebToolName(toolName: string): boolean {
   return WEB_TOOLS.has(toolName)
 }
@@ -90,6 +105,12 @@ function hostFromUrl(url: string): string {
   }
 }
 
+function displayUrl(url: string): string {
+  const domain = hostFromUrl(url)
+  if (domain) return domain
+  return truncate(url, 80)
+}
+
 function formatIntGrouped(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 })
 }
@@ -116,14 +137,20 @@ export function formatResultSummary(toolName: string, result: string | undefined
   }
 
   if (toolName === 'WebSearch') {
-    let root: unknown
-    try {
-      root = JSON.parse(trimmed) as unknown
-    } catch {
-      return null
+    const parsed = parseWebSearchResultDisplay(result)
+    if (!parsed) return null
+    if (parsed.kind === 'error') return [`Error: ${parsed.message}`]
+    if (parsed.kind === 'empty') return [parsed.message]
+
+    const count = parsed.rows.length
+    const lines: string[] = []
+    lines.push(`${count} result${count === 1 ? '' : 's'}:`)
+    for (let i = 0; i < parsed.rows.length; i++) {
+      const row = parsed.rows[i]!
+      const titleText = truncate(row.title || row.url || '?', 70)
+      lines.push(row.domain ? `${i + 1}. ${titleText} — ${row.domain}` : `${i + 1}. ${titleText}`)
     }
-    root = peelJsonStringWrapper(root)
-    return parseWebSearchResult(root)
+    return lines
   }
 
   if (toolName === 'WebFetch') {
@@ -140,49 +167,75 @@ export function formatResultSummary(toolName: string, result: string | undefined
   return null
 }
 
-function parseWebSearchResult(root: unknown): string[] | null {
+export function parseWebSearchResultDisplay(result: string | undefined): WebSearchResultDisplay | null {
+  const trimmed = result?.trim() ?? ''
+  if (trimmed === '') return null
+
+  let root: unknown
+  try {
+    root = JSON.parse(trimmed) as unknown
+  } catch {
+    return null
+  }
+
+  return parseWebSearchResult(peelJsonStringWrapper(root))
+}
+
+function parseWebSearchResult(root: unknown): WebSearchResultDisplay | null {
   if (root === null || typeof root !== 'object' || Array.isArray(root)) return null
   const obj = root as Record<string, unknown>
 
   if ('error' in obj && obj.error != null) {
     const msg = String(obj.error).trim()
-    return msg ? [`Error: ${msg}`] : null
+    return msg ? { kind: 'error', message: msg } : null
   }
 
   const resultsProp = obj.results
-  if (!Array.isArray(resultsProp)) return null
+  if (!Array.isArray(resultsProp)) {
+    const msg = typeof obj.message === 'string' ? obj.message.trim() : ''
+    return msg ? { kind: 'empty', message: msg } : null
+  }
 
   const count = resultsProp.length
   if (count === 0) {
-    return ['No results found.']
+    return { kind: 'empty', message: 'No results found.' }
   }
 
-  const lines: string[] = []
-  lines.push(`${count} result${count === 1 ? '' : 's'}:`)
-
-  let i = 1
+  const rows: WebSearchResultRow[] = []
   for (const item of resultsProp) {
     if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-      i++
       continue
     }
     const row = item as Record<string, unknown>
-    const title = row.title != null ? String(row.title) : null
-    const url = row.url != null ? String(row.url) : null
-    const titleText = truncate(title ?? url ?? '?', 70)
-    let domain = ''
-    if (url && url.trim()) {
-      domain = hostFromUrl(url)
-    }
-    const line =
-      domain && domain.length > 0
-        ? `${i}. ${titleText} — ${domain}`
-        : `${i}. ${titleText}`
-    lines.push(line)
-    i++
+    const url = row.url != null ? String(row.url).trim() : ''
+    if (!url) continue
+
+    const title = row.title != null ? String(row.title).trim() : ''
+    const snippet = row.snippet != null ? String(row.snippet).trim() : ''
+    const author = row.author != null ? String(row.author).trim() : ''
+    const publishedDate = row.publishedDate != null ? String(row.publishedDate).trim() : ''
+    const domain = hostFromUrl(url)
+    rows.push({
+      title: title || domain || url,
+      url,
+      ...(snippet ? { snippet } : {}),
+      ...(author ? { author } : {}),
+      ...(publishedDate ? { publishedDate } : {}),
+      domain,
+      linkLabel: displayUrl(url)
+    })
   }
 
-  return lines
+  if (rows.length === 0) {
+    return { kind: 'empty', message: 'No results found.' }
+  }
+
+  return {
+    kind: 'results',
+    query: typeof obj.query === 'string' ? obj.query : undefined,
+    provider: typeof obj.provider === 'string' ? obj.provider : undefined,
+    rows
+  }
 }
 
 function parseWebFetchResult(root: unknown): string[] | null {

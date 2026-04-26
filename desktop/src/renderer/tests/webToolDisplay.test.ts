@@ -3,6 +3,7 @@ import {
   formatInvocationDisplay,
   formatResultSummary,
   invocationNeedsCallingPrefix,
+  parseWebSearchResultDisplay,
   truncate
 } from '../utils/webToolDisplay'
 
@@ -86,6 +87,38 @@ describe('formatResultSummary', () => {
     expect(lines![2]).toContain('b.com')
   })
 
+  it('parses structured WebSearch rows for table rendering', () => {
+    const json = JSON.stringify({
+      query: 'q',
+      provider: 'exa',
+      results: [
+        {
+          title: 'DotCraft Docs',
+          url: 'https://docs.dotcraft.ai/start',
+          snippet: 'Guide',
+          author: 'DotCraft',
+          publishedDate: '2026-04-01'
+        }
+      ]
+    })
+    const parsed = parseWebSearchResultDisplay(json)
+    expect(parsed?.kind).toBe('results')
+    if (parsed?.kind === 'results') {
+      expect(parsed.query).toBe('q')
+      expect(parsed.provider).toBe('exa')
+      expect(parsed.rows).toHaveLength(1)
+      expect(parsed.rows[0]).toMatchObject({
+        title: 'DotCraft Docs',
+        url: 'https://docs.dotcraft.ai/start',
+        snippet: 'Guide',
+        author: 'DotCraft',
+        publishedDate: '2026-04-01',
+        domain: 'docs.dotcraft.ai',
+        linkLabel: 'docs.dotcraft.ai'
+      })
+    }
+  })
+
   it('parses WebSearch error', () => {
     const lines = formatResultSummary('WebSearch', JSON.stringify({ error: 'rate limited' }))
     expect(lines).toEqual(['Error: rate limited'])
@@ -96,6 +129,13 @@ describe('formatResultSummary', () => {
     expect(lines).toEqual(['No results found.'])
   })
 
+  it('handles message-only WebSearch no-result payloads', () => {
+    const parsed = parseWebSearchResultDisplay(JSON.stringify({ query: 'x', message: 'No results found.' }))
+    expect(parsed).toEqual({ kind: 'empty', message: 'No results found.' })
+    const lines = formatResultSummary('WebSearch', JSON.stringify({ query: 'x', message: 'No results found.' }))
+    expect(lines).toEqual(['No results found.'])
+  })
+
   it('double-decodes JSON string wrapper', () => {
     const inner = JSON.stringify({ results: [{ title: 'Hi', url: 'https://z.com' }] })
     const outer = JSON.stringify(inner)
@@ -103,6 +143,17 @@ describe('formatResultSummary', () => {
     expect(lines).not.toBeNull()
     expect(lines!.length).toBe(2)
     expect(lines![0]).toBe('1 result:')
+
+    const parsed = parseWebSearchResultDisplay(outer)
+    expect(parsed?.kind).toBe('results')
+    if (parsed?.kind === 'results') {
+      expect(parsed.rows[0]?.domain).toBe('z.com')
+    }
+  })
+
+  it('returns null for invalid WebSearch JSON', () => {
+    expect(parseWebSearchResultDisplay('not-json')).toBeNull()
+    expect(formatResultSummary('WebSearch', 'not-json')).toBeNull()
   })
 
   it('formats WebFetch summary', () => {

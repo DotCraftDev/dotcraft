@@ -118,6 +118,34 @@ describe('aggregateToolCalls', () => {
     }
   })
 
+  it('groups consecutive WebSearch calls into one web group', () => {
+    const items = [
+      makeItem('WebSearch', '1', { result: '{"results":[]}', success: true }),
+      makeItem('WebSearch', '2', { result: '{"results":[]}', success: true })
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(1)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('web')
+      expect(result[0].items).toHaveLength(2)
+    }
+  })
+
+  it('groups mixed WebSearch and WebFetch calls into one web group', () => {
+    const items = [
+      makeItem('WebSearch', '1', { result: '{"results":[]}', success: true }),
+      makeItem('WebFetch', '2', { result: '{"status":200}', success: true })
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(1)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('web')
+      expect(result[0].items.map((item) => item.toolName)).toEqual(['WebSearch', 'WebFetch'])
+    }
+  })
+
   it('keeps non-aggregatable tools as individual cards', () => {
     const items = [
       makeItem('SpawnSubagent', '1'),
@@ -246,6 +274,32 @@ describe('aggregateToolCalls', () => {
     }
     expect(result[2].kind).toBe('group')
     if (result[2].kind === 'group') {
+      expect(result[2].items.map((item) => item.id)).toEqual(['4', '5'])
+    }
+  })
+
+  it('keeps settled web calls grouped around a live web item', () => {
+    const items = [
+      makeItem('WebSearch', '1', { result: '{"results":[]}', success: true }),
+      makeItem('WebFetch', '2', { result: '{"status":200}', success: true }),
+      makeItem('WebSearch', '3', { status: 'streaming' }),
+      makeItem('WebSearch', '4', { result: '{"results":[]}', success: true }),
+      makeItem('WebFetch', '5', { result: '{"status":200}', success: true })
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(3)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('web')
+      expect(result[0].items.map((item) => item.id)).toEqual(['1', '2'])
+    }
+    expect(result[1].kind).toBe('single')
+    if (result[1].kind === 'single') {
+      expect(result[1].item.id).toBe('3')
+    }
+    expect(result[2].kind).toBe('group')
+    if (result[2].kind === 'group') {
+      expect(result[2].category).toBe('web')
       expect(result[2].items.map((item) => item.id)).toEqual(['4', '5'])
     }
   })
