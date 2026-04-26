@@ -28,7 +28,7 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using Spectre.Console;
 
-namespace DotCraft.AGUI;
+namespace DotCraft.Agui;
 
 /// <summary>
 /// Gateway channel service for AG-UI protocol. Runs a dedicated Kestrel server on AgUi.Host:AgUi.Port
@@ -36,7 +36,7 @@ namespace DotCraft.AGUI;
 /// Implements <see cref="IWebHostingChannel"/> so <see cref="WebHostPool"/> can merge it with other services
 /// that share the same host:port.
 /// </summary>
-public sealed class AGUIChannelService(
+public sealed class AguiChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
@@ -77,15 +77,15 @@ public sealed class AGUIChannelService(
     #region IWebHostingChannel
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AGUIConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AGUIConfig>("AgUi").Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AguiConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AguiConfig>("AgUi").Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.GetSection<AGUIConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AGUIConfig>("AgUi").Port;
+    public int ListenPort => config.GetSection<AguiConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AguiConfig>("AgUi").Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
+        var agUiConfig = config.GetSection<AguiConfig>("AgUi");
 
         _agentFactory = BuildAgentFactory();
 
@@ -99,7 +99,7 @@ public sealed class AGUIChannelService(
     public void ConfigureApp(WebApplication app)
     {
         _webApp = app;
-        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
+        var agUiConfig = config.GetSection<AguiConfig>("AgUi");
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
@@ -114,7 +114,7 @@ public sealed class AGUIChannelService(
         }
         else
         {
-            // Wrap sensitive tools so they emit FunctionApprovalRequestContent instead of running.
+            // Wrap sensitive tools so they emit ToolApprovalRequestContent instead of running.
             var approvalToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "WriteFile", "EditFile", "Exec" };
 #pragma warning disable MEAI001
@@ -126,7 +126,7 @@ public sealed class AGUIChannelService(
 #pragma warning restore MEAI001
             var baseAgent = _agentFactory.CreateAgentWithTools(tools);
             var jsonOptions = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
-            innerAgent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
+            innerAgent = new AguiApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
         }
 
         _agent = innerAgent;

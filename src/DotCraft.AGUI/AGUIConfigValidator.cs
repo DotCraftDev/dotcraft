@@ -1,14 +1,14 @@
 using DotCraft.Configuration;
 
-namespace DotCraft.AGUI;
+namespace DotCraft.Agui;
 
 /// <summary>
 /// Validator for AG-UI channel configuration.
 /// </summary>
-public sealed class AGUIConfigValidator : IModuleConfigValidator<AGUIConfig>
+public sealed class AguiConfigValidator : IModuleConfigValidator<AguiConfig>
 {
     /// <inheritdoc />
-    public IReadOnlyList<string> Validate(AGUIConfig config)
+    public IReadOnlyList<string> Validate(AguiConfig config)
     {
         var errors = new List<string>();
 

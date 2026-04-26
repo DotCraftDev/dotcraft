@@ -5,7 +5,7 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
-        <RootNamespace>DotCraft.AGUI</RootNamespace>
+        <RootNamespace>DotCraft.Agui</RootNamespace>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)'=='Release'">

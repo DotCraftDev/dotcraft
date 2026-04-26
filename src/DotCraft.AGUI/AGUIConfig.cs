@@ -1,9 +1,9 @@
 using DotCraft.Configuration;
 
-namespace DotCraft.AGUI;
+namespace DotCraft.Agui;
 
 [ConfigSection("AgUi", DisplayName = "AG-UI", Order = 160)]
-public sealed class AGUIConfig
+public sealed class AguiConfig
 {
     /// <summary>
     /// Enable AG-UI protocol server channel.

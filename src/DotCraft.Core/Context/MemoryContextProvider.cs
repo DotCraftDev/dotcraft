@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Tracing;
@@ -41,7 +40,7 @@ public sealed class MemoryContextProvider(
         subAgentProfilesSection,
         toolNamesProvider);
 
-    protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
+    protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {
         var systemPrompt = _promptBuilder.BuildSystemPrompt();
         var sessionKey = TracingChatClient.CurrentSessionKey ?? TracingChatClient.GetActiveSessionKey();
@@ -52,18 +51,5 @@ public sealed class MemoryContextProvider(
         {
             Instructions = systemPrompt
         });
-    }
-
-    public override JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
-    {
-        return JsonSerializer.SerializeToElement(new ContextSnapshot
-        {
-            Timestamp = DateTimeOffset.UtcNow
-        }, jsonSerializerOptions);
-    }
-
-    private sealed class ContextSnapshot
-    {
-        public DateTimeOffset Timestamp { get; set; }
     }
 }

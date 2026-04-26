@@ -755,8 +755,7 @@ public sealed class SessionService(
                     var chatHistory = session.GetService<ChatHistoryProvider>();
                     if (chatHistory is InMemoryChatHistoryProvider memProvider)
                     {
-                        foreach (var msg in messages)
-                            memProvider.Add(msg);
+                        memProvider.SetMessages(session, [.. messages]);
                     }
                 }
                 else

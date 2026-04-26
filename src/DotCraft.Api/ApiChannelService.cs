@@ -339,14 +339,16 @@ public sealed class ApiChannelService(
             {
                 Reasoning = _agentFactory?.CreateReasoningOptions()
             },
-            AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
+            AIContextProviders =
+            [
                 new MemoryContextProvider(
                     memoryStore, skillsLoader,
                     paths.CraftPath, paths.WorkspacePath,
                     traceCollector,
                     () => tools.Select(t => t.Name).ToArray(),
                     sp.GetService<CustomCommandLoader>(),
-                    sandboxEnabled: config.Tools.Sandbox.Enabled))
+                    sandboxEnabled: config.Tools.Sandbox.Enabled)
+            ]
         };
     }
 
