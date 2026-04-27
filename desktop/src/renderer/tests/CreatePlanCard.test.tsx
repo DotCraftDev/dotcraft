@@ -42,6 +42,8 @@ describe('CreatePlanCard', () => {
 
     renderWithLocale(<CreatePlanCard item={item} locale="en" />)
 
+    const badge = screen.getByText('Planning')
+    expect(badge).toHaveClass('tool-running-gradient-text')
     expect(screen.getByText('Streaming Plan')).toBeInTheDocument()
     expect(screen.getByText('DraftTitle')).toBeInTheDocument()
     expect(screen.getByText('item one')).toBeInTheDocument()
@@ -67,6 +69,8 @@ describe('CreatePlanCard', () => {
 
     renderWithLocale(<CreatePlanCard item={item} locale="en" />)
 
+    const badge = screen.getByText('Plan')
+    expect(badge).not.toHaveClass('tool-running-gradient-text')
     expect(screen.queryByText('Stage A')).toBeNull()
     fireEvent.click(screen.getAllByRole('button', { name: 'Expand plan' })[0])
     expect(screen.queryAllByRole('button', { name: 'Expand plan' }).length).toBe(0)

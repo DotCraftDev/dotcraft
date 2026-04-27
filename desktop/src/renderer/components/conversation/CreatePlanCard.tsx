@@ -72,6 +72,10 @@ export function CreatePlanCard({ item, locale }: CreatePlanCardProps): JSX.Eleme
   const hasContent = parsed.content.trim().length > 0
   const hasTodos = parsed.todos.length > 0
   const canExpand = hasContent || hasTodos
+  const badgeLabel = translate(
+    locale,
+    isRunning ? 'toolCall.plan.previewBadgeRunning' : 'toolCall.plan.previewBadge'
+  )
 
   useEffect(() => {
     return () => {
@@ -171,7 +175,9 @@ export function CreatePlanCard({ item, locale }: CreatePlanCardProps): JSX.Eleme
           marginBottom: '8px'
         }}
       >
-        {translate(locale, 'toolCall.plan.previewBadge')}
+        <span className={isRunning ? 'tool-running-gradient-text' : undefined}>
+          {badgeLabel}
+        </span>
       </div>
 
       <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: '18px', fontWeight: 700 }}>

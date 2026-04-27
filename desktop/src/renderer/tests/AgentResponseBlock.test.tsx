@@ -22,6 +22,27 @@ function makeToolCallItem(
   }
 }
 
+function makeCreatePlanItem(
+  id: string,
+  title: string,
+  createdAt: string
+): ConversationItem {
+  return {
+    id,
+    type: 'toolCall',
+    status: 'completed',
+    toolCallId: `${id}-call`,
+    toolName: 'CreatePlan',
+    arguments: {
+      title,
+      overview: `${title} overview`,
+      plan: '- keep visible'
+    },
+    success: true,
+    createdAt
+  }
+}
+
 function renderBlock(turn: ConversationTurn): string {
   const { container } = render(
     <LocaleProvider>
@@ -308,6 +329,104 @@ describe('AgentResponseBlock completed turn folding', () => {
     fireEvent.click(screen.getByRole('button', { name: /Processed in 5s/ }))
 
     expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+  })
+
+  it('keeps the final CreatePlan visible while folding earlier intermediate work', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-folded-plan',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T11:30:00.000Z',
+      completedAt: '2026-04-18T11:30:10.000Z',
+      items: [
+        {
+          id: 'reasoning-1',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'intermediate reasoning',
+          elapsedSeconds: 2,
+          createdAt: '2026-04-18T11:30:01.000Z'
+        },
+        {
+          id: 'tool-1',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-1',
+          toolName: 'ReadFile',
+          arguments: { path: 'src/main.ts' },
+          success: true,
+          createdAt: '2026-04-18T11:30:02.000Z'
+        },
+        makeCreatePlanItem('plan-final', 'Visible Plan', '2026-04-18T11:30:04.000Z'),
+        {
+          id: 'assistant-final',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final response after plan',
+          createdAt: '2026-04-18T11:30:06.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Processed in 6s')).toBeInTheDocument()
+    expect(screen.getByText('Visible Plan')).toBeInTheDocument()
+    expect(screen.getByText('final response after plan')).toBeInTheDocument()
+    expect(screen.queryByText('Read main.ts')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Processed in 6s/ }))
+
+    expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+  })
+
+  it('pins only the latest CreatePlan before the final message', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-folded-two-plans',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T11:40:00.000Z',
+      completedAt: '2026-04-18T11:40:12.000Z',
+      items: [
+        makeCreatePlanItem('plan-first', 'First Plan', '2026-04-18T11:40:01.000Z'),
+        {
+          id: 'tool-1',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-1',
+          toolName: 'ReadFile',
+          arguments: { path: 'src/main.ts' },
+          success: true,
+          createdAt: '2026-04-18T11:40:02.000Z'
+        },
+        makeCreatePlanItem('plan-latest', 'Latest Plan', '2026-04-18T11:40:05.000Z'),
+        {
+          id: 'assistant-final',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final response after latest plan',
+          createdAt: '2026-04-18T11:40:08.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Latest Plan')).toBeInTheDocument()
+    expect(screen.queryByText('First Plan')).toBeNull()
+    expect(screen.getByText('final response after latest plan')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Processed in 8s/ }))
+
+    expect(screen.getByText('First Plan')).toBeInTheDocument()
   })
 })
 

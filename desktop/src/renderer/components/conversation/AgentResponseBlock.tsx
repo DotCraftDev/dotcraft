@@ -96,7 +96,10 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   // Build render nodes in item order with shared insertion state so subagent
   // summary only appears once even when a completed turn is split into slices.
   let subAgentBlockInserted = false
-  const renderItemSequence = (itemsToRender: ConversationItem[]): React.ReactNode[] => {
+  const renderItemSequence = (
+    itemsToRender: ConversationItem[],
+    keyPrefix = ''
+  ): React.ReactNode[] => {
     const nodes: React.ReactNode[] = []
     let i = 0
 
@@ -119,7 +122,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 
         for (const entry of entries) {
           runNodes.push(
-            renderAggregatedEntry(entry, turn.id, nodes.length + runNodes.length)
+            renderAggregatedEntry(entry, turn.id, nodes.length + runNodes.length, keyPrefix)
           )
           if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
             lastSpawnSubagentIndex = runNodes.length - 1
@@ -202,9 +205,27 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   const renderNodes: React.ReactNode[] = []
 
   if (shouldCollapseIntermediate) {
-    const intermediateItems = renderableItems.slice(0, lastFinalAgentMessageIndex)
+    const pinnedPlanIndex = findLastCreatePlanIndexBefore(renderableItems, lastFinalAgentMessageIndex)
+    const pinnedPlanItem = pinnedPlanIndex >= 0 ? renderableItems[pinnedPlanIndex] : null
+    const intermediateItems = pinnedPlanItem
+      ? [
+          ...renderableItems.slice(0, pinnedPlanIndex),
+          ...renderableItems.slice(pinnedPlanIndex + 1, lastFinalAgentMessageIndex)
+        ]
+      : renderableItems.slice(0, lastFinalAgentMessageIndex)
     const trailingItems = renderableItems.slice(lastFinalAgentMessageIndex)
-    const intermediateNodes = renderItemSequence(intermediateItems)
+    const intermediateNodes = pinnedPlanItem
+      ? [
+          ...renderItemSequence(renderableItems.slice(0, pinnedPlanIndex), 'before-pinned-plan'),
+          ...renderItemSequence(
+            renderableItems.slice(pinnedPlanIndex + 1, lastFinalAgentMessageIndex),
+            'after-pinned-plan'
+          )
+        ]
+      : renderItemSequence(intermediateItems)
+    const pinnedPlanNodes = pinnedPlanItem
+      ? renderItemSequence([pinnedPlanItem], 'pinned-plan')
+      : []
     const trailingNodes = renderItemSequence(trailingItems)
 
     if (intermediateNodes.length > 0) {
@@ -221,6 +242,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       )
     }
 
+    renderNodes.push(...pinnedPlanNodes)
     renderNodes.push(...trailingNodes)
   } else {
     renderNodes.push(...renderItemSequence(renderableItems))
@@ -256,7 +278,8 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 function renderAggregatedEntry(
   entry: AggregatedToolCall,
   turnId: string,
-  offset: number
+  offset: number,
+  keyPrefix = ''
 ): React.ReactNode {
   if (entry.kind === 'single') {
     return (
@@ -269,7 +292,7 @@ function renderAggregatedEntry(
   }
   return (
     <GroupedToolCallRow
-      key={`group-${turnId}-${offset}`}
+      key={`group-${keyPrefix}-${turnId}-${offset}`}
       category={entry.category}
       items={entry.items}
       turnId={turnId}
@@ -345,6 +368,22 @@ function isGroupedItemFailed(item: ConversationItem): boolean {
 function findLastAgentMessageIndex(items: ConversationItem[]): number {
   for (let i = items.length - 1; i >= 0; i--) {
     if (items[i].type === 'agentMessage') {
+      return i
+    }
+  }
+  return -1
+}
+
+function findLastCreatePlanIndexBefore(items: ConversationItem[], beforeIndex: number): number {
+  for (let i = beforeIndex - 1; i >= 0; i--) {
+    const item = items[i]
+    const isToolCall = item.type === 'toolCall' || item.type === 'externalChannelToolCall'
+    if (
+      isToolCall
+      && item.toolName === 'CreatePlan'
+      && item.status === 'completed'
+      && item.success !== false
+    ) {
       return i
     }
   }
