@@ -82,7 +82,7 @@ public sealed class SkillManageTool(
             "delete" => await DeleteAsync(name, cancellationToken),
             "write_file" => await WriteFileAsync(name, filePath, fileContent, cancellationToken),
             "remove_file" => await RemoveFileAsync(name, filePath, cancellationToken),
-            _ => Error($"Unknown action '{action}'. Use: create, edit, patch, write_file, remove_file.")
+            _ => Error($"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file.")
         };
     }
 
