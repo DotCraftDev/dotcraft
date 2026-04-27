@@ -78,9 +78,3 @@ Confirm AppServer is running in WebSocket mode and the client URL includes `/ws`
 ### Terminal rendering looks wrong
 
 Use a modern terminal with Unicode and color support, and make sure the terminal size is large enough. Test with the default theme first.
-
-## Related
-
-- [Getting Started](./getting-started.md)
-- [AppServer Mode Guide](./appserver_guide.md)
-- [Configuration & Security](./config_guide.md)

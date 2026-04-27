@@ -236,10 +236,3 @@ opensandbox-server init-config ~/.sandbox.toml --example docker
 ### sandbox 和 Dashboard 抢同一个端口
 
 修改 `DashBoard.Port` 或 `Tools.Sandbox.Domain`，确保两者不冲突。
-
-## 相关文档
-
-- [项目 README](https://github.com/DotHarness/dotcraft/blob/master/README.md)
-- [配置指南](../config_guide)
-- [Dashboard 指南](../dash_board_guide)
-- [QQ 渠道适配器](../sdk/typescript-qq)

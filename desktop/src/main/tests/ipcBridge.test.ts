@@ -275,7 +275,7 @@ describe('registerIpcHandlers', () => {
     })
 
     await handlers.get('editors:launch')?.({}, 'cursor', '/workspace')
-    expect(launchEditorMock).toHaveBeenCalledWith('cursor', 'F:\\workspace')
+    expect(launchEditorMock).toHaveBeenCalledWith('cursor', expect.stringMatching(/^[A-Z]:\\workspace$/))
 
     await expect(
       handlers.get('editors:launch')?.({}, 'cursor', '/outside')
@@ -320,6 +320,68 @@ describe('registerIpcHandlers', () => {
     expect(handlers.has('appserver:restart-managed')).toBe(true)
     await handlers.get('appserver:restart-managed')?.({})
     expect(onRestartManagedAppServer).toHaveBeenCalledOnce()
+  })
+
+  it('workspace-config:get-core reads nested Skills.SelfLearning.Enabled values', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+    vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+      const pathText = String(filePath)
+      if (pathText.includes('dotcraft')) {
+        return JSON.stringify({
+          Skills: {
+            SelfLearning: {
+              Enabled: true
+            }
+          }
+        })
+      }
+      return JSON.stringify({
+        Skills: {
+          SelfLearning: {
+            Enabled: false
+          }
+        }
+      })
+    })
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({
+        status: 'ready',
+        workspacePath: 'E:\\Git\\dotcraft',
+        hasUserConfig: true
+      }))
+    })
+
+    const result = await handlers.get('workspace-config:get-core')?.({})
+    expect(result).toMatchObject({
+      workspace: { skillsSelfLearningEnabled: true },
+      userDefaults: { skillsSelfLearningEnabled: false }
+    })
   })
 
   it('registers workspace:list-setup-models and forwards to callback', async () => {

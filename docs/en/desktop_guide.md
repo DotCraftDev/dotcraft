@@ -68,10 +68,3 @@ Model and workspace fields usually affect new sessions immediately. AppServer, p
 ### The Automations panel is empty
 
 Use Gateway or a host that loads Automations, and enable the relevant task source in configuration. See the [Automations Guide](./automations_guide.md).
-
-## Related
-
-- [Getting Started](./getting-started.md)
-- [Configuration & Security](./config_guide.md)
-- [Dashboard Guide](./dash_board_guide.md)
-- [AppServer Mode Guide](./appserver_guide.md)

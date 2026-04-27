@@ -4,6 +4,7 @@ import { useConversationStore } from '../../stores/conversationStore'
 import { Cloud, File, SquareTerminal } from 'lucide-react'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
+import { useT } from '../../contexts/LocaleContext'
 
 interface ApprovalCardProps {
   item: ConversationItem
@@ -40,6 +41,7 @@ const RESOLVED_LABELS: Record<ApprovalState, { label: string; color: string } | 
  * Spec §M5, §10.4, §13
  */
 export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCardProps): JSX.Element {
+  const t = useT()
   const cardRef = useRef<HTMLDivElement>(null)
   const acceptBtnRef = useRef<HTMLButtonElement>(null)
   const onApprovalDecision = useConversationStore((s) => s.onApprovalDecision)
@@ -51,7 +53,9 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
       ? 'Shell Command'
       : approvalType === 'remoteResource'
         ? 'Remote Resource Operation'
-        : 'File Operation'
+        : approvalType === 'skill'
+          ? t('approval.kind.skill')
+          : 'File Operation'
   const TypeIcon =
     approvalType === 'shell'
       ? SquareTerminal

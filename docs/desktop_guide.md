@@ -2,7 +2,7 @@
 
 Desktop 是 DotCraft 推荐的第一入口。它作为 AppServer 客户端工作，用图形界面管理工作区、会话、Diff、计划、模型配置、自动化审核和运行状态。
 
-## Quick Start
+## 快速开始
 
 ### 直接使用 Release
 
@@ -22,7 +22,7 @@ npm run dev
 
 从源码运行 Desktop 时，应用会在 `PATH` 中查找 `dotcraft`。如果找不到，请在设置中指定 AppServer / `dotcraft` 二进制路径。
 
-## Configuration
+## 配置
 
 Desktop 常见配置入口：
 
@@ -40,7 +40,7 @@ DotCraft Desktop --app-server /path/to/dotcraft
 DotCraft Desktop --workspace /path/to/project
 ```
 
-## Usage Examples
+## 使用示例
 
 | 场景 | Desktop 中的路径 |
 |------|------------------|
@@ -49,13 +49,13 @@ DotCraft Desktop --workspace /path/to/project
 | 审核自动化任务 | 打开 Automations 面板，查看待审核任务 |
 | 切换项目 | 选择另一个 workspace，让配置和任务跟随项目隔离 |
 
-## Advanced Topics
+## 进阶
 
 - Desktop 消费 AppServer Wire Protocol，因此可与 CLI、TUI、ACP、外部渠道共享同一会话核心。
 - 图片附件会保存到工作区 `.craft/attachments/images/`，重启后仍可恢复缩略图。
 - 打包安装包可运行 `npm run dist`，产物位于 `desktop/dist/`。
 
-## Troubleshooting
+## 故障排查
 
 ### Desktop 启动后没有可用会话
 
@@ -68,10 +68,3 @@ DotCraft Desktop --workspace /path/to/project
 ### 自动化面板为空
 
 确认使用 Gateway 或支持 Automations 的 Host，并在配置中启用对应任务来源。更多细节见 [Automations 指南](./automations_guide.md)。
-
-## Related
-
-- [快速开始](./getting-started.md)
-- [配置与安全](./config_guide.md)
-- [Dashboard 指南](./dash_board_guide.md)
-- [AppServer 模式指南](./appserver_guide.md)

@@ -192,7 +192,7 @@ function attachInteractiveSetupHandlers(instance: ModuleInstance): void {
 
 因此宿主只需切换 `moduleId`，无需重写集成模型。
 
-## 10. 新增模块接入要求
+## 10. 模块接入要求
 
 第三方包满足以下导出即可被同一宿主模型加载：
 

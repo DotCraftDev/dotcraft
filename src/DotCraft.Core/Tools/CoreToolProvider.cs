@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
+using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools;
@@ -98,6 +99,17 @@ public sealed class CoreToolProvider : IAgentToolProvider
             context.Config.Tools.Web.SearchProvider);
         tools.Add(AIFunctionFactory.Create(webTools.WebSearch));
         tools.Add(AIFunctionFactory.Create(webTools.WebFetch));
+
+        // Skill self-learning tools are opt-in and hidden from the model unless enabled.
+        var selfLearning = context.Config.Skills.SelfLearning;
+        if (selfLearning.Enabled)
+        {
+            var skillManageTool = new SkillManageTool(
+                context.SkillMutationApplier,
+                selfLearning,
+                context.ApprovalService);
+            tools.Add(AIFunctionFactory.Create(skillManageTool.SkillManage));
+        }
 
         return tools;
     }

@@ -5,6 +5,7 @@ import { SkillCard } from './SkillCard'
 import { SkillDetailDialog } from './SkillDetailDialog'
 import { addToast } from '../../stores/toastStore'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { RefreshIcon } from '../ui/AppIcons'
 
 /**
  * Full-width skills management surface (Codex-style list + detail modal).
@@ -120,6 +121,7 @@ export function SkillsView(): JSX.Element {
                 style={toolbarBtn}
                 aria-label={t('skills.refresh')}
               >
+                <RefreshIcon size={14} />
                 {t('skills.refresh')}
               </button>
             </ActionTooltip>
@@ -220,13 +222,19 @@ export function SkillsView(): JSX.Element {
 }
 
 const toolbarBtn: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '6px',
   padding: '8px 14px',
   fontSize: '13px',
   borderRadius: '6px',
   border: '1px solid var(--border-default)',
   backgroundColor: 'var(--bg-secondary)',
   color: 'var(--text-primary)',
-  cursor: 'pointer'
+  lineHeight: 1,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap'
 }
 
 const skillsIntroSubtitle: React.CSSProperties = {

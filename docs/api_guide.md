@@ -72,8 +72,6 @@ print(response.choices[0].message.content)
 
 DotCraft 的 API 模式可以作为模型提供方，在流行的 AI 桌面应用（例如Chatbox）中聊天。
 
-![Chatbox](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
-
 ---
 
 ## 配置项
@@ -132,7 +130,7 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 | [streaming_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/streaming_chat.py) | 流式输出 |
 | [multi_turn_chat.py](https://github.com/DotHarness/dotcraft/blob/master/samples/api/multi_turn_chat.py) | 多轮对话（交互式 REPL） |
 
-## Usage Examples
+## 使用示例
 
 | 场景 | 做法 |
 |------|------|
@@ -141,7 +139,7 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 | 限制危险操作 | 设置 `Api.AutoApprove = false` 并通过 `EnabledTools` 缩小工具范围 |
 | 与 Dashboard 共用端口 | 在 Gateway 中让 `Api.Port` 与 `DashBoard.Port` 相同 |
 
-## Troubleshooting
+## 故障排查
 
 ### `/v1/chat/completions` 返回 401
 
@@ -154,12 +152,3 @@ API 模式通过 `ApiApprovalService` 处理操作审批，支持两种模式：
 ### 客户端无法连接
 
 确认 API Host、Port 和路径正确。Gateway 共享端口时，OpenAI-compatible API 路径仍然是 `/v1/...`。
-
----
-
-## 相关文档
-
-- [配置指南](./config_guide.md) - 完整配置项说明
-- [QQ 渠道适配器](./sdk/typescript-qq.md) - QQ 外部渠道
-- [企业微信渠道适配器](./sdk/typescript-wecom.md) - 企业微信外部渠道
-- [文档索引](./reference.md) - 完整文档导航

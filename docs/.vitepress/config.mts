@@ -11,13 +11,36 @@ const zhSidebar: DefaultTheme.Sidebar = [
   {
     text: '开始使用',
     items: [
-      { text: '快速开始', link: '/getting-started' },
+      { text: '快速开始', link: '/getting-started' }
+    ]
+  },
+  {
+    text: '日常使用',
+    items: [
       { text: 'Desktop', link: '/desktop_guide' },
       { text: 'TUI', link: '/tui_guide' },
-      { text: '配置与安全', link: '/config_guide' },
-      { text: 'Dashboard', link: '/dash_board_guide' },
-      { text: '文档索引', link: '/reference' },
-      { text: '设置生效层级', link: '/settings-lifecycle' }
+      { text: 'Agent Skill 自学习', link: '/skills/agent-self-learning' },
+      { text: 'Dashboard', link: '/dash_board_guide' }
+    ]
+  },
+  {
+    text: '配置与安全',
+    items: [
+      { text: '配置入门', link: '/config_guide' },
+      { text: '安全配置', link: '/config/security' },
+      { text: '设置生效层级', link: '/settings-lifecycle' },
+      { text: '完整配置参考', link: '/reference/config' }
+    ]
+  },
+  {
+    text: '自动化工作流',
+    items: [
+      { text: 'Automations 入门', link: '/automations_guide' },
+      { text: 'GitHub 自动化', link: '/automations/github' },
+      { text: 'Automations 参考', link: '/automations/reference' },
+      { text: 'Hooks 入门', link: '/hooks_guide' },
+      { text: 'Hooks 参考', link: '/hooks/reference' },
+      { text: 'External CLI 子代理', link: '/external_cli_subagents_guide' }
     ]
   },
   {
@@ -26,16 +49,22 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'AppServer', link: '/appserver_guide' },
       { text: 'API 模式', link: '/api_guide' },
       { text: 'AG-UI 模式', link: '/agui_guide' },
-      { text: 'ACP 模式', link: '/acp_guide' }
+      { text: 'ACP 模式', link: '/acp_guide' },
+      { text: 'Unity 集成', link: '/unity_guide' }
     ]
   },
   {
-    text: '集成与自动化',
+    text: 'SDK 与渠道',
     items: [
-      { text: 'Automations', link: '/automations_guide' },
-      { text: 'Hooks', link: '/hooks_guide' },
-      { text: 'External CLI 子代理', link: '/external_cli_subagents_guide' },
-      { text: 'Unity 集成', link: '/unity_guide' }
+      { text: 'SDK 总览', link: '/sdk/' },
+      { text: 'Python SDK', link: '/sdk/python' },
+      { text: 'Python Telegram Adapter', link: '/sdk/python-telegram' },
+      { text: 'TypeScript SDK', link: '/sdk/typescript' },
+      { text: 'Feishu Adapter', link: '/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/sdk/typescript-wecom' }
     ]
   },
   {
@@ -52,17 +81,11 @@ const zhSidebar: DefaultTheme.Sidebar = [
     ]
   },
   {
-    text: 'SDK',
+    text: '参考',
     items: [
-      { text: 'SDK 总览', link: '/sdk/' },
-      { text: 'Python SDK', link: '/sdk/python' },
-      { text: 'Python Telegram Adapter', link: '/sdk/python-telegram' },
-      { text: 'TypeScript SDK', link: '/sdk/typescript' },
-      { text: 'Feishu Adapter', link: '/sdk/typescript-feishu' },
-      { text: 'Telegram Adapter', link: '/sdk/typescript-telegram' },
-      { text: 'Weixin Adapter', link: '/sdk/typescript-weixin' },
-      { text: 'QQ Adapter', link: '/sdk/typescript-qq' },
-      { text: 'WeCom Adapter', link: '/sdk/typescript-wecom' }
+      { text: '文档索引', link: '/reference' },
+      { text: 'Dashboard API', link: '/reference/dashboard-api' },
+      { text: 'TypeScript 渠道模块宿主集成', link: '/typescript-channel-module-host-integration' }
     ]
   }
 ]
@@ -71,13 +94,36 @@ const enSidebar: DefaultTheme.Sidebar = [
   {
     text: 'Get Started',
     items: [
-      { text: 'Getting Started', link: '/en/getting-started' },
+      { text: 'Getting Started', link: '/en/getting-started' }
+    ]
+  },
+  {
+    text: 'Daily Use',
+    items: [
       { text: 'Desktop', link: '/en/desktop_guide' },
       { text: 'TUI', link: '/en/tui_guide' },
-      { text: 'Configuration & Security', link: '/en/config_guide' },
-      { text: 'Dashboard', link: '/en/dash_board_guide' },
-      { text: 'Documentation Index', link: '/en/reference' },
-      { text: 'Settings Lifecycle', link: '/en/settings-lifecycle' }
+      { text: 'Agent Skill Self-Learning', link: '/en/skills/agent-self-learning' },
+      { text: 'Dashboard', link: '/en/dash_board_guide' }
+    ]
+  },
+  {
+    text: 'Configuration & Security',
+    items: [
+      { text: 'Configuration Basics', link: '/en/config_guide' },
+      { text: 'Security Configuration', link: '/en/config/security' },
+      { text: 'Settings Lifecycle', link: '/en/settings-lifecycle' },
+      { text: 'Full Configuration Reference', link: '/en/reference/config' }
+    ]
+  },
+  {
+    text: 'Automation Workflows',
+    items: [
+      { text: 'Automations Basics', link: '/en/automations_guide' },
+      { text: 'GitHub Automations', link: '/en/automations/github' },
+      { text: 'Automations Reference', link: '/en/automations/reference' },
+      { text: 'Hooks Basics', link: '/en/hooks_guide' },
+      { text: 'Hooks Reference', link: '/en/hooks/reference' },
+      { text: 'External CLI Subagents', link: '/en/external_cli_subagents_guide' }
     ]
   },
   {
@@ -86,16 +132,22 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'AppServer', link: '/en/appserver_guide' },
       { text: 'API Mode', link: '/en/api_guide' },
       { text: 'AG-UI Mode', link: '/en/agui_guide' },
-      { text: 'ACP Mode', link: '/en/acp_guide' }
+      { text: 'ACP Mode', link: '/en/acp_guide' },
+      { text: 'Unity Integration', link: '/en/unity_guide' }
     ]
   },
   {
-    text: 'Integrations & Automation',
+    text: 'SDK & Channels',
     items: [
-      { text: 'Automations', link: '/en/automations_guide' },
-      { text: 'Hooks', link: '/en/hooks_guide' },
-      { text: 'External CLI Subagents', link: '/en/external_cli_subagents_guide' },
-      { text: 'Unity Integration', link: '/en/unity_guide' }
+      { text: 'SDK Overview', link: '/en/sdk/' },
+      { text: 'Python SDK', link: '/en/sdk/python' },
+      { text: 'Python Telegram Adapter', link: '/en/sdk/python-telegram' },
+      { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
+      { text: 'Feishu Adapter', link: '/en/sdk/typescript-feishu' },
+      { text: 'Telegram Adapter', link: '/en/sdk/typescript-telegram' },
+      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' },
+      { text: 'QQ Adapter', link: '/en/sdk/typescript-qq' },
+      { text: 'WeCom Adapter', link: '/en/sdk/typescript-wecom' }
     ]
   },
   {
@@ -112,17 +164,11 @@ const enSidebar: DefaultTheme.Sidebar = [
     ]
   },
   {
-    text: 'SDK',
+    text: 'Reference',
     items: [
-      { text: 'SDK Overview', link: '/en/sdk/' },
-      { text: 'Python SDK', link: '/en/sdk/python' },
-      { text: 'Python Telegram Adapter', link: '/en/sdk/python-telegram' },
-      { text: 'TypeScript SDK', link: '/en/sdk/typescript' },
-      { text: 'Feishu Adapter', link: '/en/sdk/typescript-feishu' },
-      { text: 'Telegram Adapter', link: '/en/sdk/typescript-telegram' },
-      { text: 'Weixin Adapter', link: '/en/sdk/typescript-weixin' },
-      { text: 'QQ Adapter', link: '/en/sdk/typescript-qq' },
-      { text: 'WeCom Adapter', link: '/en/sdk/typescript-wecom' }
+      { text: 'Documentation Index', link: '/en/reference' },
+      { text: 'Dashboard API', link: '/en/reference/dashboard-api' },
+      { text: 'TypeScript Channel Module Host Integration', link: '/en/typescript-channel-module-host-integration' }
     ]
   }
 ]
@@ -131,8 +177,9 @@ const zhNav: DefaultTheme.NavItem[] = [
   { text: '功能', link: '/#features' },
   { text: '开始使用', link: '/getting-started' },
   { text: 'Desktop', link: '/desktop_guide' },
-  { text: 'TUI', link: '/tui_guide' },
-  { text: '文档', link: '/reference' },
+  { text: '配置与安全', link: '/config_guide' },
+  { text: '自动化', link: '/automations_guide' },
+  { text: '文档索引', link: '/reference' },
   { text: 'Samples', link: '/samples/' },
   {
     text: 'SDK',
@@ -153,8 +200,9 @@ const enNav: DefaultTheme.NavItem[] = [
   { text: 'Features', link: '/en/#features' },
   { text: 'Get Started', link: '/en/getting-started' },
   { text: 'Desktop', link: '/en/desktop_guide' },
-  { text: 'TUI', link: '/en/tui_guide' },
-  { text: 'Docs', link: '/en/reference' },
+  { text: 'Configuration', link: '/en/config_guide' },
+  { text: 'Automations', link: '/en/automations_guide' },
+  { text: 'Docs Index', link: '/en/reference' },
   { text: 'Samples', link: '/en/samples/' },
   {
     text: 'SDK',

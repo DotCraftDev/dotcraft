@@ -2,7 +2,7 @@
 
 这条路径面向第一次使用 DotCraft 的用户：先安装 Desktop，选择项目目录初始化工作区，配置模型提供商，然后发起第一次对话。完成后再按需要进入 TUI、AppServer、API、SDK 或 Automations。
 
-## Quick Start
+## 快速开始
 
 ### 1. 下载 Desktop
 
@@ -58,7 +58,7 @@ dotcraft
 
 如果你想使用终端富界面，请继续阅读 [TUI 指南](./tui_guide.md)。
 
-## Configuration
+## 配置
 
 第一次使用只需要关心这些配置：
 
@@ -72,7 +72,7 @@ dotcraft
 
 如果你不确定应该把配置放在哪里：API Key 放全局，其余先放工作区。
 
-## Usage Examples
+## 使用示例
 
 | 我想做什么 | 下一步 |
 |------------|--------|
@@ -84,14 +84,14 @@ dotcraft
 | 运行本地或 GitHub 自动化任务 | [Automations 指南](./automations_guide.md) |
 | 构建机器人或外部适配器 | [SDK 总览](./sdk/index.md) |
 
-## Advanced Topics
+## 进阶
 
 - 使用 [Dashboard](./dash_board_guide.md) 查看 Trace、工具调用和配置合并结果。
 - 使用 [Hooks](./hooks_guide.md) 在生命周期事件中执行脚本。
-- 使用 [沙箱和安全配置](./config_guide.md#安全配置) 限制文件、Shell 和网络能力。
+- 使用 [安全配置](./config/security.md) 限制文件、Shell 和网络能力。
 - 使用 [Workspace Sample](./samples/workspace.md) 验证完整工作区模板。
 
-## Troubleshooting
+## 故障排查
 
 ### Desktop 找不到 `dotcraft`
 

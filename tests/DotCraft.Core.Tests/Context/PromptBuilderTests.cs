@@ -76,6 +76,77 @@ public sealed class PromptBuilderTests : IDisposable
         Assert.True(bootstrapIndex > profilesIndex);
     }
 
+    [Fact]
+    public void BuildSystemPrompt_AlwaysSkillWithMissingTool_IsNotLoaded()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        WriteAlwaysSkillRequiringSkillManage();
+        var builder = CreatePromptBuilder(
+            toolNamesProvider: () => []);
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.DoesNotContain("### Skill: skill-authoring", prompt);
+        Assert.Contains("Missing tools: SkillManage", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_AlwaysSkillWithAvailableTool_IsLoaded()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        WriteAlwaysSkillRequiringSkillManage();
+        var builder = CreatePromptBuilder(
+            toolNamesProvider: () => ["SkillManage"]);
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.Contains("### Skill: skill-authoring", prompt);
+        Assert.Contains("Workflow marker", prompt);
+        Assert.DoesNotContain("Missing tools: SkillManage", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_SkillManageAvailable_IncludesSelfLearningGuidance()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        var builder = CreatePromptBuilder(
+            toolNamesProvider: () => ["SkillManage"]);
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.Contains("## Skill Self-Learning", prompt);
+        Assert.Contains("Skills are procedural memory", prompt);
+        Assert.Contains("SkillManage(action: \"patch\")", prompt);
+        Assert.DoesNotContain("Confirm with the user", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_SkillManageUnavailable_OmitsSelfLearningGuidance()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        var builder = CreatePromptBuilder(
+            toolNamesProvider: () => []);
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.DoesNotContain("## Skill Self-Learning", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_OnDemandSkillWithAvailableTool_IsSummarizedButNotAlwaysLoaded()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        WriteOnDemandSkillRequiringSkillManage();
+        var builder = CreatePromptBuilder(
+            toolNamesProvider: () => ["SkillManage"]);
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.DoesNotContain("### Skill: skill-authoring", prompt);
+        Assert.Contains("<name>skill-authoring</name>", prompt);
+        Assert.Contains("<skill available=\"true\" always=\"false\">", prompt);
+    }
+
     public void Dispose()
     {
         try
@@ -91,7 +162,8 @@ public sealed class PromptBuilderTests : IDisposable
 
     private PromptBuilder CreatePromptBuilder(
         AgentModeManager? modeManager = null,
-        string? subAgentProfilesSection = null)
+        string? subAgentProfilesSection = null,
+        Func<IReadOnlyList<string>>? toolNamesProvider = null)
     {
         return new PromptBuilder(
             new MemoryStore(_tempRoot),
@@ -99,6 +171,46 @@ public sealed class PromptBuilderTests : IDisposable
             _tempRoot,
             _tempRoot,
             modeManager: modeManager,
-            subAgentProfilesSection: subAgentProfilesSection);
+            subAgentProfilesSection: subAgentProfilesSection,
+            toolNamesProvider: toolNamesProvider);
+    }
+
+    private void WriteAlwaysSkillRequiringSkillManage()
+    {
+        var skillDir = Path.Combine(_tempRoot, "skills", "skill-authoring");
+        Directory.CreateDirectory(skillDir);
+        File.WriteAllText(
+            Path.Combine(skillDir, "SKILL.md"),
+            """
+            ---
+            name: skill-authoring
+            description: Skill authoring workflow
+            tools: SkillManage
+            always: true
+            ---
+
+            # Skill Authoring
+
+            Workflow marker
+            """);
+    }
+
+    private void WriteOnDemandSkillRequiringSkillManage()
+    {
+        var skillDir = Path.Combine(_tempRoot, "skills", "skill-authoring");
+        Directory.CreateDirectory(skillDir);
+        File.WriteAllText(
+            Path.Combine(skillDir, "SKILL.md"),
+            """
+            ---
+            name: skill-authoring
+            description: Skill authoring workflow
+            tools: SkillManage
+            ---
+
+            # Skill Authoring
+
+            Workflow marker
+            """);
     }
 }

@@ -7,8 +7,8 @@ import {
 describe('SettingsView workspace core readers', () => {
   it('returns empty workspace core from safe reader when api is unavailable', async () => {
     await expect(readWorkspaceCoreSafeFromApi(undefined)).resolves.toEqual({
-      workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null },
-      userDefaults: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null }
+      workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null },
+      userDefaults: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null }
     })
   })
 
@@ -26,5 +26,21 @@ describe('SettingsView workspace core readers', () => {
         workspaceConfig: { getCore }
       })
     ).rejects.toThrow('boom')
+  })
+
+  it('normalizes self-learning config from workspace and user defaults', async () => {
+    const getCore = vi.fn<() => Promise<unknown>>().mockResolvedValue({
+      workspace: { skillsSelfLearningEnabled: true },
+      userDefaults: { skillsSelfLearningEnabled: false }
+    })
+
+    await expect(
+      readWorkspaceCoreStrictFromApi({
+        workspaceConfig: { getCore }
+      })
+    ).resolves.toEqual({
+      workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: true },
+      userDefaults: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: false }
+    })
   })
 })

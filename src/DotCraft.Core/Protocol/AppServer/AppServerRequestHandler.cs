@@ -1840,7 +1840,7 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
         if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
-            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', or 'welcomeSuggestionsEnabled' is required.");
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', or 'skillsSelfLearningEnabled' is required.");
 
         var hasModel = TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl);
         var hasApiKey = TryGetCaseInsensitiveProperty(msg.Params.Value, "apiKey", out var apiKeyEl);
@@ -1849,10 +1849,14 @@ public sealed class AppServerRequestHandler(
             msg.Params.Value,
             "welcomeSuggestionsEnabled",
             out var welcomeSuggestionsEnabledEl);
-        if (!hasModel && !hasApiKey && !hasEndPoint && !hasWelcomeSuggestionsEnabled)
+        var hasSkillsSelfLearningEnabled = TryGetCaseInsensitiveProperty(
+            msg.Params.Value,
+            "skillsSelfLearningEnabled",
+            out var skillsSelfLearningEnabledEl);
+        if (!hasModel && !hasApiKey && !hasEndPoint && !hasWelcomeSuggestionsEnabled && !hasSkillsSelfLearningEnabled)
         {
             throw AppServerErrors.InvalidParams(
-                "At least one of 'model', 'apiKey', 'endPoint', or 'welcomeSuggestionsEnabled' is required.");
+                "At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', or 'skillsSelfLearningEnabled' is required.");
         }
 
         var model = hasModel ? ParseNullableString(modelEl, "model") : null;
@@ -1861,6 +1865,9 @@ public sealed class AppServerRequestHandler(
         var welcomeSuggestionsEnabled = hasWelcomeSuggestionsEnabled
             ? ParseNullableBoolean(welcomeSuggestionsEnabledEl, "welcomeSuggestionsEnabled")
             : null;
+        var skillsSelfLearningEnabled = hasSkillsSelfLearningEnabled
+            ? ParseNullableBoolean(skillsSelfLearningEnabledEl, "skillsSelfLearningEnabled")
+            : null;
 
         var saveResult = SaveWorkspaceCoreConfig(
             workspaceCraftPath,
@@ -1868,10 +1875,12 @@ public sealed class AppServerRequestHandler(
             hasApiKey ? NormalizeOptionalString(apiKey) : null,
             hasEndPoint ? NormalizeOptionalString(endPoint) : null,
             welcomeSuggestionsEnabled,
+            skillsSelfLearningEnabled,
             hasModel,
             hasApiKey,
             hasEndPoint,
-            hasWelcomeSuggestionsEnabled);
+            hasWelcomeSuggestionsEnabled,
+            hasSkillsSelfLearningEnabled);
 
         var changedRegions = new List<string>();
         if (saveResult.ModelChanged)
@@ -1882,6 +1891,8 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WorkspaceEndPoint);
         if (saveResult.WelcomeSuggestionsChanged)
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
+        if (saveResult.SkillsSelfLearningChanged)
+            changedRegions.Add(ConfigChangeRegions.Skills);
         if (changedRegions.Count > 0)
         {
             appConfigMonitor?.NotifyChanged(
@@ -1894,7 +1905,8 @@ public sealed class AppServerRequestHandler(
             Model = saveResult.Model,
             ApiKey = saveResult.ApiKey,
             EndPoint = saveResult.EndPoint,
-            WelcomeSuggestionsEnabled = saveResult.WelcomeSuggestionsEnabled
+            WelcomeSuggestionsEnabled = saveResult.WelcomeSuggestionsEnabled,
+            SkillsSelfLearningEnabled = saveResult.SkillsSelfLearningEnabled
         });
     }
 
@@ -2535,10 +2547,12 @@ public sealed class AppServerRequestHandler(
         string? apiKey,
         string? endPoint,
         bool? welcomeSuggestionsEnabled,
+        bool? skillsSelfLearningEnabled,
         bool updateModel,
         bool updateApiKey,
         bool updateEndPoint,
-        bool updateWelcomeSuggestionsEnabled)
+        bool updateWelcomeSuggestionsEnabled,
+        bool updateSkillsSelfLearningEnabled)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         Directory.CreateDirectory(workspaceCraftPath);
@@ -2549,17 +2563,25 @@ public sealed class AppServerRequestHandler(
         var endPointKey = FindCaseInsensitiveKey(root, "EndPoint");
         var welcomeSection = GetOrCreateConfigSection(root, "WelcomeSuggestions", createIfMissing: updateWelcomeSuggestionsEnabled);
         var welcomeEnabledKey = welcomeSection == null ? null : FindCaseInsensitiveKey(welcomeSection, "Enabled");
+        var skillsSection = GetOrCreateConfigSection(root, "Skills", createIfMissing: updateSkillsSelfLearningEnabled);
+        var selfLearningSection = skillsSection == null
+            ? null
+            : GetOrCreateConfigSection(skillsSection, "SelfLearning", createIfMissing: updateSkillsSelfLearningEnabled);
+        var selfLearningEnabledKey = selfLearningSection == null ? null : FindCaseInsensitiveKey(selfLearningSection, "Enabled");
 
         var existingModel = NormalizeWorkspaceModel(ReadConfigStringValue(root, modelKey));
         var existingApiKey = NormalizeOptionalString(ReadConfigStringValue(root, apiKeyKey));
         var existingEndPoint = NormalizeOptionalString(ReadConfigStringValue(root, endPointKey));
         var existingWelcomeSuggestionsEnabled = ReadConfigBooleanValue(welcomeSection, welcomeEnabledKey);
+        var existingSkillsSelfLearningEnabled = ReadConfigBooleanValue(selfLearningSection, selfLearningEnabledKey);
 
         var modelChanged = updateModel && !string.Equals(existingModel, model, StringComparison.Ordinal);
         var apiKeyChanged = updateApiKey && !string.Equals(existingApiKey, apiKey, StringComparison.Ordinal);
         var endPointChanged = updateEndPoint && !string.Equals(existingEndPoint, endPoint, StringComparison.Ordinal);
         var welcomeSuggestionsChanged = updateWelcomeSuggestionsEnabled
             && existingWelcomeSuggestionsEnabled != welcomeSuggestionsEnabled;
+        var skillsSelfLearningChanged = updateSkillsSelfLearningEnabled
+            && existingSkillsSelfLearningEnabled != skillsSelfLearningEnabled;
 
         if (updateModel)
             UpsertOrRemoveConfigValue(root, modelKey, "Model", model);
@@ -2574,8 +2596,17 @@ public sealed class AppServerRequestHandler(
             UpsertOrRemoveConfigValue(section, sectionEnabledKey, "Enabled", welcomeSuggestionsEnabled);
             RemoveConfigSectionIfEmpty(root, "WelcomeSuggestions");
         }
+        if (updateSkillsSelfLearningEnabled)
+        {
+            var skills = GetOrCreateConfigSection(root, "Skills", createIfMissing: true)!;
+            var selfLearning = GetOrCreateConfigSection(skills, "SelfLearning", createIfMissing: true)!;
+            var selfLearningEnabledExistingKey = FindCaseInsensitiveKey(selfLearning, "Enabled");
+            UpsertOrRemoveConfigValue(selfLearning, selfLearningEnabledExistingKey, "Enabled", skillsSelfLearningEnabled);
+            RemoveConfigSectionIfEmpty(skills, "SelfLearning");
+            RemoveConfigSectionIfEmpty(root, "Skills");
+        }
 
-        if (modelChanged || apiKeyChanged || endPointChanged || welcomeSuggestionsChanged)
+        if (modelChanged || apiKeyChanged || endPointChanged || welcomeSuggestionsChanged || skillsSelfLearningChanged)
         {
             var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
@@ -2589,10 +2620,14 @@ public sealed class AppServerRequestHandler(
             WelcomeSuggestionsEnabled = updateWelcomeSuggestionsEnabled
                 ? welcomeSuggestionsEnabled
                 : existingWelcomeSuggestionsEnabled,
+            SkillsSelfLearningEnabled = updateSkillsSelfLearningEnabled
+                ? skillsSelfLearningEnabled
+                : existingSkillsSelfLearningEnabled,
             ModelChanged = modelChanged,
             ApiKeyChanged = apiKeyChanged,
             EndPointChanged = endPointChanged,
-            WelcomeSuggestionsChanged = welcomeSuggestionsChanged
+            WelcomeSuggestionsChanged = welcomeSuggestionsChanged,
+            SkillsSelfLearningChanged = skillsSelfLearningChanged
         };
     }
 
@@ -2741,6 +2776,8 @@ public sealed class AppServerRequestHandler(
 
         public bool? WelcomeSuggestionsEnabled { get; init; }
 
+        public bool? SkillsSelfLearningEnabled { get; init; }
+
         public bool ModelChanged { get; init; }
 
         public bool ApiKeyChanged { get; init; }
@@ -2748,6 +2785,8 @@ public sealed class AppServerRequestHandler(
         public bool EndPointChanged { get; init; }
 
         public bool WelcomeSuggestionsChanged { get; init; }
+
+        public bool SkillsSelfLearningChanged { get; init; }
     }
 
     private static bool TryGetCaseInsensitiveProperty(JsonElement obj, string expectedName, out JsonElement value)

@@ -113,4 +113,34 @@ describe('uiStore responsive panel preferences', () => {
     useUIStore.getState().resetAutoShowReasons()
     expect(useUIStore.getState().autoShowReasons.size).toBe(0)
   })
+
+  it('can switch system detail tabs without revealing the panel', () => {
+    useUIStore.getState().setDetailPanelVisible(false)
+
+    useUIStore.getState().setActiveDetailTab('plan', { reveal: false })
+
+    expect(useUIStore.getState().activeDetailTab).toEqual({ kind: 'system', id: 'plan' })
+    expect(useUIStore.getState().lastActiveSystemTab).toBe('plan')
+    expect(useUIStore.getState().detailPanelPreferredVisible).toBe(false)
+    expect(useUIStore.getState().detailPanelVisible).toBe(false)
+  })
+
+  it('can switch viewer tabs without revealing the panel', () => {
+    useUIStore.getState().setDetailPanelVisible(false)
+
+    useUIStore.getState().setActiveViewerTab('vtab-hidden', { reveal: false })
+
+    expect(useUIStore.getState().activeDetailTab).toEqual({ kind: 'viewer', id: 'vtab-hidden' })
+    expect(useUIStore.getState().detailPanelPreferredVisible).toBe(false)
+    expect(useUIStore.getState().detailPanelVisible).toBe(false)
+  })
+
+  it('reveals the panel by default when switching detail tabs explicitly', () => {
+    useUIStore.getState().setDetailPanelVisible(false)
+
+    useUIStore.getState().setActiveDetailTab('plan')
+
+    expect(useUIStore.getState().detailPanelPreferredVisible).toBe(true)
+    expect(useUIStore.getState().detailPanelVisible).toBe(true)
+  })
 })

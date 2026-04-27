@@ -153,11 +153,11 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - 审批：通过交互式卡片处理
 - 回复：在回合结束后发送静态交互卡片
 - Docx 工具（`documentIdOrUrl`）支持三种输入：裸 docx token、`/docx/<token>` 文档链接、以及指向 docx 节点的 wiki 节点 URL/token
-- 新增 docx 块级原语工具：`FeishuListDocxBlocks`、`FeishuGetDocxBlock`、`FeishuInsertDocxBlocks`、`FeishuUpdateDocxBlocks`、`FeishuDeleteDocxBlocks`
-- 新增高阶编辑工具 `FeishuUpdateDocxContent`，支持 `append`、`overwrite`、`replaceRange`、`replaceAll`、`insertBefore`、`insertAfter`、`deleteRange`，并支持可选 `newTitle`
-- 新增媒体工具 `FeishuEmbedDocxMedia`：上传本地图片/文件并嵌入 docx（后续步骤失败时会尝试回滚）
-- 新增标题工具：`FeishuUpdateDocxTitle` 与知识库节点重命名 `FeishuRenameWikiNode`
-- 新增 docx 评论工具：`FeishuListDocxComments`、`FeishuBatchQueryDocxComments`、`FeishuListDocxCommentReplies`、`FeishuAddDocxComment`、`FeishuAddDocxCommentReply`、`FeishuResolveDocxComment`
+- docx 块级原语工具：`FeishuListDocxBlocks`、`FeishuGetDocxBlock`、`FeishuInsertDocxBlocks`、`FeishuUpdateDocxBlocks`、`FeishuDeleteDocxBlocks`
+- 高阶编辑工具 `FeishuUpdateDocxContent` 支持 `append`、`overwrite`、`replaceRange`、`replaceAll`、`insertBefore`、`insertAfter`、`deleteRange`，并支持可选 `newTitle`
+- 媒体工具 `FeishuEmbedDocxMedia` 上传本地图片/文件并嵌入 docx（后续步骤失败时会尝试回滚）
+- 标题工具：`FeishuUpdateDocxTitle` 与知识库节点重命名 `FeishuRenameWikiNode`
+- docx 评论工具：`FeishuListDocxComments`、`FeishuBatchQueryDocxComments`、`FeishuListDocxCommentReplies`、`FeishuAddDocxComment`、`FeishuAddDocxCommentReply`、`FeishuResolveDocxComment`
 - Docx URL 请使用 `/docx/<token>` 格式；如果从飞书界面复制链接，请确认链接指向 docx 文档。
 - Wiki 工具（`spaceIdOrUrl`）支持三种输入：纯数字 `space_id`、`/wiki/settings/<space_id>` 链接、以及 wiki 节点 URL/token；当传节点 URL/token 且未显式给父节点时，会自动调用 `getWikiNode` 反查 `space_id` 并把该节点作为默认父节点
 - `FeishuMoveDocxToWiki` 对齐官方 Lark CLI：当接口返回 `task_id`（异步路径）时，工具会以 `30 × 2s`（约 60 秒窗口）轮询 `GET /open-apis/wiki/v2/tasks/{task_id}?task_type=move`。成功时返回 `ready=true` 并携带解析后的 `wikiToken`；超时返回 `ready=false, timedOut=true, taskId`，由调用方稍后用该 `taskId` 继续查询。传 `waitForCompletion: false` 可跳过轮询，直接拿到 `taskId`。

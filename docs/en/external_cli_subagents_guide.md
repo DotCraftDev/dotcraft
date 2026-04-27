@@ -75,8 +75,3 @@ For authentication, DotCraft automatically passes through `CODEX_API_KEY` and `O
 ## Inspect Profiles On Your Machine
 
 DotCraft validates every profile at startup and prints the hidden built-in profiles (with the concrete reason) to the log, so you can quickly tell whether a profile is missing `bin`, whether the binary is not on `PATH`, or whether a required field is misconfigured. Check the startup log to know which profiles are visible to the model.
-
-## Related Documents
-
-- [Configuration Guide](./config_guide.md)
-- [Dashboard Guide](./dash_board_guide.md)

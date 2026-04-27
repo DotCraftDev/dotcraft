@@ -217,7 +217,7 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 | 多客户端共享工作区 | 启动 WebSocket 模式，多个客户端各自连接 |
 | 自定义客户端集成 | 启动 AppServer，用任意语言通过 JSON-RPC 通信 |
 
-## Usage Examples
+## 使用示例
 
 | 我想做什么 | 推荐方式 |
 |------------|----------|
@@ -226,7 +226,7 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 | 远程连接工作区 | 服务端监听 WebSocket，本地客户端使用 `--remote` |
 | 开发自定义客户端 | 使用 JSON-RPC 2.0 over stdio 或 WebSocket 调用 Wire Protocol |
 
-## Troubleshooting
+## 故障排查
 
 ### WebSocket 客户端连接失败
 
@@ -239,9 +239,3 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 ### 本地 CLI 为什么还会启动子进程
 
 直接运行 `dotcraft` 时 CLI 会自动托管 stdio AppServer。只有远程、多客户端或自定义集成场景才需要手动启动 AppServer。
-
-## 延伸阅读
-
-- [配置指南](./config_guide.md)：完整配置参考，包含 AppServer 和 CLI 配置项
-- [ACP 模式指南](./acp_guide.md)：编辑器 / IDE 集成（同样基于 wire protocol）
-- [AppServer 协议规范](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md)：完整的 JSON-RPC 协议规范（§15 为 WebSocket 传输）

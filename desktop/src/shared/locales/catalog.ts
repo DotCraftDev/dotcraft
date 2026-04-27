@@ -66,6 +66,14 @@ const MESSAGES_EN = {
   'settings.personalization.welcomeSuggestionsHint':
     'Show suggestions based on recent sessions and memory.',
   'settings.personalization.welcomeSuggestionsSaveFailed': 'Failed to save welcome suggestions setting: {{error}}',
+  'settings.personalization.selfLearning': 'Enable self-learning',
+  'settings.personalization.selfLearningHint':
+    'Allow the agent to learn skills from completed tasks and save them in this workspace. Restart AppServer to apply changes.',
+  'settings.personalization.selfLearningSaveFailed': 'Failed to save self-learning setting: {{error}}',
+  'settings.personalization.selfLearningRestartBanner': 'Self-learning changes are saved. Restart AppServer to apply them.',
+  'settings.personalization.selfLearningRestartBannerRemote':
+    'Self-learning changes are saved. Restart the remote AppServer to apply them.',
+  'settings.personalization.selfLearningRestartButton': 'Restart now',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
   'settings.save': 'Save',
@@ -218,6 +226,7 @@ const MESSAGES_EN = {
   'browserUse.approval.allowOnce': 'Allow once',
   'browserUse.approval.alwaysAllow': 'Always allow',
   'browserUse.approval.sendFailed': 'Failed to send browser approval response: {{error}}',
+  'approval.kind.skill': 'Skill change',
   'settings.optionThemeDark': 'Dark (default)',
   'settings.optionThemeLight': 'Light',
   'settings.crossChannelVisibility': 'Cross-channel threads',
@@ -1541,6 +1550,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'browserUse.approval.allowOnce': '允许一次',
   'browserUse.approval.alwaysAllow': '始终允许',
   'browserUse.approval.sendFailed': '发送浏览器审批响应失败：{{error}}',
+  'approval.kind.skill': '技能变更',
   'app.titleWithWorkspace': 'DotCraft — {{name}}',
   'app.brandSubtitle': 'DotCraft Desktop',
 
@@ -1596,6 +1606,14 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.welcomeSuggestionsHint':
     '基于最近会话和记忆显示建议。',
   'settings.personalization.welcomeSuggestionsSaveFailed': '保存欢迎建议设置失败：{{error}}',
+  'settings.personalization.selfLearning': '启用自我学习',
+  'settings.personalization.selfLearningHint':
+    '允许 Agent 从已完成的任务中学习技能，并保存到当前工作区。重启 AppServer 后生效。',
+  'settings.personalization.selfLearningSaveFailed': '保存自我学习设置失败：{{error}}',
+  'settings.personalization.selfLearningRestartBanner': '自我学习设置已保存。重启 AppServer 后生效。',
+  'settings.personalization.selfLearningRestartBannerRemote':
+    '自我学习设置已保存。请重启远程 AppServer 使其生效。',
+  'settings.personalization.selfLearningRestartButton': '立即重启',
   'settings.theme.dark': '深色',
   'settings.theme.light': '浅色',
   'settings.save': '保存',

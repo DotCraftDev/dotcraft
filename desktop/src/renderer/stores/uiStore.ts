@@ -23,6 +23,10 @@ export type ActiveDetailTab =
   | { kind: 'system'; id: SystemDetailTab }
   | { kind: 'viewer'; id: string }
 
+interface DetailRevealOptions {
+  reveal?: boolean
+}
+
 /** Main content area: conversation vs auxiliary surfaces (Skills, Automations, Settings). */
 export type ActiveMainView = 'conversation' | 'skills' | 'automations' | 'settings' | 'channels'
 
@@ -119,11 +123,11 @@ interface UIStore extends UIState {
    * Sets the active detail tab to a system tab.
    * Allowed values: `'changes' | 'plan'`.
    */
-  setActiveDetailTab(tab: SystemDetailTab): void
+  setActiveDetailTab(tab: SystemDetailTab, options?: DetailRevealOptions): void
   /** Activates a viewer tab by its ID and makes the detail panel visible. */
-  setActiveViewerTab(tabId: string): void
+  setActiveViewerTab(tabId: string, options?: DetailRevealOptions): void
   /** Closes the viewer panel and falls back to the last active system tab. */
-  closeViewerTab(): void
+  closeViewerTab(options?: DetailRevealOptions): void
   /** Show or hide the Quick-Open dialog. */
   setQuickOpenVisible(visible: boolean): void
   selectChangedFile(filePath: string | null): void
@@ -308,9 +312,11 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
     set({ detailPanelWidth: clamped })
   },
 
-  setActiveDetailTab(tab: SystemDetailTab) {
+  setActiveDetailTab(tab: SystemDetailTab, options?: DetailRevealOptions) {
     const state = get()
-    const detailPanelPreferredVisible = true
+    const detailPanelPreferredVisible = options?.reveal === false
+      ? state.detailPanelPreferredVisible
+      : true
     set({
       activeDetailTab: { kind: 'system', id: tab },
       lastActiveSystemTab: tab,
@@ -323,9 +329,11 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
     })
   },
 
-  setActiveViewerTab(tabId: string) {
+  setActiveViewerTab(tabId: string, options?: DetailRevealOptions) {
     const state = get()
-    const detailPanelPreferredVisible = true
+    const detailPanelPreferredVisible = options?.reveal === false
+      ? state.detailPanelPreferredVisible
+      : true
     set({
       activeDetailTab: { kind: 'viewer', id: tabId },
       detailPanelPreferredVisible,
@@ -337,10 +345,12 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
     })
   },
 
-  closeViewerTab() {
+  closeViewerTab(options?: DetailRevealOptions) {
     const state = get()
     const fallback = state.lastActiveSystemTab
-    const detailPanelPreferredVisible = true
+    const detailPanelPreferredVisible = options?.reveal === false
+      ? state.detailPanelPreferredVisible
+      : true
     set({
       activeDetailTab: { kind: 'system', id: fallback },
       detailPanelPreferredVisible,

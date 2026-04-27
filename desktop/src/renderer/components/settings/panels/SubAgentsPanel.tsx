@@ -7,6 +7,7 @@ import { NativeProfileDetail } from './subAgents/NativeProfileDetail'
 import { PresetProfileDetail } from './subAgents/PresetProfileDetail'
 import { CustomProfileEditor } from './subAgents/CustomProfileEditor'
 import { SubAgentList } from './subAgents/SubAgentList'
+import { SettingsPageHeader } from '../SettingsPageHeader'
 import {
   isPresetProfileName,
   type SubAgentProfileEntryWire,
@@ -15,8 +16,6 @@ import {
 } from './subAgents/wire'
 import {
   noticeStyle,
-  pageDescriptionStyle,
-  pageHeadingStyle,
   pageStyle
 } from './subAgents/styles'
 
@@ -263,9 +262,9 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
   )
 
   if (!enabled) {
-  return (
+    return (
       <div style={pageStyle()}>
-        <div style={pageHeadingStyle()}>{t('settings.subAgents.title')}</div>
+        <SettingsPageHeader title={t('settings.subAgents.title')} />
         <div style={noticeStyle('warning')}>{t('settings.subAgents.unsupported')}</div>
       </div>
     )
@@ -321,10 +320,10 @@ export function SubAgentsPanel({ enabled, refreshTick = 0 }: SubAgentsPanelProps
 
   return (
     <div style={pageStyle()}>
-      <div>
-        <div style={pageHeadingStyle()}>{t('settings.subAgents.title')}</div>
-        <div style={pageDescriptionStyle()}>{t('settings.subAgents.description')}</div>
-      </div>
+      <SettingsPageHeader
+        title={t('settings.subAgents.title')}
+        description={t('settings.subAgents.description')}
+      />
 
       <SettingsGroup>
         <SettingsRow

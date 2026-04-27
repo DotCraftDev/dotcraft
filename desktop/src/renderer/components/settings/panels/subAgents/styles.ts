@@ -1,4 +1,8 @@
 import type { CSSProperties } from 'react'
+import {
+  settingsPageDescriptionStyle,
+  settingsPageTitleStyle
+} from '../../SettingsPageHeader'
 
 export function pageStyle(): CSSProperties {
   return {
@@ -9,20 +13,11 @@ export function pageStyle(): CSSProperties {
 }
 
 export function pageHeadingStyle(): CSSProperties {
-  return {
-    fontSize: '15px',
-    fontWeight: 600,
-    color: 'var(--text-primary)',
-    marginBottom: '4px'
-  }
+  return settingsPageTitleStyle()
 }
 
 export function pageDescriptionStyle(): CSSProperties {
-  return {
-    fontSize: '13px',
-    color: 'var(--text-dimmed)',
-    lineHeight: 1.5
-  }
+  return settingsPageDescriptionStyle()
 }
 
 export function inputStyle(mono = false): CSSProperties {

@@ -1,5 +1,6 @@
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
+using DotCraft.Localization;
 using DotCraft.Memory;
 using DotCraft.Skills;
 
@@ -70,7 +71,11 @@ public sealed class PromptBuilder(
 
         // Skills - Progressive loading approach:
         // 1. Always-loaded skills: include full content
-        var alwaysSkills = skillsLoader.GetAlwaysSkills();
+        var availableToolNames = toolNamesProvider?.Invoke();
+        if (IsToolAvailable(availableToolNames, "SkillManage"))
+            parts.Add(GetSelfLearningPrompt());
+
+        var alwaysSkills = skillsLoader.GetAlwaysSkills(availableToolNames);
         if (alwaysSkills.Count > 0)
         {
             var alwaysContent = skillsLoader.LoadSkillsForContext(alwaysSkills);
@@ -79,7 +84,7 @@ public sealed class PromptBuilder(
         }
 
         // 2. Available skills: show summary (agent uses ReadFile to load full content)
-        var skillsSummary = skillsLoader.BuildSkillsSummary(toolNamesProvider?.Invoke());
+        var skillsSummary = skillsLoader.BuildSkillsSummary(availableToolNames);
         if (!string.IsNullOrWhiteSpace(skillsSummary))
         {
             parts.Add(
@@ -121,6 +126,25 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
         }
 
         return string.Join("\n\n---\n\n", parts);
+    }
+
+    private static bool IsToolAvailable(IReadOnlyList<string>? availableToolNames, string toolName) =>
+        availableToolNames?.Any(name => string.Equals(name, toolName, StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static string GetSelfLearningPrompt()
+    {
+        return
+"""
+## Skill Self-Learning
+
+You can create and maintain workspace skills with `SkillManage`. Skills are procedural memory: reusable, narrow instructions for task types that are likely to recur.
+
+Consider creating or updating a skill after a complex task succeeds, a tricky error is fixed, a user correction reveals a stable workflow, or the user asks you to remember a procedure. Do not create skills for simple one-off answers.
+
+When you use a skill and find it stale, incomplete, wrong, or missing a pitfall, patch it with `SkillManage(action: "patch")`. Prefer `patch` for small corrections. For major rewrites, read the current `SKILL.md` first and then use `edit`.
+
+Newly created or updated skills may not affect the current prompt immediately; they are available after the next turn or session refresh.
+""";
     }
 
     /// <summary>

@@ -159,8 +159,3 @@ examples/telegram/
   README_ZH.md          本文件
 ```
 
-## 延伸阅读
-
-- [SDK README](./python.md) — `dotcraft_wire` SDK 概述和 API 参考。
-- [SDK 架构](https://github.com/DotHarness/dotcraft/blob/master/sdk/python/ARCHITECTURE.md) — SDK 内部原理说明。
-- [外部渠道适配器规范](https://github.com/DotHarness/dotcraft/blob/master/specs/external-channel-adapter.md) — Wire Protocol 扩展规范。

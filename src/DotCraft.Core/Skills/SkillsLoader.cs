@@ -37,6 +37,28 @@ public sealed class SkillsLoader(string workspaceRoot)
     public bool IsSkillEnabled(string name) => !_disabledSkills.Contains(name);
 
     /// <summary>
+    /// Returns the directory where a workspace-owned skill with the given name should live.
+    /// </summary>
+    public string ResolveWorkspaceSkillDir(string name) => Path.Combine(WorkspaceSkillsPath, name);
+
+    /// <summary>
+    /// Returns whether the given skill currently resolves to the workspace skill directory.
+    /// </summary>
+    public bool IsWorkspaceSkill(string name)
+    {
+        var skillFile = Path.Combine(ResolveWorkspaceSkillDir(name), "SKILL.md");
+        return File.Exists(skillFile);
+    }
+
+    /// <summary>
+    /// Invalidates cached skill descriptors. This loader currently scans on demand,
+    /// but mutation callers use this hook so future caching can be added centrally.
+    /// </summary>
+    public void RefreshDescriptors()
+    {
+    }
+
+    /// <summary>
     /// List all available skills (workspace and builtin).
     /// </summary>
     /// <param name="filterUnavailable">If true, filter out skills with unmet requirements.</param>
@@ -201,9 +223,11 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         foreach (var skillGroup in resourcesBySkill)
         {
-            var skillName = skillGroup.Key;
+            var embeddedSkillName = skillGroup.Key;
+            var skillName = ReadBuiltInSkillName(assembly, skillGroup) ?? embeddedSkillName;
             var skillDir = Path.Combine(WorkspaceSkillsPath, skillName);
             var markerPath = Path.Combine(skillDir, markerFile);
+            MigrateLegacyBuiltInSkillDir(embeddedSkillName, skillName, markerFile);
 
             // If the skill directory exists but has no .builtin marker, the user owns it
             if (Directory.Exists(skillDir) && !File.Exists(markerPath))
@@ -228,6 +252,44 @@ public sealed class SkillsLoader(string workspaceRoot)
 
             File.WriteAllText(markerPath, currentVersion);
         }
+    }
+
+    private static string? ReadBuiltInSkillName(
+        Assembly assembly,
+        IEnumerable<(string SkillName, string FileName, string ResourceName)> resources)
+    {
+        var skillResource = resources.FirstOrDefault(
+            resource => string.Equals(resource.FileName, "SKILL.md", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(skillResource.ResourceName))
+            return null;
+
+        using var stream = assembly.GetManifestResourceStream(skillResource.ResourceName);
+        if (stream == null)
+            return null;
+
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var content = reader.ReadToEnd();
+        return ReadFrontmatterValue(content, "name");
+    }
+
+    private void MigrateLegacyBuiltInSkillDir(string legacyName, string canonicalName, string markerFile)
+    {
+        if (string.Equals(legacyName, canonicalName, StringComparison.Ordinal))
+            return;
+
+        var legacyDir = Path.Combine(WorkspaceSkillsPath, legacyName);
+        if (!Directory.Exists(legacyDir) || !File.Exists(Path.Combine(legacyDir, markerFile)))
+            return;
+
+        var canonicalDir = Path.Combine(WorkspaceSkillsPath, canonicalName);
+        if (!Directory.Exists(canonicalDir))
+        {
+            Directory.Move(legacyDir, canonicalDir);
+            return;
+        }
+
+        // Legacy built-ins are generated artifacts. Keep user-owned canonical skills intact.
+        Directory.Delete(legacyDir, recursive: true);
     }
 
     /// <summary>
@@ -291,14 +353,25 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// <summary>
     /// Get skills marked as always=true.
     /// </summary>
-    public List<string> GetAlwaysSkills()
+    public List<string> GetAlwaysSkills(IReadOnlyCollection<string>? availableToolNames = null)
     {
         var result = new List<string>();
+        var toolSet = availableToolNames == null
+            ? null
+            : new HashSet<string>(availableToolNames, StringComparer.OrdinalIgnoreCase);
 
         foreach (var skill in ListSkills())
         {
             if (!skill.Enabled)
                 continue;
+
+            if (toolSet != null && skill.Requirements?.Tools.Count > 0)
+            {
+                var missingTool = skill.Requirements.Tools.Any(t => !toolSet.Contains(t));
+                if (missingTool)
+                    continue;
+            }
+
             var metadata = GetSkillMetadata(skill.Name);
             if (metadata != null && metadata.GetValueOrDefault("always", "false").ToLowerInvariant() == "true")
             {
@@ -338,6 +411,28 @@ public sealed class SkillsLoader(string workspaceRoot)
         }
 
         return metadata;
+    }
+
+    private static string? ReadFrontmatterValue(string content, string key)
+    {
+        if (!content.StartsWith("---"))
+            return null;
+
+        var match = Regex.Match(content, @"^---\r?\n(.*?)\r?\n---", RegexOptions.Singleline);
+        if (!match.Success)
+            return null;
+
+        foreach (var line in match.Groups[1].Value.Split('\n'))
+        {
+            if (!line.Contains(':'))
+                continue;
+
+            var parts = line.Split(':', 2);
+            if (parts.Length == 2 && string.Equals(parts[0].Trim(), key, StringComparison.OrdinalIgnoreCase))
+                return parts[1].Trim().Trim('"', '\'');
+        }
+
+        return null;
     }
 
     /// <summary>

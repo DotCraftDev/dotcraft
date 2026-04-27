@@ -119,12 +119,3 @@ When `RequireAuth` is enabled, the client must send a Bearer token matching `AgU
 ### Port conflicts
 
 Use Gateway when services need to share a port. Outside Gateway, configure different ports for API, Dashboard, and AG-UI.
-
----
-
-## Related Documentation
-
-- [Configuration Guide](./config_guide.md) - Complete configuration reference
-- [API Mode Guide](./api_guide.md) - OpenAI-compatible API mode
-- [DashBoard Guide](./dash_board_guide.md) - Built-in Web debugging UI
-- [Documentation Index](./reference.md) - Full documentation navigation
