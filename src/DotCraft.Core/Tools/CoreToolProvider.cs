@@ -110,10 +110,7 @@ public sealed class CoreToolProvider : IAgentToolProvider
                 context.ApprovalService);
             tools.Add(AIFunctionFactory.Create(
                 skillManageTool.SkillManage,
-                "SkillManage",
-                selfLearning.AllowDelete
-                    ? SkillManageTool.DescriptionWithDelete
-                    : SkillManageTool.DescriptionWithoutDelete));
+                "SkillManage"));
         }
 
         return tools;

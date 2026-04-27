@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, type CSSProperties } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
@@ -16,6 +16,7 @@ import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { RefreshIcon } from '../ui/AppIcons'
 
 function SkeletonCard(): JSX.Element {
   return (
@@ -245,18 +246,10 @@ export function AutomationsView(): JSX.Element {
                     type="button"
                     onClick={() => void fetchTasks()}
                     aria-label={t('auto.refreshTasks')}
-                    style={{
-                    padding: '5px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {t('common.refresh')}
+                    style={refreshToolbarButtonStyle}
+                  >
+                    <RefreshIcon size={14} />
+                    {t('common.refresh')}
                   </button>
                 </ActionTooltip>
               )}
@@ -266,18 +259,10 @@ export function AutomationsView(): JSX.Element {
                     type="button"
                     onClick={refreshCron}
                     aria-label={t('auto.refreshCron')}
-                    style={{
-                    padding: '5px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {t('common.refresh')}
+                    style={refreshToolbarButtonStyle}
+                  >
+                    <RefreshIcon size={14} />
+                    {t('common.refresh')}
                   </button>
                 </ActionTooltip>
               )}
@@ -812,4 +797,21 @@ export function AutomationsView(): JSX.Element {
       {selectedCronJobId && <CronReviewPanel />}
     </div>
   )
+}
+
+const refreshToolbarButtonStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '6px',
+  padding: '5px 12px',
+  borderRadius: '6px',
+  border: '1px solid var(--border-default)',
+  backgroundColor: 'transparent',
+  color: 'var(--text-secondary)',
+  fontSize: '12px',
+  fontWeight: 500,
+  lineHeight: 1,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap'
 }

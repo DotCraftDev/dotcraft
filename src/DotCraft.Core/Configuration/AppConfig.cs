@@ -707,12 +707,6 @@ public sealed class AppConfig
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Whether the destructive SkillManage delete action is enabled.
-        /// </summary>
-        [ConfigField(Hint = "Enable SkillManage action=delete (destructive). Requires Enabled=true", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
-        public bool AllowDelete { get; set; }
-
-        /// <summary>
         /// Maximum SKILL.md content length in characters.
         /// </summary>
         [ConfigField(Min = 1, Hint = "Maximum SKILL.md size in characters")]

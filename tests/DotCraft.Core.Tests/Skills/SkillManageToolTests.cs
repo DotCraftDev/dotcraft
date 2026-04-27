@@ -15,7 +15,7 @@ public sealed class SkillManageToolTests : IDisposable
     {
         Directory.CreateDirectory(_tempRoot);
         _skillsLoader = new SkillsLoader(_tempRoot);
-        _tool = CreateTool(allowDelete: true);
+        _tool = CreateTool();
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class SkillManageToolTests : IDisposable
     public async Task Create_RequestsSkillApproval_AndExecutesOnAccept()
     {
         var approval = new RecordingApprovalService(approved: true);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("create", "approved-skill", content: ValidSkill("approved-skill")));
 
@@ -74,7 +74,7 @@ public sealed class SkillManageToolTests : IDisposable
     public async Task Create_RejectedApproval_DoesNotWriteSkill_ReturnsRejectionMessage()
     {
         var approval = new RecordingApprovalService(approved: false);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("create", "rejected-skill", content: ValidSkill("rejected-skill")));
 
@@ -133,7 +133,7 @@ public sealed class SkillManageToolTests : IDisposable
     {
         await Invoke(() => _tool.SkillManage("create", "patch-skill", content: ValidSkill("patch-skill")));
         var approval = new RecordingApprovalService(approved: false);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("patch", "patch-skill", oldString: "Follow these steps.", newString: "Follow these updated steps."));
 
@@ -158,7 +158,7 @@ public sealed class SkillManageToolTests : IDisposable
     {
         await Invoke(() => _tool.SkillManage("create", "edit-skill", content: ValidSkill("edit-skill")));
         var approval = new RecordingApprovalService(approved: false);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("edit", "edit-skill", content: ValidSkill("edit-skill", "Changed workflow.")));
 
@@ -214,7 +214,7 @@ public sealed class SkillManageToolTests : IDisposable
     }
 
     [Fact]
-    public async Task SkillManage_DeleteWhenAllowed_RemovesWorkspaceSkill()
+    public async Task SkillManage_Delete_RemovesWorkspaceSkill()
     {
         await Invoke(() => _tool.SkillManage("create", "delete-skill", content: ValidSkill("delete-skill")));
 
@@ -229,7 +229,7 @@ public sealed class SkillManageToolTests : IDisposable
     {
         await Invoke(() => _tool.SkillManage("create", "delete-skill", content: ValidSkill("delete-skill")));
         var approval = new RecordingApprovalService(approved: true);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("delete", "delete-skill"));
 
@@ -243,26 +243,13 @@ public sealed class SkillManageToolTests : IDisposable
     {
         await Invoke(() => _tool.SkillManage("create", "delete-skill", content: ValidSkill("delete-skill")));
         var approval = new RecordingApprovalService(approved: false);
-        var tool = CreateTool(allowDelete: true, approval);
+        var tool = CreateTool(approval);
 
         var result = await Invoke(() => tool.SkillManage("delete", "delete-skill"));
 
         Assert.False(result.Success);
         Assert.Contains("rejected by user", result.Error);
         Assert.Equal(("skill", "delete", "delete-skill"), Assert.Single(approval.Requests));
-        Assert.True(Directory.Exists(Path.Combine(_skillsLoader.WorkspaceSkillsPath, "delete-skill")));
-    }
-
-    [Fact]
-    public async Task SkillManage_DeleteWhenDisabled_ReturnsError()
-    {
-        var tool = CreateTool(allowDelete: false);
-        await Invoke(() => tool.SkillManage("create", "delete-skill", content: ValidSkill("delete-skill")));
-
-        var result = await Invoke(() => tool.SkillManage("delete", "delete-skill"));
-
-        Assert.False(result.Success);
-        Assert.Contains("AllowDelete", result.Error);
         Assert.True(Directory.Exists(Path.Combine(_skillsLoader.WorkspaceSkillsPath, "delete-skill")));
     }
 
@@ -306,12 +293,11 @@ public sealed class SkillManageToolTests : IDisposable
         {body}
         """;
 
-    private SkillManageTool CreateTool(bool allowDelete, IApprovalService? approvalService = null)
+    private SkillManageTool CreateTool(IApprovalService? approvalService = null)
     {
         var config = new AppConfig.SelfLearningConfig
         {
             Enabled = true,
-            AllowDelete = allowDelete,
             MaxSkillContentChars = 100_000,
             MaxSupportingFileBytes = 1_048_576
         };

@@ -96,8 +96,7 @@ Use `write_file` for supporting files. Use `patch` with `filePath` for targeted 
 
 ## Size Limits
 
-- `SKILL.md` must stay within `Skills.SelfLearning.MaxSkillContentChars`.
-- Supporting files must stay within `Skills.SelfLearning.MaxSupportingFileBytes`.
+- `SkillManage` enforces size limits for `SKILL.md` and supporting files.
 - If a skill is growing too large, keep `SKILL.md` focused on triggers, workflow, pitfalls, and verification. Put executable helpers in `scripts/` and static examples in `assets/`.
 
 ## Common Pitfalls

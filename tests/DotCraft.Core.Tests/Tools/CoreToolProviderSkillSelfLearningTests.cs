@@ -24,19 +24,7 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
     [Fact]
     public void CreateTools_SelfLearningEnabled_ExposesSingleSkillManageTool()
     {
-        var tools = CreateTools(new AppConfig.SelfLearningConfig { Enabled = true, AllowDelete = false });
-        var skillTools = tools
-            .Where(tool => tool.Name.StartsWith("Skill", StringComparison.Ordinal))
-            .Select(tool => tool.Name)
-            .ToArray();
-
-        Assert.Equal(["SkillManage"], skillTools);
-    }
-
-    [Fact]
-    public void CreateTools_SelfLearningDeleteAllowed_StillExposesSingleSkillManageTool()
-    {
-        var tools = CreateTools(new AppConfig.SelfLearningConfig { Enabled = true, AllowDelete = true });
+        var tools = CreateTools(new AppConfig.SelfLearningConfig { Enabled = true });
         var skillTools = tools
             .Where(tool => tool.Name.StartsWith("Skill", StringComparison.Ordinal))
             .Select(tool => tool.Name)

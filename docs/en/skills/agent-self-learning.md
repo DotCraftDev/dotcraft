@@ -12,8 +12,7 @@ Set the workspace configuration:
 {
   "Skills": {
     "SelfLearning": {
-      "Enabled": true,
-      "AllowDelete": false
+      "Enabled": true
     }
   }
 }
@@ -26,7 +25,6 @@ Configuration changes require a new session or host restart because the tool lis
 | Setting | Default | Description |
 |---|---:|---|
 | `Skills.SelfLearning.Enabled` | `true` | Master switch, enabled by default. When disabled, `SkillManage` is not exposed and `skill-authoring` is not loaded. |
-| `Skills.SelfLearning.AllowDelete` | `false` | Enables `SkillManage(action: "delete")`. Deletion is destructive and must be enabled separately. |
 | `Skills.SelfLearning.MaxSkillContentChars` | `100000` | Maximum size of one `SKILL.md`, in characters. |
 | `Skills.SelfLearning.MaxSupportingFileBytes` | `1048576` | Maximum size of one supporting file, in bytes. |
 
@@ -47,13 +45,12 @@ Action reference:
 | `edit` | `name`, `content` | Replace an existing workspace skill's `SKILL.md`. |
 | `write_file` | `name`, `filePath`, `fileContent` | Write a supporting file. |
 | `remove_file` | `name`, `filePath` | Remove a supporting file. |
-| `delete` | `name` | Delete a workspace skill, only when `AllowDelete=true`. |
 
 ## Built-In Workflow Skill
 
 When self-learning is enabled, DotCraft injects lightweight self-learning guidance whenever `SkillManage` is available, describing when to create or patch workspace skills. The built-in `skill-authoring` skill appears in the skills summary as an on-demand authoring reference for `SKILL.md` frontmatter, action selection, supporting-file directory rules, common pitfalls, and verification guidance.
 
-`SkillManage` triggers DotCraft approval (`kind: skill`) before `create` and `delete`, consistent with file and Shell approvals. `edit` / `patch` / `write_file` / `remove_file` do not require approval.
+`SkillManage` triggers DotCraft approval (`kind: skill`) before `create`, consistent with file and Shell approvals; destructive `delete` requests are approval-gated as well if invoked. `edit` / `patch` / `write_file` / `remove_file` do not require approval.
 
 `skill-authoring` declares `tools: SkillManage`, so when self-learning is disabled and `SkillManage` is unavailable, it does not appear in the available skills list.
 

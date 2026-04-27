@@ -34,6 +34,7 @@ import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
+import { SettingsPageHeader } from './SettingsPageHeader'
 import {
   EditableKeyValueList,
   EditableValueList,
@@ -300,6 +301,25 @@ function cardStyle(): CSSProperties {
     borderRadius: '10px',
     background: 'var(--bg-secondary)',
     padding: '14px 16px'
+  }
+}
+
+function settingsMainStyle(): CSSProperties {
+  return {
+    flex: 1,
+    minWidth: 0,
+    overflowY: 'auto',
+    padding: '20px',
+    scrollbarGutter: 'stable'
+  }
+}
+
+function settingsContentContainerStyle(): CSSProperties {
+  return {
+    width: '100%',
+    maxWidth: '760px',
+    margin: '0 auto',
+    boxSizing: 'border-box'
   }
 }
 
@@ -2064,8 +2084,8 @@ export function SettingsView({
           </h1>
         </header>
 
-        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          <div style={{ width: '100%', maxWidth: '760px', margin: '0 auto' }}>
+        <main style={settingsMainStyle()}>
+          <div style={settingsContentContainerStyle()}>
             {(connectionDirty || llmDirty || proxyDirty) && (
               <div
                 style={{
@@ -3128,24 +3148,21 @@ export function SettingsView({
 
                 {mcpEnabled && editingServerName === null && (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {t('settings.mcp.title')}
+                    <SettingsPageHeader
+                      title={t('settings.mcp.title')}
+                      description={t('settings.mcp.description')}
+                      action={
+                        <button type="button" onClick={() => startMcpDraft()} style={primaryButtonStyle(false)}>
+                          {t('settings.mcp.addServer')}
+                        </button>
+                      }
+                    >
+                      {mcpSavedHint && (
+                        <div style={{ fontSize: '12px', color: 'var(--success)', marginTop: '6px' }}>
+                          {mcpSavedHint}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                          {t('settings.mcp.description')}
-                        </div>
-                        {mcpSavedHint && (
-                          <div style={{ fontSize: '12px', color: 'var(--success)', marginTop: '6px' }}>
-                            {mcpSavedHint}
-                          </div>
-                        )}
-                      </div>
-                      <button type="button" onClick={() => startMcpDraft()} style={primaryButtonStyle(false)}>
-                        {t('settings.mcp.addServer')}
-                      </button>
-                    </div>
+                      )}
+                    </SettingsPageHeader>
 
                     {mcpLoading && (
                       <div style={cardStyle()}>
@@ -3263,21 +3280,19 @@ export function SettingsView({
 
                 {mcpEnabled && editingServerName !== null && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {editingServerName === '__new__'
-                            ? t('settings.mcp.addTitle')
-                            : t('settings.mcp.editTitle')}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                          {t('settings.mcp.editIntro')}
-                        </div>
-                      </div>
-                      <button type="button" onClick={cancelMcpEdit} style={secondaryButtonStyle(false)}>
-                        {t('settings.mcp.back')}
-                      </button>
-                    </div>
+                    <SettingsPageHeader
+                      title={
+                        editingServerName === '__new__'
+                          ? t('settings.mcp.addTitle')
+                          : t('settings.mcp.editTitle')
+                      }
+                      description={t('settings.mcp.editIntro')}
+                      action={
+                        <button type="button" onClick={cancelMcpEdit} style={secondaryButtonStyle(false)}>
+                          {t('settings.mcp.back')}
+                        </button>
+                      }
+                    />
 
                     <div style={cardStyle()}>
                       <label style={sectionLabelStyle()}>{t('settings.mcp.field.name')}</label>
