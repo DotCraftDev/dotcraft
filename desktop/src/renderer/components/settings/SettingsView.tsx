@@ -603,7 +603,7 @@ export function SettingsView({
   const [applyingLlm, setApplyingLlm] = useState(false)
   const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
-  const [selfLearningEnabled, setSelfLearningEnabled] = useState(false)
+  const [selfLearningEnabled, setSelfLearningEnabled] = useState(true)
   const [applyingSelfLearning, setApplyingSelfLearning] = useState(false)
   const [selfLearningRestartPending, setSelfLearningRestartPending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
