@@ -1717,6 +1717,12 @@ public sealed class WorkspaceConfigUpdateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? WelcomeSuggestionsEnabled { get; set; }
+
+    /// <summary>
+    /// Workspace-level toggle for agent self-learning. Null removes the workspace override.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? SkillsSelfLearningEnabled { get; set; }
 }
 
 /// <summary>
@@ -1751,6 +1757,13 @@ public sealed class WorkspaceConfigUpdateResult
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? WelcomeSuggestionsEnabled { get; set; }
+
+    /// <summary>
+    /// Persisted workspace self-learning toggle after normalization.
+    /// Null means the workspace override was removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? SkillsSelfLearningEnabled { get; set; }
 }
 
 /// <summary>

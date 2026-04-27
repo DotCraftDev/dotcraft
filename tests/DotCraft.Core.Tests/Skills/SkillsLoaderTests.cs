@@ -19,7 +19,7 @@ public sealed class SkillsLoaderTests : IDisposable
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(["browser_use", "create_hooks", "heartbeat", "memory"], skills);
+        Assert.Equal(["browser_use", "create_hooks", "heartbeat", "memory", "skill_authoring"], skills);
     }
 
     public void Dispose()

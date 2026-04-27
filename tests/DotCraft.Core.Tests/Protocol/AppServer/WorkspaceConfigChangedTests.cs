@@ -90,7 +90,77 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
     }
 
     [Fact]
-    public async Task WorkspaceConfigUpdate_ModelApiKeyEndPointAndWelcomeSuggestions_EmitsAllWorkspaceRegions()
+    public async Task WorkspaceConfigUpdate_SkillsSelfLearningOnly_WritesConfigAndEmitsSkillsRegion()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.WorkspaceConfigUpdate, new
+        {
+            skillsSelfLearningEnabled = true
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.Skills);
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.GetProperty("Skills").GetProperty("SelfLearning").GetProperty("Enabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task WorkspaceConfigUpdate_SkillsSelfLearningNull_RemovesLeafAndPrunesEmptySections()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """
+            {
+              "Skills": {
+                "SelfLearning": {
+                  "Enabled": true
+                }
+              }
+            }
+            """);
+
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        using var requestDoc = JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "workspace/config/update",
+              "params": {
+                "skillsSelfLearningEnabled": null
+              }
+            }
+            """);
+        var req = new AppServerIncomingMessage
+        {
+            JsonRpc = "2.0",
+            Id = requestDoc.RootElement.GetProperty("id").Clone(),
+            Method = AppServerMethods.WorkspaceConfigUpdate,
+            Params = requestDoc.RootElement.GetProperty("params").Clone()
+        };
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        var response = Assert.Single(sent, d => d.RootElement.TryGetProperty("result", out _));
+        Assert.Equal(JsonValueKind.Null, response.RootElement.GetProperty("result").GetProperty("skillsSelfLearningEnabled").ValueKind);
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.Skills);
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.TryGetProperty("Skills", out _));
+    }
+
+    [Fact]
+    public async Task WorkspaceConfigUpdate_ModelApiKeyEndPointWelcomeSuggestionsAndSelfLearning_EmitsAllWorkspaceRegions()
     {
         using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
         using var bridge = AttachConfigChangedBridge(harness);
@@ -101,7 +171,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
             model = "gpt-4o-mini",
             apiKey = "sk-live-key",
             endPoint = "https://example.com/v1",
-            welcomeSuggestionsEnabled = false
+            welcomeSuggestionsEnabled = false,
+            skillsSelfLearningEnabled = true
         });
         await harness.ExecuteRequestAsync(req);
 
@@ -113,7 +184,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
                 ConfigChangeRegions.WorkspaceModel,
                 ConfigChangeRegions.WorkspaceApiKey,
                 ConfigChangeRegions.WorkspaceEndPoint,
-                ConfigChangeRegions.WelcomeSuggestions
+                ConfigChangeRegions.WelcomeSuggestions,
+                ConfigChangeRegions.Skills
             ]);
     }
 

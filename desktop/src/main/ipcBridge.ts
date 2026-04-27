@@ -236,6 +236,7 @@ interface WorkspaceCoreConfigSnapshot {
   apiKey: string | null
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
+  skillsSelfLearningEnabled: boolean | null
 }
 
 function getCaseInsensitiveRecordValue(
@@ -264,6 +265,14 @@ function readNestedBoolean(
   return typeof raw === 'boolean' ? raw : null
 }
 
+function readSkillsSelfLearningEnabled(record: Record<string, unknown>): boolean | null {
+  const skills = getCaseInsensitiveRecordValue(record, 'Skills')
+  if (skills == null || typeof skills !== 'object' || Array.isArray(skills)) {
+    return null
+  }
+  return readNestedBoolean(skills as Record<string, unknown>, 'SelfLearning', 'Enabled')
+}
+
 async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
   try {
     const raw = await fs.readFile(configPath, 'utf8')
@@ -271,12 +280,13 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
     return {
       apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
       endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint),
-      welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled')
+      welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled'),
+      skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed)
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
     if (code === 'ENOENT') {
-      return { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null }
+      return { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null }
     }
     throw error
   }
@@ -665,7 +675,7 @@ export function registerIpcHandlers(
     const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
       if (!workspacePath) {
         return {
-          workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null },
+          workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null },
           userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
         }
       }

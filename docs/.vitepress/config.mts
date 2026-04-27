@@ -15,6 +15,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'Desktop', link: '/desktop_guide' },
       { text: 'TUI', link: '/tui_guide' },
       { text: '配置与安全', link: '/config_guide' },
+      { text: 'Agent Skill 自学习', link: '/skills/agent-self-learning' },
       { text: 'Dashboard', link: '/dash_board_guide' },
       { text: '文档索引', link: '/reference' },
       { text: '设置生效层级', link: '/settings-lifecycle' }
@@ -75,6 +76,7 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Desktop', link: '/en/desktop_guide' },
       { text: 'TUI', link: '/en/tui_guide' },
       { text: 'Configuration & Security', link: '/en/config_guide' },
+      { text: 'Agent Skill Self-Learning', link: '/en/skills/agent-self-learning' },
       { text: 'Dashboard', link: '/en/dash_board_guide' },
       { text: 'Documentation Index', link: '/en/reference' },
       { text: 'Settings Lifecycle', link: '/en/settings-lifecycle' }

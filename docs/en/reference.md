@@ -10,6 +10,7 @@ Choose docs by goal. If this is your first time, start with [Getting Started](./
 | Use the visual desktop client | [Desktop Guide](./desktop_guide.md) |
 | Use a full terminal interface | [TUI Guide](./tui_guide.md) |
 | Understand config files, API keys, security boundaries, and tool switches | [Configuration & Security](./config_guide.md) |
+| Let the agent optionally create, patch, and maintain workspace skills | [Agent Skill Self-Learning](./skills/agent-self-learning.md) |
 | Inspect traces, sessions, tool calls, and visual configuration | [Dashboard Guide](./dash_board_guide.md) |
 
 ## I Want to Connect a Client or Editor

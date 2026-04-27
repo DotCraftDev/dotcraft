@@ -86,6 +86,7 @@ interface WorkspaceCoreConfig {
   apiKey: string | null
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
+  skillsSelfLearningEnabled: boolean | null
 }
 
 interface WorkspaceCoreConfigResult {
@@ -96,7 +97,8 @@ interface WorkspaceCoreConfigResult {
 const EMPTY_WORKSPACE_CORE_CONFIG: WorkspaceCoreConfig = {
   apiKey: null,
   endPoint: null,
-  welcomeSuggestionsEnabled: null
+  welcomeSuggestionsEnabled: null,
+  skillsSelfLearningEnabled: null
 }
 
 function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
@@ -107,6 +109,10 @@ function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
     welcomeSuggestionsEnabled:
       typeof source.welcomeSuggestionsEnabled === 'boolean'
         ? source.welcomeSuggestionsEnabled
+        : null,
+    skillsSelfLearningEnabled:
+      typeof source.skillsSelfLearningEnabled === 'boolean'
+        ? source.skillsSelfLearningEnabled
         : null
   }
 }
@@ -293,7 +299,7 @@ function cardStyle(): CSSProperties {
     border: '1px solid var(--border-default)',
     borderRadius: '10px',
     background: 'var(--bg-secondary)',
-    padding: '14px'
+    padding: '14px 16px'
   }
 }
 
@@ -561,12 +567,14 @@ export function SettingsView({
   const [workspaceCoreBaseline, setWorkspaceCoreBaseline] = useState<WorkspaceCoreConfig>({
     apiKey: null,
     endPoint: null,
-    welcomeSuggestionsEnabled: null
+    welcomeSuggestionsEnabled: null,
+    skillsSelfLearningEnabled: null
   })
   const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
     apiKey: null,
     endPoint: null,
-    welcomeSuggestionsEnabled: null
+    welcomeSuggestionsEnabled: null,
+    skillsSelfLearningEnabled: null
   })
   const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
   const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
@@ -575,6 +583,9 @@ export function SettingsView({
   const [applyingLlm, setApplyingLlm] = useState(false)
   const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
+  const [selfLearningEnabled, setSelfLearningEnabled] = useState(false)
+  const [applyingSelfLearning, setApplyingSelfLearning] = useState(false)
+  const [selfLearningRestartPending, setSelfLearningRestartPending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const workspaceCoreApiAvailable = getWorkspaceCoreReader(window.api) != null
 
@@ -643,6 +654,11 @@ export function SettingsView({
       core.userDefaults.welcomeSuggestionsEnabled ??
       true
     setWelcomeSuggestionsEnabled(resolvedWelcomeSuggestionsEnabled)
+    const resolvedSelfLearningEnabled =
+      core.workspace.skillsSelfLearningEnabled ??
+      core.userDefaults.skillsSelfLearningEnabled ??
+      true
+    setSelfLearningEnabled(resolvedSelfLearningEnabled)
 
     if (keepDraftValues) {
       return
@@ -702,6 +718,32 @@ export function SettingsView({
       }
     },
     [reloadWorkspaceCore, t, welcomeSuggestionsEnabled]
+  )
+
+  const handleSelfLearningToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = selfLearningEnabled
+      setSelfLearningEnabled(checked)
+      setApplyingSelfLearning(true)
+      try {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', {
+          skillsSelfLearningEnabled: checked
+        }) as { skillsSelfLearningEnabled?: boolean | null }
+        const persisted = typeof result?.skillsSelfLearningEnabled === 'boolean'
+          ? result.skillsSelfLearningEnabled
+          : checked
+        setSelfLearningEnabled(persisted)
+        setSelfLearningRestartPending(true)
+        await reloadWorkspaceCore()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setSelfLearningEnabled(previous)
+        addToast(t('settings.personalization.selfLearningSaveFailed', { error: msg }), 'error')
+      } finally {
+        setApplyingSelfLearning(false)
+      }
+    },
+    [reloadWorkspaceCore, selfLearningEnabled, t]
   )
 
   useSettingsWorkspaceConfigChangeEffects({
@@ -1521,6 +1563,27 @@ export function SettingsView({
     }
   }
 
+  async function handleRestartManagedAppServerForSelfLearning(): Promise<void> {
+    setRestartingAppServer(true)
+    try {
+      setExpectedRestart(true)
+      await window.api.appServer.restartManaged()
+      setSelfLearningRestartPending(false)
+      await reloadWorkspaceCore()
+      addToast(t('settings.restartAppServerSuccess'), 'success')
+    } catch (err) {
+      setExpectedRestart(false)
+      addToast(
+        t('settings.restartAppServerFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setRestartingAppServer(false)
+    }
+  }
+
   async function handlePickBinary(): Promise<void> {
     try {
       const picked = await window.api.appServer.pickBinary()
@@ -2219,6 +2282,45 @@ export function SettingsView({
                 <SettingsGroup
                   title={t('settings.group.personalization')}
                 >
+                  {selfLearningRestartPending && (
+                    <SettingsRow>
+                      <div
+                        role="status"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid var(--border-default)',
+                          borderRadius: '8px',
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          fontSize: '12px',
+                          lineHeight: 1.5
+                        }}
+                      >
+                        <span style={{ flex: 1 }}>
+                          {canRestartManagedAppServer
+                            ? t('settings.personalization.selfLearningRestartBanner')
+                            : t('settings.personalization.selfLearningRestartBannerRemote')}
+                        </span>
+                        {canRestartManagedAppServer && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleRestartManagedAppServerForSelfLearning()
+                            }}
+                            disabled={restartingAppServer}
+                            style={secondaryActionButtonStyle(restartingAppServer)}
+                          >
+                            <RefreshIcon size={14} />
+                            {t('settings.personalization.selfLearningRestartButton')}
+                          </button>
+                        )}
+                      </div>
+                    </SettingsRow>
+                  )}
                   <SettingsRow
                     label={t('settings.personalization.welcomeSuggestions')}
                     description={t('settings.personalization.welcomeSuggestionsHint')}
@@ -2226,8 +2328,23 @@ export function SettingsView({
                       <PillSwitch
                         checked={welcomeSuggestionsEnabled}
                         disabled={applyingWelcomeSuggestions}
+                        aria-label={t('settings.personalization.welcomeSuggestions')}
                         onChange={(checked) => {
                           void handleWelcomeSuggestionsToggle(checked)
+                        }}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.personalization.selfLearning')}
+                    description={t('settings.personalization.selfLearningHint')}
+                    control={
+                      <PillSwitch
+                        checked={selfLearningEnabled}
+                        disabled={applyingSelfLearning}
+                        aria-label={t('settings.personalization.selfLearning')}
+                        onChange={(checked) => {
+                          void handleSelfLearningToggle(checked)
                         }}
                       />
                     }

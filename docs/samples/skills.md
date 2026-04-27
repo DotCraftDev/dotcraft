@@ -13,7 +13,7 @@
 
 1. 在你的工作区创建 `.craft/skills/`。
 2. 将需要的示例目录复制进去，例如 `.craft/skills/dev-guide/`。
-3. 根据项目实际约定修改 `SKILL.md` 和 `references/` 中的说明。
+3. 根据项目实际约定修改 `SKILL.md` 和 supporting files 中的说明。
 4. 在任务中明确要求 agent 使用对应 skill，或在项目说明中约定默认使用。
 
 ## 建议

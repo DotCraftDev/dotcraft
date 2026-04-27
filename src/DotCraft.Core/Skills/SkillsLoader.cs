@@ -37,6 +37,28 @@ public sealed class SkillsLoader(string workspaceRoot)
     public bool IsSkillEnabled(string name) => !_disabledSkills.Contains(name);
 
     /// <summary>
+    /// Returns the directory where a workspace-owned skill with the given name should live.
+    /// </summary>
+    public string ResolveWorkspaceSkillDir(string name) => Path.Combine(WorkspaceSkillsPath, name);
+
+    /// <summary>
+    /// Returns whether the given skill currently resolves to the workspace skill directory.
+    /// </summary>
+    public bool IsWorkspaceSkill(string name)
+    {
+        var skillFile = Path.Combine(ResolveWorkspaceSkillDir(name), "SKILL.md");
+        return File.Exists(skillFile);
+    }
+
+    /// <summary>
+    /// Invalidates cached skill descriptors. This loader currently scans on demand,
+    /// but mutation callers use this hook so future caching can be added centrally.
+    /// </summary>
+    public void RefreshDescriptors()
+    {
+    }
+
+    /// <summary>
     /// List all available skills (workspace and builtin).
     /// </summary>
     /// <param name="filterUnavailable">If true, filter out skills with unmet requirements.</param>
@@ -291,14 +313,25 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// <summary>
     /// Get skills marked as always=true.
     /// </summary>
-    public List<string> GetAlwaysSkills()
+    public List<string> GetAlwaysSkills(IReadOnlyCollection<string>? availableToolNames = null)
     {
         var result = new List<string>();
+        var toolSet = availableToolNames == null
+            ? null
+            : new HashSet<string>(availableToolNames, StringComparer.OrdinalIgnoreCase);
 
         foreach (var skill in ListSkills())
         {
             if (!skill.Enabled)
                 continue;
+
+            if (toolSet != null && skill.Requirements?.Tools.Count > 0)
+            {
+                var missingTool = skill.Requirements.Tools.Any(t => !toolSet.Contains(t));
+                if (missingTool)
+                    continue;
+            }
+
             var metadata = GetSkillMetadata(skill.Name);
             if (metadata != null && metadata.GetValueOrDefault("always", "false").ToLowerInvariant() == "true")
             {

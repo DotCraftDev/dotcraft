@@ -85,6 +85,8 @@ public static class ServiceRegistration
         var skillsLoader = new SkillsLoader(botPath);
         skillsLoader.DeployBuiltInSkills();
         services.AddSingleton(skillsLoader);
+        services.AddSingleton<ISkillMutationApplier>(sp =>
+            new WorkspaceFileSkillMutationApplier(sp.GetRequiredService<SkillsLoader>()));
 
         var customCommandLoader = new CustomCommandLoader(botPath);
         customCommandLoader.DeployBuiltInCommands();

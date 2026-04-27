@@ -61,6 +61,16 @@ public sealed class ToolProviderContext
     public required SkillsLoader SkillsLoader { get; init; }
 
     /// <summary>
+    /// Applies workspace skill mutations for optional self-learning tools.
+    /// Defaults to the direct workspace-file implementation.
+    /// </summary>
+    public ISkillMutationApplier SkillMutationApplier
+    {
+        get => field ??= new WorkspaceFileSkillMutationApplier(SkillsLoader);
+        init;
+    }
+
+    /// <summary>
     /// The approval service for sensitive operations.
     /// </summary>
     public required IApprovalService ApprovalService { get; init; }

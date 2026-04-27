@@ -10,6 +10,7 @@
 | 使用图形化桌面客户端 | [Desktop 指南](./desktop_guide.md) |
 | 在终端里使用完整界面 | [TUI 指南](./tui_guide.md) |
 | 理解配置文件、API Key、安全边界和工具开关 | [配置与安全](./config_guide.md) |
+| 让 agent 可选地创建、修补和维护工作区 skill | [Agent Skill 自学习](./skills/agent-self-learning.md) |
 | 查看 Trace、会话、工具调用和可视化配置 | [Dashboard 指南](./dash_board_guide.md) |
 
 ## 我想接入客户端或编辑器

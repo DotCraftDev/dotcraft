@@ -689,6 +689,40 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "JSON array of skill names to disable for this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
         public List<string> DisabledSkills { get; set; } = [];
+
+        /// <summary>
+        /// Optional agent self-learning behavior for creating and updating workspace skills.
+        /// </summary>
+        [ConfigField(Ignore = true)]
+        public SelfLearningConfig SelfLearning { get; set; } = new();
+    }
+
+    [ConfigSection("Skills.SelfLearning", DisplayName = "Skills > Self-Learning", Order = 58)]
+    public sealed class SelfLearningConfig
+    {
+        /// <summary>
+        /// Master switch. When disabled, no skill mutation tools are exposed.
+        /// </summary>
+        [ConfigField(Hint = "Allow the agent to create and update workspace skills", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>
+        /// Whether the destructive SkillManage delete action is enabled.
+        /// </summary>
+        [ConfigField(Hint = "Enable SkillManage action=delete (destructive). Requires Enabled=true", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
+        public bool AllowDelete { get; set; }
+
+        /// <summary>
+        /// Maximum SKILL.md content length in characters.
+        /// </summary>
+        [ConfigField(Min = 1, Hint = "Maximum SKILL.md size in characters")]
+        public int MaxSkillContentChars { get; set; } = DotCraft.Skills.SkillFrontmatter.DefaultMaxSkillContentChars;
+
+        /// <summary>
+        /// Maximum supporting file size in bytes.
+        /// </summary>
+        [ConfigField(Min = 1, Hint = "Maximum supporting file size in bytes")]
+        public int MaxSupportingFileBytes { get; set; } = DotCraft.Skills.SkillFrontmatter.DefaultMaxSupportingFileBytes;
     }
 
     [ConfigSection("SubAgent", DisplayName = "SubAgent", Order = 58)]

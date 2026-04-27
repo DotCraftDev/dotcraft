@@ -13,7 +13,7 @@
 
 1. Create `.craft/skills/` in your workspace.
 2. Copy the sample directory you need, such as `.craft/skills/dev-guide/`.
-3. Adjust `SKILL.md` and files under `references/` to match your project.
+3. Adjust `SKILL.md` and supporting files to match your project.
 4. Ask the agent to use that skill in a task, or make it part of your project defaults.
 
 ## Guidance
