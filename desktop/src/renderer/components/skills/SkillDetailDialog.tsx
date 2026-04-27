@@ -3,6 +3,7 @@ import { useT } from '../../contexts/LocaleContext'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import type { SkillEntry } from '../../stores/skillsStore'
 import { dirname } from '../../utils/path'
+import { SkillAvatar } from './SkillAvatar'
 
 interface SkillDetailDialogProps {
   skill: SkillEntry
@@ -85,25 +86,12 @@ export function SkillDetailDialog({
               }}
             >
             <div
-              aria-hidden
               style={{
-                width: '40px',
-                height: '40px',
-                minWidth: '40px',
-                minHeight: '40px',
                 flex: '0 0 auto',
-                flexShrink: 0,
-                borderRadius: '8px',
-                backgroundColor: 'var(--bg-tertiary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: '16px',
-                color: 'var(--text-primary)'
+                flexShrink: 0
               }}
             >
-              {(skill.name[0] ?? '?').toUpperCase()}
+              <SkillAvatar name={skill.name} size={40} />
             </div>
             <div style={{ flex: '1 1 auto', minWidth: 0 }}>
               <h2

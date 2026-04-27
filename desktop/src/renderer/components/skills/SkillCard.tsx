@@ -1,5 +1,6 @@
 import { useT } from '../../contexts/LocaleContext'
 import type { SkillEntry } from '../../stores/skillsStore'
+import { SkillAvatar } from './SkillAvatar'
 import { PillSwitch } from '../ui/PillSwitch'
 
 interface SkillCardProps {
@@ -13,8 +14,6 @@ interface SkillCardProps {
  */
 export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): JSX.Element {
   const t = useT()
-  const letter = (skill.name[0] ?? '?').toUpperCase()
-  const hue = hashHue(skill.name)
 
   function handleSwitchClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -50,24 +49,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
         ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--bg-secondary)'
       }}
     >
-      <div
-        aria-hidden
-        style={{
-          width: '40px',
-          height: '40px',
-          borderRadius: '8px',
-          backgroundColor: `hsla(${hue}, 35%, 28%, 0.9)`,
-          color: 'var(--text-primary)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '16px',
-          fontWeight: 700,
-          flexShrink: 0
-        }}
-      >
-        {letter}
-      </div>
+      <SkillAvatar name={skill.name} size={40} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
@@ -173,8 +155,3 @@ function SourceBadge({
   return <span style={styles[source]}>{labels[source]}</span>
 }
 
-function hashHue(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
-  return h % 360
-}
