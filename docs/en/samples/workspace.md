@@ -236,10 +236,3 @@ Or point `SANDBOX_CONFIG_PATH` at an existing config file.
 ### Sandbox and Dashboard both try to use the same port
 
 Change either `DashBoard.Port` or `Tools.Sandbox.Domain` so they do not collide.
-
-## Related Docs
-
-- [Project README](https://github.com/DotHarness/dotcraft/blob/master/README.md)
-- [Configuration Guide](../config_guide)
-- [Dashboard Guide](../dash_board_guide)
-- [QQ Channel Adapter](../sdk/typescript-qq)

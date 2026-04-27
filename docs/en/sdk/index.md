@@ -50,9 +50,3 @@ Check whether the adapter declares delivery capabilities and channel tools durin
 ### You are not sure whether to choose Python or TypeScript
 
 Choose Python for quick standalone adapters. Choose TypeScript when reusing existing channel modules, interactive setup, or platform packages.
-
-## Related Protocols
-
-- [AppServer Mode Guide](../appserver_guide.md)
-- [TypeScript Channel Module Host Integration](../typescript-channel-module-host-integration.md)
-- [External CLI Subagents Guide](../external_cli_subagents_guide.md)

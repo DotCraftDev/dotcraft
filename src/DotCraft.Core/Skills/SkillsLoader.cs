@@ -223,9 +223,11 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         foreach (var skillGroup in resourcesBySkill)
         {
-            var skillName = skillGroup.Key;
+            var embeddedSkillName = skillGroup.Key;
+            var skillName = ReadBuiltInSkillName(assembly, skillGroup) ?? embeddedSkillName;
             var skillDir = Path.Combine(WorkspaceSkillsPath, skillName);
             var markerPath = Path.Combine(skillDir, markerFile);
+            MigrateLegacyBuiltInSkillDir(embeddedSkillName, skillName, markerFile);
 
             // If the skill directory exists but has no .builtin marker, the user owns it
             if (Directory.Exists(skillDir) && !File.Exists(markerPath))
@@ -250,6 +252,44 @@ public sealed class SkillsLoader(string workspaceRoot)
 
             File.WriteAllText(markerPath, currentVersion);
         }
+    }
+
+    private static string? ReadBuiltInSkillName(
+        Assembly assembly,
+        IEnumerable<(string SkillName, string FileName, string ResourceName)> resources)
+    {
+        var skillResource = resources.FirstOrDefault(
+            resource => string.Equals(resource.FileName, "SKILL.md", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(skillResource.ResourceName))
+            return null;
+
+        using var stream = assembly.GetManifestResourceStream(skillResource.ResourceName);
+        if (stream == null)
+            return null;
+
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var content = reader.ReadToEnd();
+        return ReadFrontmatterValue(content, "name");
+    }
+
+    private void MigrateLegacyBuiltInSkillDir(string legacyName, string canonicalName, string markerFile)
+    {
+        if (string.Equals(legacyName, canonicalName, StringComparison.Ordinal))
+            return;
+
+        var legacyDir = Path.Combine(WorkspaceSkillsPath, legacyName);
+        if (!Directory.Exists(legacyDir) || !File.Exists(Path.Combine(legacyDir, markerFile)))
+            return;
+
+        var canonicalDir = Path.Combine(WorkspaceSkillsPath, canonicalName);
+        if (!Directory.Exists(canonicalDir))
+        {
+            Directory.Move(legacyDir, canonicalDir);
+            return;
+        }
+
+        // Legacy built-ins are generated artifacts. Keep user-owned canonical skills intact.
+        Directory.Delete(legacyDir, recursive: true);
     }
 
     /// <summary>
@@ -371,6 +411,28 @@ public sealed class SkillsLoader(string workspaceRoot)
         }
 
         return metadata;
+    }
+
+    private static string? ReadFrontmatterValue(string content, string key)
+    {
+        if (!content.StartsWith("---"))
+            return null;
+
+        var match = Regex.Match(content, @"^---\r?\n(.*?)\r?\n---", RegexOptions.Singleline);
+        if (!match.Success)
+            return null;
+
+        foreach (var line in match.Groups[1].Value.Split('\n'))
+        {
+            if (!line.Contains(':'))
+                continue;
+
+            var parts = line.Split(':', 2);
+            if (parts.Length == 2 && string.Equals(parts[0].Trim(), key, StringComparison.OrdinalIgnoreCase))
+                return parts[1].Trim().Trim('"', '\'');
+        }
+
+        return null;
     }
 
     /// <summary>

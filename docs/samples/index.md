@@ -2,19 +2,19 @@
 
 这些示例帮助你从不同入口快速验证 DotCraft：Workspace 模板、API 调用、AG-UI 前端、自动化任务、Hooks 和内置 Skills。
 
-## Quick Start
+## 快速开始
 
 第一次验证建议按这个顺序：
 
 1. 先跑 [Workspace Sample](./workspace.md)，确认工作区结构和模型配置。
 2. 再按目标选择 API、AG-UI、Automations 或 Hooks 示例。
-3. 最后回到真实项目，把示例配置迁移到项目的 `.craft/`。
+3. 最后回到真实项目，把示例配置应用到项目的 `.craft/`。
 
-## Configuration
+## 配置
 
 示例源码保留在 [samples/](https://github.com/DotHarness/dotcraft/tree/master/samples)。文档页说明使用方式，具体代码、模板和脚本请从源码目录查看。
 
-## Usage Examples
+## 使用示例
 
 | 目标 | 示例 |
 |------|------|
@@ -26,13 +26,13 @@
 | 准备项目启动上下文 | [Bootstrap Samples](./bootstrap.md) |
 | 复用内置 Skill 模板 | [Skills Samples](./skills.md) |
 
-## Advanced Topics
+## 进阶
 
-- 示例中的配置片段可以迁移到真实项目的 `.craft/config.json`。
+- 示例中的配置片段可以应用到真实项目的 `.craft/config.json`。
 - 涉及 token 的示例优先使用环境变量，不要把密钥写入仓库。
 - 自动化和 GitHub 示例建议先在测试仓库验证。
 
-## Troubleshooting
+## 故障排查
 
 ### 示例找不到源码文件
 

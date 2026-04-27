@@ -97,7 +97,7 @@ AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多
 
 此配置下，`http://127.0.0.1:8080/v1/chat/completions` 提供 OpenAI API，`http://127.0.0.1:8080/ag-ui` 提供 AG-UI SSE 端点，均来自同一个服务器进程。
 
-## Usage Examples
+## 使用示例
 
 | 场景 | 做法 |
 |------|------|
@@ -106,7 +106,7 @@ AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多
 | 与 API 共用端口 | 在 Gateway 中配置相同 Host/Port，不同 Path |
 | 验证客户端接入 | 使用 [AG-UI Client Sample](./samples/ag-ui-client.md) |
 
-## Troubleshooting
+## 故障排查
 
 ### 前端收不到 SSE 事件
 
@@ -119,12 +119,3 @@ AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多
 ### 端口冲突
 
 需要共用端口时请使用 Gateway；非 Gateway 模式下为 API、Dashboard 和 AG-UI 配置不同端口。
-
----
-
-## 相关文档
-
-- [配置指南](./config_guide.md) - 完整配置项说明
-- [API 模式指南](./api_guide.md) - OpenAI 兼容 API 模式
-- [DashBoard 指南](./dash_board_guide.md) - 内置 Web 调试界面
-- [文档索引](./reference.md) - 完整文档导航

@@ -48,11 +48,11 @@ Action 速查：
 
 ## 内置工作流 skill
 
-启用自学习后，DotCraft 会在 `SkillManage` 可用时注入轻量 self-learning guidance，说明什么时候应该创建或修补 workspace skill。内置 `skill-authoring` skill 作为按需 authoring reference 出现在 skills summary 中，用于查看 `SKILL.md` frontmatter 要求、action 选择、supporting file 目录约束、常见坑和验证方法。
+启用自学习后，DotCraft 会在 `SkillManage` 可用时注入轻量 self-learning guidance，说明什么时候应该创建或修补 workspace skill。内置 `skill-authoring` skill 会作为按需 authoring reference 列入 skills summary，用于查看 `SKILL.md` frontmatter 要求、action 选择、supporting file 目录约束、常见坑和验证方法。
 
 `SkillManage` 在执行 `create` 前会触发 DotCraft 审批（`kind: skill`），与文件/Shell 审批一致；如果发起破坏性的 `delete` 请求，也会触发审批。`edit` / `patch` / `write_file` / `remove_file` 不需要审批。
 
-`skill-authoring` 声明了 `tools: SkillManage`，所以当自学习关闭、`SkillManage` 不存在时，它不会出现在可用 skill 列表中。
+`skill-authoring` 声明了 `tools: SkillManage`，所以当自学习关闭、`SkillManage` 不存在时，它不会列入可用 skill 列表。
 
 ## 边界
 

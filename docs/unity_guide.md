@@ -76,7 +76,7 @@ Unity 集成包含两个组件：
 1. 在 Unity 中通过 **Tools → DotCraft Assistant** 打开 DotCraft 窗口
 2. 点击 **Connect** 启动 DotCraft 进程并建立 ACP 会话
 3. 在输入框中输入消息并按 **Enter**（或点击 **Send**）
-4. AI 助手现在可以与您的 Unity 项目交互
+4. AI 助手即可与您的 Unity 项目交互
 
 ## 编辑器窗口
 

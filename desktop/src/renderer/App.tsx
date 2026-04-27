@@ -225,6 +225,7 @@ export function App(): JSX.Element {
   const [browserUseApprovalRequests, setBrowserUseApprovalRequests] = useState<BrowserUseApprovalRequestPayload[]>([])
   const activeMainView = useUIStore((s) => s.activeMainView)
   const activeDetailTab = useUIStore((s) => s.activeDetailTab)
+  const detailPanelVisible = useUIStore((s) => s.detailPanelVisible)
   const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
   const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
   const {
@@ -440,7 +441,7 @@ export function App(): JSX.Element {
       useCronStore.getState().reset()
       useAutomationsStore.getState().selectTask(null)
       useUIStore.getState().setAutomationsTab('tasks')
-      useUIStore.getState().setActiveDetailTab('changes')
+      useUIStore.getState().setActiveDetailTab('changes', { reveal: false })
       useUIStore.getState().setActiveMainView('conversation')
       useUIStore.getState().setPendingWelcomeTurn(null)
     }
@@ -1120,16 +1121,16 @@ export function App(): JSX.Element {
     if (activeThreadId) {
       const threadState = viewerStore.getThreadState(activeThreadId)
       if (threadState.activeTabId) {
-        useUIStore.getState().setActiveViewerTab(threadState.activeTabId)
+        useUIStore.getState().setActiveViewerTab(threadState.activeTabId, { reveal: false })
         const activeTab = threadState.tabs.find((tab) => tab.id === threadState.activeTabId)
-        if (activeTab?.kind === 'browser') {
-          void window.api.workspace.viewer.browser.setVisible({ tabId: activeTab.id, visible: true })
+        const uiState = useUIStore.getState()
+        if (activeTab?.kind === 'browser' && uiState.detailPanelVisible && uiState.activeMainView === 'conversation') {
           void window.api.workspace.viewer.browser.setActive({ tabId: activeTab.id })
         }
       } else {
         const { activeDetailTab } = useUIStore.getState()
         if (activeDetailTab.kind === 'viewer') {
-          useUIStore.getState().closeViewerTab()
+          useUIStore.getState().closeViewerTab({ reveal: false })
         }
       }
     }
@@ -1150,6 +1151,7 @@ export function App(): JSX.Element {
     const shouldHideBrowser =
       quickOpenVisible
       || activeMainView !== 'conversation'
+      || !detailPanelVisible
       || activeDetailTab.kind !== 'viewer'
 
     let activeBrowserTabId: string | null = null
@@ -1179,7 +1181,7 @@ export function App(): JSX.Element {
     } else if (!activeBrowserTabId) {
       activeBrowserTabSentRef.current = null
     }
-  }, [activeDetailTab, activeMainView, quickOpenVisible])
+  }, [activeDetailTab, activeMainView, detailPanelVisible, quickOpenVisible])
 
   useEffect(() => {
     const prev = prevThreadIdRef.current

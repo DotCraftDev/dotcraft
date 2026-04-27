@@ -108,9 +108,7 @@ public sealed class CoreToolProvider : IAgentToolProvider
                 context.SkillMutationApplier,
                 selfLearning,
                 context.ApprovalService);
-            tools.Add(AIFunctionFactory.Create(
-                skillManageTool.SkillManage,
-                "SkillManage"));
+            tools.Add(AIFunctionFactory.Create(skillManageTool.SkillManage));
         }
 
         return tools;

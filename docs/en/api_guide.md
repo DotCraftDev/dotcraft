@@ -79,8 +79,6 @@ print(response.choices[0].message.content)
 
 DotCraft's API mode can act as a model provider, chatting in popular AI desktop applications such as Chatbox.
 
-![Chatbox](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
-
 ---
 
 ## Configuration
@@ -161,12 +159,3 @@ When `Api.AutoApprove = false`, file and shell operations are automatically reje
 ### Clients cannot connect
 
 Confirm the API host, port, and path. When Gateway shares ports, OpenAI-compatible API routes still live under `/v1/...`.
-
----
-
-## Related Documentation
-
-- [Configuration Guide](./config_guide.md) - Complete configuration reference
-- [QQ Channel Adapter](./sdk/typescript-qq.md) - QQ external channel
-- [WeCom Channel Adapter](./sdk/typescript-wecom.md) - WeCom external channel
-- [Documentation Index](./reference.md) - Full documentation navigation

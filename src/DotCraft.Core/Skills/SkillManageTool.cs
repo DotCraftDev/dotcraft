@@ -21,17 +21,18 @@ public sealed class SkillManageTool(
         WriteIndented = false
     };
 
-    public const string DescriptionWithoutDelete =
+    private const string SkillManageDescription =
         """
         Manage workspace skills. The 'action' parameter must be one of:
-        'create', 'edit', 'patch', 'write_file', or 'remove_file'.
+        'create', 'edit', 'patch', 'write_file', 'remove_file' or `delete`.
 
         Examples:
         SkillManage(action: "create", name: "my-skill", content: "<full SKILL.md>") - create a new workspace skill;
         SkillManage(action: "patch", name: "my-skill", oldString: "...", newString: "...") - targeted fix in SKILL.md;
         SkillManage(action: "edit", name: "my-skill", content: "<full updated SKILL.md>") - full rewrite;
         SkillManage(action: "write_file", name: "my-skill", filePath: "scripts/check.sh", fileContent: "...") - write supporting file;
-        SkillManage(action: "remove_file", name: "my-skill", filePath: "assets/example.json") - remove supporting file.
+        SkillManage(action: "remove_file", name: "my-skill", filePath: "assets/example.json") - remove supporting file;
+        SkillManage(action: "delete", name: "my-skill") - delete the skill.
 
         Create when a complex task succeeded, a tricky error was fixed, a user correction produced a stable workflow,
         or the user asks you to remember a procedure. Update when a skill is stale, incomplete, wrong, or missing a pitfall.
@@ -44,10 +45,10 @@ public sealed class SkillManageTool(
     /// <summary>
     /// Creates and maintains reusable workspace skills.
     /// </summary>
-    [Description(DescriptionWithoutDelete)]
+    [Description(SkillManageDescription)]
     [StreamArguments(false)]
     public async Task<string> SkillManage(
-        [Description("Must be one of: 'create', 'edit', 'patch', 'write_file', or 'remove_file'.")]
+        [Description("Must be one of: 'create', 'edit', 'patch', 'write_file', 'remove_file' or `delete`.")]
         string action,
         [Description("Lowercase skill name using letters, numbers, hyphens, dots, or underscores. Required for every action.")]
         string name,

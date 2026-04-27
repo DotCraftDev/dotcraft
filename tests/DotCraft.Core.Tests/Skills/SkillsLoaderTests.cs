@@ -15,11 +15,28 @@ public sealed class SkillsLoaderTests : IDisposable
         loader.DeployBuiltInSkills();
 
         var skills = loader.ListSkills(filterUnavailable: false)
+            .Where(skill => skill.Source == "builtin")
             .Select(skill => skill.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(["browser_use", "create_hooks", "heartbeat", "memory", "skill_authoring"], skills);
+        Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "skill-authoring"], skills);
+    }
+
+    [Fact]
+    public void DeployBuiltInSkills_RemovesLegacyUnderscoreBuiltIns()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        var loader = new SkillsLoader(_tempRoot);
+        var legacyDir = Path.Combine(loader.WorkspaceSkillsPath, "skill_authoring");
+        Directory.CreateDirectory(legacyDir);
+        File.WriteAllText(Path.Combine(legacyDir, "SKILL.md"), "legacy");
+        File.WriteAllText(Path.Combine(legacyDir, ".builtin"), "0.0.0.0");
+
+        loader.DeployBuiltInSkills();
+
+        Assert.False(Directory.Exists(legacyDir));
+        Assert.True(Directory.Exists(Path.Combine(loader.WorkspaceSkillsPath, "skill-authoring")));
     }
 
     public void Dispose()

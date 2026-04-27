@@ -2,7 +2,7 @@
 
 TUI 是 DotCraft 的 Rust 原生终端界面，适合希望在终端中获得完整交互体验的用户。它通过 AppServer Wire Protocol 连接 DotCraft，并复用同一套工作区、会话和审批能力。
 
-## Quick Start
+## 快速开始
 
 ### 构建
 
@@ -31,7 +31,7 @@ dotcraft-tui --server-bin /usr/local/bin/dotcraft
 DOTCRAFT_BIN=/usr/local/bin/dotcraft dotcraft-tui
 ```
 
-## Configuration
+## 配置
 
 | 参数 | 说明 |
 |------|------|
@@ -48,7 +48,7 @@ dotcraft app-server --listen ws://127.0.0.1:9100
 dotcraft-tui --remote ws://127.0.0.1:9100/ws
 ```
 
-## Usage Examples
+## 使用示例
 
 | 场景 | 命令 |
 |------|------|
@@ -59,13 +59,13 @@ dotcraft-tui --remote ws://127.0.0.1:9100/ws
 
 常用斜杠命令包括 `/new`、`/compact`、`/clear`、`/quit`。完整快捷键和主题说明见仓库中的 `tui/README_ZH.md`。
 
-## Advanced Topics
+## 进阶
 
 - 默认模式适合本地使用；远程模式适合共享 AppServer 或多客户端接入。
 - 可通过 `DOTCRAFT_TUI_LOG=debug dotcraft-tui 2>tui.log` 打开日志。
 - 可用 `cargo build --release --features clipboard` 构建系统剪贴板支持。
 
-## Troubleshooting
+## 故障排查
 
 ### TUI 找不到 `dotcraft`
 
@@ -78,9 +78,3 @@ dotcraft-tui --remote ws://127.0.0.1:9100/ws
 ### 终端显示异常
 
 确认终端尺寸足够，并使用支持 Unicode 和颜色的现代终端。必要时先使用默认主题排查。
-
-## Related
-
-- [快速开始](./getting-started.md)
-- [AppServer 模式指南](./appserver_guide.md)
-- [配置与安全](./config_guide.md)
