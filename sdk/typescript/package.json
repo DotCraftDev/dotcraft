@@ -1,6 +1,6 @@
 {
   "name": "dotcraft-wire",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "TypeScript SDK for the DotCraft AppServer Wire Protocol (JSON-RPC 2.0)",
   "type": "module",
