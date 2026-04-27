@@ -148,6 +148,8 @@ $targets = @(
     @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-feishu/package.json" },
     @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-weixin/package.json" },
     @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-telegram/package.json" },
+    @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-qq/package.json" },
+    @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-wecom/package.json" },
     @{ Type = "packageJson"; Path = "src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/package.json" }
 )
 
