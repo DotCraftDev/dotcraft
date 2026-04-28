@@ -1,4 +1,5 @@
 using DotCraft.Context.Compaction;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Context.Compaction;
 
@@ -91,6 +92,61 @@ public sealed class CompactionPipelineTests
         Assert.Equal(1.0, threshold.PercentLeft, 3);
     }
 
+    [Fact]
+    public async Task TryAutoCompactHistoryAsync_BelowThresholdSkips()
+    {
+        var cfg = DefaultConfig();
+        var pipeline = new CompactionPipeline(cfg, new DummyChatClient());
+
+        var result = await pipeline.TryAutoCompactHistoryAsync(
+            [new ChatMessage(ChatRole.User, "short")],
+            "thread-1",
+            10_000,
+            lastAssistantTimestampUtc: null,
+            CancellationToken.None);
+
+        Assert.Equal(CompactionOutcome.Skipped, result.Status.Outcome);
+        Assert.Equal(10_000, result.Status.EstimatedTokensBefore);
+        Assert.Single(result.Messages);
+    }
+
+    [Fact]
+    public async Task TryAutoCompactHistoryAsync_AboveThresholdReturnsReplacementHistory()
+    {
+        var cfg = new CompactionConfig
+        {
+            ContextWindow = 2_000,
+            SummaryReserveTokens = 200,
+            AutoCompactBufferTokens = 100,
+            KeepRecentMinTokens = 1,
+            KeepRecentMinGroups = 1,
+            KeepRecentMaxTokens = 100_000,
+            MicrocompactEnabled = false
+        };
+        var pipeline = new CompactionPipeline(
+            cfg,
+            new SummaryChatClient("<summary>important context</summary>"));
+
+        var messages = new List<ChatMessage>();
+        for (var i = 0; i < 6; i++)
+        {
+            messages.Add(new ChatMessage(ChatRole.User, $"user {i} " + new string('u', 600)));
+            messages.Add(new ChatMessage(ChatRole.Assistant, $"assistant {i} " + new string('a', 600)));
+        }
+
+        var result = await pipeline.TryAutoCompactHistoryAsync(
+            messages,
+            "thread-1",
+            10_000,
+            lastAssistantTimestampUtc: null,
+            CancellationToken.None);
+
+        Assert.Equal(CompactionOutcome.Partial, result.Status.Outcome);
+        Assert.True(result.Messages.Count < messages.Count);
+        Assert.Contains("important context", result.Messages[0].Text);
+        Assert.True(result.Status.EstimatedTokensAfter < result.Status.EstimatedTokensBefore);
+    }
+
     private sealed class DummyChatClient : Microsoft.Extensions.AI.IChatClient
     {
         public Task<Microsoft.Extensions.AI.ChatResponse> GetResponseAsync(
@@ -98,6 +154,26 @@ public sealed class CompactionPipelineTests
             Microsoft.Extensions.AI.ChatOptions? options = null,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public IAsyncEnumerable<Microsoft.Extensions.AI.ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,
+            Microsoft.Extensions.AI.ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class SummaryChatClient(string responseText) : Microsoft.Extensions.AI.IChatClient
+    {
+        public Task<Microsoft.Extensions.AI.ChatResponse> GetResponseAsync(
+            IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,
+            Microsoft.Extensions.AI.ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new Microsoft.Extensions.AI.ChatResponse(
+                new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Assistant, responseText)));
 
         public IAsyncEnumerable<Microsoft.Extensions.AI.ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,

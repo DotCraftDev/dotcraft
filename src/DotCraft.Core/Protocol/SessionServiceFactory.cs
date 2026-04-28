@@ -1,5 +1,6 @@
 using DotCraft.Agents;
 using DotCraft.Abstractions;
+using DotCraft.Configuration;
 using DotCraft.Hooks;
 using DotCraft.Logging;
 using DotCraft.Security;
@@ -45,6 +46,7 @@ public static class SessionServiceFactory
             approvalStore: sp.GetService<ApprovalStore>(),
             toolProfileRegistry: sp.GetService<IToolProfileRegistry>(),
             sessionStreamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
-            backgroundTerminalService: sp.GetService<IBackgroundTerminalService>());
+            backgroundTerminalService: sp.GetService<IBackgroundTerminalService>(),
+            appConfigMonitor: sp.GetService<IAppConfigMonitor>());
     }
 }

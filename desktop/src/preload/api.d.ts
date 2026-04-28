@@ -334,12 +334,14 @@ declare global {
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
           userDefaults: {
             apiKey: string | null
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
         }>
       }
@@ -414,7 +416,12 @@ declare global {
             workspacePath: string
             query: string
             limit: number
-          }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
+          }): Promise<{
+            files: Array<{ name: string; relativePath: string; dir: string }>
+            indexStatus?: 'empty' | 'building' | 'ready'
+            indexedCount?: number
+            stale?: boolean
+          }>
           classify(params: {
             absolutePath: string
           }): Promise<{

@@ -35,6 +35,15 @@ public sealed record CompactionStatus(
 }
 
 /// <summary>
+/// Result of a history-level compaction attempt. The returned message list is
+/// the model-visible history that callers should use for the next sampling
+/// request when the status succeeded.
+/// </summary>
+public sealed record CompactionHistoryResult(
+    CompactionStatus Status,
+    IReadOnlyList<ChatMessage> Messages);
+
+/// <summary>
 /// Threshold evaluation for a given token count. Mirrors openclaude's
 /// <c>calculateTokenWarningState</c>.
 /// </summary>
@@ -126,24 +135,42 @@ public sealed class CompactionPipeline
         DateTimeOffset? lastAssistantTimestampUtc,
         CancellationToken cancellationToken)
     {
+        int BeforeFromHintOrZero() => inputTokenHint > 0
+            ? (int)Math.Min(int.MaxValue, inputTokenHint)
+            : 0;
+
         if (!_config.AutoCompactEnabled)
+        {
+            var skippedBefore = BeforeFromHintOrZero();
+            var threshold = EvaluateThreshold(skippedBefore);
             return new CompactionStatus(
                 CompactionOutcome.Skipped,
-                0, 0,
-                EvaluateThreshold(0), EvaluateThreshold(0));
+                skippedBefore, skippedBefore,
+                threshold, threshold,
+                FailureReason: "auto_disabled");
+        }
 
         if (!TryGetProvider(session, out var provider))
+        {
+            var skippedBefore = BeforeFromHintOrZero();
+            var threshold = EvaluateThreshold(skippedBefore);
             return new CompactionStatus(
                 CompactionOutcome.Skipped,
-                0, 0,
-                EvaluateThreshold(0), EvaluateThreshold(0));
+                skippedBefore, skippedBefore,
+                threshold, threshold,
+                FailureReason: "no_history_provider");
+        }
 
         if (_failures.IsTripped(threadId))
+        {
+            var skippedBefore = BeforeFromHintOrZero();
+            var threshold = EvaluateThreshold(skippedBefore);
             return new CompactionStatus(
                 CompactionOutcome.Skipped,
-                0, 0,
-                EvaluateThreshold(0), EvaluateThreshold(0),
+                skippedBefore, skippedBefore,
+                threshold, threshold,
                 FailureReason: "circuit_breaker_tripped");
+        }
 
         var history = SnapshotHistory(session, provider);
         var before = inputTokenHint > 0
@@ -156,9 +183,68 @@ public sealed class CompactionPipeline
                 CompactionOutcome.Skipped,
                 before, before, beforeThreshold, beforeThreshold);
 
+        var result = await RunCompactionAsync(
+            history,
+            before,
+            beforeThreshold,
+            threadId,
+            lastAssistantTimestampUtc,
+            cancellationToken);
+
+        ApplyHistoryReplacement(session, provider, result.Messages);
+        return result.Status;
+    }
+
+    /// <summary>
+    /// Auto compacts an explicit model-visible history snapshot. This is used
+    /// at sampling boundaries where the next request already has its complete
+    /// message list, including tool results or same-turn guidance.
+    /// </summary>
+    public async Task<CompactionHistoryResult> TryAutoCompactHistoryAsync(
+        IReadOnlyList<ChatMessage> history,
+        string threadId,
+        long inputTokenHint,
+        DateTimeOffset? lastAssistantTimestampUtc,
+        CancellationToken cancellationToken)
+    {
+        var before = inputTokenHint > 0
+            ? (int)Math.Min(int.MaxValue, inputTokenHint)
+            : MessageTokenEstimator.Estimate(history);
+        var beforeThreshold = EvaluateThreshold(before);
+
+        if (!_config.AutoCompactEnabled)
+        {
+            return new CompactionHistoryResult(
+                new CompactionStatus(
+                    CompactionOutcome.Skipped,
+                    before, before,
+                    beforeThreshold, beforeThreshold,
+                    FailureReason: "auto_disabled"),
+                history);
+        }
+
+        if (_failures.IsTripped(threadId))
+        {
+            return new CompactionHistoryResult(
+                new CompactionStatus(
+                    CompactionOutcome.Skipped,
+                    before, before,
+                    beforeThreshold, beforeThreshold,
+                    FailureReason: "circuit_breaker_tripped"),
+                history);
+        }
+
+        if (!beforeThreshold.AboveAuto)
+        {
+            return new CompactionHistoryResult(
+                new CompactionStatus(
+                    CompactionOutcome.Skipped,
+                    before, before,
+                    beforeThreshold, beforeThreshold),
+                history);
+        }
+
         return await RunCompactionAsync(
-            provider,
-            session,
             history,
             before,
             beforeThreshold,
@@ -203,9 +289,7 @@ public sealed class CompactionPipeline
         var before = MessageTokenEstimator.Estimate(history);
         var beforeThreshold = EvaluateThreshold(before);
 
-        return await RunCompactionAsync(
-            provider,
-            session,
+        var result = await RunCompactionAsync(
             history,
             before,
             beforeThreshold,
@@ -213,6 +297,8 @@ public sealed class CompactionPipeline
             lastAssistantTimestampUtc,
             cancellationToken,
             forcePartial: true);
+        ApplyHistoryReplacement(session, provider, result.Messages);
+        return result.Status;
     }
 
     /// <summary>
@@ -244,9 +330,7 @@ public sealed class CompactionPipeline
         var before = MessageTokenEstimator.Estimate(history);
         var beforeThreshold = EvaluateThreshold(before);
 
-        return await RunCompactionAsync(
-            provider,
-            session,
+        var result = await RunCompactionAsync(
             history,
             before,
             beforeThreshold,
@@ -254,6 +338,8 @@ public sealed class CompactionPipeline
             lastAssistantTimestampUtc,
             cancellationToken,
             forcePartial: true);
+        ApplyHistoryReplacement(session, provider, result.Messages);
+        return result.Status;
     }
 
     /// <summary>
@@ -261,9 +347,7 @@ public sealed class CompactionPipeline
     /// </summary>
     public void Forget(string threadId) => _failures.Forget(threadId);
 
-    private async Task<CompactionStatus> RunCompactionAsync(
-        InMemoryChatHistoryProvider provider,
-        AgentSession session,
+    private async Task<CompactionHistoryResult> RunCompactionAsync(
         IReadOnlyList<ChatMessage> history,
         int before,
         CompactionThreshold beforeThreshold,
@@ -279,17 +363,18 @@ public sealed class CompactionPipeline
 
         if (microResult.Trigger != MicroCompactTrigger.None && !forcePartial)
         {
-            ApplyHistoryReplacement(session, provider, afterMicroHistory);
             if (!afterMicroThreshold.AboveAuto)
             {
                 _failures.RecordSuccess(threadId);
-                return new CompactionStatus(
-                    CompactionOutcome.Micro,
-                    before,
-                    afterMicroTokens,
-                    beforeThreshold,
-                    afterMicroThreshold,
-                    microResult.ClearedCount);
+                return new CompactionHistoryResult(
+                    new CompactionStatus(
+                        CompactionOutcome.Micro,
+                        before,
+                        afterMicroTokens,
+                        beforeThreshold,
+                        afterMicroThreshold,
+                        microResult.ClearedCount),
+                    afterMicroHistory);
             }
         }
 
@@ -309,33 +394,38 @@ public sealed class CompactionPipeline
         catch (Exception ex)
         {
             _failures.RecordFailure(threadId);
-            return new CompactionStatus(
-                CompactionOutcome.Failed,
-                before,
-                MessageTokenEstimator.Estimate(historyForPartial),
-                beforeThreshold,
-                EvaluateThreshold(MessageTokenEstimator.Estimate(historyForPartial)),
-                microResult.ClearedCount,
-                FailureReason: ex.Message);
+            var afterFailure = MessageTokenEstimator.Estimate(historyForPartial);
+            return new CompactionHistoryResult(
+                new CompactionStatus(
+                    CompactionOutcome.Failed,
+                    before,
+                    afterFailure,
+                    beforeThreshold,
+                    EvaluateThreshold(afterFailure),
+                    microResult.ClearedCount,
+                    FailureReason: ex.Message),
+                historyForPartial);
         }
 
         if (partial is null)
         {
             _failures.RecordFailure(threadId);
-            return new CompactionStatus(
-                CompactionOutcome.Failed,
-                before,
-                MessageTokenEstimator.Estimate(historyForPartial),
-                beforeThreshold,
-                EvaluateThreshold(MessageTokenEstimator.Estimate(historyForPartial)),
-                microResult.ClearedCount,
-                FailureReason: "summary_unavailable");
+            var afterFailure = MessageTokenEstimator.Estimate(historyForPartial);
+            return new CompactionHistoryResult(
+                new CompactionStatus(
+                    CompactionOutcome.Failed,
+                    before,
+                    afterFailure,
+                    beforeThreshold,
+                    EvaluateThreshold(afterFailure),
+                    microResult.ClearedCount,
+                    FailureReason: "summary_unavailable"),
+                historyForPartial);
         }
 
         var summaryMessage = new ChatMessage(ChatRole.Assistant, partial.FormattedSummary);
         var newHistory = new List<ChatMessage>(1 + partial.PreservedTail.Count) { summaryMessage };
         newHistory.AddRange(partial.PreservedTail);
-        ApplyHistoryReplacement(session, provider, newHistory);
 
         if (_memoryConsolidator != null && ShouldConsolidate(partial))
         {
@@ -346,13 +436,15 @@ public sealed class CompactionPipeline
         var afterThreshold = EvaluateThreshold(afterTokens);
         _failures.RecordSuccess(threadId);
 
-        return new CompactionStatus(
-            CompactionOutcome.Partial,
-            before,
-            afterTokens,
-            beforeThreshold,
-            afterThreshold,
-            microResult.ClearedCount);
+        return new CompactionHistoryResult(
+            new CompactionStatus(
+                CompactionOutcome.Partial,
+                before,
+                afterTokens,
+                beforeThreshold,
+                afterThreshold,
+                microResult.ClearedCount),
+            newHistory);
     }
 
     private bool ShouldConsolidate(PartialCompactResult partial)

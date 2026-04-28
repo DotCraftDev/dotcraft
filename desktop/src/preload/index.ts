@@ -436,12 +436,14 @@ const api = {
         endPoint: string | null
         welcomeSuggestionsEnabled: boolean | null
         skillsSelfLearningEnabled: boolean | null
+        defaultApprovalPolicy: 'default' | 'autoApprove' | null
       }
       userDefaults: {
         apiKey: string | null
         endPoint: string | null
         welcomeSuggestionsEnabled: boolean | null
         skillsSelfLearningEnabled: boolean | null
+        defaultApprovalPolicy: 'default' | 'autoApprove' | null
       }
     }> {
       return ipcRenderer.invoke('workspace-config:get-core')
@@ -686,7 +688,12 @@ const api = {
         workspacePath: string
         query: string
         limit: number
-      }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
+      }): Promise<{
+        files: Array<{ name: string; relativePath: string; dir: string }>
+        indexStatus?: 'empty' | 'building' | 'ready'
+        indexedCount?: number
+        stale?: boolean
+      }> {
         return ipcRenderer.invoke('workspace:viewer:list-files', params)
       },
 

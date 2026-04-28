@@ -7,6 +7,8 @@ import type { QueuedTurnInput } from './conversation'
 
 export type ThreadStatus = 'active' | 'paused' | 'archived'
 
+export type ApprovalPolicyWire = 'default' | 'autoApprove' | 'interrupt'
+
 export interface ThreadSummary {
   id: string
   displayName: string | null
@@ -36,6 +38,7 @@ export interface ThreadConfigurationWire {
   mode?: string
   model?: string
   Model?: string
+  approvalPolicy?: ApprovalPolicyWire
   [key: string]: unknown
 }
 

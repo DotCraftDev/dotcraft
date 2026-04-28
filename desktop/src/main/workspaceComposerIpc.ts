@@ -2,11 +2,11 @@
  * IPC helpers for the conversation composer: temp image save and workspace file search.
  */
 import { randomUUID } from 'crypto'
+import { Worker } from 'worker_threads'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { translate, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 import { watch as fsWatch, type FSWatcher } from 'fs'
-import { globby } from 'globby'
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
@@ -40,6 +40,63 @@ const GLOB_FORCE_IGNORE: string[] = Array.from(FORCE_EXCLUDED_PATH_SEGMENTS).map
 
 /** Debounce invalidating the in-memory index after fs.watch events (saves full globby rescans). */
 const INDEX_INVALIDATE_DEBOUNCE_MS = 1200
+const FILE_INDEX_CACHE_SCHEMA_VERSION = 1
+const FILE_INDEX_IGNORE_CONFIG_VERSION = 'force-exclude-v1'
+const FILE_INDEX_CACHE_RELATIVE_PATH = path.join('.craft', 'cache', 'desktop-file-index-v1.json')
+
+const FILE_INDEX_WORKER_SOURCE = String.raw`
+const { parentPort, workerData } = require('worker_threads')
+const path = require('path')
+const fs = require('fs/promises')
+
+function shouldForceExclude(relPath, excludedSegments) {
+  for (const segment of relPath.split('/')) {
+    if (segment && excludedSegments.includes(segment)) return true
+  }
+  return false
+}
+
+function shouldSkipFile(relPath) {
+  const base = path.basename(relPath)
+  return base.endsWith('.pyc') || base.endsWith('.min.js')
+}
+
+(async () => {
+  const root = path.resolve(workerData.workspaceRoot)
+  const { globby } = await import('globby')
+  const paths = await globby('**/*', {
+    cwd: root,
+    onlyFiles: true,
+    gitignore: true,
+    dot: true,
+    ignore: workerData.ignorePatterns
+  })
+  const entries = []
+  for (const relRaw of paths) {
+    const rel = relRaw.replace(/\\/g, '/')
+    if (shouldForceExclude(rel, workerData.excludedSegments)) continue
+    if (shouldSkipFile(rel)) continue
+    const name = path.basename(rel)
+    const dir = path.dirname(rel) === '.' ? '' : path.dirname(rel).replace(/\\/g, '/')
+    entries.push({ relativePath: rel, name, dir })
+  }
+  const cache = {
+    schemaVersion: workerData.schemaVersion,
+    workspaceRoot: root,
+    generatedAt: new Date().toISOString(),
+    ignoreConfigVersion: workerData.ignoreConfigVersion,
+    entries
+  }
+  await fs.mkdir(path.dirname(workerData.cachePath), { recursive: true })
+  await fs.writeFile(workerData.cachePath, JSON.stringify(cache), 'utf8')
+  parentPort.postMessage({ type: 'success', entries, pathCount: paths.length })
+})().catch((error) => {
+  parentPort.postMessage({
+    type: 'error',
+    error: error && error.message ? error.message : String(error)
+  })
+})
+`
 
 export interface FileMatchWire {
   name: string
@@ -53,51 +110,49 @@ export interface FileIndexEntry {
   dir: string
 }
 
+export type FileIndexStatus = 'empty' | 'building' | 'ready'
+
+export interface FileListResultWire {
+  files: FileMatchWire[]
+  indexStatus: FileIndexStatus
+  indexedCount: number
+  stale: boolean
+}
+
+interface FileIndexCacheWire {
+  schemaVersion: number
+  workspaceRoot: string
+  generatedAt: string
+  ignoreConfigVersion: string
+  entries: FileIndexEntry[]
+}
+
+interface WorkerSuccessMessage {
+  type: 'success'
+  entries: FileIndexEntry[]
+  pathCount: number
+}
+
+interface WorkerErrorMessage {
+  type: 'error'
+  error: string
+}
+
 let fileIndex: FileIndexEntry[] | null = null
 let fileIndexWorkspace: string | null = null
+let activeIndexWorkspace: string | null = null
 let fileIndexWatcher: FSWatcher | null = null
 let indexInvalidateDebounce: ReturnType<typeof setTimeout> | null = null
+let fileIndexStale = false
 
 /** Bumped on explicit invalidate or debounced watch invalidation so in-flight builds do not commit stale data. */
 let fileIndexEpoch = 0
 
 let indexBuildPending: Promise<FileIndexEntry[]> | null = null
 let indexBuildPendingRoot: string | null = null
-
-function shouldSkipFile(relPath: string): boolean {
-  const base = path.basename(relPath)
-  if (base.endsWith('.pyc')) return true
-  if (base.endsWith('.min.js')) return true
-  return false
-}
-
-function shouldForceExclude(relPath: string): boolean {
-  for (const segment of relPath.split('/')) {
-    if (segment && FORCE_EXCLUDED_PATH_SEGMENTS.has(segment)) return true
-  }
-  return false
-}
-
-async function buildFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
-  const root = path.resolve(workspaceRoot)
-  const paths = await globby('**/*', {
-    cwd: root,
-    onlyFiles: true,
-    gitignore: true,
-    dot: true,
-    ignore: GLOB_FORCE_IGNORE
-  })
-  const out: FileIndexEntry[] = []
-  for (const relRaw of paths) {
-    const rel = relRaw.replace(/\\/g, '/')
-    if (shouldForceExclude(rel)) continue
-    if (shouldSkipFile(rel)) continue
-    const name = path.basename(rel)
-    const dir = path.dirname(rel) === '.' ? '' : path.dirname(rel).replace(/\\/g, '/')
-    out.push({ relativePath: rel, name, dir })
-  }
-  return out
-}
+let indexCacheLoadPending: Promise<FileIndexEntry[] | null> | null = null
+let indexCacheLoadPendingRoot: string | null = null
+let buildWorker: Worker | null = null
 
 function scheduleDebouncedIndexInvalidate(): void {
   if (indexInvalidateDebounce) {
@@ -106,8 +161,10 @@ function scheduleDebouncedIndexInvalidate(): void {
   indexInvalidateDebounce = setTimeout(() => {
     indexInvalidateDebounce = null
     fileIndexEpoch++
-    fileIndex = null
-    fileIndexWorkspace = null
+    fileIndexStale = true
+    if (activeIndexWorkspace) {
+      void startBackgroundIndexBuild(activeIndexWorkspace, 'fs-watch-stale').catch(() => {})
+    }
   }, INDEX_INVALIDATE_DEBOUNCE_MS)
 }
 
@@ -124,36 +181,166 @@ function ensureFsWatchForWorkspace(resolvedRoot: string): void {
   }
 }
 
-export async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
-  const resolved = path.resolve(workspaceRoot)
-  if (fileIndex && fileIndexWorkspace === resolved) {
-    return fileIndex
+function cachePathForWorkspace(resolvedRoot: string): string {
+  return path.join(resolvedRoot, FILE_INDEX_CACHE_RELATIVE_PATH)
+}
+
+function isValidCacheEntry(value: unknown): value is FileIndexEntry {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.relativePath === 'string' &&
+    typeof candidate.name === 'string' &&
+    typeof candidate.dir === 'string'
+  )
+}
+
+function parseFileIndexCache(raw: string, resolvedRoot: string): FileIndexEntry[] | null {
+  const parsed = JSON.parse(raw) as Partial<FileIndexCacheWire>
+  if (parsed.schemaVersion !== FILE_INDEX_CACHE_SCHEMA_VERSION) return null
+  if (parsed.ignoreConfigVersion !== FILE_INDEX_IGNORE_CONFIG_VERSION) return null
+  if (path.resolve(parsed.workspaceRoot ?? '') !== resolvedRoot) return null
+  if (!Array.isArray(parsed.entries)) return null
+  if (!parsed.entries.every(isValidCacheEntry)) return null
+  return parsed.entries
+}
+
+async function loadCacheForWorkspace(resolvedRoot: string): Promise<FileIndexEntry[] | null> {
+  if (fileIndex && fileIndexWorkspace === resolvedRoot) return fileIndex
+  if (indexCacheLoadPending && indexCacheLoadPendingRoot === resolvedRoot) {
+    return indexCacheLoadPending
   }
-  if (indexBuildPending && indexBuildPendingRoot === resolved) {
+  const p = (async () => {
+    try {
+      const raw = await fs.readFile(cachePathForWorkspace(resolvedRoot), 'utf8')
+      const entries = parseFileIndexCache(raw, resolvedRoot)
+      if (!entries) {
+        return null
+      }
+      if (activeIndexWorkspace === resolvedRoot) {
+        fileIndex = entries
+        fileIndexWorkspace = resolvedRoot
+        fileIndexStale = true
+        ensureFsWatchForWorkspace(resolvedRoot)
+      }
+      return entries
+    } catch {
+      return null
+    }
+  })().finally(() => {
+    indexCacheLoadPending = null
+    indexCacheLoadPendingRoot = null
+  })
+  indexCacheLoadPending = p
+  indexCacheLoadPendingRoot = resolvedRoot
+  return p
+}
+
+function startBackgroundIndexBuild(resolvedRoot: string, _reason: string): Promise<FileIndexEntry[]> {
+  if (indexBuildPending && indexBuildPendingRoot === resolvedRoot) {
     return indexBuildPending
   }
+  if (buildWorker) {
+    buildWorker.terminate().catch(() => {})
+    buildWorker = null
+  }
+
   const snapshotEpoch = fileIndexEpoch
-  const p = (async (): Promise<FileIndexEntry[]> => {
-    try {
-      const built = await buildFileIndex(resolved)
-      if (snapshotEpoch !== fileIndexEpoch) {
-        if (fileIndex && fileIndexWorkspace === resolved) {
-          return fileIndex
-        }
-        return ensureFileIndex(workspaceRoot)
+  const worker = new Worker(FILE_INDEX_WORKER_SOURCE, {
+    eval: true,
+    workerData: {
+      workspaceRoot: resolvedRoot,
+      cachePath: cachePathForWorkspace(resolvedRoot),
+      schemaVersion: FILE_INDEX_CACHE_SCHEMA_VERSION,
+      ignoreConfigVersion: FILE_INDEX_IGNORE_CONFIG_VERSION,
+      excludedSegments: Array.from(FORCE_EXCLUDED_PATH_SEGMENTS),
+      ignorePatterns: GLOB_FORCE_IGNORE
+    }
+  })
+  buildWorker = worker
+
+  const p = new Promise<FileIndexEntry[]>((resolve, reject) => {
+    worker.once('message', (message: WorkerSuccessMessage | WorkerErrorMessage) => {
+      if (message.type === 'error') {
+        reject(new Error(message.error))
+        return
       }
-      fileIndex = built
-      fileIndexWorkspace = resolved
-      ensureFsWatchForWorkspace(resolved)
-      return fileIndex
-    } finally {
+      const entries = message.entries
+      if (activeIndexWorkspace === resolvedRoot) {
+        fileIndex = entries
+        fileIndexWorkspace = resolvedRoot
+        fileIndexStale = snapshotEpoch !== fileIndexEpoch
+        ensureFsWatchForWorkspace(resolvedRoot)
+      }
+      resolve(entries)
+    })
+    worker.once('error', (error) => {
+      reject(error)
+    })
+    worker.once('exit', (code) => {
+      if (buildWorker === worker) buildWorker = null
+      if (indexBuildPending === p) {
+        indexBuildPending = null
+        indexBuildPendingRoot = null
+      }
+    })
+  }).finally(() => {
+    if (buildWorker === worker) buildWorker = null
+    if (indexBuildPending === p) {
       indexBuildPending = null
       indexBuildPendingRoot = null
     }
-  })()
+  })
   indexBuildPending = p
-  indexBuildPendingRoot = resolved
+  indexBuildPendingRoot = resolvedRoot
   return p
+}
+
+export function activateFileIndexWorkspace(workspaceRoot: string): void {
+  const trimmed = workspaceRoot.trim()
+  if (!trimmed) {
+    invalidateFileIndex()
+    activeIndexWorkspace = null
+    return
+  }
+  const resolved = path.resolve(trimmed)
+  if (activeIndexWorkspace === resolved) return
+  invalidateFileIndex()
+  activeIndexWorkspace = resolved
+}
+
+async function getAvailableIndex(
+  workspaceRoot: string,
+  reason: string
+): Promise<{ entries: FileIndexEntry[]; status: FileIndexStatus; stale: boolean }> {
+  const resolved = path.resolve(workspaceRoot)
+  activateFileIndexWorkspace(resolved)
+  if (fileIndex && fileIndexWorkspace === resolved) {
+    if (fileIndexStale) {
+      void startBackgroundIndexBuild(resolved, `${reason}-stale-revalidate`).catch(() => {})
+      return { entries: fileIndex, status: 'building', stale: true }
+    }
+    return { entries: fileIndex, status: 'ready', stale: false }
+  }
+
+  const cached = await loadCacheForWorkspace(resolved)
+  if (cached) {
+    void startBackgroundIndexBuild(resolved, `${reason}-cache-revalidate`).catch(() => {})
+    return { entries: cached, status: 'building', stale: true }
+  }
+
+  void startBackgroundIndexBuild(resolved, reason).catch(() => {})
+  return { entries: [], status: 'building', stale: true }
+}
+
+export async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
+  const resolved = path.resolve(workspaceRoot)
+  const available = await getAvailableIndex(resolved, 'ensure')
+  if (available.entries.length > 0) return available.entries
+  if (indexBuildPending && indexBuildPendingRoot === resolved) {
+    return indexBuildPending
+  }
+  return startBackgroundIndexBuild(resolved, 'ensure-wait')
 }
 
 /**
@@ -161,7 +348,7 @@ export async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexE
  */
 export function warmFileSearchIndex(workspaceRoot: string): void {
   if (!workspaceRoot.trim()) return
-  void ensureFileIndex(workspaceRoot).catch(() => {
+  void getAvailableIndex(workspaceRoot, 'warm').catch(() => {
     /* ignore — next search will retry */
   })
 }
@@ -184,7 +371,7 @@ export async function searchWorkspaceFiles(
   if (!q) {
     return []
   }
-  const index = await ensureFileIndex(workspaceRoot)
+  const { entries: index } = await getAvailableIndex(workspaceRoot, 'search')
   const qLower = q.toLowerCase()
   const scored = index
     .map((e) => ({
@@ -205,6 +392,30 @@ export async function searchWorkspaceFiles(
   return scored
 }
 
+export async function listWorkspaceFiles(
+  workspaceRoot: string,
+  query: string,
+  limit: number
+): Promise<FileListResultWire> {
+  if (!workspaceRoot.trim()) {
+    return { files: [], indexStatus: 'empty', indexedCount: 0, stale: false }
+  }
+  const { entries, status, stale } = await getAvailableIndex(workspaceRoot, 'list')
+  const q = query.trim()
+  const files = q
+    ? await searchWorkspaceFiles(workspaceRoot, q, limit)
+    : [...entries]
+        .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+        .slice(0, limit)
+        .map((e) => ({ name: e.name, relativePath: e.relativePath, dir: e.dir }))
+  return {
+    files,
+    indexStatus: entries.length > 0 ? status : 'building',
+    indexedCount: entries.length,
+    stale
+  }
+}
+
 export function invalidateFileIndex(): void {
   if (indexInvalidateDebounce) {
     clearTimeout(indexInvalidateDebounce)
@@ -213,8 +424,15 @@ export function invalidateFileIndex(): void {
   fileIndexEpoch++
   fileIndex = null
   fileIndexWorkspace = null
+  fileIndexStale = false
   indexBuildPending = null
   indexBuildPendingRoot = null
+  indexCacheLoadPending = null
+  indexCacheLoadPendingRoot = null
+  if (buildWorker) {
+    buildWorker.terminate().catch(() => {})
+    buildWorker = null
+  }
   if (fileIndexWatcher) {
     fileIndexWatcher.close()
     fileIndexWatcher = null

@@ -12,13 +12,13 @@ public sealed class PlanTools(
     Func<string?> sessionIdProvider,
     Action<StructuredPlan>? onPlanUpdated = null)
 {
-    [Description("Create or replace the structured plan for the current session. Call this tool to present your finalized plan to the user. The plan should include a title, a brief overview, detailed implementation content in Markdown, and a list of actionable task items.")]
+    [Description("Create or replace the structured plan for the current session. Call this tool to present your finalized plan to the user. The plan should include a title, a brief overview, compact decision-complete Markdown, and a list of actionable task items.")]
     [Tool(Icon = "📋", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.CreatePlan))]
     public async Task<string> CreatePlan(
         [Description("A concise title for the plan.")] string title,
         [Description("A 1-2 sentence summary of what the plan accomplishes.")] string overview,
-        [Description("The detailed plan content in Markdown. Include specific file paths, implementation details, and verification steps.")] string plan,
-        [Description("Actionable task items. Each item has 'id' (short kebab-case) and 'content' (task description).")] List<PlanTodoInput> todos)
+        [Description("The plan content in Markdown. Include only implementation details needed to remove ambiguity; mention key files only when needed; keep verification in a short test section.")] string plan,
+        [Description("3-7 high-level actionable implementation tasks. Each item has 'id' (short kebab-case) and 'content' (task description). Do not include search, reading, or explanation-only steps.")] List<PlanTodoInput> todos)
     {
         try
         {

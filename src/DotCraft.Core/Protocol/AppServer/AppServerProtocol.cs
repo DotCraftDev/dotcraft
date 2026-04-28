@@ -1723,6 +1723,13 @@ public sealed class WorkspaceConfigUpdateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? SkillsSelfLearningEnabled { get; set; }
+
+    /// <summary>
+    /// Workspace default approval policy. Null removes the workspace override.
+    /// Supported values: default, autoApprove.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultApprovalPolicy { get; set; }
 }
 
 /// <summary>
@@ -1764,6 +1771,13 @@ public sealed class WorkspaceConfigUpdateResult
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? SkillsSelfLearningEnabled { get; set; }
+
+    /// <summary>
+    /// Persisted workspace default approval policy after normalization.
+    /// Null means the workspace override was removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? DefaultApprovalPolicy { get; set; }
 }
 
 /// <summary>

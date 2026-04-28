@@ -477,7 +477,9 @@ function unregisterDesktopIpcHandlers(): boolean {
 
 async function autoStartEnabledModules(): Promise<void> {
   const client = wireClient
-  if (!client) return
+  if (!client) {
+    return
+  }
   try {
     const response = await client.sendRequest<{ channels?: Array<{ name?: string; enabled?: boolean; transport?: string | null }> }>(
       'externalChannel/list',
@@ -1346,7 +1348,8 @@ app.whenReady().then(() => {
       win.webContents.openDevTools()
     })
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    const rendererPath = join(__dirname, '../renderer/index.html')
+    win.loadFile(rendererPath)
   }
 
   win.webContents.once('did-finish-load', () => {

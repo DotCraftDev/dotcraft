@@ -281,8 +281,7 @@ export function App(): JSX.Element {
       syncWorkspaceStatus(payload)
     })
 
-    void window.api.workspace
-      .getStatus()
+    void window.api.workspace.getStatus()
       .then((payload) => {
         syncWorkspaceStatus(payload)
       })
@@ -416,7 +415,7 @@ export function App(): JSX.Element {
 
       const caps = useConnectionStore.getState().capabilities
       if (caps?.automations) {
-        useAutomationsStore.getState().fetchTasks()
+        void useAutomationsStore.getState().fetchTasks()
       }
       if (caps?.cronManagement) {
         void useCronStore.getState().fetchJobs()
@@ -1287,6 +1286,13 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+          {
+            const rawMode = res.thread.configuration?.mode ?? res.thread.configuration?.Mode
+            const mode = typeof rawMode === 'string' && rawMode.toLowerCase() === 'plan'
+              ? 'plan'
+              : 'agent'
+            useConversationStore.getState().setThreadMode(mode)
+          }
           useConversationStore.getState().setQueuedInputs(res.thread.queuedInputs ?? [])
           useConversationStore.getState().setContextUsage(res.thread.contextUsage ?? null)
           const parked = useThreadStore.getState().consumeParkedApproval(requestedId)
@@ -1313,8 +1319,11 @@ export function App(): JSX.Element {
               typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
             const welcomeModel =
               rawWelcomeModel !== '' && rawWelcomeModel !== 'Default' ? rawWelcomeModel : ''
+            const welcomeApprovalPolicy = pendingWelcome.approvalPolicy === 'autoApprove'
+              ? 'autoApprove'
+              : 'default'
             useConversationStore.getState().setThreadMode(welcomeMode)
-            if (welcomeModel.length > 0) {
+            if (welcomeModel.length > 0 || welcomeMode !== 'agent' || welcomeApprovalPolicy === 'autoApprove') {
               const existingConfig =
                 res.thread.configuration && typeof res.thread.configuration === 'object'
                   ? { ...(res.thread.configuration as Record<string, unknown>) }
@@ -1330,17 +1339,35 @@ export function App(): JSX.Element {
                 else target[key] = value
               }
               setCaseInsensitiveField(existingConfig, 'mode', welcomeMode)
-              setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              if (welcomeModel.length > 0) {
+                setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              }
+              if (welcomeApprovalPolicy === 'autoApprove') {
+                setCaseInsensitiveField(existingConfig, 'approvalPolicy', welcomeApprovalPolicy)
+              }
+              let welcomeConfigApplied = false
               try {
                 await window.api.appServer.sendRequest('thread/config/update', { threadId, config: existingConfig })
+                welcomeConfigApplied = true
               } catch (configErr: unknown) {
-                console.error('thread/config/update (welcome model) failed:', configErr)
+                console.error('thread/config/update (welcome configuration) failed:', configErr)
               }
-            } else if (welcomeMode !== 'agent') {
-              try {
-                await window.api.appServer.sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
-              } catch (modeErr: unknown) {
-                console.error('thread/mode/set (welcome) failed:', modeErr)
+              if (welcomeConfigApplied) {
+                const active = useThreadStore.getState().activeThread
+                if (active && active.id === threadId) {
+                  const mergedCfg: Record<string, unknown> = { ...(active.configuration ?? {}) }
+                  setCaseInsensitiveField(mergedCfg, 'mode', welcomeMode)
+                  if (welcomeModel.length > 0) {
+                    setCaseInsensitiveField(mergedCfg, 'model', welcomeModel)
+                  }
+                  if (welcomeApprovalPolicy === 'autoApprove') {
+                    setCaseInsensitiveField(mergedCfg, 'approvalPolicy', welcomeApprovalPolicy)
+                  }
+                  useThreadStore.getState().setActiveThread({
+                    ...active,
+                    configuration: mergedCfg as typeof active.configuration
+                  })
+                }
               }
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)

@@ -5,6 +5,7 @@ export interface WorkspaceConfigChangedPayload {
 }
 
 export const WORKSPACE_CONFIG_CHANGED_DEDUPE_WINDOW_MS = 1000
+export const WORKSPACE_DEFAULT_APPROVAL_POLICY_REGION = 'workspace.defaultApprovalPolicy'
 
 export function normalizeWorkspaceConfigChangedPayload(
   payload: { method: string; params: unknown },

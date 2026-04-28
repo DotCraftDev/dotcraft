@@ -20,7 +20,7 @@ import {
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
 import {
-  invalidateFileIndex,
+  activateFileIndexWorkspace,
   readImageAsDataUrl,
   saveImageDataUrlToTemp,
   searchWorkspaceFiles,
@@ -237,6 +237,7 @@ interface WorkspaceCoreConfigSnapshot {
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
   skillsSelfLearningEnabled: boolean | null
+  defaultApprovalPolicy: 'default' | 'autoApprove' | null
 }
 
 function getCaseInsensitiveRecordValue(
@@ -273,6 +274,15 @@ function readSkillsSelfLearningEnabled(record: Record<string, unknown>): boolean
   return readNestedBoolean(skills as Record<string, unknown>, 'SelfLearning', 'Enabled')
 }
 
+function readDefaultApprovalPolicy(record: Record<string, unknown>): 'default' | 'autoApprove' | null {
+  const permissions = getCaseInsensitiveRecordValue(record, 'Permissions')
+  if (permissions == null || typeof permissions !== 'object' || Array.isArray(permissions)) {
+    return null
+  }
+  const raw = getCaseInsensitiveRecordValue(permissions as Record<string, unknown>, 'DefaultApprovalPolicy')
+  return raw === 'default' || raw === 'autoApprove' ? raw : null
+}
+
 async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
   try {
     const raw = await fs.readFile(configPath, 'utf8')
@@ -281,12 +291,19 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
       apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
       endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint),
       welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled'),
-      skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed)
+      skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed),
+      defaultApprovalPolicy: readDefaultApprovalPolicy(parsed)
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
     if (code === 'ENOENT') {
-      return { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null }
+      return {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: null,
+        defaultApprovalPolicy: null
+      }
     }
     throw error
   }
@@ -552,7 +569,7 @@ export function registerIpcHandlers(
   workspacePath: string,
   callbacks?: IpcHandlerCallbacks
 ): void {
-  invalidateFileIndex()
+  activateFileIndexWorkspace(workspacePath)
   const handleSafe = (
     channel: string,
     listener: Parameters<typeof ipcMain.handle>[1]
@@ -675,7 +692,13 @@ export function registerIpcHandlers(
     const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
       if (!workspacePath) {
         return {
-          workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null },
+          workspace: {
+            apiKey: null,
+            endPoint: null,
+            welcomeSuggestionsEnabled: null,
+            skillsSelfLearningEnabled: null,
+            defaultApprovalPolicy: null
+          },
           userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
         }
       }
@@ -1069,10 +1092,11 @@ export function registerIpcHandlers(
       if (ws !== req) {
         throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
       }
-      if (!ws) return { files: [] }
+      if (!ws) {
+        return { files: [], indexStatus: 'empty', indexedCount: 0, stale: false }
+      }
       const limit = Math.min(500, Math.max(1, params.limit ?? 100))
-      const files = await listViewerFiles(ws, params.query, limit)
-      return { files }
+      return listViewerFiles(ws, params.query, limit)
     }
   )
 
@@ -1260,7 +1284,9 @@ export function registerIpcHandlers(
   )
 
   handleSafe('modules:list', async () => {
-    if (cachedModules !== null) return cachedModules
+    if (cachedModules !== null) {
+      return cachedModules
+    }
     return scanAndCacheModules()
   })
 
@@ -1469,7 +1495,8 @@ export function registerIpcHandlers(
   )
 
   handleSafe('modules:running', async (): Promise<ModuleStatusMap> => {
-    return moduleProcessManager?.getStatusMap() ?? {}
+    const statusMap = moduleProcessManager?.getStatusMap() ?? {}
+    return statusMap
   })
 
   handleSafe(
@@ -1690,5 +1717,4 @@ export function unregisterIpcHandlers(): void {
   moduleProcessManager = null
   ensureModulesScanned = null
   getSettingsSnapshotForModules = null
-  invalidateFileIndex()
 }

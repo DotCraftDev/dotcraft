@@ -21,19 +21,22 @@ function renderView(): void {
 describe('SettingsView self-learning settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete (window as Window & { __confirmDialog?: unknown }).__confirmDialog
 
     const core = {
       workspace: {
         apiKey: null,
         endPoint: null,
         welcomeSuggestionsEnabled: null,
-        skillsSelfLearningEnabled: false
+        skillsSelfLearningEnabled: false,
+        defaultApprovalPolicy: 'default'
       },
       userDefaults: {
         apiKey: null,
         endPoint: null,
         welcomeSuggestionsEnabled: null,
-        skillsSelfLearningEnabled: null
+        skillsSelfLearningEnabled: null,
+        defaultApprovalPolicy: null
       }
     }
 
@@ -42,6 +45,10 @@ describe('SettingsView self-learning settings', () => {
     workspaceConfigGetCore.mockImplementation(async () => core)
     appServerSendRequest.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === 'workspace/config/update') {
+        if (typeof params?.defaultApprovalPolicy === 'string') {
+          core.workspace.defaultApprovalPolicy = params.defaultApprovalPolicy
+          return { defaultApprovalPolicy: core.workspace.defaultApprovalPolicy }
+        }
         core.workspace.skillsSelfLearningEnabled = params?.skillsSelfLearningEnabled === true
         return { skillsSelfLearningEnabled: core.workspace.skillsSelfLearningEnabled }
       }
@@ -126,13 +133,15 @@ describe('SettingsView self-learning settings', () => {
         apiKey: null,
         endPoint: null,
         welcomeSuggestionsEnabled: null,
-        skillsSelfLearningEnabled: null
+        skillsSelfLearningEnabled: null,
+        defaultApprovalPolicy: null
       },
       userDefaults: {
         apiKey: null,
         endPoint: null,
         welcomeSuggestionsEnabled: null,
-        skillsSelfLearningEnabled: null
+        skillsSelfLearningEnabled: null,
+        defaultApprovalPolicy: null
       }
     })
 
@@ -142,5 +151,24 @@ describe('SettingsView self-learning settings', () => {
     const toggle = await screen.findByRole('switch', { name: 'Enable self-learning' })
 
     expect(toggle).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('warns and saves full access default approval policy', async () => {
+    const confirm = vi.fn().mockResolvedValue(true)
+    ;(window as Window & { __confirmDialog?: unknown }).__confirmDialog = confirm
+
+    renderView()
+
+    const fullAccessToggle = await screen.findByRole('switch', { name: 'Full access' })
+    expect(fullAccessToggle).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(fullAccessToggle)
+
+    await waitFor(() => {
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
+      expect(appServerSendRequest).toHaveBeenCalledWith('workspace/config/update', {
+        defaultApprovalPolicy: 'autoApprove'
+      })
+    })
   })
 })

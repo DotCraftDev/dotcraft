@@ -23,6 +23,7 @@ import { CommandSearchPopover } from './CommandSearchPopover'
 import { ModelPicker } from './ModelPicker'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import { ContextUsageRing } from './ContextUsageRing'
+import { ApprovalPolicyPicker } from './ApprovalPolicyPicker'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -79,6 +80,7 @@ export function InputComposer({
   const [contentRevision, setContentRevision] = useState(0)
   const richRef = useRef<RichInputAreaHandle>(null)
   const sendInFlightRef = useRef(false)
+  const pendingModeChangeRef = useRef<Promise<void> | null>(null)
 
   const turnStatus = useConversationStore((s) => s.turnStatus)
   const pendingMessage = useConversationStore((s) => s.pendingMessage)
@@ -265,6 +267,10 @@ export function InputComposer({
     if (isWaitingApproval) return
     if (modelLoading) return
 
+    if (pendingModeChangeRef.current) {
+      await pendingModeChangeRef.current
+    }
+
     if (isRunning) {
       if (sendInFlightRef.current) return
       sendInFlightRef.current = true
@@ -356,16 +362,34 @@ export function InputComposer({
   }, [threadId])
 
   async function toggleMode(): Promise<void> {
-    const newMode = threadMode === 'agent' ? 'plan' : 'agent'
+    if (pendingModeChangeRef.current) return
+
+    const previousMode = useConversationStore.getState().threadMode
+    const newMode = previousMode === 'agent' ? 'plan' : 'agent'
     setThreadMode(newMode)
-    try {
-      await window.api.appServer.sendRequest('thread/mode/set', {
+    const request = window.api.appServer
+      .sendRequest('thread/mode/set', {
         threadId,
         mode: newMode
       })
-    } catch (err) {
-      console.error('thread/mode/set failed:', err)
-    }
+      .catch((err) => {
+        console.error('thread/mode/set failed:', err)
+        setThreadMode(previousMode)
+        addToast(
+          t('composer.modeSwitchFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      })
+      .finally(() => {
+        if (pendingModeChangeRef.current === request) {
+          pendingModeChangeRef.current = null
+        }
+      })
+
+    pendingModeChangeRef.current = request
+    await request
   }
 
   const canSend = useMemo(() => {
@@ -528,6 +552,8 @@ export function InputComposer({
                 mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
               })}
             />
+
+            <ApprovalPolicyPicker threadId={threadId} disabled={isRunning || isWaitingApproval} />
           </div>
         }
         footerAction={

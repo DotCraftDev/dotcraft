@@ -33,7 +33,7 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
         1. Launch multiple subagents concurrently whenever possible: include multiple SpawnSubagent calls in a single response
         2. Native subagents are stateless. External CLI profiles may continue a prior external session when the workspace enables that behavior and you reuse the same profile + label
         3. Specify exactly what information the subagent should return in its result
-        4. The subagent's output is trusted; use it directly to inform your next actions
+        4. The subagent's output is trusted for broad findings; use it to guide your next actions, but the main agent owns synthesis and should inspect critical files when needed before finalizing a plan
         5. Available subagent profiles are listed in the system prompt
         6. Do not guess profile names that are not listed there
         7. External CLI profiles may expose stage-level progress, but not native tool-by-tool execution details

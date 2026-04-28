@@ -73,6 +73,44 @@ public sealed class SessionServiceSetThreadModeTests : IDisposable
         Assert.NotSame(innerDefaultPlan, innerAfterModeSwitch);
     }
 
+    [Fact]
+    public async Task SubmitInputAsync_WaitsForThreadAgentPublicationLock_BeforeUsingCachedAgent()
+    {
+        var store = new ThreadStore(_tempDir);
+        var persistence = new SessionPersistenceService(store);
+        var identity = new SessionIdentity
+        {
+            ChannelName = "test",
+            UserId = "u",
+            WorkspacePath = _tempDir
+        };
+
+        await using var agentFactory = CreateAgentFactory();
+        var defaultAgent = new SignalingChatClient("default").AsAIAgent(new ChatClientAgentOptions());
+        var svc = new SessionService(agentFactory, defaultAgent, persistence, new SessionGate());
+        var thread = await svc.CreateThreadAsync(identity);
+
+        var threadChatClient = new SignalingChatClient("thread-agent");
+        GetThreadAgents(svc)[thread.Id] = threadChatClient.AsAIAgent(new ChatClientAgentOptions());
+
+        var agentLock = new SemaphoreSlim(0, 1);
+        GetThreadAgentLocks(svc)[thread.Id] = agentLock;
+
+        var events = svc.SubmitInputAsync(
+            thread.Id,
+            [new TextContent("hello")]);
+        var drainTask = DrainAsync(events);
+
+        var early = await Task.WhenAny(
+            threadChatClient.StreamingStarted.Task,
+            Task.Delay(TimeSpan.FromMilliseconds(150)));
+        Assert.NotSame(threadChatClient.StreamingStarted.Task, early);
+
+        agentLock.Release();
+        await threadChatClient.StreamingStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await drainTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     private AgentFactory CreateAgentFactory()
     {
         var config = new AppConfig
@@ -95,11 +133,30 @@ public sealed class SessionServiceSetThreadModeTests : IDisposable
 
     private static AIAgent GetCachedThreadAgent(SessionService svc, string threadId)
     {
-        var field = typeof(SessionService).GetField("_threadAgents", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        var dict = (ConcurrentDictionary<string, AIAgent>)field.GetValue(svc)!;
+        var dict = GetThreadAgents(svc);
         Assert.True(dict.TryGetValue(threadId, out var agent));
         return agent;
+    }
+
+    private static ConcurrentDictionary<string, AIAgent> GetThreadAgents(SessionService svc)
+    {
+        var field = typeof(SessionService).GetField("_threadAgents", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (ConcurrentDictionary<string, AIAgent>)field.GetValue(svc)!;
+    }
+
+    private static ConcurrentDictionary<string, SemaphoreSlim> GetThreadAgentLocks(SessionService svc)
+    {
+        var field = typeof(SessionService).GetField("_threadAgentLocks", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (ConcurrentDictionary<string, SemaphoreSlim>)field.GetValue(svc)!;
+    }
+
+    private static async Task DrainAsync(IAsyncEnumerable<SessionEvent> events)
+    {
+        await foreach (var _ in events)
+        {
+        }
     }
 
     private static IChatClient? GetInnermostChatClient(AIAgent agent)
@@ -152,5 +209,36 @@ public sealed class SessionServiceSetThreadModeTests : IDisposable
         }
 
         return client;
+    }
+
+    private sealed class SignalingChatClient(string responseText) : IChatClient
+    {
+        public TaskCompletionSource<object?> StreamingStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            StreamingStarted.TrySetResult(null);
+            return Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent(responseText)])]));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            StreamingStarted.TrySetResult(null);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent(responseText)]);
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 }

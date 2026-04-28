@@ -145,13 +145,26 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             if (iteration >= MaximumIterationsPerRequest)
                 PrepareOptionsForLastIteration(ref options);
 
+            var preparedMessages = await PrepareMessagesForSamplingAsync(
+                currentMessages,
+                cancellationToken);
+            if (!ReferenceEquals(preparedMessages, currentMessages))
+            {
+                currentMessages = preparedMessages;
+                originalMessages = preparedMessages.ToList();
+                augmentedHistory = originalMessages.ToList();
+                responseMessages = [];
+                lastIterationHadConversationId = false;
+            }
+            var samplingMessages = preparedMessages;
+
             var updates = new List<ChatResponseUpdate>();
             var functionCalls = new List<FunctionCallContent>();
             var lastYieldedUpdateIndex = 0;
             var toolCallPreviewTrackers = new Dictionary<int, ToolCallTracker>();
             Dictionary<ChatResponseUpdate, IReadOnlyList<ToolCallArgumentsDeltaContent>>? previewContentsByUpdate = null;
 
-            await foreach (var update in base.GetStreamingResponseAsync(currentMessages, options, cancellationToken))
+            await foreach (var update in base.GetStreamingResponseAsync(samplingMessages, options, cancellationToken))
             {
                 var addedPreviewContents = AddToolCallArgumentPreviews(update, toolCallPreviewTrackers);
                 if (addedPreviewContents is { Count: > 0 })
@@ -251,6 +264,19 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             UpdateOptionsForNextIteration(ref options, response.ConversationId);
             currentMessages = nextHistory;
         }
+    }
+
+    private static async Task<IReadOnlyList<ChatMessage>> PrepareMessagesForSamplingAsync(
+        IEnumerable<ChatMessage> currentMessages,
+        CancellationToken cancellationToken)
+    {
+        var messages = currentMessages as IReadOnlyList<ChatMessage> ?? currentMessages.ToList();
+        var compaction = PreSamplingCompactionRuntimeScope.Current;
+        if (compaction == null)
+            return messages;
+
+        var replacement = await compaction.TryCompactAsync(messages, cancellationToken);
+        return replacement ?? messages;
     }
 
     private static void FixupHistories(

@@ -433,13 +433,13 @@ Fields:
 | `toolProfile` | string | Optional named tool profile. |
 | `useToolProfileOnly` | boolean | When `true`, use only the tools from `toolProfile`. |
 | `agentInstructions` | string | Optional additional system instructions. |
-| `approvalPolicy` | string | Thread-scoped approval mode: `default`, `autoApprove`, or `interrupt`. |
+| `approvalPolicy` | string | Thread-scoped approval mode: `default`, `autoApprove`, or `interrupt`. `default` means the thread consults the workspace default approval policy. |
 | `automationTaskDirectory` | string | Optional local automation task directory. |
 | `requireApprovalOutsideWorkspace` | boolean | Optional override for the workspace file/shell outside-boundary behavior. |
 
 Approval semantics:
 
-- `approvalPolicy = default` uses the normal interactive approval flow when the client supports approvals.
+- `approvalPolicy = default` uses the workspace default approval policy. If the workspace default is also `default` or unset, the server uses the normal interactive approval flow when the client supports approvals.
 - `approvalPolicy = autoApprove` auto-accepts approval-gated operations for that thread.
 - `approvalPolicy = interrupt` cancels the turn when an approval-gated operation is encountered.
 - `requireApprovalOutsideWorkspace = true` allows outside-workspace file/shell operations to proceed through the approval service.
@@ -1854,7 +1854,7 @@ If a client declared `capabilities.approvalSupport = false` during initializatio
 
 - `approvalPolicy = autoApprove` resolves as `accept`.
 - `approvalPolicy = interrupt` resolves as `cancel`.
-- `approvalPolicy = default` cannot prompt on a non-interactive client, so the server falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
+- `approvalPolicy = default` first resolves through the workspace default approval policy. If both the thread policy and workspace default are `default` or unset, the server cannot prompt on a non-interactive client, so it falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
 
 The same non-interactive fallback may also be applied when an approval-capable client disconnects or times out before replying.
 
@@ -4142,6 +4142,7 @@ Update workspace-level config values.
 | `endPoint` | string \| null | no | Workspace API endpoint. `null` or empty removes the `EndPoint` key. |
 | `welcomeSuggestionsEnabled` | boolean \| null | no | Workspace-level override for personalized welcome suggestions. `true` enables, `false` disables, and `null` removes the explicit override so server defaults apply. |
 | `skillsSelfLearningEnabled` | boolean \| null | no | Workspace-level override for `Skills.SelfLearning.Enabled`. `true` enables the SkillManage tool surface and skill-authoring built-in skill, `false` disables, and `null` removes the explicit override so server defaults apply (`true` by default). Takes effect on next AppServer restart (`Skills.SelfLearning.Enabled` is a `ProcessRestart` field). |
+| `defaultApprovalPolicy` | string \| null | no | Workspace default approval policy for threads whose `ThreadConfiguration.approvalPolicy` is `default` or unset. Supported values are `default` and `autoApprove`; `null` removes the explicit workspace override so server defaults apply. |
 
 **Result**:
 
@@ -4151,7 +4152,8 @@ Update workspace-level config values.
   "apiKey": "sk-live-key",
   "endPoint": "https://example.com/v1",
   "welcomeSuggestionsEnabled": true,
-  "skillsSelfLearningEnabled": true
+  "skillsSelfLearningEnabled": true,
+  "defaultApprovalPolicy": "default"
 }
 ```
 
@@ -4168,10 +4170,11 @@ If `model` is removed, the result returns:
 - This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
 - Server preserves unrelated configuration state.
-- At least one of `model`, `apiKey`, `endPoint`, `welcomeSuggestionsEnabled`, or `skillsSelfLearningEnabled` must be provided.
+- At least one of `model`, `apiKey`, `endPoint`, `welcomeSuggestionsEnabled`, `skillsSelfLearningEnabled`, or `defaultApprovalPolicy` must be provided.
 - Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
 - When `skillsSelfLearningEnabled` is provided, the server writes the boolean to the nested `Skills.SelfLearning.Enabled` key. Setting it to `null` removes the leaf, and the server prunes empty `Skills.SelfLearning` / `Skills` objects when no other keys remain.
-- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`, `skills`.
+- When `defaultApprovalPolicy` is provided, the server writes the value to `Permissions.DefaultApprovalPolicy`. Setting it to `null` removes the leaf, and the server prunes the empty `Permissions` object when no other keys remain.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`, `skills`, `workspace.defaultApprovalPolicy`.
 
 ### 25.4 Capability Advertisement
 
@@ -4210,6 +4213,7 @@ Server notification emitted after a successful workspace configuration write.
 | `workspace.endpoint` | `workspace/config/update` |
 | `welcomeSuggestions` | `workspace/config/update` |
 | `skills` | `skills/setEnabled`, `workspace/config/update` |
+| `workspace.defaultApprovalPolicy` | `workspace/config/update` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
 | `subagent` | `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove` |

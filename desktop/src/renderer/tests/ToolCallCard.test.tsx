@@ -118,9 +118,63 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
     fireEvent.click(screen.getByRole('button'))
 
-    expect(screen.getByText('src/live.ts')).toBeInTheDocument()
-    expect(screen.getByText('streaming')).toBeInTheDocument()
+    const filename = screen.getByText('live.ts')
+    expect(filename).toBeInTheDocument()
+    expect(filename).toHaveAttribute('title', 'src/live.ts')
+    expect(screen.getByText(/Created live\.ts \+1/)).toBeInTheDocument()
+    expect(screen.queryByText('src/live.ts')).toBeNull()
+    expect(screen.queryByText('streaming')).toBeNull()
     expect(screen.queryByText('Waiting for content...')).toBeNull()
+  })
+
+  it('renders completed file diffs embedded with compact filename and stats', () => {
+    const item: ConversationItem = {
+      id: 'tool-edit-completed',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'EditFile',
+      toolCallId: 'edit-completed-1',
+      arguments: { path: 'src/Target.cs', oldText: 'old', newText: 'new' },
+      result: 'Successfully edited src/Target.cs',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    const diff: FileDiff = {
+      filePath: 'src/Target.cs',
+      turnId: 'turn-1',
+      turnIds: ['turn-1'],
+      additions: 1,
+      deletions: 1,
+      diffHunks: [
+        {
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [
+            { type: 'remove', content: 'old' },
+            { type: 'add', content: 'new' }
+          ]
+        }
+      ],
+      status: 'written',
+      isNewFile: false,
+      originalContent: 'old',
+      currentContent: 'new'
+    }
+    useConversationStore.setState({
+      itemDiffs: new Map([[item.id, diff]])
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Edited Target\.cs \+1 -1/ }))
+
+    expect(screen.getByTestId('tool-expanded-content')).toHaveStyle({ padding: '0px' })
+    expect(screen.getByTestId('inline-diff-view').style.borderStyle).toBe('none')
+    const filename = screen.getByText('Target.cs')
+    expect(filename).toHaveAttribute('title', 'src/Target.cs')
+    expect(screen.queryByText('src/Target.cs')).toBeNull()
   })
 
   it('keeps showing the running timer for Exec after the toolCall item is completed but command execution is still in progress', () => {

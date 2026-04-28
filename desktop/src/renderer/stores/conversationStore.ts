@@ -1439,7 +1439,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       set({ systemLabel: label })
     }
 
-    if (kind === 'compacted') {
+    if (kind === 'compacting' || kind === 'compacted' || kind === 'compactSkipped' || kind === 'compactFailed') {
       const tokens = typeof params?.tokenCount === 'number' ? params.tokenCount : null
       set((state) => ({
         contextUsage: applyTokensToContextUsage(
@@ -1449,9 +1449,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         )
       }))
     }
-    // compactWarning / compactError / compactSkipped / compactFailed only drive
-    // systemLabel; the ring color reacts to the next usage/delta or compacted
-    // snapshot.
+    // compactWarning / compactError only drive transient warning state; usage
+    // deltas already carry the live context snapshot.
   },
 
   setContextUsage(snapshot) {

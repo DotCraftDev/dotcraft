@@ -7,6 +7,7 @@ using DotCraft.Context.Compaction;
 using DotCraft.Localization;
 using DotCraft.Lsp;
 using DotCraft.Mcp;
+using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Configuration;
@@ -90,6 +91,9 @@ public sealed class AppConfig
 
     [ConfigField(Ignore = true)]
     public SecurityConfig Security { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
+    public PermissionsConfig Permissions { get; set; } = new();
 
     [ConfigField(Ignore = true)]
     public HeartbeatConfig Heartbeat { get; set; } = new();
@@ -660,6 +664,14 @@ public sealed class AppConfig
     {
         [ConfigField(Hint = "JSON array of path strings")]
         public List<string> BlacklistedPaths { get; set; } = [];
+    }
+
+    [ConfigSection("Permissions", DisplayName = "Permissions", Order = 25)]
+    public sealed class PermissionsConfig
+    {
+        [ConfigField(Hint = "Workspace default approval policy for threads using the default policy. One of: default, autoApprove.")]
+        [JsonConverter(typeof(ApprovalPolicyJsonConverter))]
+        public ApprovalPolicy DefaultApprovalPolicy { get; set; } = ApprovalPolicy.Default;
     }
 
     [ConfigSection("Heartbeat", DisplayName = "Heartbeat", Order = 70)]

@@ -4,22 +4,40 @@ import type { FileDiff } from '../../types/toolCall'
 interface InlineDiffViewProps {
   diff: FileDiff
   streaming?: boolean
+  variant?: 'standalone' | 'embedded'
+  showStreamingIndicator?: boolean
+  headerMode?: 'full' | 'compact'
 }
 
-export function InlineDiffView({ diff, streaming = false }: InlineDiffViewProps): JSX.Element {
+function getFilename(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path
+}
+
+export function InlineDiffView({
+  diff,
+  streaming = false,
+  variant = 'standalone',
+  showStreamingIndicator = true,
+  headerMode = 'full'
+}: InlineDiffViewProps): JSX.Element {
   const totalAdd = diff.additions
   const totalDel = diff.deletions
+  const embedded = variant === 'embedded'
+  const displayPath = headerMode === 'compact' ? getFilename(diff.filePath) : diff.filePath
 
   return (
     <div
       className="selectable"
+      data-testid="inline-diff-view"
       style={{
         fontFamily: 'var(--font-mono)',
         fontSize: '12px',
         lineHeight: '1.5',
-        borderRadius: '4px',
+        borderRadius: embedded ? 0 : '4px',
         overflow: 'hidden',
-        border: '1px solid var(--border-default)'
+        borderWidth: embedded ? 0 : '1px',
+        borderStyle: embedded ? 'none' : 'solid',
+        borderColor: embedded ? 'transparent' : 'var(--border-default)'
       }}
     >
       <div
@@ -34,14 +52,23 @@ export function InlineDiffView({ diff, streaming = false }: InlineDiffViewProps)
           fontSize: '11px'
         }}
       >
-        <span style={{ color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {diff.filePath}
+        <span
+          title={diff.filePath}
+          style={{
+            color: 'var(--text-primary)',
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {displayPath}
         </span>
-        {diff.isNewFile && (
+        {headerMode === 'full' && diff.isNewFile && (
           <span style={{ color: 'var(--text-dimmed)', flexShrink: 0 }}>(new file)</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '6px', flexShrink: 0 }}>
-          {streaming && (
+          {streaming && showStreamingIndicator && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-dimmed)' }}>
               <span
                 className="animate-spin-custom"
