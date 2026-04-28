@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
+using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Context.Compaction;
 using DotCraft.Hooks;
@@ -46,7 +47,8 @@ public sealed class SessionService(
     ApprovalStore? approvalStore = null,
     IToolProfileRegistry? toolProfileRegistry = null,
     SessionStreamDebugLogger? sessionStreamDebugLogger = null,
-    IBackgroundTerminalService? backgroundTerminalService = null)
+    IBackgroundTerminalService? backgroundTerminalService = null,
+    IAppConfigMonitor? appConfigMonitor = null)
     : ISessionService, IThreadAgentRefreshService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
@@ -65,6 +67,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
     private static readonly HttpClient QueuedInputHttpClient = new();
+    private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -77,6 +80,14 @@ public sealed class SessionService(
 
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+
+    private ApprovalPolicy ResolveApprovalPolicy(ApprovalPolicy threadPolicy)
+    {
+        if (threadPolicy != ApprovalPolicy.Default)
+            return threadPolicy;
+
+        return _appConfigMonitor?.Current.Permissions.DefaultApprovalPolicy ?? ApprovalPolicy.Default;
+    }
 
     /// <inheritdoc />
     public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId)
@@ -784,7 +795,7 @@ public sealed class SessionService(
                 }
 
                 // Step 5e: Set up approval service override
-                var approvalPolicy = thread.Configuration?.ApprovalPolicy ?? ApprovalPolicy.Default;
+                var approvalPolicy = ResolveApprovalPolicy(thread.Configuration?.ApprovalPolicy ?? ApprovalPolicy.Default);
                 IApprovalService turnApprovalService;
                 switch (approvalPolicy)
                 {

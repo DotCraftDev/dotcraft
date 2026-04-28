@@ -1313,8 +1313,11 @@ export function App(): JSX.Element {
               typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
             const welcomeModel =
               rawWelcomeModel !== '' && rawWelcomeModel !== 'Default' ? rawWelcomeModel : ''
+            const welcomeApprovalPolicy = pendingWelcome.approvalPolicy === 'autoApprove'
+              ? 'autoApprove'
+              : 'default'
             useConversationStore.getState().setThreadMode(welcomeMode)
-            if (welcomeModel.length > 0) {
+            if (welcomeModel.length > 0 || welcomeMode !== 'agent' || welcomeApprovalPolicy === 'autoApprove') {
               const existingConfig =
                 res.thread.configuration && typeof res.thread.configuration === 'object'
                   ? { ...(res.thread.configuration as Record<string, unknown>) }
@@ -1330,17 +1333,16 @@ export function App(): JSX.Element {
                 else target[key] = value
               }
               setCaseInsensitiveField(existingConfig, 'mode', welcomeMode)
-              setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              if (welcomeModel.length > 0) {
+                setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              }
+              if (welcomeApprovalPolicy === 'autoApprove') {
+                setCaseInsensitiveField(existingConfig, 'approvalPolicy', welcomeApprovalPolicy)
+              }
               try {
                 await window.api.appServer.sendRequest('thread/config/update', { threadId, config: existingConfig })
               } catch (configErr: unknown) {
-                console.error('thread/config/update (welcome model) failed:', configErr)
-              }
-            } else if (welcomeMode !== 'agent') {
-              try {
-                await window.api.appServer.sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
-              } catch (modeErr: unknown) {
-                console.error('thread/mode/set (welcome) failed:', modeErr)
+                console.error('thread/config/update (welcome configuration) failed:', configErr)
               }
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)

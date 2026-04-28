@@ -237,6 +237,7 @@ interface WorkspaceCoreConfigSnapshot {
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
   skillsSelfLearningEnabled: boolean | null
+  defaultApprovalPolicy: 'default' | 'autoApprove' | null
 }
 
 function getCaseInsensitiveRecordValue(
@@ -273,6 +274,15 @@ function readSkillsSelfLearningEnabled(record: Record<string, unknown>): boolean
   return readNestedBoolean(skills as Record<string, unknown>, 'SelfLearning', 'Enabled')
 }
 
+function readDefaultApprovalPolicy(record: Record<string, unknown>): 'default' | 'autoApprove' | null {
+  const permissions = getCaseInsensitiveRecordValue(record, 'Permissions')
+  if (permissions == null || typeof permissions !== 'object' || Array.isArray(permissions)) {
+    return null
+  }
+  const raw = getCaseInsensitiveRecordValue(permissions as Record<string, unknown>, 'DefaultApprovalPolicy')
+  return raw === 'default' || raw === 'autoApprove' ? raw : null
+}
+
 async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
   try {
     const raw = await fs.readFile(configPath, 'utf8')
@@ -281,12 +291,19 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
       apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
       endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint),
       welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled'),
-      skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed)
+      skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed),
+      defaultApprovalPolicy: readDefaultApprovalPolicy(parsed)
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
     if (code === 'ENOENT') {
-      return { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null }
+      return {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: null,
+        defaultApprovalPolicy: null
+      }
     }
     throw error
   }
@@ -675,7 +692,13 @@ export function registerIpcHandlers(
     const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
       if (!workspacePath) {
         return {
-          workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null, skillsSelfLearningEnabled: null },
+          workspace: {
+            apiKey: null,
+            endPoint: null,
+            welcomeSuggestionsEnabled: null,
+            skillsSelfLearningEnabled: null,
+            defaultApprovalPolicy: null
+          },
           userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
         }
       }

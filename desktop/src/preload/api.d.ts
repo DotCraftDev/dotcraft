@@ -334,12 +334,14 @@ declare global {
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
           userDefaults: {
             apiKey: string | null
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
         }>
       }

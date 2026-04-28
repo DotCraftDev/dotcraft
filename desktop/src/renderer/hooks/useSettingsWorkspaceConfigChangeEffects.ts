@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react'
-import type { WorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
+import {
+  WORKSPACE_DEFAULT_APPROVAL_POLICY_REGION,
+  type WorkspaceConfigChangedPayload
+} from '../utils/workspaceConfigChanged'
 
 interface UseSettingsWorkspaceConfigChangeEffectsArgs {
   change: WorkspaceConfigChangedPayload | null
@@ -42,7 +45,8 @@ export function useSettingsWorkspaceConfigChangeEffects({
       changedRegions.has('workspace.endpoint')
     const workspaceCoreChanged =
       llmCoreChanged ||
-      changedRegions.has('welcomeSuggestions')
+      changedRegions.has('welcomeSuggestions') ||
+      changedRegions.has(WORKSPACE_DEFAULT_APPROVAL_POLICY_REGION)
 
     if (workspaceCoreChanged) {
       if (llmCoreChanged && llmDirty && change.source !== 'workspace/config/update') {

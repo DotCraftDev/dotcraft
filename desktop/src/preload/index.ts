@@ -436,12 +436,14 @@ const api = {
         endPoint: string | null
         welcomeSuggestionsEnabled: boolean | null
         skillsSelfLearningEnabled: boolean | null
+        defaultApprovalPolicy: 'default' | 'autoApprove' | null
       }
       userDefaults: {
         apiKey: string | null
         endPoint: string | null
         welcomeSuggestionsEnabled: boolean | null
         skillsSelfLearningEnabled: boolean | null
+        defaultApprovalPolicy: 'default' | 'autoApprove' | null
       }
     }> {
       return ipcRenderer.invoke('workspace-config:get-core')

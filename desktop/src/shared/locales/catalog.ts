@@ -74,6 +74,19 @@ const MESSAGES_EN = {
   'settings.personalization.selfLearningRestartBannerRemote':
     'Self-learning changes are saved. Restart the remote AppServer to apply them.',
   'settings.personalization.selfLearningRestartButton': 'Restart now',
+  'settings.permissions.description':
+    'Choose the default approval behavior for new threads in this workspace. Channels without per-thread controls use this setting.',
+  'settings.permissions.default.label': 'Default permissions',
+  'settings.permissions.default.description':
+    'By default, DotCraft can read and edit files in its workspace. When needed, it can ask for extra permissions.',
+  'settings.permissions.fullAccess.label': 'Full access',
+  'settings.permissions.fullAccess.description':
+    'When DotCraft runs with full access, it can edit any file on your computer and run network commands without your approval. This significantly increases the risk of data loss, leaks, or unintended behavior.',
+  'settings.permissions.fullAccess.warningTitle': 'Enable full access?',
+  'settings.permissions.fullAccess.warningBody':
+    'Full access automatically approves approval-gated actions. DotCraft may edit files outside the workspace or run network commands without asking first. Only enable this for workspaces and channels you trust.',
+  'settings.permissions.fullAccess.warningConfirm': 'Enable full access',
+  'settings.permissions.saveFailed': 'Failed to save permissions setting: {{error}}',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
   'settings.save': 'Save',
@@ -740,6 +753,12 @@ const MESSAGES_EN = {
   'composer.modeTitle': 'Mode: {{mode}}',
   'composer.mode.agent': 'Agent',
   'composer.mode.plan': 'Plan',
+  'composer.approval.label': 'Approval policy',
+  'composer.approval.selectTitle': 'Select approval policy',
+  'composer.approval.default.label': 'Default permissions',
+  'composer.approval.fullAccess.label': 'Full access',
+  'composer.approval.workspaceDefaultHint': 'Workspace default: {{policy}}',
+  'composer.approval.updateFailed': 'Failed to update approval policy: {{error}}',
   'planApproval.title': 'Implement this plan?',
   'planApproval.yes': 'Yes, implement this plan',
   'planApproval.noPlaceholder': 'No, tell DotCraft how to adjust',
@@ -1188,6 +1207,7 @@ const MESSAGES_EN = {
 
   // Settings groups (Codex-style section headers)
   'settings.group.general': 'General',
+  'settings.group.permissions': 'Permissions',
   'settings.group.personalization': 'Personalization',
   'settings.group.connection': 'Connection',
   'settings.group.appServer': 'AppServer',
@@ -1615,6 +1635,19 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.selfLearningRestartBannerRemote':
     '自我学习设置已保存。请重启远程 AppServer 使其生效。',
   'settings.personalization.selfLearningRestartButton': '立即重启',
+  'settings.permissions.description':
+    '选择此工作区中新会话的默认审批行为。没有单会话选项的渠道会使用此设置。',
+  'settings.permissions.default.label': '默认权限',
+  'settings.permissions.default.description':
+    '默认情况下，DotCraft 可以读取并编辑其工作区中的文件。必要时，它可以请求额外权限。',
+  'settings.permissions.fullAccess.label': '完全访问权限',
+  'settings.permissions.fullAccess.description':
+    '当 DotCraft 以完全访问权限运行时，它无需您的批准即可编辑您电脑上的任何文件并运行联网命令。这会显著增加数据丢失、泄露或意外行为的风险。',
+  'settings.permissions.fullAccess.warningTitle': '启用完全访问权限？',
+  'settings.permissions.fullAccess.warningBody':
+    '完全访问权限会自动批准需要审批的操作。DotCraft 可能无需再次询问就编辑工作区外的文件或运行联网命令。请仅在信任此工作区和相关渠道时启用。',
+  'settings.permissions.fullAccess.warningConfirm': '启用完全访问权限',
+  'settings.permissions.saveFailed': '保存权限设置失败：{{error}}',
   'settings.theme.dark': '深色',
   'settings.theme.light': '浅色',
   'settings.save': '保存',
@@ -2195,6 +2228,12 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.modeTitle': '模式：{{mode}}',
   'composer.mode.agent': 'Agent',
   'composer.mode.plan': 'Plan',
+  'composer.approval.label': '审批策略',
+  'composer.approval.selectTitle': '选择审批策略',
+  'composer.approval.default.label': '默认权限',
+  'composer.approval.fullAccess.label': '完全访问权限',
+  'composer.approval.workspaceDefaultHint': '工作区默认：{{policy}}',
+  'composer.approval.updateFailed': '更新审批策略失败：{{error}}',
   'planApproval.title': '实施此计划？',
   'planApproval.yes': '是，实施此计划',
   'planApproval.noPlaceholder': '否，请告知 DotCraft 如何调整',
@@ -2637,6 +2676,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
 
   // Settings 分组标题
   'settings.group.general': '常规',
+  'settings.group.permissions': '权限',
   'settings.group.personalization': '个性化',
   'settings.group.connection': '连接',
   'settings.group.appServer': 'AppServer',

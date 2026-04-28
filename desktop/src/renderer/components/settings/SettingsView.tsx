@@ -33,6 +33,7 @@ import { PillSwitch } from '../ui/PillSwitch'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import { SettingsPageHeader } from './SettingsPageHeader'
 import {
@@ -88,6 +89,7 @@ interface WorkspaceCoreConfig {
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
   skillsSelfLearningEnabled: boolean | null
+  defaultApprovalPolicy: VisibleApprovalPolicy | null
 }
 
 interface WorkspaceCoreConfigResult {
@@ -99,7 +101,14 @@ const EMPTY_WORKSPACE_CORE_CONFIG: WorkspaceCoreConfig = {
   apiKey: null,
   endPoint: null,
   welcomeSuggestionsEnabled: null,
-  skillsSelfLearningEnabled: null
+  skillsSelfLearningEnabled: null,
+  defaultApprovalPolicy: null
+}
+
+type VisibleApprovalPolicy = 'default' | 'autoApprove'
+
+function normalizeVisibleApprovalPolicy(value: unknown): VisibleApprovalPolicy | null {
+  return value === 'default' || value === 'autoApprove' ? value : null
 }
 
 function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
@@ -114,7 +123,8 @@ function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
     skillsSelfLearningEnabled:
       typeof source.skillsSelfLearningEnabled === 'boolean'
         ? source.skillsSelfLearningEnabled
-        : null
+        : null,
+    defaultApprovalPolicy: normalizeVisibleApprovalPolicy(source.defaultApprovalPolicy)
   }
 }
 
@@ -505,6 +515,7 @@ export function SettingsView({
   workspaceConfigChangeSeq = 0
 }: SettingsViewProps): JSX.Element {
   const t = useT()
+  const confirm = useConfirmDialog()
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -588,13 +599,15 @@ export function SettingsView({
     apiKey: null,
     endPoint: null,
     welcomeSuggestionsEnabled: null,
-    skillsSelfLearningEnabled: null
+    skillsSelfLearningEnabled: null,
+    defaultApprovalPolicy: null
   })
   const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
     apiKey: null,
     endPoint: null,
     welcomeSuggestionsEnabled: null,
-    skillsSelfLearningEnabled: null
+    skillsSelfLearningEnabled: null,
+    defaultApprovalPolicy: null
   })
   const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
   const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
@@ -606,6 +619,8 @@ export function SettingsView({
   const [selfLearningEnabled, setSelfLearningEnabled] = useState(true)
   const [applyingSelfLearning, setApplyingSelfLearning] = useState(false)
   const [selfLearningRestartPending, setSelfLearningRestartPending] = useState(false)
+  const [defaultApprovalPolicy, setDefaultApprovalPolicy] = useState<VisibleApprovalPolicy>('default')
+  const [applyingDefaultApprovalPolicy, setApplyingDefaultApprovalPolicy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const workspaceCoreApiAvailable = getWorkspaceCoreReader(window.api) != null
 
@@ -679,6 +694,11 @@ export function SettingsView({
       core.userDefaults.skillsSelfLearningEnabled ??
       true
     setSelfLearningEnabled(resolvedSelfLearningEnabled)
+    const resolvedDefaultApprovalPolicy =
+      core.workspace.defaultApprovalPolicy ??
+      core.userDefaults.defaultApprovalPolicy ??
+      'default'
+    setDefaultApprovalPolicy(resolvedDefaultApprovalPolicy)
 
     if (keepDraftValues) {
       return
@@ -764,6 +784,42 @@ export function SettingsView({
       }
     },
     [reloadWorkspaceCore, selfLearningEnabled, t]
+  )
+
+  const handleDefaultApprovalPolicyChange = useCallback(
+    async (nextPolicy: VisibleApprovalPolicy): Promise<void> => {
+      if (nextPolicy === defaultApprovalPolicy || applyingDefaultApprovalPolicy) return
+
+      if (nextPolicy === 'autoApprove') {
+        const confirmed = await confirm({
+          title: t('settings.permissions.fullAccess.warningTitle'),
+          message: t('settings.permissions.fullAccess.warningBody'),
+          confirmLabel: t('settings.permissions.fullAccess.warningConfirm'),
+          cancelLabel: t('common.cancel'),
+          danger: true
+        })
+        if (!confirmed) return
+      }
+
+      const previous = defaultApprovalPolicy
+      setDefaultApprovalPolicy(nextPolicy)
+      setApplyingDefaultApprovalPolicy(true)
+      try {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', {
+          defaultApprovalPolicy: nextPolicy
+        }) as { defaultApprovalPolicy?: string | null }
+        const persisted = normalizeVisibleApprovalPolicy(result?.defaultApprovalPolicy) ?? nextPolicy
+        setDefaultApprovalPolicy(persisted)
+        await reloadWorkspaceCore()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setDefaultApprovalPolicy(previous)
+        addToast(t('settings.permissions.saveFailed', { error: msg }), 'error')
+      } finally {
+        setApplyingDefaultApprovalPolicy(false)
+      }
+    },
+    [applyingDefaultApprovalPolicy, confirm, defaultApprovalPolicy, reloadWorkspaceCore, t]
   )
 
   useSettingsWorkspaceConfigChangeEffects({
@@ -2162,6 +2218,40 @@ export function SettingsView({
                       DotCraft Desktop {t('settings.version')} {version}
                     </div>
                   </SettingsRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title={t('settings.group.permissions')}
+                  description={t('settings.permissions.description')}
+                >
+                  <SettingsRow
+                    label={t('settings.permissions.default.label')}
+                    description={t('settings.permissions.default.description')}
+                    control={
+                      <PillSwitch
+                        checked={defaultApprovalPolicy === 'default'}
+                        disabled={applyingDefaultApprovalPolicy}
+                        aria-label={t('settings.permissions.default.label')}
+                        onChange={(checked) => {
+                          if (checked) void handleDefaultApprovalPolicyChange('default')
+                        }}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.permissions.fullAccess.label')}
+                    description={t('settings.permissions.fullAccess.description')}
+                    control={
+                      <PillSwitch
+                        checked={defaultApprovalPolicy === 'autoApprove'}
+                        disabled={applyingDefaultApprovalPolicy}
+                        aria-label={t('settings.permissions.fullAccess.label')}
+                        onChange={(checked) => {
+                          if (checked) void handleDefaultApprovalPolicyChange('autoApprove')
+                        }}
+                      />
+                    }
+                  />
                 </SettingsGroup>
 
                 <SettingsGroup title={t('settings.llm.title')}>

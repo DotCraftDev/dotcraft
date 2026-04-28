@@ -1,5 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Mcp;
+using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
 using System.Text.Json;
@@ -160,6 +161,89 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
     }
 
     [Fact]
+    public async Task WorkspaceConfigUpdate_DefaultApprovalPolicy_RoundTripsAndEmitsRegion()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.WorkspaceConfigUpdate, new
+        {
+            defaultApprovalPolicy = "autoApprove"
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        var response = Assert.Single(sent, d => d.RootElement.TryGetProperty("result", out _));
+        Assert.Equal("autoApprove", response.RootElement.GetProperty("result").GetProperty("defaultApprovalPolicy").GetString());
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.WorkspaceDefaultApprovalPolicy);
+
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(
+            "autoApprove",
+            doc.RootElement.GetProperty("Permissions").GetProperty("DefaultApprovalPolicy").GetString());
+        Assert.Equal(ApprovalPolicy.AutoApprove, harness.Monitor.Current.Permissions.DefaultApprovalPolicy);
+    }
+
+    [Fact]
+    public async Task WorkspaceConfigUpdate_DefaultApprovalPolicyNull_RemovesLeafAndPrunesEmptySection()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """
+            {
+              "Permissions": {
+                "DefaultApprovalPolicy": "autoApprove"
+              }
+            }
+            """);
+
+        var monitor = new AppConfigMonitor(new AppConfig
+        {
+            Permissions = new AppConfig.PermissionsConfig
+            {
+                DefaultApprovalPolicy = ApprovalPolicy.AutoApprove
+            }
+        });
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath, appConfigMonitor: monitor);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        using var requestDoc = JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "workspace/config/update",
+              "params": {
+                "defaultApprovalPolicy": null
+              }
+            }
+            """);
+        var req = new AppServerIncomingMessage
+        {
+            JsonRpc = "2.0",
+            Id = requestDoc.RootElement.GetProperty("id").Clone(),
+            Method = AppServerMethods.WorkspaceConfigUpdate,
+            Params = requestDoc.RootElement.GetProperty("params").Clone()
+        };
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        var response = Assert.Single(sent, d => d.RootElement.TryGetProperty("result", out _));
+        Assert.Equal(JsonValueKind.Null, response.RootElement.GetProperty("result").GetProperty("defaultApprovalPolicy").ValueKind);
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.WorkspaceDefaultApprovalPolicy);
+
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.TryGetProperty("Permissions", out _));
+        Assert.Equal(ApprovalPolicy.Default, harness.Monitor.Current.Permissions.DefaultApprovalPolicy);
+    }
+
+    [Fact]
     public async Task WorkspaceConfigUpdate_ModelApiKeyEndPointWelcomeSuggestionsAndSelfLearning_EmitsAllWorkspaceRegions()
     {
         using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
@@ -172,7 +256,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
             apiKey = "sk-live-key",
             endPoint = "https://example.com/v1",
             welcomeSuggestionsEnabled = false,
-            skillsSelfLearningEnabled = true
+            skillsSelfLearningEnabled = true,
+            defaultApprovalPolicy = "autoApprove"
         });
         await harness.ExecuteRequestAsync(req);
 
@@ -185,7 +270,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
                 ConfigChangeRegions.WorkspaceApiKey,
                 ConfigChangeRegions.WorkspaceEndPoint,
                 ConfigChangeRegions.WelcomeSuggestions,
-                ConfigChangeRegions.Skills
+                ConfigChangeRegions.Skills,
+                ConfigChangeRegions.WorkspaceDefaultApprovalPolicy
             ]);
     }
 

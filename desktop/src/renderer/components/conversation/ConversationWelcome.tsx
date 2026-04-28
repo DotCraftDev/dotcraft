@@ -25,6 +25,7 @@ import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import { SparkIcon } from '../ui/AppIcons'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ModelPicker } from './ModelPicker'
+import { ApprovalPolicyPicker, type VisibleApprovalPolicy } from './ApprovalPolicyPicker'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -112,6 +113,7 @@ export function ConversationWelcome({
   const [skillDismissed, setSkillDismissed] = useState(false)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
+  const [welcomeApprovalPolicy, setWelcomeApprovalPolicy] = useState<VisibleApprovalPolicy>('default')
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
   const [welcomeSuggestionsConfigReady, setWelcomeSuggestionsConfigReady] = useState(false)
@@ -446,6 +448,7 @@ export function ConversationWelcome({
     setImages(welcomeDraft.images)
     setFiles([...(welcomeDraft.files ?? [])])
     setWelcomeMode(welcomeDraft.mode)
+    setWelcomeApprovalPolicy(welcomeDraft.approvalPolicy ?? 'default')
     setModelName(welcomeDraft.model || 'Default')
     setContentRevision((n) => n + 1)
     draftHydratedRef.current = true
@@ -488,7 +491,7 @@ export function ConversationWelcome({
     const hasImages = images.length > 0
     const hasFiles = files.length > 0
     const model = modelName || 'Default'
-    const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default'
+    const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default' || welcomeApprovalPolicy !== 'default'
     const fallbackCaret = text.length
 
     if (!hasText && !hasImages && !hasFiles && !hasCustomSettings) {
@@ -504,9 +507,10 @@ export function ConversationWelcome({
       images: [...images],
       files: [...files],
       mode: welcomeMode,
-      model
+      model,
+      approvalPolicy: welcomeApprovalPolicy
     })
-  }, [clearWelcomeDraft, files, images, modelName, setWelcomeDraft, welcomeMode])
+  }, [clearWelcomeDraft, files, images, modelName, setWelcomeDraft, welcomeApprovalPolicy, welcomeMode])
 
   useEffect(() => {
     if (!draftHydratedRef.current) return
@@ -516,7 +520,7 @@ export function ConversationWelcome({
     return () => {
       clearTimeout(timer)
     }
-  }, [contentRevision, files, flushWelcomeDraft, images, modelName, welcomeMode])
+  }, [contentRevision, files, flushWelcomeDraft, images, modelName, welcomeApprovalPolicy, welcomeMode])
 
   useEffect(() => {
     return () => {
@@ -590,6 +594,7 @@ export function ConversationWelcome({
     const capturedImages = [...images]
     const capturedFiles = [...files]
     const capturedMode = welcomeMode
+    const capturedApprovalPolicy = welcomeApprovalPolicy
     const capturedModel = modelName === 'Default' ? '' : modelName
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
@@ -620,6 +625,7 @@ export function ConversationWelcome({
         images: capturedImages.length > 0 ? capturedImages : undefined,
         files: capturedFiles.length > 0 ? capturedFiles : undefined,
         mode: capturedMode,
+        approvalPolicy: capturedApprovalPolicy,
         model: capturedModel
       })
       addThread(res.thread)
@@ -641,6 +647,7 @@ export function ConversationWelcome({
     workspacePath,
     addThread,
     setActiveThreadId,
+    welcomeApprovalPolicy,
     welcomeMode,
     modelName,
     modelLoading,
@@ -923,6 +930,12 @@ export function ConversationWelcome({
                     title={t('composer.modeTitle', {
                       mode: welcomeMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
                     })}
+                  />
+
+                  <ApprovalPolicyPicker
+                    value={welcomeApprovalPolicy}
+                    onChange={setWelcomeApprovalPolicy}
+                    disabled={starting}
                   />
                 </div>
               }

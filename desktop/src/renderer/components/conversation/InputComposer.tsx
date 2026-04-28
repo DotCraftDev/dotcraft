@@ -23,6 +23,7 @@ import { CommandSearchPopover } from './CommandSearchPopover'
 import { ModelPicker } from './ModelPicker'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import { ContextUsageRing } from './ContextUsageRing'
+import { ApprovalPolicyPicker } from './ApprovalPolicyPicker'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -528,6 +529,8 @@ export function InputComposer({
                 mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
               })}
             />
+
+            <ApprovalPolicyPicker threadId={threadId} disabled={isRunning || isWaitingApproval} />
           </div>
         }
         footerAction={

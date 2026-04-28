@@ -11,6 +11,7 @@ using DotCraft.Heartbeat;
 using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
+using DotCraft.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.AI;
@@ -1780,6 +1781,17 @@ public sealed class AppServerRequestHandler(
             .ToList();
     }
 
+    private void RefreshCurrentPermissionsConfig(string? defaultApprovalPolicy)
+    {
+        if (appConfigMonitor == null)
+            return;
+
+        appConfigMonitor.Current.Permissions = new AppConfig.PermissionsConfig
+        {
+            DefaultApprovalPolicy = ToApprovalPolicy(defaultApprovalPolicy)
+        };
+    }
+
     private static void SaveWorkspaceExternalChannels(string workspaceCraftPath, IReadOnlyCollection<ExternalChannelEntry> channels)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
@@ -1840,7 +1852,7 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
         if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
-            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', or 'skillsSelfLearningEnabled' is required.");
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', or 'defaultApprovalPolicy' is required.");
 
         var hasModel = TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl);
         var hasApiKey = TryGetCaseInsensitiveProperty(msg.Params.Value, "apiKey", out var apiKeyEl);
@@ -1853,10 +1865,19 @@ public sealed class AppServerRequestHandler(
             msg.Params.Value,
             "skillsSelfLearningEnabled",
             out var skillsSelfLearningEnabledEl);
-        if (!hasModel && !hasApiKey && !hasEndPoint && !hasWelcomeSuggestionsEnabled && !hasSkillsSelfLearningEnabled)
+        var hasDefaultApprovalPolicy = TryGetCaseInsensitiveProperty(
+            msg.Params.Value,
+            "defaultApprovalPolicy",
+            out var defaultApprovalPolicyEl);
+        if (!hasModel
+            && !hasApiKey
+            && !hasEndPoint
+            && !hasWelcomeSuggestionsEnabled
+            && !hasSkillsSelfLearningEnabled
+            && !hasDefaultApprovalPolicy)
         {
             throw AppServerErrors.InvalidParams(
-                "At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', or 'skillsSelfLearningEnabled' is required.");
+                "At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', or 'defaultApprovalPolicy' is required.");
         }
 
         var model = hasModel ? ParseNullableString(modelEl, "model") : null;
@@ -1868,6 +1889,9 @@ public sealed class AppServerRequestHandler(
         var skillsSelfLearningEnabled = hasSkillsSelfLearningEnabled
             ? ParseNullableBoolean(skillsSelfLearningEnabledEl, "skillsSelfLearningEnabled")
             : null;
+        var defaultApprovalPolicy = hasDefaultApprovalPolicy
+            ? ParseNullableString(defaultApprovalPolicyEl, "defaultApprovalPolicy")
+            : null;
 
         var saveResult = SaveWorkspaceCoreConfig(
             workspaceCraftPath,
@@ -1876,11 +1900,13 @@ public sealed class AppServerRequestHandler(
             hasEndPoint ? NormalizeOptionalString(endPoint) : null,
             welcomeSuggestionsEnabled,
             skillsSelfLearningEnabled,
+            hasDefaultApprovalPolicy ? NormalizeDefaultApprovalPolicy(defaultApprovalPolicy) : null,
             hasModel,
             hasApiKey,
             hasEndPoint,
             hasWelcomeSuggestionsEnabled,
-            hasSkillsSelfLearningEnabled);
+            hasSkillsSelfLearningEnabled,
+            hasDefaultApprovalPolicy);
 
         var changedRegions = new List<string>();
         if (saveResult.ModelChanged)
@@ -1893,6 +1919,11 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (saveResult.SkillsSelfLearningChanged)
             changedRegions.Add(ConfigChangeRegions.Skills);
+        if (saveResult.DefaultApprovalPolicyChanged)
+        {
+            changedRegions.Add(ConfigChangeRegions.WorkspaceDefaultApprovalPolicy);
+            RefreshCurrentPermissionsConfig(saveResult.DefaultApprovalPolicy);
+        }
         if (changedRegions.Count > 0)
         {
             appConfigMonitor?.NotifyChanged(
@@ -1906,7 +1937,8 @@ public sealed class AppServerRequestHandler(
             ApiKey = saveResult.ApiKey,
             EndPoint = saveResult.EndPoint,
             WelcomeSuggestionsEnabled = saveResult.WelcomeSuggestionsEnabled,
-            SkillsSelfLearningEnabled = saveResult.SkillsSelfLearningEnabled
+            SkillsSelfLearningEnabled = saveResult.SkillsSelfLearningEnabled,
+            DefaultApprovalPolicy = saveResult.DefaultApprovalPolicy
         });
     }
 
@@ -2541,6 +2573,29 @@ public sealed class AppServerRequestHandler(
         return trimmed;
     }
 
+    private static string? NormalizeDefaultApprovalPolicy(string? rawPolicy)
+    {
+        var trimmed = rawPolicy?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return null;
+
+        return trimmed switch
+        {
+            "default" or "Default" => "default",
+            "autoApprove" or "AutoApprove" => "autoApprove",
+            _ => throw AppServerErrors.InvalidParams("'defaultApprovalPolicy' must be 'default', 'autoApprove', or null.")
+        };
+    }
+
+    private static ApprovalPolicy ToApprovalPolicy(string? rawPolicy)
+    {
+        return rawPolicy switch
+        {
+            "autoApprove" => ApprovalPolicy.AutoApprove,
+            _ => ApprovalPolicy.Default
+        };
+    }
+
     private static WorkspaceConfigSaveResult SaveWorkspaceCoreConfig(
         string workspaceCraftPath,
         string? model,
@@ -2548,11 +2603,13 @@ public sealed class AppServerRequestHandler(
         string? endPoint,
         bool? welcomeSuggestionsEnabled,
         bool? skillsSelfLearningEnabled,
+        string? defaultApprovalPolicy,
         bool updateModel,
         bool updateApiKey,
         bool updateEndPoint,
         bool updateWelcomeSuggestionsEnabled,
-        bool updateSkillsSelfLearningEnabled)
+        bool updateSkillsSelfLearningEnabled,
+        bool updateDefaultApprovalPolicy)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         Directory.CreateDirectory(workspaceCraftPath);
@@ -2568,12 +2625,15 @@ public sealed class AppServerRequestHandler(
             ? null
             : GetOrCreateConfigSection(skillsSection, "SelfLearning", createIfMissing: updateSkillsSelfLearningEnabled);
         var selfLearningEnabledKey = selfLearningSection == null ? null : FindCaseInsensitiveKey(selfLearningSection, "Enabled");
+        var permissionsSection = GetOrCreateConfigSection(root, "Permissions", createIfMissing: updateDefaultApprovalPolicy);
+        var defaultApprovalPolicyKey = permissionsSection == null ? null : FindCaseInsensitiveKey(permissionsSection, "DefaultApprovalPolicy");
 
         var existingModel = NormalizeWorkspaceModel(ReadConfigStringValue(root, modelKey));
         var existingApiKey = NormalizeOptionalString(ReadConfigStringValue(root, apiKeyKey));
         var existingEndPoint = NormalizeOptionalString(ReadConfigStringValue(root, endPointKey));
         var existingWelcomeSuggestionsEnabled = ReadConfigBooleanValue(welcomeSection, welcomeEnabledKey);
         var existingSkillsSelfLearningEnabled = ReadConfigBooleanValue(selfLearningSection, selfLearningEnabledKey);
+        var existingDefaultApprovalPolicy = NormalizeDefaultApprovalPolicy(ReadConfigStringValue(permissionsSection, defaultApprovalPolicyKey));
 
         var modelChanged = updateModel && !string.Equals(existingModel, model, StringComparison.Ordinal);
         var apiKeyChanged = updateApiKey && !string.Equals(existingApiKey, apiKey, StringComparison.Ordinal);
@@ -2582,6 +2642,8 @@ public sealed class AppServerRequestHandler(
             && existingWelcomeSuggestionsEnabled != welcomeSuggestionsEnabled;
         var skillsSelfLearningChanged = updateSkillsSelfLearningEnabled
             && existingSkillsSelfLearningEnabled != skillsSelfLearningEnabled;
+        var defaultApprovalPolicyChanged = updateDefaultApprovalPolicy
+            && !string.Equals(existingDefaultApprovalPolicy, defaultApprovalPolicy, StringComparison.Ordinal);
 
         if (updateModel)
             UpsertOrRemoveConfigValue(root, modelKey, "Model", model);
@@ -2605,8 +2667,20 @@ public sealed class AppServerRequestHandler(
             RemoveConfigSectionIfEmpty(skills, "SelfLearning");
             RemoveConfigSectionIfEmpty(root, "Skills");
         }
+        if (updateDefaultApprovalPolicy)
+        {
+            var permissions = GetOrCreateConfigSection(root, "Permissions", createIfMissing: true)!;
+            var defaultApprovalPolicyExistingKey = FindCaseInsensitiveKey(permissions, "DefaultApprovalPolicy");
+            UpsertOrRemoveConfigValue(permissions, defaultApprovalPolicyExistingKey, "DefaultApprovalPolicy", defaultApprovalPolicy);
+            RemoveConfigSectionIfEmpty(root, "Permissions");
+        }
 
-        if (modelChanged || apiKeyChanged || endPointChanged || welcomeSuggestionsChanged || skillsSelfLearningChanged)
+        if (modelChanged
+            || apiKeyChanged
+            || endPointChanged
+            || welcomeSuggestionsChanged
+            || skillsSelfLearningChanged
+            || defaultApprovalPolicyChanged)
         {
             var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
@@ -2623,11 +2697,15 @@ public sealed class AppServerRequestHandler(
             SkillsSelfLearningEnabled = updateSkillsSelfLearningEnabled
                 ? skillsSelfLearningEnabled
                 : existingSkillsSelfLearningEnabled,
+            DefaultApprovalPolicy = updateDefaultApprovalPolicy
+                ? defaultApprovalPolicy
+                : existingDefaultApprovalPolicy,
             ModelChanged = modelChanged,
             ApiKeyChanged = apiKeyChanged,
             EndPointChanged = endPointChanged,
             WelcomeSuggestionsChanged = welcomeSuggestionsChanged,
-            SkillsSelfLearningChanged = skillsSelfLearningChanged
+            SkillsSelfLearningChanged = skillsSelfLearningChanged,
+            DefaultApprovalPolicyChanged = defaultApprovalPolicyChanged
         };
     }
 
@@ -2711,9 +2789,9 @@ public sealed class AppServerRequestHandler(
         };
     }
 
-    private static string? ReadConfigStringValue(JsonObject root, string? key)
+    private static string? ReadConfigStringValue(JsonObject? root, string? key)
     {
-        if (string.IsNullOrEmpty(key))
+        if (root == null || string.IsNullOrEmpty(key))
             return null;
         if (!root.TryGetPropertyValue(key, out var node) || node == null)
             return null;
@@ -2778,6 +2856,8 @@ public sealed class AppServerRequestHandler(
 
         public bool? SkillsSelfLearningEnabled { get; init; }
 
+        public string? DefaultApprovalPolicy { get; init; }
+
         public bool ModelChanged { get; init; }
 
         public bool ApiKeyChanged { get; init; }
@@ -2787,6 +2867,8 @@ public sealed class AppServerRequestHandler(
         public bool WelcomeSuggestionsChanged { get; init; }
 
         public bool SkillsSelfLearningChanged { get; init; }
+
+        public bool DefaultApprovalPolicyChanged { get; init; }
     }
 
     private static bool TryGetCaseInsensitiveProperty(JsonElement obj, string expectedName, out JsonElement value)

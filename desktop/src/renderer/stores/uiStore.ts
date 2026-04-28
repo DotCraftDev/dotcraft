@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ComposerFileAttachment, ImageAttachment, InputPart, ThreadMode } from '../types/conversation'
 import type { ComposerDraftSegment } from '../types/composerDraft'
+import type { ApprovalPolicyWire } from '../types/thread'
 import { useThreadStore } from './threadStore'
 
 const SIDEBAR_DEFAULT_WIDTH = 240
@@ -42,6 +43,7 @@ export interface WelcomeDraft {
   files?: ComposerFileAttachment[]
   mode: ThreadMode
   model: string
+  approvalPolicy?: Extract<ApprovalPolicyWire, 'default' | 'autoApprove'>
   updatedAt: number
 }
 
@@ -99,6 +101,8 @@ export interface UIState {
     mode?: ThreadMode
     /** Model chosen on Welcome before thread exists; applied after thread/read. */
     model?: string
+    /** Approval policy chosen on Welcome before thread exists; applied after thread/read. */
+    approvalPolicy?: Extract<ApprovalPolicyWire, 'default' | 'autoApprove'>
     createdAt: number
   } | null
   /** Unsent draft on ConversationWelcome, preserved across thread navigation. */
