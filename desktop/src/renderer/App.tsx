@@ -1287,6 +1287,13 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+          {
+            const rawMode = res.thread.configuration?.mode ?? res.thread.configuration?.Mode
+            const mode = typeof rawMode === 'string' && rawMode.toLowerCase() === 'plan'
+              ? 'plan'
+              : 'agent'
+            useConversationStore.getState().setThreadMode(mode)
+          }
           useConversationStore.getState().setQueuedInputs(res.thread.queuedInputs ?? [])
           useConversationStore.getState().setContextUsage(res.thread.contextUsage ?? null)
           const parked = useThreadStore.getState().consumeParkedApproval(requestedId)

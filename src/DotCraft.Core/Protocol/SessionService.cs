@@ -62,6 +62,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadQueueLocks = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadAgentLocks = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
@@ -165,7 +166,10 @@ public sealed class SessionService(
         // Create a per-thread agent when custom configuration is provided or when
         // runtime external channel tools may need thread-scoped injection.
         if (config != null || channelRuntimeToolProvider != null)
-            _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
+        {
+            using (await AcquireThreadAgentLockAsync(thread.Id, ct))
+                _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
+        }
 
         await PersistThreadWithMaterializationAsync(thread, ct);
         await SaveContextUsageSnapshotAsync(thread.Id, 0, ct);
@@ -318,7 +322,10 @@ public sealed class SessionService(
             _threadAgents.TryRemove(normalizedThreadId, out _);
             _threadModeManagers.TryRemove(normalizedThreadId, out _);
             _threadEventBrokers.TryRemove(normalizedThreadId, out _);
-            _threadQueueLocks.TryRemove(normalizedThreadId, out _);
+            if (_threadQueueLocks.TryRemove(normalizedThreadId, out var queueLock))
+                queueLock.Dispose();
+            if (_threadAgentLocks.TryRemove(normalizedThreadId, out var agentLock))
+                agentLock.Dispose();
             _materializedThreads.TryRemove(normalizedThreadId, out _);
             _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
             if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
@@ -748,7 +755,8 @@ public sealed class SessionService(
                 }
 
                 // Step 5b: Load/create AgentSession
-                agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
+                using (await AcquireThreadAgentLockAsync(threadId, executionCt))
+                    agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
 
                 // Bind tracing and token tracking before session creation so session metadata
                 // captured during CreateSessionAsync / LoadOrCreateSessionAsync is attributed
@@ -1678,12 +1686,15 @@ public sealed class SessionService(
     public async Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default)
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
-        thread.Configuration ??= new ThreadConfiguration();
-        thread.Configuration.Mode = mode;
+        using (await AcquireThreadAgentLockAsync(threadId, ct))
+        {
+            thread.Configuration ??= new ThreadConfiguration();
+            thread.Configuration.Mode = mode;
 
-        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+            _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
 
-        await PersistThreadWithMaterializationAsync(thread, ct);
+            await PersistThreadWithMaterializationAsync(thread, ct);
+        }
     }
 
     /// <inheritdoc/>
@@ -1693,16 +1704,20 @@ public sealed class SessionService(
         CancellationToken ct = default)
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
-        thread.Configuration = config;
-        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
-        await PersistThreadWithMaterializationAsync(thread, ct);
+        using (await AcquireThreadAgentLockAsync(threadId, ct))
+        {
+            thread.Configuration = config;
+            _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+            await PersistThreadWithMaterializationAsync(thread, ct);
+        }
     }
 
     /// <inheritdoc />
     public async Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default)
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
-        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+        using (await AcquireThreadAgentLockAsync(threadId, ct))
+            _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -1739,6 +1754,13 @@ public sealed class SessionService(
         var queueLock = _threadQueueLocks.GetOrAdd(threadId, static _ => new SemaphoreSlim(1, 1));
         await queueLock.WaitAsync(ct);
         return new SemaphoreSlimReleaser(queueLock);
+    }
+
+    private async Task<IDisposable> AcquireThreadAgentLockAsync(string threadId, CancellationToken ct)
+    {
+        var agentLock = _threadAgentLocks.GetOrAdd(threadId, static _ => new SemaphoreSlim(1, 1));
+        await agentLock.WaitAsync(ct);
+        return new SemaphoreSlimReleaser(agentLock);
     }
 
     private void PublishQueueUpdated(string threadId, IReadOnlyList<QueuedTurnInput> queuedInputs) =>
@@ -1936,8 +1958,14 @@ public sealed class SessionService(
     private async Task EnsurePerThreadAgentIfMissingAsync(
         string threadId, SessionThread thread, CancellationToken ct)
     {
-        if ((thread.Configuration != null || channelRuntimeToolProvider != null) && !_threadAgents.ContainsKey(threadId))
-            _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+        if (thread.Configuration == null && channelRuntimeToolProvider == null)
+            return;
+
+        using (await AcquireThreadAgentLockAsync(threadId, ct))
+        {
+            if (!_threadAgents.ContainsKey(threadId))
+                _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
+        }
     }
 
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
