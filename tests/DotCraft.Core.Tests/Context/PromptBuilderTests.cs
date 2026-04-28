@@ -46,6 +46,11 @@ public sealed class PromptBuilderTests : IDisposable
         Assert.Contains("## Working Style", prompt);
         Assert.Contains("Before the first tool call in a task", prompt);
         Assert.Contains("# Plan Mode - System Reminder", prompt);
+        Assert.Contains("decision-complete but compact", prompt);
+        Assert.Contains("3-5 short sections", prompt);
+        Assert.Contains("Mention files only when needed", prompt);
+        Assert.Contains("Do not duplicate todos", prompt);
+        Assert.DoesNotContain("comprehensive yet concise", prompt);
     }
 
     [Fact]
