@@ -137,28 +137,56 @@ export function QuickOpenDialog({ onClose, anchorRef }: QuickOpenDialogProps): J
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const indexPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadFilesRef = useRef<(() => void) | null>(null)
 
   // Load file list on mount
   const loadFiles = useCallback(async (): Promise<void> => {
     if (!workspacePath) return
+    if (indexPollTimerRef.current) {
+      clearTimeout(indexPollTimerRef.current)
+      indexPollTimerRef.current = null
+    }
     setLoadState('loading')
     setClassifyError(null)
     try {
-      const { files } = await window.api.workspace.viewer.listFiles({
+      const response = await window.api.workspace.viewer.listFiles({
         workspacePath,
         query: '',
         limit: MAX_FILE_LIST
       })
+      const files = response.files
       setAllFiles(files)
       setResults(fuzzyMatch('', files))
-      setLoadState('ok')
+      if (response.indexStatus === 'building' && files.length === 0) {
+        setLoadState('loading')
+        indexPollTimerRef.current = setTimeout(() => {
+          loadFilesRef.current?.()
+        }, 1500)
+      } else {
+        setLoadState('ok')
+        if (response.indexStatus === 'building') {
+          indexPollTimerRef.current = setTimeout(() => {
+            loadFilesRef.current?.()
+          }, 2500)
+        }
+      }
     } catch {
       setLoadState('error')
     }
   }, [workspacePath])
+  loadFilesRef.current = () => {
+    void loadFiles()
+  }
 
   useEffect(() => {
     void loadFiles()
+    return () => {
+      if (indexPollTimerRef.current) {
+        clearTimeout(indexPollTimerRef.current)
+        indexPollTimerRef.current = null
+      }
+    }
   }, [loadFiles])
 
   // Focus input on open

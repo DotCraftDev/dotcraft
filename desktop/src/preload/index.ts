@@ -688,7 +688,12 @@ const api = {
         workspacePath: string
         query: string
         limit: number
-      }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
+      }): Promise<{
+        files: Array<{ name: string; relativePath: string; dir: string }>
+        indexStatus?: 'empty' | 'building' | 'ready'
+        indexedCount?: number
+        stale?: boolean
+      }> {
         return ipcRenderer.invoke('workspace:viewer:list-files', params)
       },
 

@@ -281,8 +281,7 @@ export function App(): JSX.Element {
       syncWorkspaceStatus(payload)
     })
 
-    void window.api.workspace
-      .getStatus()
+    void window.api.workspace.getStatus()
       .then((payload) => {
         syncWorkspaceStatus(payload)
       })
@@ -416,7 +415,7 @@ export function App(): JSX.Element {
 
       const caps = useConnectionStore.getState().capabilities
       if (caps?.automations) {
-        useAutomationsStore.getState().fetchTasks()
+        void useAutomationsStore.getState().fetchTasks()
       }
       if (caps?.cronManagement) {
         void useCronStore.getState().fetchJobs()

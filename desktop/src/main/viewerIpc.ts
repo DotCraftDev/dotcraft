@@ -12,9 +12,8 @@
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import {
-  ensureFileIndex,
-  searchWorkspaceFiles,
-  type FileMatchWire
+  listWorkspaceFiles,
+  type FileListResultWire
 } from './workspaceComposerIpc'
 import type {
   ClassifyResult,
@@ -255,19 +254,10 @@ export async function listViewerFiles(
   workspaceRoot: string,
   query: string,
   limit: number
-): Promise<FileMatchWire[]> {
-  if (!workspaceRoot) return []
-
-  const index = await ensureFileIndex(workspaceRoot)
-
-  if (!query.trim()) {
-    // Return first `limit` entries sorted by relativePath
-    return [...index]
-      .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-      .slice(0, limit)
-      .map((e) => ({ name: e.name, relativePath: e.relativePath, dir: e.dir }))
+): Promise<FileListResultWire> {
+  if (!workspaceRoot) {
+    return { files: [], indexStatus: 'empty', indexedCount: 0, stale: false }
   }
 
-  // Delegate to the existing search (it handles query scoring)
-  return searchWorkspaceFiles(workspaceRoot, query, limit)
+  return listWorkspaceFiles(workspaceRoot, query, limit)
 }

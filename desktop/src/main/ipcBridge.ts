@@ -20,7 +20,7 @@ import {
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
 import {
-  invalidateFileIndex,
+  activateFileIndexWorkspace,
   readImageAsDataUrl,
   saveImageDataUrlToTemp,
   searchWorkspaceFiles,
@@ -569,7 +569,7 @@ export function registerIpcHandlers(
   workspacePath: string,
   callbacks?: IpcHandlerCallbacks
 ): void {
-  invalidateFileIndex()
+  activateFileIndexWorkspace(workspacePath)
   const handleSafe = (
     channel: string,
     listener: Parameters<typeof ipcMain.handle>[1]
@@ -1092,10 +1092,11 @@ export function registerIpcHandlers(
       if (ws !== req) {
         throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
       }
-      if (!ws) return { files: [] }
+      if (!ws) {
+        return { files: [], indexStatus: 'empty', indexedCount: 0, stale: false }
+      }
       const limit = Math.min(500, Math.max(1, params.limit ?? 100))
-      const files = await listViewerFiles(ws, params.query, limit)
-      return { files }
+      return listViewerFiles(ws, params.query, limit)
     }
   )
 
@@ -1283,7 +1284,9 @@ export function registerIpcHandlers(
   )
 
   handleSafe('modules:list', async () => {
-    if (cachedModules !== null) return cachedModules
+    if (cachedModules !== null) {
+      return cachedModules
+    }
     return scanAndCacheModules()
   })
 
@@ -1492,7 +1495,8 @@ export function registerIpcHandlers(
   )
 
   handleSafe('modules:running', async (): Promise<ModuleStatusMap> => {
-    return moduleProcessManager?.getStatusMap() ?? {}
+    const statusMap = moduleProcessManager?.getStatusMap() ?? {}
+    return statusMap
   })
 
   handleSafe(
@@ -1713,5 +1717,4 @@ export function unregisterIpcHandlers(): void {
   moduleProcessManager = null
   ensureModulesScanned = null
   getSettingsSnapshotForModules = null
-  invalidateFileIndex()
 }
