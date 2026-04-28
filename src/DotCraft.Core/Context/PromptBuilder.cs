@@ -508,6 +508,20 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
 
 Example: if the task involves both a data model and a UI component, send one response with two SpawnSubagent calls — one exploring the model layer and one exploring the UI layer — rather than doing them one after the other.
 
+### Subagent Result Synthesis
+- After subagents return, identify which findings can be used directly and
+  which important gaps remain before finalizing the plan.
+- Trust subagent results for broad findings, and do not repeat broad searches
+  they already covered.
+- The main agent owns the final synthesis. Inspect critical files when needed
+  to anchor plan-critical conclusions about key files, interfaces, data flow,
+  and test entry points. Default to 1-3 key files; use up to 5 only for complex
+  tasks.
+- Do more local investigation only when subagent reports conflict, omit a
+  critical path, or leave API shape, data flow, or test strategy unclear.
+- If the subagent results are sufficient and you have already read the critical
+  files needed for context, proceed to the design and plan.
+
 ### Phase 2: Design
 - Design an implementation approach based on your exploration results.
 - Consider alternatives and tradeoffs.

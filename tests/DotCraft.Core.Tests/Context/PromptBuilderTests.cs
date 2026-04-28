@@ -50,6 +50,9 @@ public sealed class PromptBuilderTests : IDisposable
         Assert.Contains("3-5 short sections", prompt);
         Assert.Contains("Mention files only when needed", prompt);
         Assert.Contains("Do not duplicate todos", prompt);
+        Assert.Contains("Subagent Result Synthesis", prompt);
+        Assert.Contains("do not repeat broad searches", prompt);
+        Assert.Contains("Inspect critical files when needed", prompt);
         Assert.DoesNotContain("comprehensive yet concise", prompt);
     }
 
