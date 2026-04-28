@@ -37,6 +37,7 @@ import { AnsiPre } from './AnsiPre'
 import { stripAnsi } from '../../utils/ansi'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { openConversationLink } from '../../utils/conversationDeepLink'
+import type { FileDiff } from '../../types/toolCall'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -75,6 +76,32 @@ function formatRunningToolLabel(
     return formatInvocationDisplay(toolName, args, locale) ?? streamingLabel
   }
   return streamingLabel
+}
+
+function getFilename(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path
+}
+
+function formatDiffStats(diff: FileDiff | undefined): string {
+  if (!diff) return ''
+  const parts: string[] = []
+  if (diff.additions > 0) parts.push(`+${diff.additions}`)
+  if (diff.deletions > 0) parts.push(`-${diff.deletions}`)
+  return parts.join(' ')
+}
+
+function formatFileToolLabel(
+  diff: FileDiff | undefined,
+  fallbackLabel: string,
+  locale: AppLocale
+): string {
+  if (!diff) return fallbackLabel
+  const filename = getFilename(diff.filePath)
+  const action = diff.isNewFile
+    ? translate(locale, 'toolCall.created', { filename })
+    : translate(locale, 'toolCall.edited', { filename })
+  const stats = formatDiffStats(diff)
+  return stats ? `${action} ${stats}` : action
 }
 
 export const ToolCallCard = memo(function ToolCallCard({
@@ -138,13 +165,16 @@ export const ToolCallCard = memo(function ToolCallCard({
   const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
   const streamingFileDiff = FILE_WRITE_TOOLS.has(toolName) ? streamingItemDiffs.get(item.id) : undefined
-  const runningLabel = formatRunningToolLabel(
+  const runningBaseLabel = formatRunningToolLabel(
     toolName,
     args,
     locale,
     streamingDisplay.label,
     planTodos
   )
+  const runningLabel = FILE_WRITE_TOOLS.has(toolName)
+    ? formatFileToolLabel(streamingFileDiff, runningBaseLabel, locale)
+    : runningBaseLabel
 
   function toggleExpand(): void {
     if ((isRunning && canExpandWhileRunning) || (!isRunning && canExpandCompleted)) {
@@ -273,7 +303,12 @@ export const ToolCallCard = memo(function ToolCallCard({
           renderExpanded={renderExpanded && canExpandWhileRunning}
           setRenderExpanded={setRenderExpanded}
         >
-          <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
+          <div
+            style={{
+              background: 'var(--bg-secondary)',
+              padding: isStreamingFileTool && streamingFileDiff ? 0 : '8px'
+            }}
+          >
             {isShellTool ? (
               <ExpandedContent
                 itemId={item.id}
@@ -287,7 +322,13 @@ export const ToolCallCard = memo(function ToolCallCard({
               />
             ) : isStreamingFileTool ? (
               streamingFileDiff ? (
-                <InlineDiffView diff={streamingFileDiff} streaming />
+                <InlineDiffView
+                  diff={streamingFileDiff}
+                  streaming
+                  variant="embedded"
+                  showStreamingIndicator={false}
+                  headerMode="compact"
+                />
               ) : (
                 <RunningFileToolPreview
                   item={item}
@@ -309,11 +350,15 @@ export const ToolCallCard = memo(function ToolCallCard({
     )
   }
 
-  const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+  const fallbackLabel = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+  const label = FILE_WRITE_TOOLS.has(toolName)
+    ? formatFileToolLabel(fileDiff, fallbackLabel, locale)
+    : fallbackLabel
   const failedPreview = stripAnsi(item.result ?? shellOutput)
   const hasFlushWebSearchTable =
     toolName === 'WebSearch'
     && parseWebSearchResultDisplay(item.result)?.kind === 'results'
+  const hasInlineFileDiff = FILE_WRITE_TOOLS.has(toolName) && !!fileDiff
   const completedExpanded = canExpandCompleted && expanded
 
   return (
@@ -367,7 +412,7 @@ export const ToolCallCard = memo(function ToolCallCard({
             data-testid="tool-expanded-content"
             style={{
               background: 'var(--bg-secondary)',
-              padding: hasFlushWebSearchTable ? 0 : '8px'
+              padding: hasFlushWebSearchTable || hasInlineFileDiff ? 0 : '8px'
             }}
           >
             <ExpandedContent
@@ -393,7 +438,7 @@ interface ExpandedContentProps {
   args: Record<string, unknown> | undefined
   result: string | undefined
   success: boolean
-  fileDiff: { diff: import('../../types/toolCall').FileDiff } | undefined
+  fileDiff: { diff: FileDiff } | undefined
   locale: AppLocale
   planTodos?: Array<{ id: string; content: string }>
 }
@@ -423,7 +468,14 @@ function ExpandedContent({
   }
 
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
-    return <InlineDiffView diff={fileDiff.diff} />
+    return (
+      <InlineDiffView
+        diff={fileDiff.diff}
+        variant="embedded"
+        showStreamingIndicator={false}
+        headerMode="compact"
+      />
+    )
   }
 
   if (toolName === CRON_TOOL_NAME) {
