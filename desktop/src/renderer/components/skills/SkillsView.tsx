@@ -647,10 +647,12 @@ const searchRow: React.CSSProperties = {
 const searchBox: React.CSSProperties = {
   flex: '1 1 320px',
   minWidth: 0,
+  height: '36px',
+  boxSizing: 'border-box',
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
-  padding: '7px 11px',
+  padding: '0 11px',
   borderRadius: '8px',
   border: '1px solid var(--border-default)',
   backgroundColor: 'var(--bg-secondary)',
@@ -668,8 +670,9 @@ const searchInput: React.CSSProperties = {
 }
 
 const filterMenuButton: React.CSSProperties = {
-  height: '32px',
+  height: '36px',
   minWidth: '74px',
+  boxSizing: 'border-box',
   borderRadius: '8px',
   border: '1px solid var(--border-default)',
   backgroundColor: 'var(--bg-secondary)',
