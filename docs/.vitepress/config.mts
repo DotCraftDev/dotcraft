@@ -20,6 +20,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'Desktop', link: '/desktop_guide' },
       { text: 'TUI', link: '/tui_guide' },
       { text: 'Agent Skill 自学习', link: '/skills/agent-self-learning' },
+      { text: 'Skills 搜索与安装', link: '/skills/marketplace' },
       { text: 'Dashboard', link: '/dash_board_guide' }
     ]
   },
@@ -103,6 +104,7 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Desktop', link: '/en/desktop_guide' },
       { text: 'TUI', link: '/en/tui_guide' },
       { text: 'Agent Skill Self-Learning', link: '/en/skills/agent-self-learning' },
+      { text: 'Search and Install Skills', link: '/en/skills/marketplace' },
       { text: 'Dashboard', link: '/en/dash_board_guide' }
     ]
   },

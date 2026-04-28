@@ -2,6 +2,8 @@
 
 `samples/skills/` contains skill examples that can be copied into a workspace to guide agents through project-specific development rules, module conventions, and large feature workflows.
 
+To search and install third-party skills in Desktop, see [Search and Install Skills](../skills/marketplace.md). This page only covers copying and adapting the sample skills in this repository.
+
 ## What Is Included
 
 | Directory | Use |

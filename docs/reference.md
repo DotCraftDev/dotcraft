@@ -18,6 +18,7 @@
 | 查看 Trace、会话、工具调用和可视化配置 | [Dashboard 指南](./dash_board_guide.md) |
 | 理解设置何时生效、哪些需要重启 | [设置生效层级指南](./settings-lifecycle.md) |
 | 让 Agent 创建、修补和维护工作区 skill | [Agent Skill 自学习](./skills/agent-self-learning.md) |
+| 搜索本地 skills，并从 SkillHub / ClawHub 安装第三方 skills | [Skills 搜索与安装](./skills/marketplace.md) |
 | 限制文件、Shell、网络和沙箱能力 | [安全配置](./config/security.md) |
 
 ## 我想运行自动化或扩展工作流

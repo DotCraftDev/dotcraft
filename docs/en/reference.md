@@ -18,6 +18,7 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Inspect traces, sessions, tool calls, and visual config | [Dashboard Guide](./dash_board_guide.md) |
 | Understand when settings apply and what requires restart | [Settings Lifecycle Guide](./settings-lifecycle.md) |
 | Let Agents create, patch, and maintain workspace skills | [Agent Skill Self-Learning](./skills/agent-self-learning.md) |
+| Search local skills and install third-party skills from SkillHub / ClawHub | [Search and Install Skills](./skills/marketplace.md) |
 | Limit file, shell, network, and sandbox capability | [Security Configuration](./config/security.md) |
 
 ## Automation and Workflow Extension
