@@ -159,6 +159,7 @@ interface UIStore extends UIState {
       files?: ComposerFileAttachment[]
       mode?: ThreadMode
       model?: string
+      approvalPolicy?: Extract<ApprovalPolicyWire, 'default' | 'autoApprove'>
     } | null
   ): void
   /** If pending matches threadId, return payload and clear; otherwise return null. */
@@ -171,6 +172,7 @@ interface UIStore extends UIState {
     files?: ComposerFileAttachment[]
     mode?: ThreadMode
     model?: string
+    approvalPolicy?: Extract<ApprovalPolicyWire, 'default' | 'autoApprove'>
   } | null
   /** Clear pending welcome turn when it targets the given thread (e.g. thread/read failed). */
   cancelPendingWelcomeTurnForThread(threadId: string): void
@@ -466,14 +468,15 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         clearTimeout(timer)
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
-      const { text, inputParts, images, files, mode, model } = p
+      const { text, inputParts, images, files, mode, model, approvalPolicy } = p
       return {
         text,
         ...(inputParts !== undefined ? { inputParts } : {}),
         ...(images !== undefined ? { images } : {}),
         ...(files !== undefined ? { files } : {}),
         ...(mode !== undefined ? { mode } : {}),
-        ...(model !== undefined ? { model } : {})
+        ...(model !== undefined ? { model } : {}),
+        ...(approvalPolicy !== undefined ? { approvalPolicy } : {})
       }
     }
     return null

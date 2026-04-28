@@ -33,6 +33,24 @@ describe('uiStore goToNewChat', () => {
   })
 })
 
+describe('uiStore pending welcome turn', () => {
+  beforeEach(() => {
+    useUIStore.getState().setPendingWelcomeTurn(null)
+  })
+
+  it('preserves approval policy when consuming the pending welcome turn', () => {
+    useUIStore.getState().setPendingWelcomeTurn({
+      threadId: 'thread-approval',
+      text: 'hello',
+      approvalPolicy: 'autoApprove'
+    })
+
+    const pending = useUIStore.getState().consumePendingWelcomeTurnIfMatch('thread-approval')
+
+    expect(pending?.approvalPolicy).toBe('autoApprove')
+  })
+})
+
 describe('uiStore responsive panel preferences', () => {
   beforeEach(() => {
     useUIStore.setState({
