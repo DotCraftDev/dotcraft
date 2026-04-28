@@ -550,6 +550,17 @@ describe('context usage (token ring)', () => {
     expect(usage!.severity).toBe('normal')
   })
 
+  it('applies compact skipped and failed snapshots to contextUsage', () => {
+    s().setContextUsage({ ...baseSnapshot, tokens: 195_000, percentLeft: 0.02 })
+    s().onSystemEvent('compactSkipped', { tokenCount: 196_000, percentLeft: 0.01 })
+    expect(s().contextUsage!.tokens).toBe(196_000)
+    expect(s().contextUsage!.percentLeft).toBeCloseTo(0.01, 3)
+
+    s().onSystemEvent('compactFailed', { tokenCount: 197_000, percentLeft: 0 })
+    expect(s().contextUsage!.tokens).toBe(197_000)
+    expect(s().contextUsage!.percentLeft).toBe(0)
+  })
+
   it('ignores totals when no snapshot has been seeded yet', () => {
     s().onUsageDelta(100, 50, 5000)
     expect(s().contextUsage).toBeNull()

@@ -41,6 +41,37 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_RunsPreSamplingCompactionBeforeModelRequest()
+    {
+        var inner = new SingleReplyFakeChatClient();
+        var client = new StreamingFunctionInvokingChatClient(inner);
+        var callbackCalls = 0;
+        var replacement = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, "compacted summary"),
+            new(ChatRole.User, "latest user")
+        };
+
+        using var scope = PreSamplingCompactionRuntimeScope.Set(new PreSamplingCompactionRuntimeContext
+        {
+            TryCompactAsync = (messages, _) =>
+            {
+                callbackCalls++;
+                Assert.Contains(messages, message => message.Role == ChatRole.User && message.Text == "start");
+                return Task.FromResult<IReadOnlyList<ChatMessage>?>(replacement);
+            }
+        });
+
+        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
+        {
+        }
+
+        Assert.Equal(1, callbackCalls);
+        var call = Assert.Single(inner.Calls);
+        Assert.Equal(["assistant:compacted summary", "user:latest user"], call.Select(m => $"{m.Role}:{m.Text}"));
+    }
+
+    [Fact]
     public async Task GetStreamingResponseAsync_LimitsGuidanceContinuationsAfterTermination()
     {
         var inner = new AlwaysCallsToolFakeChatClient();
@@ -243,6 +274,33 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
                 yield return new ChatResponseUpdate(ChatRole.Assistant, "done");
             }
 
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class SingleReplyFakeChatClient : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "done")]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Calls.Add(chatMessages.ToList());
+            yield return new ChatResponseUpdate(ChatRole.Assistant, "done");
             await Task.CompletedTask;
         }
 

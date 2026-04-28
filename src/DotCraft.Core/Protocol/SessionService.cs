@@ -740,6 +740,107 @@ public sealed class SessionService(
                 PublishQueueUpdated(thread.Id, queueSnapshot);
             }
 
+            async Task<IReadOnlyList<ChatMessage>?> TryCompactBeforeSamplingAsync(
+                IReadOnlyList<ChatMessage> modelVisibleHistory,
+                CancellationToken compactionCt)
+            {
+                if (session is null || tokenTracker is null || modelVisibleHistory.Count == 0)
+                    return null;
+
+                var estimatedTokens = MessageTokenEstimator.Estimate(modelVisibleHistory);
+                var persistedTokens = persistence.LoadContextUsageTokens(threadId) ?? 0;
+                var tokenHint = Math.Max(
+                    estimatedTokens,
+                    Math.Max(tokenTracker.LastInputTokens, persistedTokens));
+                var pipeline = agentFactory.CompactionPipeline;
+                var threshold = pipeline.EvaluateThreshold(tokenHint);
+                if (!threshold.AboveAuto)
+                    return null;
+
+                eventChannel.EmitSystemEvent(
+                    "compacting",
+                    percentLeft: threshold.PercentLeft,
+                    tokenCount: threshold.Tokens);
+
+                CompactionHistoryResult result;
+                try
+                {
+                    result = await pipeline.TryAutoCompactHistoryAsync(
+                        modelVisibleHistory,
+                        threadId,
+                        tokenHint,
+                        thread.LastActiveAt,
+                        compactionCt);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Pre-sampling compaction failed for thread {ThreadId}", threadId);
+                    eventChannel.EmitSystemEvent(
+                        "compactFailed",
+                        message: ex.Message,
+                        percentLeft: threshold.PercentLeft,
+                        tokenCount: threshold.Tokens);
+                    return null;
+                }
+
+                var status = result.Status;
+                switch (status.Outcome)
+                {
+                    case CompactionOutcome.Micro:
+                    case CompactionOutcome.Partial:
+                        tokenTracker.Reset();
+                        session.SetInMemoryChatHistory(
+                            [.. result.Messages],
+                            jsonSerializerOptions: SessionPersistenceJsonOptions.Default);
+                        await SaveContextUsageSnapshotAsync(
+                            threadId,
+                            status.ThresholdAfter.Tokens,
+                            CancellationToken.None);
+                        traceCollector?.RecordContextCompaction(threadId);
+                        eventChannel.EmitSystemEvent(
+                            "compacted",
+                            percentLeft: status.ThresholdAfter.PercentLeft,
+                            tokenCount: status.ThresholdAfter.Tokens);
+                        {
+                            var noticeItem = CreateCompactionNoticeItem(
+                                turn,
+                                NextItemSeq(),
+                                trigger: "auto",
+                                status);
+                            turn.Items.Add(noticeItem);
+                            eventChannel.EmitItemStarted(noticeItem);
+                            eventChannel.EmitItemCompleted(noticeItem);
+                        }
+                        ThreadRuntimeSignalForBroadcast?.Invoke(
+                            threadId,
+                            SessionThreadRuntimeSignal.ContextCompacted);
+                        return result.Messages;
+
+                    case CompactionOutcome.Skipped:
+                        eventChannel.EmitSystemEvent(
+                            "compactSkipped",
+                            message: status.FailureReason,
+                            percentLeft: status.ThresholdAfter.PercentLeft,
+                            tokenCount: status.ThresholdAfter.Tokens);
+                        return null;
+
+                    case CompactionOutcome.Failed:
+                        eventChannel.EmitSystemEvent(
+                            "compactFailed",
+                            message: status.FailureReason,
+                            percentLeft: status.ThresholdAfter.PercentLeft,
+                            tokenCount: status.ThresholdAfter.Tokens);
+                        return null;
+
+                    default:
+                        return null;
+                }
+            }
+
             try
             {
                 // Step 5a: Acquire SessionGate
@@ -894,6 +995,11 @@ public sealed class SessionService(
                     });
                 try
                 {
+                    using var preSamplingCompactionScope = PreSamplingCompactionRuntimeScope.Set(
+                        new PreSamplingCompactionRuntimeContext
+                        {
+                            TryCompactAsync = TryCompactBeforeSamplingAsync
+                        });
                     using var guidanceScope = TurnGuidanceRuntimeScope.Set(new TurnGuidanceRuntimeContext
                     {
                         ThreadId = threadId,
@@ -1238,90 +1344,28 @@ public sealed class SessionService(
                     await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
                 }
 
-                // Step 5k: Layered compaction pipeline
-                //   - emit compactWarning / compactError as the usage nears the auto threshold
-                //   - run MicroCompactor + PartialCompactor when auto threshold is exceeded
-                //   - memory consolidation is driven by the pipeline itself so the prefix
-                //     summarized by the LLM is exactly what lands in MEMORY.md / HISTORY.md
+                // Step 5k: Post-turn threshold notification.
+                // Auto compaction runs before model sampling through
+                // PreSamplingCompactionRuntimeScope. If the final response
+                // itself pushes the context over the threshold and no follow-up
+                // model call is needed, keep the snapshot visible and compact
+                // before the next sampling request.
                 {
                     var compactionPipeline = agentFactory.CompactionPipeline;
                     var threshold = compactionPipeline.EvaluateThreshold(tokenTracker.LastInputTokens);
-                    if (!threshold.AboveAuto)
-                    {
-                        if (threshold.AboveError)
-                        {
-                            eventChannel.EmitSystemEvent(
-                                "compactError",
-                                percentLeft: threshold.PercentLeft,
-                                tokenCount: threshold.Tokens);
-                        }
-                        else if (threshold.AboveWarning)
-                        {
-                            eventChannel.EmitSystemEvent(
-                                "compactWarning",
-                                percentLeft: threshold.PercentLeft,
-                                tokenCount: threshold.Tokens);
-                        }
-                    }
-                    else
+                    if (threshold.AboveError)
                     {
                         eventChannel.EmitSystemEvent(
-                            "compacting",
+                            "compactError",
                             percentLeft: threshold.PercentLeft,
                             tokenCount: threshold.Tokens);
-
-                        var status = await compactionPipeline.TryAutoCompactAsync(
-                            session!,
-                            threadId,
-                            tokenTracker.LastInputTokens,
-                            thread.LastActiveAt,
-                            CancellationToken.None);
-
-                        switch (status.Outcome)
-                        {
-                            case CompactionOutcome.Micro:
-                            case CompactionOutcome.Partial:
-                                tokenTracker.Reset();
-                                await SaveContextUsageSnapshotAsync(
-                                    threadId,
-                                    status.ThresholdAfter.Tokens,
-                                    CancellationToken.None);
-                                traceCollector?.RecordContextCompaction(threadId);
-                                eventChannel.EmitSystemEvent(
-                                    "compacted",
-                                    percentLeft: status.ThresholdAfter.PercentLeft,
-                                    tokenCount: status.ThresholdAfter.Tokens);
-                                {
-                                    var noticeItem = CreateCompactionNoticeItem(
-                                        turn,
-                                        NextItemSeq(),
-                                        trigger: "auto",
-                                        status);
-                                    turn.Items.Add(noticeItem);
-                                    eventChannel.EmitItemStarted(noticeItem);
-                                    eventChannel.EmitItemCompleted(noticeItem);
-                                }
-                                ThreadRuntimeSignalForBroadcast?.Invoke(
-                                    threadId,
-                                    SessionThreadRuntimeSignal.ContextCompacted);
-                                break;
-
-                            case CompactionOutcome.Skipped:
-                                eventChannel.EmitSystemEvent(
-                                    "compactSkipped",
-                                    message: status.FailureReason,
-                                    percentLeft: status.ThresholdAfter.PercentLeft,
-                                    tokenCount: status.ThresholdAfter.Tokens);
-                                break;
-
-                            case CompactionOutcome.Failed:
-                                eventChannel.EmitSystemEvent(
-                                    "compactFailed",
-                                    message: status.FailureReason,
-                                    percentLeft: status.ThresholdAfter.PercentLeft,
-                                    tokenCount: status.ThresholdAfter.Tokens);
-                                break;
-                        }
+                    }
+                    else if (threshold.AboveWarning)
+                    {
+                        eventChannel.EmitSystemEvent(
+                            "compactWarning",
+                            percentLeft: threshold.PercentLeft,
+                            tokenCount: threshold.Tokens);
                     }
                 }
 
