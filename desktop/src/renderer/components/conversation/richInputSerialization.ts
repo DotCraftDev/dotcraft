@@ -5,6 +5,21 @@ import type { ComposerDraftSegment } from '../../types/composerDraft'
 type RefType = Exclude<ComposerDraftSegment, { type: 'text' }>['type']
 type Match = { type: 'file' | 'command' | 'skill'; start: number; end: number; value: string }
 
+export interface RefCatalogCommand {
+  name: string
+  aliases?: string[]
+}
+
+export interface RefCatalogSkill {
+  name: string
+  available?: boolean
+}
+
+export interface ComposerRefCatalog {
+  commands?: RefCatalogCommand[]
+  skills?: RefCatalogSkill[]
+}
+
 export function serializeSkillMarker(skillName: string): string {
   return `$${skillName}`
 }
@@ -221,6 +236,77 @@ function findNextSkillRef(text: string, from: number): Match | null {
   return null
 }
 
+function normalizeCommandToken(token: string): string {
+  const trimmed = token.trim()
+  if (!trimmed) return ''
+  return (trimmed.startsWith('/') ? trimmed : `/${trimmed}`).toLowerCase()
+}
+
+function normalizeSkillToken(token: string): string {
+  return token.trim().replace(/^[$/]+/, '').toLowerCase()
+}
+
+function commandCatalogSet(commands: RefCatalogCommand[] | undefined): Set<string> {
+  const set = new Set<string>()
+  for (const command of commands ?? []) {
+    const name = normalizeCommandToken(command.name)
+    if (name) set.add(name)
+    for (const alias of command.aliases ?? []) {
+      const normalized = normalizeCommandToken(alias)
+      if (normalized) set.add(normalized)
+    }
+  }
+  return set
+}
+
+function skillCatalogSet(skills: RefCatalogSkill[] | undefined): Set<string> {
+  const set = new Set<string>()
+  for (const skill of skills ?? []) {
+    if (skill.available === false) continue
+    const name = normalizeSkillToken(skill.name)
+    if (name) set.add(name)
+  }
+  return set
+}
+
+function findNextSkillRefWithCatalog(text: string, from: number, skills: Set<string>): Match | null {
+  LEGACY_SKILL_MARKER_RE.lastIndex = from
+  let legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
+  while (legacyMatch) {
+    const skillName = legacyMatch[1]?.trim() ?? ''
+    if (skillName && skills.has(normalizeSkillToken(skillName))) {
+      return {
+        type: 'skill',
+        start: legacyMatch.index,
+        end: legacyMatch.index + legacyMatch[0].length,
+        value: skillName
+      }
+    }
+    legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
+  }
+
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && /[a-z0-9_-]/i.test(text[j]!)) {
+        j++
+      }
+      const skillName = text.slice(i + 1, j)
+      if (skillName.length > 0 && skills.has(normalizeSkillToken(skillName))) {
+        return {
+          type: 'skill',
+          start: i,
+          end: j,
+          value: skillName
+        }
+      }
+    }
+    i++
+  }
+  return null
+}
+
 function isLegacyCommandToken(token: string): boolean {
   return /^\/[a-z0-9][a-z0-9-]*$/i.test(token)
 }
@@ -243,6 +329,32 @@ function findNextCommandRef(text: string, from: number): Match | null {
   return null
 }
 
+function findNextSlashRefWithCatalog(
+  text: string,
+  from: number,
+  commands: Set<string>,
+  skills: Set<string>
+): Match | null {
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '/' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && !/\s/.test(text[j]!)) {
+        j++
+      }
+      const token = text.slice(i, j)
+      if (commands.has(normalizeCommandToken(token))) {
+        return { type: 'command', start: i, end: j, value: token }
+      }
+      if (isLegacyCommandToken(token) && skills.has(normalizeSkillToken(token))) {
+        return { type: 'skill', start: i, end: j, value: token.slice(1) }
+      }
+    }
+    i++
+  }
+  return null
+}
+
 export function parseLegacyComposerText(text: string): ComposerDraftSegment[] {
   const out: ComposerDraftSegment[] = []
   let cursor = 0
@@ -252,6 +364,50 @@ export function parseLegacyComposerText(text: string): ComposerDraftSegment[] {
       findNextFileRef(text, cursor),
       findNextCommandRef(text, cursor),
       findNextSkillRef(text, cursor)
+    ].filter((match): match is Match => match != null)
+
+    if (matches.length === 0) {
+      pushTextSegment(out, text.slice(cursor))
+      break
+    }
+
+    const next = matches.reduce((best, match) => {
+      if (match.start < best.start) return match
+      return best
+    })
+
+    if (next.start > cursor) {
+      pushTextSegment(out, text.slice(cursor, next.start))
+    }
+
+    if (next.type === 'file') {
+      out.push({ type: 'file', relativePath: next.value })
+    } else if (next.type === 'command') {
+      out.push({ type: 'command', command: next.value })
+    } else {
+      out.push({ type: 'skill', skillName: next.value })
+    }
+
+    cursor = next.end
+  }
+
+  return out
+}
+
+export function parseComposerTextWithCatalog(
+  text: string,
+  catalog: ComposerRefCatalog
+): ComposerDraftSegment[] {
+  const out: ComposerDraftSegment[] = []
+  const commands = commandCatalogSet(catalog.commands)
+  const skills = skillCatalogSet(catalog.skills)
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const matches = [
+      findNextFileRef(text, cursor),
+      findNextSlashRefWithCatalog(text, cursor, commands, skills),
+      findNextSkillRefWithCatalog(text, cursor, skills)
     ].filter((match): match is Match => match != null)
 
     if (matches.length === 0) {

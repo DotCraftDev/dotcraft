@@ -1,8 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { Ellipsis, MessageCircle, X } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
-import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import type { SkillEntry } from '../../stores/skillsStore'
 import { dirname } from '../../utils/path'
+import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { PillSwitch } from '../ui/PillSwitch'
 import { SkillAvatar } from './SkillAvatar'
 
 interface SkillDetailDialogProps {
@@ -11,213 +15,259 @@ interface SkillDetailDialogProps {
   loading: boolean
   onClose: () => void
   onToggleEnabled: (enabled: boolean) => void
+  onTryInChat: () => void
+  showToggle?: boolean
 }
 
-/**
- * Modal: skill title, open folder, rendered SKILL.md body, enable/disable.
- */
 export function SkillDetailDialog({
   skill,
   markdownBody,
   loading,
   onClose,
-  onToggleEnabled
-}: SkillDetailDialogProps): JSX.Element {
+  onToggleEnabled,
+  onTryInChat,
+  showToggle = true,
+}: SkillDetailDialogProps) {
   const t = useT()
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const skillDir = dirname(skill.path)
+  const displayName = skill.displayName ?? skill.name
+  const shortDescription = skill.shortDescription ?? skill.description
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
   return (
-    <div
-      role="presentation"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px'
-      }}
-      onClick={onClose}
-    >
-      <div
+    <div role="presentation" style={modalScrim} onClick={onClose}>
+      <section
         role="dialog"
-        aria-modal
+        aria-modal="true"
         aria-labelledby="skill-detail-title"
-        style={{
-          width: 'min(720px, 100%)',
-          maxHeight: 'min(85vh, 900px)',
-          backgroundColor: 'var(--bg-primary)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-default)',
-          boxShadow: '0 16px 48px rgba(0,0,0,0.45)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden'
-        }}
-        onClick={(e) => e.stopPropagation()}
+        style={modalPanel}
+        onClick={(event) => event.stopPropagation()}
       >
-        <header
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border-default)',
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: '12px',
-            flexShrink: 0
-          }}
-        >
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-            <div
-              style={{
-                display: 'flex',
-                gap: '12px',
-                alignItems: 'flex-start'
-              }}
-            >
-            <div
-              style={{
-                flex: '0 0 auto',
-                flexShrink: 0
-              }}
-            >
-              <SkillAvatar name={skill.name} size={40} />
-            </div>
-            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-              <h2
-                id="skill-detail-title"
-                style={{
-                  margin: 0,
-                  fontSize: '18px',
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                  wordBreak: 'break-word'
+        <ActionTooltip label={t('common.close')}>
+          <button type="button" aria-label={t('common.close')} style={closeButton} onClick={onClose}>
+            <X size={16} strokeWidth={2} />
+          </button>
+        </ActionTooltip>
+
+        <header style={header}>
+          <SkillAvatar
+            name={skill.name}
+            displayName={displayName}
+            iconDataUrl={skill.iconSmallDataUrl ?? skill.iconLargeDataUrl}
+            size={44}
+          />
+          <div style={headerCopy}>
+            <h2 id="skill-detail-title" style={title}>
+              {displayName}
+            </h2>
+            <p style={description}>{shortDescription}</p>
+          </div>
+          <div style={headerActions}>
+            {showToggle ? (
+              <PillSwitch
+                checked={skill.enabled}
+                onChange={onToggleEnabled}
+                aria-label={t('skillCard.toggleLabel', { name: displayName })}
+                size="sm"
+              />
+            ) : null}
+            <ActionTooltip label={t('skillDetail.moreActions')}>
+              <button
+                type="button"
+                aria-label={t('skillDetail.moreActions')}
+                style={iconButton}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenuPosition({ x: rect.right - 160, y: rect.bottom + 6 })
                 }}
               >
-                {skill.name}
-              </h2>
-              {skill.description ? (
-                <p
-                  style={{
-                    margin: '6px 0 0',
-                    fontSize: '13px',
-                    color: 'var(--text-secondary)',
-                    lineHeight: 1.4,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden'
-                  }}
-                >
-                  {skill.description}
-                </p>
-              ) : null}
-              <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                {skill.source === 'builtin' && t('skillDetail.builtInSubtitle')}
-                {skill.source === 'workspace' && t('skillDetail.workspaceSubtitle')}
-                {skill.source === 'user' && t('skillDetail.userSubtitle')}
-              </p>
-            </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => void window.api.shell.openPath(skillDir)}
-              style={secondaryBtn}
-            >
-              {t('skillDetail.openFolder')}
-            </button>
-            <button type="button" onClick={onClose} style={iconCloseBtn} aria-label={t('skillDetail.close')}>
-              ×
-            </button>
+                <Ellipsis size={16} strokeWidth={2} />
+              </button>
+            </ActionTooltip>
           </div>
         </header>
 
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: '16px 20px',
-            minHeight: '200px'
-          }}
-        >
+        <div style={bodyFrame} data-testid="skill-detail-scroll-body">
           {loading ? (
-            <p style={{ color: 'var(--text-secondary)' }}>{t('skillDetail.loading')}</p>
+            <div style={loadingText}>{t('common.loading')}</div>
           ) : (
-            <MarkdownRenderer content={markdownBody} linkMode="external" />
+            <MarkdownRenderer content={markdownBody || skill.description} />
           )}
         </div>
 
-        <footer
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--border-default)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexShrink: 0,
-            gap: '12px',
-            flexWrap: 'wrap'
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => void onToggleEnabled(!skill.enabled)}
-            style={skill.enabled ? dangerOutlineBtn : primaryBtn}
-          >
-            {skill.enabled ? t('skillDetail.disableWorkspace') : t('skillDetail.enableWorkspace')}
-          </button>
-          <button type="button" onClick={onClose} style={secondaryBtn}>
-            {t('skillDetail.close')}
+        <footer style={footer}>
+          <span style={statusText}>{skill.enabled ? t('skillCard.on') : t('skillCard.disabledBadge')}</span>
+          <button type="button" style={tryButton} onClick={onTryInChat}>
+            <MessageCircle size={15} strokeWidth={2} />
+            {t('skillDetail.tryInChat')}
           </button>
         </footer>
-      </div>
+
+        {menuPosition ? (
+          <ContextMenu
+            position={menuPosition}
+            onClose={() => setMenuPosition(null)}
+            items={[
+              {
+                label: t('skillDetail.openFolder'),
+                onClick: () => {
+                  void window.api.shell.openPath(skillDir)
+                },
+              },
+            ]}
+          />
+        ) : null}
+      </section>
     </div>
   )
 }
 
-const secondaryBtn: React.CSSProperties = {
-  padding: '6px 12px',
-  fontSize: '13px',
-  borderRadius: '6px',
-  border: '1px solid var(--border-default)',
-  backgroundColor: 'var(--bg-tertiary)',
+const modalScrim: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 70,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '24px',
+  background: 'rgba(0, 0, 0, 0.54)',
+  backdropFilter: 'blur(3px)',
+}
+
+const modalPanel: React.CSSProperties = {
+  position: 'relative',
+  width: 'min(600px, calc(100vw - 48px))',
+  maxHeight: 'min(86vh, 720px)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+  padding: '30px 20px 20px',
+  borderRadius: 18,
+  border: '1px solid var(--border-primary)',
+  background: 'var(--bg-secondary)',
+  boxShadow: '0 24px 80px rgba(0, 0, 0, 0.48)',
   color: 'var(--text-primary)',
-  cursor: 'pointer'
+  overflow: 'hidden',
 }
 
-const primaryBtn: React.CSSProperties = {
-  ...secondaryBtn,
-  backgroundColor: 'var(--accent)',
-  borderColor: 'var(--accent)',
-  color: '#fff'
-}
-
-const dangerOutlineBtn: React.CSSProperties = {
-  ...secondaryBtn,
-  borderColor: 'var(--error)',
-  color: 'var(--error)'
-}
-
-const iconCloseBtn: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
-  fontSize: '22px',
-  lineHeight: 1,
-  borderRadius: '6px',
+const closeButton: React.CSSProperties = {
+  position: 'absolute',
+  top: 16,
+  right: 16,
+  width: 28,
+  height: 28,
   border: 'none',
-  backgroundColor: 'transparent',
+  borderRadius: 8,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'transparent',
   color: 'var(--text-secondary)',
-  cursor: 'pointer'
+  cursor: 'pointer',
+}
+
+const header: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '44px minmax(0, 1fr) auto',
+  alignItems: 'start',
+  gap: 14,
+  paddingRight: 26,
+}
+
+const headerCopy: React.CSSProperties = {
+  minWidth: 0,
+  paddingTop: 2,
+}
+
+const title: React.CSSProperties = {
+  margin: 0,
+  fontSize: 21,
+  lineHeight: 1.25,
+  fontWeight: 700,
+  color: 'var(--text-primary)',
+}
+
+const description: React.CSSProperties = {
+  margin: '8px 0 0',
+  fontSize: 14,
+  lineHeight: 1.45,
+  color: 'var(--text-secondary)',
+  overflow: 'hidden',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+}
+
+const headerActions: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  paddingTop: 24,
+}
+
+const iconButton: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 10,
+  border: '1px solid var(--border-primary)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-secondary)',
+  cursor: 'pointer',
+}
+
+const bodyFrame: React.CSSProperties = {
+  minHeight: 260,
+  maxHeight: 'min(54vh, 490px)',
+  overflow: 'auto',
+  padding: '16px 18px',
+  borderRadius: 12,
+  border: '1px solid var(--border-secondary)',
+  background: 'var(--bg-primary)',
+}
+
+const loadingText: React.CSSProperties = {
+  color: 'var(--text-tertiary)',
+  fontSize: 13,
+}
+
+const footer: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+}
+
+const statusText: React.CSSProperties = {
+  minWidth: 0,
+  fontSize: 13,
+  color: 'var(--text-tertiary)',
+}
+
+const tryButton: React.CSSProperties = {
+  height: 32,
+  padding: '0 12px',
+  border: 'none',
+  borderRadius: 10,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  background: 'var(--button-secondary-bg)',
+  color: 'var(--text-primary)',
+  fontSize: 13,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 }

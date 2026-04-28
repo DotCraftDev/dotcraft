@@ -7,6 +7,7 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useModelCatalogStore } from '../stores/modelCatalogStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
+import { useSkillsStore } from '../stores/skillsStore'
 
 const fileReadFile = vi.fn()
 const appServerSendRequest = vi.fn()
@@ -100,6 +101,14 @@ describe('ConversationWelcome composer', () => {
     useConnectionStore.getState().reset()
     useThreadStore.getState().reset()
     useModelCatalogStore.getState().reset()
+    useSkillsStore.setState({
+      skills: [],
+      loading: false,
+      error: null,
+      selectedSkillName: null,
+      skillContent: null,
+      contentLoading: false
+    })
     useUIStore.setState({
       activeMainView: 'conversation',
       automationsTab: 'tasks',
@@ -126,6 +135,7 @@ describe('ConversationWelcome composer', () => {
       binarySource: null,
       capabilities: {
         commandManagement: true,
+        skillsManagement: true,
         modelCatalogManagement: true,
         workspaceConfigManagement: true,
         extensions: {
@@ -142,6 +152,33 @@ describe('ConversationWelcome composer', () => {
     fileReadFile.mockResolvedValue('{}')
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'command/list') {
+        return {
+          commands: [
+            {
+              name: '/code-review',
+              aliases: ['/cr'],
+              description: 'Review files',
+              category: 'custom',
+              requiresAdmin: false
+            }
+          ]
+        }
+      }
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'memory',
+              description: 'Recall project context',
+              source: 'builtin',
+              available: true,
+              enabled: true,
+              path: '/skills/memory/SKILL.md'
+            }
+          ]
+        }
+      }
       if (method === 'welcome/suggestions') {
         return {
           source: 'none',
@@ -235,7 +272,8 @@ describe('ConversationWelcome composer', () => {
     renderWelcome()
 
     const textbox = await screen.findByRole('textbox')
-    fireEvent.input(textbox, { target: { textContent: 'Help me understand this workspace' } })
+    textbox.textContent = 'Help me understand this workspace'
+    fireEvent.input(textbox)
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => {
@@ -397,6 +435,25 @@ describe('ConversationWelcome composer', () => {
         ]
       })
     })
+  })
+
+  it('keeps unmatched legacy slash and skill tokens as plain text', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'Try /unknown and $unknown',
+      images: [],
+      mode: 'agent',
+      model: 'Default'
+    })
+
+    renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    await waitFor(() => {
+      expect(textbox.textContent).toContain('/unknown')
+      expect(textbox.textContent).toContain('$unknown')
+    })
+    expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).toBeNull()
+    expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).toBeNull()
   })
 
   it('hydrates file attachments from welcomeDraft and keeps them when creating the pending welcome turn', async () => {

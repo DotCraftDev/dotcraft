@@ -118,6 +118,13 @@ export function InputComposer({
         .sort((a, b) => a.name.localeCompare(b.name)),
     [skills]
   )
+  const richRefCatalog = useMemo(
+    () => ({
+      commands: customCommands,
+      skills: availableSkills
+    }),
+    [availableSkills, customCommands]
+  )
 
   useEffect(() => {
     if (!canUseSkillPicker) return
@@ -523,6 +530,7 @@ export function InputComposer({
                     'warning'
                   )
                 }}
+                refCatalog={richRefCatalog}
               />
             </div>
           </div>

@@ -1,15 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ConfirmDialogHost } from '../components/ui/ConfirmDialog'
 import { SkillsView } from '../components/skills/SkillsView'
 import { useSkillsStore } from '../stores/skillsStore'
 import { useSkillMarketStore } from '../stores/skillMarketStore'
+import { useThreadStore } from '../stores/threadStore'
+import { useUIStore } from '../stores/uiStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
 const skillMarketSearch = vi.fn()
 const skillMarketDetail = vi.fn()
+const skillMarketInstall = vi.fn()
 const openExternal = vi.fn()
 
 function renderView(): void {
@@ -21,7 +24,12 @@ function renderView(): void {
   )
 }
 
-describe('SkillsView marketplace tab', () => {
+describe('SkillsView marketplace browse and manage modes', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllTimers()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     useSkillsStore.setState({
@@ -42,18 +50,53 @@ describe('SkillsView marketplace tab', () => {
       detailLoading: false,
       installSlug: null
     })
+    useThreadStore.getState().reset()
+    useThreadStore.getState().setActiveThreadId('thread-existing')
+    useUIStore.setState({
+      activeMainView: 'skills',
+      welcomeDraft: null
+    })
     settingsGet.mockResolvedValue({ locale: 'en' })
-    appServerSendRequest.mockResolvedValue({
-      skills: [
-        {
-          name: 'memory',
-          description: 'Remember project facts',
-          source: 'workspace',
-          available: true,
-          enabled: true,
-          path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'memory',
+              displayName: 'Memory',
+              shortDescription: 'Remember project facts',
+              description: 'Remember project facts',
+              source: 'builtin',
+              available: true,
+              enabled: true,
+              path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+            },
+            {
+              name: 'git-local',
+              displayName: 'Git Local',
+              shortDescription: 'Local git workflows',
+              description: 'Local git workflows',
+              source: 'workspace',
+              available: true,
+              enabled: true,
+              path: 'E:\\Git\\dotcraft\\.craft\\skills\\git-local\\SKILL.md'
+            }
+          ]
         }
-      ]
+      }
+      if (method === 'skills/setEnabled') {
+        return {
+          skill: {
+            name: 'memory',
+            description: 'Remember project facts',
+            source: 'builtin',
+            available: true,
+            enabled: false,
+            path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+          }
+        }
+      }
+      return { content: '---\nname: memory\n---\n# Memory' }
     })
     skillMarketSearch.mockResolvedValue({
       skills: [
@@ -67,6 +110,20 @@ describe('SkillsView marketplace tab', () => {
         }
       ]
     })
+    skillMarketDetail.mockResolvedValue({
+      provider: 'clawhub',
+      slug: 'git-helper',
+      name: 'Git Helper',
+      description: 'Git workflow help',
+      readme: '# Git Helper\n\nUse git safely.',
+      version: '1.0.0',
+      installed: false
+    })
+    skillMarketInstall.mockResolvedValue({
+      skillName: 'git-helper',
+      targetDir: 'E:\\Git\\dotcraft\\.craft\\skills\\git-helper',
+      overwritten: false
+    })
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -75,7 +132,7 @@ describe('SkillsView marketplace tab', () => {
         skillMarket: {
           search: skillMarketSearch,
           detail: skillMarketDetail,
-          install: vi.fn()
+          install: skillMarketInstall
         },
         shell: {
           openExternal,
@@ -85,13 +142,15 @@ describe('SkillsView marketplace tab', () => {
     })
   })
 
-  it('keeps installed skills and searches marketplace from the new tab', async () => {
+  it('searches local and marketplace skills from the browse page without switches', async () => {
     renderView()
 
-    expect(await screen.findByText('memory')).toBeInTheDocument()
+    expect(await screen.findByText('Give DotCraft the skills you need')).toBeInTheDocument()
+    expect(await screen.findByText('Memory')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Marketplace' }))
-    fireEvent.change(screen.getByPlaceholderText('Search SkillHub and ClawHub'), {
+    fireEvent.change(screen.getByPlaceholderText('Search skills or install from Marketplace'), {
       target: { value: 'git' }
     })
 
@@ -102,72 +161,112 @@ describe('SkillsView marketplace tab', () => {
         limit: 24
       })
     })
+
+    expect(await screen.findByText('Git Local')).toBeInTheDocument()
     expect(await screen.findByText('Git Helper')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Installed' }))
-    expect(screen.getByText('memory')).toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
   })
 
-  it('shows the full description in the detail body when preview markdown is unavailable', async () => {
-    skillMarketSearch.mockResolvedValue({
-      skills: [
-        {
-          provider: 'skillhub',
-          slug: 'p4u',
-          name: 'p4u',
-          description: 'Full marketplace description for p4u.',
-          installed: false
-        }
-      ]
-    })
-    skillMarketDetail.mockResolvedValue({
-      provider: 'skillhub',
-      slug: 'p4u',
-      name: 'p4u',
-      description: 'Full marketplace description for p4u.',
-      installed: false
-    })
-
+  it('filters browse skills with the custom source menu', async () => {
     renderView()
-    fireEvent.click(await screen.findByRole('tab', { name: 'Marketplace' }))
-    fireEvent.change(screen.getByPlaceholderText('Search SkillHub and ClawHub'), {
-      target: { value: 'p4u' }
-    })
-    fireEvent.click(await screen.findByRole('button', { name: /p4u/i }))
 
-    const matches = await screen.findAllByText('Full marketplace description for p4u.')
-    expect(matches.length).toBeGreaterThan(1)
+    expect(await screen.findByText('Memory')).toBeInTheDocument()
+    expect(screen.getByText('Git Local')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter skills' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'System' }))
+
+    expect(screen.getByText('Memory')).toBeInTheDocument()
+    expect(screen.queryByText('Git Local')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter skills' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Personal' }))
+
+    expect(screen.queryByText('Memory')).not.toBeInTheDocument()
+    expect(screen.getByText('Git Local')).toBeInTheDocument()
   })
 
-  it('opens links from marketplace markdown preview in the external browser', async () => {
-    skillMarketSearch.mockResolvedValue({
-      skills: [
-        {
-          provider: 'skillhub',
-          slug: 'p4u',
-          name: 'p4u',
-          description: 'p4u description',
-          installed: false
-        }
-      ]
-    })
-    skillMarketDetail.mockResolvedValue({
-      provider: 'skillhub',
-      slug: 'p4u',
-      name: 'p4u',
-      description: 'p4u description',
-      readme: '# p4u\n\n[Repo](https://github.com/m9rco/p4u-skill)',
-      installed: false
-    })
-
+  it('shows the local skill detail switch, menu, and scroll body', async () => {
     renderView()
-    fireEvent.click(await screen.findByRole('tab', { name: 'Marketplace' }))
-    fireEvent.change(screen.getByPlaceholderText('Search SkillHub and ClawHub'), {
-      target: { value: 'p4u' }
-    })
-    fireEvent.click(await screen.findByRole('button', { name: /p4u/i }))
-    fireEvent.click(await screen.findByRole('link', { name: /repo/i }))
 
-    expect(openExternal).toHaveBeenCalledWith('https://github.com/m9rco/p4u-skill')
+    fireEvent.click(await screen.findByText('Memory'))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'More actions' })).toBeInTheDocument()
+    expect(screen.getByTestId('skill-detail-scroll-body')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Toggle Memory skill' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/setEnabled', {
+        name: 'memory',
+        enabled: false
+      })
+    })
+  })
+
+  it('starts a new welcome draft with the selected skill tag from detail', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByText('Memory'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Try in chat' }))
+
+    expect(useThreadStore.getState().activeThreadId).toBeNull()
+    expect(useUIStore.getState().activeMainView).toBe('conversation')
+    expect(useUIStore.getState().welcomeDraft).toMatchObject({
+      text: '$memory',
+      segments: [{ type: 'skill', skillName: 'memory' }],
+      selectionStart: 1,
+      selectionEnd: 1,
+      mode: 'agent',
+      model: 'Default',
+      approvalPolicy: 'default'
+    })
+  })
+
+  it('shows switches only after entering manage mode', async () => {
+    renderView()
+
+    expect(await screen.findByText('Memory')).toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
+
+    expect(await screen.findByText('Skills 2')).toBeInTheDocument()
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
+  })
+
+  it('refreshes from the more actions menu', async () => {
+    renderView()
+    expect(await screen.findByText('Memory')).toBeInTheDocument()
+    const initialCalls = appServerSendRequest.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Refresh' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest.mock.calls.length).toBeGreaterThan(initialCalls)
+    })
+  })
+
+  it('installs a marketplace skill and refreshes installed skills', async () => {
+    renderView()
+    fireEvent.change(await screen.findByPlaceholderText('Search skills or install from Marketplace'), {
+      target: { value: 'git' }
+    })
+    fireEvent.click(await screen.findByText('Git Helper'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Install' }))
+
+    await waitFor(() => {
+      expect(skillMarketInstall).toHaveBeenCalledWith({
+        provider: 'clawhub',
+        slug: 'git-helper',
+        version: '1.0.0',
+        overwrite: false
+      })
+    })
+    expect(appServerSendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
   })
 })

@@ -213,3 +213,74 @@ describe('RichInputArea keyboard submit behavior', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('RichInputArea catalog-aware paste parsing', () => {
+  it('keeps unmatched slash and skill tokens as plain text when pasted', () => {
+    const ref = createRef<RichInputAreaHandle>()
+
+    render(
+      <RichInputArea
+        ref={ref}
+        onSubmit={vi.fn()}
+        refCatalog={{
+          commands: [{ name: '/code-review', aliases: ['/cr'] }],
+          skills: [{ name: 'memory', available: true }]
+        }}
+      />
+    )
+
+    act(() => {
+      ref.current?.setPlainText('')
+      ref.current?.setSelectionRange({ start: 0, end: 0 })
+    })
+
+    const textbox = screen.getByRole('textbox')
+    fireEvent.paste(textbox, {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => type === 'text/plain' ? '$unknown /unknown' : ''
+      }
+    })
+
+    expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).toBeNull()
+    expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).toBeNull()
+    expect(ref.current?.getText()).toBe('$unknown /unknown')
+  })
+
+  it('turns catalog-matched pasted tokens into command and skill tags', () => {
+    const ref = createRef<RichInputAreaHandle>()
+
+    render(
+      <RichInputArea
+        ref={ref}
+        onSubmit={vi.fn()}
+        refCatalog={{
+          commands: [{ name: '/code-review', aliases: ['/cr'] }],
+          skills: [{ name: 'memory', available: true }]
+        }}
+      />
+    )
+
+    act(() => {
+      ref.current?.setPlainText('')
+      ref.current?.setSelectionRange({ start: 0, end: 0 })
+    })
+
+    const textbox = screen.getByRole('textbox')
+    fireEvent.paste(textbox, {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => type === 'text/plain' ? '/code-review $memory' : ''
+      }
+    })
+
+    expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
+    expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
+    expect(ref.current?.getSegments()).toEqual([
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: '\u00a0 ' },
+      { type: 'skill', skillName: 'memory' },
+      { type: 'text', value: '\u00a0' }
+    ])
+  })
+})

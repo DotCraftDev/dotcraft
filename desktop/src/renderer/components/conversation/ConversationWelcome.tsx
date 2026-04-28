@@ -118,9 +118,12 @@ export function ConversationWelcome({
   const [modelApplying, setModelApplying] = useState(false)
   const [welcomeSuggestionsConfigReady, setWelcomeSuggestionsConfigReady] = useState(false)
   const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
+  const [skillCatalogReady, setSkillCatalogReady] = useState(false)
   const sendInFlightRef = useRef(false)
   const skipDraftPersistRef = useRef(false)
   const draftHydratedRef = useRef(false)
+  const draftHydratingRef = useRef(false)
+  const userEditedBeforeHydrationRef = useRef(false)
   const latestDraftTextRef = useRef('')
   const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
   const latestDraftSelectionRef = useRef<{ start: number; end: number } | null>(null)
@@ -163,6 +166,13 @@ export function ConversationWelcome({
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [skills]
+  )
+  const richRefCatalog = useMemo(
+    () => ({
+      commands: customCommands,
+      skills: availableSkills
+    }),
+    [availableSkills, customCommands]
   )
   const modelApiAvailable =
     isConnected &&
@@ -420,31 +430,54 @@ export function ConversationWelcome({
   }, [isConnected])
 
   useEffect(() => {
-    if (!canUseSkillPicker) return
-    void fetchSkills()
+    if (!canUseSkillPicker) {
+      setSkillCatalogReady(true)
+      return
+    }
+    setSkillCatalogReady(false)
+    void fetchSkills().finally(() => {
+      setSkillCatalogReady(true)
+    })
   }, [canUseSkillPicker, fetchSkills])
 
   useEffect(() => {
     const welcomeDraft = initialWelcomeDraftRef.current
+    if (draftHydratedRef.current) return
     if (!welcomeDraft) {
       draftHydratedRef.current = true
       return
     }
+    if (userEditedBeforeHydrationRef.current) {
+      draftHydratedRef.current = true
+      return
+    }
+    const hasStructuredSegments = Array.isArray(welcomeDraft.segments) && welcomeDraft.segments.length > 0
+    const commandCatalogReady =
+      !canUseCommandPicker ||
+      customCommandStatus === 'ready' ||
+      customCommandStatus === 'error'
+    const refsCatalogReady = hasStructuredSegments || (commandCatalogReady && skillCatalogReady)
+    if (!refsCatalogReady) return
 
-    richRef.current?.setContent({
-      text: welcomeDraft.text,
-      segments: welcomeDraft.segments
-    })
-    richRef.current?.setSelectionRange({
-      start: welcomeDraft.selectionStart ?? welcomeDraft.text.length,
-      end: welcomeDraft.selectionEnd ?? welcomeDraft.selectionStart ?? welcomeDraft.text.length
-    })
+    draftHydratingRef.current = true
+    try {
+      richRef.current?.setContent({
+        text: welcomeDraft.text,
+        segments: welcomeDraft.segments
+      })
+      richRef.current?.setSelectionRange({
+        start: welcomeDraft.selectionStart ?? welcomeDraft.text.length,
+        end: welcomeDraft.selectionEnd ?? welcomeDraft.selectionStart ?? welcomeDraft.text.length
+      })
+    } finally {
+      draftHydratingRef.current = false
+    }
     latestDraftSelectionRef.current = {
       start: welcomeDraft.selectionStart ?? welcomeDraft.text.length,
       end: welcomeDraft.selectionEnd ?? welcomeDraft.selectionStart ?? welcomeDraft.text.length
     }
     latestDraftTextRef.current = welcomeDraft.text
-    latestDraftSegmentsRef.current = [...(welcomeDraft.segments ?? [])]
+    latestDraftSegmentsRef.current = richRef.current?.getSegments() ?? [...(welcomeDraft.segments ?? [])]
     setImages(welcomeDraft.images)
     setFiles([...(welcomeDraft.files ?? [])])
     setWelcomeMode(welcomeDraft.mode)
@@ -452,7 +485,7 @@ export function ConversationWelcome({
     setModelName(welcomeDraft.model || 'Default')
     setContentRevision((n) => n + 1)
     draftHydratedRef.current = true
-  }, [])
+  }, [canUseCommandPicker, customCommandStatus, skillCatalogReady])
 
   useEffect(() => {
     let disposed = false
@@ -884,6 +917,9 @@ export function ConversationWelcome({
                       onSlashQuery={handleSlashQuery}
                       onSkillQuery={handleSkillQuery}
                       onContentChange={() => {
+                        if (!draftHydratedRef.current && !draftHydratingRef.current) {
+                          userEditedBeforeHydrationRef.current = true
+                        }
                         latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
                         latestDraftSegmentsRef.current =
                           richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
@@ -902,6 +938,7 @@ export function ConversationWelcome({
                           'warning'
                         )
                       }}
+                      refCatalog={richRefCatalog}
                     />
                   </div>
                 </div>

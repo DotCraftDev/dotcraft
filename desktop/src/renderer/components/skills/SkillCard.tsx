@@ -49,11 +49,11 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
         ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--bg-secondary)'
       }}
     >
-      <SkillAvatar name={skill.name} size={40} />
+      <SkillAvatar name={skill.displayName || skill.name} size={40} iconDataUrl={skill.iconSmallDataUrl} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
-            {skill.name}
+            {skill.displayName || skill.name}
           </span>
           <SourceBadge source={skill.source} t={t} />
           {!skill.available && (
@@ -96,7 +96,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
             overflow: 'hidden'
           }}
         >
-          {skill.description || t('skillCard.noDescription')}
+          {skill.shortDescription || skill.description || t('skillCard.noDescription')}
         </p>
       </div>
       <div

@@ -3,6 +3,7 @@ import { COMMAND_REF_CLASS, FILE_REF_CLASS, SKILL_REF_CLASS } from '../component
 import {
   buildEditorFragmentFromSegments,
   collectComposerDraftSegments,
+  parseComposerTextWithCatalog,
   parseLegacyComposerText,
   serializeEditor,
   truncateEditorDomToSerializedLength
@@ -191,6 +192,44 @@ describe('truncateEditorDomToSerializedLength', () => {
   it('does not misclassify plain text email or slash path as refs in legacy parsing', () => {
     expect(parseLegacyComposerText('email user@domain.com and path /usr/bin ok')).toEqual([
       { type: 'text', value: 'email user@domain.com and path /usr/bin ok' }
+    ])
+  })
+
+  it('parses only catalog-matched skill markers into skill segments', () => {
+    expect(parseComposerTextWithCatalog('$memory $unknown', {
+      skills: [{ name: 'memory', available: true }]
+    })).toEqual([
+      { type: 'skill', skillName: 'memory' },
+      { type: 'text', value: ' $unknown' }
+    ])
+  })
+
+  it('parses slash commands before slash skills when both catalogs are present', () => {
+    expect(parseComposerTextWithCatalog('/code-review /memory /unknown', {
+      commands: [{ name: '/code-review', aliases: ['/cr'] }],
+      skills: [{ name: 'memory', available: true }]
+    })).toEqual([
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: ' ' },
+      { type: 'skill', skillName: 'memory' },
+      { type: 'text', value: ' /unknown' }
+    ])
+  })
+
+  it('keeps unmatched legacy skill markers as text with catalog-aware parsing', () => {
+    expect(parseComposerTextWithCatalog('Use [[Use Skill: unknown]] now', {
+      skills: [{ name: 'memory', available: true }]
+    })).toEqual([
+      { type: 'text', value: 'Use [[Use Skill: unknown]] now' }
+    ])
+  })
+
+  it('continues scanning legacy skill markers after unmatched entries', () => {
+    expect(parseComposerTextWithCatalog('Use [[Use Skill: unknown]] then [[Use Skill: memory]]', {
+      skills: [{ name: 'memory', available: true }]
+    })).toEqual([
+      { type: 'text', value: 'Use [[Use Skill: unknown]] then ' },
+      { type: 'skill', skillName: 'memory' }
     ])
   })
 })
