@@ -1346,10 +1346,29 @@ export function App(): JSX.Element {
               if (welcomeApprovalPolicy === 'autoApprove') {
                 setCaseInsensitiveField(existingConfig, 'approvalPolicy', welcomeApprovalPolicy)
               }
+              let welcomeConfigApplied = false
               try {
                 await window.api.appServer.sendRequest('thread/config/update', { threadId, config: existingConfig })
+                welcomeConfigApplied = true
               } catch (configErr: unknown) {
                 console.error('thread/config/update (welcome configuration) failed:', configErr)
+              }
+              if (welcomeConfigApplied) {
+                const active = useThreadStore.getState().activeThread
+                if (active && active.id === threadId) {
+                  const mergedCfg: Record<string, unknown> = { ...(active.configuration ?? {}) }
+                  setCaseInsensitiveField(mergedCfg, 'mode', welcomeMode)
+                  if (welcomeModel.length > 0) {
+                    setCaseInsensitiveField(mergedCfg, 'model', welcomeModel)
+                  }
+                  if (welcomeApprovalPolicy === 'autoApprove') {
+                    setCaseInsensitiveField(mergedCfg, 'approvalPolicy', welcomeApprovalPolicy)
+                  }
+                  useThreadStore.getState().setActiveThread({
+                    ...active,
+                    configuration: mergedCfg as typeof active.configuration
+                  })
+                }
               }
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
