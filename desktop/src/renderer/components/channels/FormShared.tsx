@@ -204,6 +204,8 @@ export function FormActions({ saving, onSave }: FormActionsProps): JSX.Element {
 interface SecretInputProps {
   value: string
   placeholder?: string
+  ariaLabel?: string
+  disabled?: boolean
   onChange: (value: string) => void
   onFocus?: (
     e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -217,6 +219,8 @@ interface SecretInputProps {
 export function SecretInput({
   value,
   placeholder,
+  ariaLabel,
+  disabled = false,
   onChange,
   onFocus,
   onBlur,
@@ -231,12 +235,16 @@ export function SecretInput({
         type={visible ? 'text' : 'password'}
         value={value}
         placeholder={placeholder}
+        aria-label={ariaLabel}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         onFocus={onFocus}
         onBlur={onBlur}
         style={{
           ...formStyles.input,
           paddingRight: '36px',
+          opacity: disabled ? 0.65 : 1,
+          cursor: disabled ? 'not-allowed' : 'text',
           ...style
         }}
       />
@@ -244,6 +252,7 @@ export function SecretInput({
         type="button"
         aria-label={visible ? t('common.hideSecret') : t('common.showSecret')}
         aria-pressed={visible}
+        disabled={disabled}
         onClick={() => setVisible((current) => !current)}
         style={{
           position: 'absolute',
@@ -256,15 +265,15 @@ export function SecretInput({
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
-          opacity: 0.85,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.45 : 0.85,
           transition: 'opacity 120ms ease'
         }}
         onMouseEnter={(event) => {
-          event.currentTarget.style.opacity = '1'
+          if (!disabled) event.currentTarget.style.opacity = '1'
         }}
         onMouseLeave={(event) => {
-          event.currentTarget.style.opacity = '0.85'
+          event.currentTarget.style.opacity = disabled ? '0.45' : '0.85'
         }}
       >
         {visible ? <EyeOff size={14} strokeWidth={1.5} aria-hidden /> : <Eye size={14} strokeWidth={1.5} aria-hidden />}

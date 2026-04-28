@@ -1,8 +1,16 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  CheckCircle2,
+  ChevronRight,
+  CircleDashed,
+  ExternalLink,
+  FilePlus2,
+  RotateCcw
+} from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
-import { FieldCard, FormActions, SecretInput, formStyles } from '../channels/FormShared'
+import { FormActions, SecretInput, formStyles } from '../channels/FormShared'
 import { GitHubWorkflowTemplateDialog } from './GitHubWorkflowTemplateDialog'
 
 interface Props {
@@ -193,236 +201,150 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
     }
   }
 
+  const disabled = !config.enabled
   const showWorkflowEmptyState = config.enabled && !issueWorkflowExists && !pullRequestWorkflowExists
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        minHeight: 0,
-        minWidth: 0,
-        width: '100%'
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          flex: 1,
-          minHeight: 0,
-          overflow: 'auto',
-          boxSizing: 'border-box',
-          paddingRight: '12px'
-        }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            alignSelf: 'flex-start',
-            padding: '6px 10px',
-            margin: 0,
-            border: 'none',
-            borderRadius: '8px',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            fontSize: '13px',
-            fontWeight: 500,
-            cursor: 'pointer'
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="currentColor">
-            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-          </svg>
-          {t('auto.githubConfig.back')}
-        </button>
+    <div style={panelShell}>
+      <div style={scrollRegion}>
+        <div style={contentFrame}>
+          <button type="button" onClick={onBack} style={breadcrumbButton}>
+            <span>{t('auto.viewTitle')}</span>
+            <ChevronRight size={14} aria-hidden />
+            <span style={{ color: 'var(--text-primary)' }}>GitHub</span>
+          </button>
 
-        <div style={formStyles.header}>
-          <div
-            aria-hidden="true"
-            style={{
-              ...formStyles.headerLogo,
-              width: 32,
-              height: 32,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-primary)'
-            }}
-          >
-            <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
-            </svg>
-          </div>
-          <div>
-            <div style={formStyles.headerTitle}>{t('auto.githubConfig.title')}</div>
-          </div>
-        </div>
-
-        {loading && (
-          <FieldCard>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('auto.githubConfig.loading')}</div>
-          </FieldCard>
-        )}
-
-        {!loading && (
-          <>
-            <FieldCard>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.5
-                }}
-              >
-                <p style={{ margin: 0 }}>{t('auto.githubConfig.restartHint')}</p>
-                <p style={{ margin: 0 }}>{t('auto.githubConfig.dashboardHint')}</p>
+          <section style={heroPanel}>
+            <div aria-hidden="true" style={githubLogoBox}>
+              <GitHubMark size={20} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={heroTitleRow}>
+                <h2 style={heroTitle}>{t('auto.githubConfig.title')}</h2>
+                <StatusPill
+                  active={config.enabled}
+                  label={config.enabled ? t('auto.githubConfig.statusEnabled') : t('auto.githubConfig.statusDisabled')}
+                />
               </div>
-            </FieldCard>
-
-            <FieldCard>
+              <p style={heroDescription}>{t('auto.githubConfig.subtitle')}</p>
+            </div>
+            <div style={{ flexShrink: 0, minWidth: 220 }}>
               <ToggleSwitch
                 checked={config.enabled}
                 onChange={(checked) => updateConfig((current) => ({ ...current, enabled: checked }))}
                 label={t('auto.githubConfig.enableGitHub')}
               />
-            </FieldCard>
+            </div>
+          </section>
 
-            <div style={{ opacity: config.enabled ? 1 : 0.5, pointerEvents: config.enabled ? 'auto' : 'none' }}>
-              <FieldCard>
-                <div style={formStyles.fieldGroup}>
-                  <label style={formStyles.label}>{t('auto.githubConfig.repository')}</label>
-                  <input
-                    type="text"
-                    value={config.tracker.repository ?? ''}
-                    onChange={(e) =>
-                      updateConfig((current) => ({
-                        ...current,
-                        tracker: { ...current.tracker, repository: normalizeOptionalString(e.target.value) }
-                      }))}
-                    placeholder="owner/repo"
-                    style={formStyles.input}
-                    onFocus={formStyles.inputFocus}
-                    onBlur={formStyles.inputBlur}
-                  />
+          <div style={infoStrip}>
+            <span>{t('auto.githubConfig.restartHintShort')}</span>
+            <span aria-hidden="true">·</span>
+            <span>{t('auto.githubConfig.dashboardHintShort')}</span>
+          </div>
+
+          {loading && <div style={loadingBox}>{t('auto.githubConfig.loading')}</div>}
+
+          {!loading && (
+            <>
+              <SectionCard
+                title={t('auto.githubConfig.connectionTitle')}
+                description={t('auto.githubConfig.connectionDescription')}
+                disabled={disabled}
+              >
+                <div style={formGrid}>
+                  <FieldBlock label={t('auto.githubConfig.repository')}>
+                    <input
+                      aria-label={t('auto.githubConfig.repository')}
+                      disabled={disabled}
+                      type="text"
+                      value={config.tracker.repository ?? ''}
+                      onChange={(e) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          tracker: { ...current.tracker, repository: normalizeOptionalString(e.target.value) }
+                        }))}
+                      placeholder="owner/repo"
+                      style={inputStyle(disabled)}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                    />
+                  </FieldBlock>
+
+                  <FieldBlock label={t('auto.githubConfig.apiKey')}>
+                    <SecretInput
+                      ariaLabel={t('auto.githubConfig.apiKey')}
+                      disabled={disabled}
+                      value={config.tracker.apiKey ?? ''}
+                      onChange={(nextValue) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          tracker: { ...current.tracker, apiKey: normalizeOptionalString(nextValue) }
+                        }))}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                      style={inputStyle(disabled)}
+                    />
+                  </FieldBlock>
                 </div>
+              </SectionCard>
 
-                <div style={formStyles.fieldGroup}>
-                  <label style={formStyles.label}>{t('auto.githubConfig.apiKey')}</label>
-                  <SecretInput
-                    value={config.tracker.apiKey ?? ''}
-                    onChange={(nextValue) =>
-                      updateConfig((current) => ({
-                        ...current,
-                        tracker: { ...current.tracker, apiKey: normalizeOptionalString(nextValue) }
-                      }))}
-                    onFocus={formStyles.inputFocus}
-                    onBlur={formStyles.inputBlur}
-                    style={formStyles.input}
-                  />
-                </div>
-
-                <div style={formStyles.fieldGroup}>
-                  <label style={formStyles.label}>{t('auto.githubConfig.issuesWorkflowPath')}</label>
-                  <input
-                    type="text"
+              <SectionCard
+                title={t('auto.githubConfig.workflowTitle')}
+                description={t('auto.githubConfig.workflowDescription')}
+                disabled={disabled}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <WorkflowPathRow
+                    disabled={disabled}
+                    label={t('auto.githubConfig.issuesWorkflowPath')}
                     value={config.issuesWorkflowPath}
-                    onChange={(e) =>
+                    exists={issueWorkflowExists}
+                    onChange={(value) =>
                       updateConfig((current) => ({
                         ...current,
-                        issuesWorkflowPath: e.target.value
+                        issuesWorkflowPath: value
                       }))}
-                    style={formStyles.input}
-                    onFocus={formStyles.inputFocus}
-                    onBlur={formStyles.inputBlur}
-                  />
-                  <WorkflowTemplateActions
-                    path={config.issuesWorkflowPath}
-                    exists={issueWorkflowExists}
                     onCreate={() => setShowTemplateDialog('issue')}
                     onOpen={() => void handleOpenWorkflowFile('issue')}
-                    createLabel={getCreateLabel(config.issuesWorkflowPath)}
                   />
-                </div>
-
-                <div style={{ ...formStyles.fieldGroup, marginBottom: 0 }}>
-                  <label style={formStyles.label}>{t('auto.githubConfig.pullRequestWorkflowPath')}</label>
-                  <input
-                    type="text"
+                  <WorkflowPathRow
+                    disabled={disabled}
+                    label={t('auto.githubConfig.pullRequestWorkflowPath')}
                     value={config.pullRequestWorkflowPath}
-                    onChange={(e) =>
+                    exists={pullRequestWorkflowExists}
+                    onChange={(value) =>
                       updateConfig((current) => ({
                         ...current,
-                        pullRequestWorkflowPath: e.target.value
+                        pullRequestWorkflowPath: value
                       }))}
-                    style={formStyles.input}
-                    onFocus={formStyles.inputFocus}
-                    onBlur={formStyles.inputBlur}
-                  />
-                  <WorkflowTemplateActions
-                    path={config.pullRequestWorkflowPath}
-                    exists={pullRequestWorkflowExists}
                     onCreate={() => setShowTemplateDialog('pullRequest')}
                     onOpen={() => void handleOpenWorkflowFile('pullRequest')}
-                    createLabel={getCreateLabel(config.pullRequestWorkflowPath)}
                   />
                 </div>
-              </FieldCard>
-            </div>
 
-            {showWorkflowEmptyState && (
-              <FieldCard>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      GitHub integration is configured, but no workflow template exists yet.
-                    </div>
-                    <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      Create a PR review workflow or an issue workflow to tell the agent how GitHub automation should behave.
+                {showWorkflowEmptyState && (
+                  <div style={emptyHint}>
+                    <FilePlus2 size={16} aria-hidden />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={emptyHintTitle}>{t('auto.githubConfig.workflowEmptyTitle')}</div>
+                      <div style={emptyHintText}>{t('auto.githubConfig.workflowEmptyDescription')}</div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button type="button" onClick={() => setShowTemplateDialog('pullRequest')} style={emptyStateButtonStyle(true)}>
-                      Create PR review workflow
-                    </button>
-                    <button type="button" onClick={() => setShowTemplateDialog('issue')} style={emptyStateButtonStyle(false)}>
-                      Create issue workflow
-                    </button>
-                  </div>
-                </div>
-              </FieldCard>
-            )}
-          </>
-        )}
+                )}
+              </SectionCard>
+            </>
+          )}
 
-        {error && (
-          <div
-            style={{
-              padding: '10px 12px',
-              borderRadius: '8px',
-              backgroundColor: 'color-mix(in srgb, var(--error) 10%, transparent)',
-              color: 'var(--error)',
-              fontSize: '12px',
-              lineHeight: 1.5
-            }}
-          >
-            {error}
-          </div>
-        )}
+          {error && <div style={errorBox}>{error}</div>}
+        </div>
       </div>
 
-      <div style={{ flexShrink: 0, paddingTop: '8px' }}>
-        <div style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
-          <FormActions saving={saving} onSave={() => void handleSave()} />
+      <div style={footerBar}>
+        <div style={contentFrame}>
+          <div style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
+            <FormActions saving={saving} onSave={() => void handleSave()} />
+          </div>
         </div>
       </div>
 
@@ -442,77 +364,414 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
   )
 }
 
+function SectionCard({
+  title,
+  description,
+  disabled,
+  children
+}: {
+  title: string
+  description: string
+  disabled: boolean
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <section style={sectionCard}>
+      <div style={sectionHeader}>
+        <div>
+          <h3 style={sectionTitle}>{title}</h3>
+          <p style={sectionDescription}>{description}</p>
+        </div>
+      </div>
+      <div style={{ opacity: disabled ? 0.58 : 1 }}>{children}</div>
+    </section>
+  )
+}
+
+function FieldBlock({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <label style={{ display: 'block', minWidth: 0 }}>
+      <span style={fieldLabel}>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function WorkflowPathRow({
+  disabled,
+  label,
+  value,
+  exists,
+  onChange,
+  onCreate,
+  onOpen
+}: {
+  disabled: boolean
+  label: string
+  value: string
+  exists: boolean
+  onChange: (value: string) => void
+  onCreate: () => void
+  onOpen: () => void
+}): JSX.Element {
+  const t = useT()
+  return (
+    <div style={workflowRow}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={workflowLabelRow}>
+          <span style={fieldLabel}>{label}</span>
+          <WorkflowStatus exists={exists} />
+        </div>
+        <input
+          aria-label={label}
+          disabled={disabled}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={inputStyle(disabled)}
+          onFocus={formStyles.inputFocus}
+          onBlur={formStyles.inputBlur}
+        />
+      </div>
+      <div style={workflowActions}>
+        {exists ? (
+          <>
+            <button type="button" disabled={disabled} onClick={onOpen} style={actionButtonStyle(disabled, false)}>
+              <ExternalLink size={14} aria-hidden />
+              {t('auto.githubConfig.openWorkflow')}
+            </button>
+            <button type="button" disabled={disabled} onClick={onCreate} style={actionButtonStyle(disabled, false)}>
+              <RotateCcw size={14} aria-hidden />
+              {t('auto.githubConfig.replaceTemplate')}
+            </button>
+          </>
+        ) : (
+          <button type="button" disabled={disabled} onClick={onCreate} style={actionButtonStyle(disabled, true)}>
+            <FilePlus2 size={14} aria-hidden />
+            {t('auto.githubConfig.createTemplate')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkflowStatus({ exists }: { exists: boolean }): JSX.Element {
+  const t = useT()
+  return (
+    <span style={workflowStatusStyle(exists)}>
+      {exists ? <CheckCircle2 size={12} aria-hidden /> : <CircleDashed size={12} aria-hidden />}
+      {exists ? t('auto.githubConfig.workflowCreated') : t('auto.githubConfig.workflowMissing')}
+    </span>
+  )
+}
+
+function StatusPill({ active, label }: { active: boolean; label: string }): JSX.Element {
+  return (
+    <span style={statusPillStyle(active)}>
+      <span aria-hidden style={statusDotStyle(active)} />
+      {label}
+    </span>
+  )
+}
+
+function GitHubMark({ size }: { size: number }): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
+    </svg>
+  )
+}
+
 function resolveWorkflowPath(workspacePath: string, relativePath: string): string {
   const trimmed = relativePath.trim()
   if (!workspacePath || trimmed.length === 0) return ''
   return `${workspacePath.replace(/[\\/]+$/, '')}/${trimmed.replace(/^[\\/]+/, '').replace(/[\\/]+/g, '/')}`
 }
 
-function getCreateLabel(path: string): string {
-  const trimmed = path.trim()
-  return trimmed ? `Create template at ${trimmed}` : 'Create template'
-}
-
-function WorkflowTemplateActions({
-  path,
-  exists,
-  onCreate,
-  onOpen,
-  createLabel
-}: {
-  path: string
-  exists: boolean
-  onCreate: () => void
-  onOpen: () => void
-  createLabel: string
-}): JSX.Element {
-  return (
-    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-      {exists ? (
-        <>
-          <button type="button" onClick={onOpen} style={inlineButtonStyle(false)}>
-            View / Edit
-          </button>
-          <button type="button" onClick={onCreate} style={inlineButtonStyle(false)}>
-            Replace with template
-          </button>
-        </>
-      ) : (
-        <button type="button" onClick={onCreate} style={inlineButtonStyle(false)}>
-          {createLabel}
-        </button>
-      )}
-      {path.trim().length === 0 && (
-        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', alignSelf: 'center' }}>
-          It will only run after the matching workflow path is enabled.
-        </span>
-      )}
-    </div>
-  )
-}
-
-function inlineButtonStyle(primary: boolean): CSSProperties {
+function inputStyle(disabled: boolean): CSSProperties {
   return {
-    padding: '6px 10px',
-    borderRadius: '6px',
-    border: primary ? 'none' : '1px solid var(--border-default)',
-    backgroundColor: primary ? 'var(--accent)' : 'transparent',
-    color: primary ? 'var(--on-accent)' : 'var(--text-secondary)',
-    fontSize: '12px',
-    fontWeight: 600,
-    cursor: 'pointer'
+    ...formStyles.input,
+    height: '34px',
+    borderRadius: '8px',
+    background: 'var(--bg-primary)',
+    opacity: disabled ? 0.65 : 1,
+    cursor: disabled ? 'not-allowed' : 'text'
   }
 }
 
-function emptyStateButtonStyle(primary: boolean): CSSProperties {
+function actionButtonStyle(disabled: boolean, primary: boolean): CSSProperties {
   return {
-    padding: '8px 12px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: '32px',
+    padding: '0 10px',
     borderRadius: '8px',
     border: primary ? 'none' : '1px solid var(--border-default)',
-    backgroundColor: primary ? 'var(--accent)' : 'transparent',
+    backgroundColor: primary ? 'var(--accent)' : 'var(--bg-secondary)',
     color: primary ? 'var(--on-accent)' : 'var(--text-primary)',
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 600,
-    cursor: 'pointer'
+    whiteSpace: 'nowrap',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.6 : 1
   }
+}
+
+function workflowStatusStyle(exists: boolean): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    minHeight: 20,
+    padding: '0 7px',
+    borderRadius: 999,
+    color: exists ? 'var(--success)' : 'var(--text-tertiary)',
+    backgroundColor: exists
+      ? 'color-mix(in srgb, var(--success) 14%, transparent)'
+      : 'var(--bg-tertiary)',
+    fontSize: '11px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap'
+  }
+}
+
+function statusPillStyle(active: boolean): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 22,
+    padding: '0 8px',
+    borderRadius: 999,
+    backgroundColor: active
+      ? 'color-mix(in srgb, var(--success) 13%, transparent)'
+      : 'var(--bg-tertiary)',
+    color: active ? 'var(--success)' : 'var(--text-secondary)',
+    fontSize: '11px',
+    fontWeight: 600
+  }
+}
+
+function statusDotStyle(active: boolean): CSSProperties {
+  return {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    backgroundColor: active ? 'var(--success)' : 'var(--text-dimmed)'
+  }
+}
+
+const panelShell: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  flex: 1,
+  minHeight: 0,
+  minWidth: 0,
+  width: '100%'
+}
+
+const scrollRegion: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflow: 'auto',
+  boxSizing: 'border-box',
+  padding: '0 8px 4px'
+}
+
+const contentFrame: CSSProperties = {
+  width: '100%',
+  maxWidth: '820px',
+  margin: '0 auto',
+  boxSizing: 'border-box'
+}
+
+const breadcrumbButton: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  height: 32,
+  padding: '0 4px',
+  margin: '0 0 14px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--text-secondary)',
+  fontSize: '13px',
+  fontWeight: 500,
+  cursor: 'pointer'
+}
+
+const heroPanel: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 14,
+  padding: '16px 0 18px',
+  borderBottom: '1px solid var(--border-subtle)'
+}
+
+const githubLogoBox: CSSProperties = {
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--text-primary)',
+  backgroundColor: 'var(--bg-secondary)',
+  border: '1px solid var(--border-default)',
+  flexShrink: 0
+}
+
+const heroTitleRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  flexWrap: 'wrap'
+}
+
+const heroTitle: CSSProperties = {
+  margin: 0,
+  fontSize: '18px',
+  lineHeight: 1.25,
+  fontWeight: 700,
+  color: 'var(--text-primary)'
+}
+
+const heroDescription: CSSProperties = {
+  margin: '5px 0 0',
+  fontSize: '13px',
+  lineHeight: 1.4,
+  color: 'var(--text-secondary)'
+}
+
+const infoStrip: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minHeight: 32,
+  margin: '12px 0',
+  color: 'var(--text-tertiary)',
+  fontSize: '12px',
+  lineHeight: 1.4,
+  flexWrap: 'wrap'
+}
+
+const loadingBox: CSSProperties = {
+  padding: '18px 0',
+  color: 'var(--text-secondary)',
+  fontSize: '13px'
+}
+
+const sectionCard: CSSProperties = {
+  padding: '16px',
+  marginBottom: 12,
+  borderRadius: 10,
+  border: '1px solid var(--border-default)',
+  backgroundColor: 'var(--bg-secondary)'
+}
+
+const sectionHeader: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: 12,
+  marginBottom: 14
+}
+
+const sectionTitle: CSSProperties = {
+  margin: 0,
+  fontSize: '14px',
+  lineHeight: 1.3,
+  fontWeight: 700,
+  color: 'var(--text-primary)'
+}
+
+const sectionDescription: CSSProperties = {
+  margin: '4px 0 0',
+  color: 'var(--text-secondary)',
+  fontSize: '12px',
+  lineHeight: 1.4
+}
+
+const formGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: 12
+}
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  marginBottom: 6,
+  color: 'var(--text-secondary)',
+  fontSize: '12px',
+  fontWeight: 600
+}
+
+const workflowRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-end',
+  flexWrap: 'wrap',
+  gap: 10,
+  padding: '12px',
+  borderRadius: 8,
+  backgroundColor: 'var(--bg-primary)',
+  border: '1px solid var(--border-subtle)'
+}
+
+const workflowLabelRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8
+}
+
+const workflowActions: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+  flexShrink: 0
+}
+
+const emptyHint: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 10,
+  marginTop: 12,
+  padding: '10px 12px',
+  borderRadius: 8,
+  color: 'var(--text-secondary)',
+  backgroundColor: 'var(--bg-tertiary)'
+}
+
+const emptyHintTitle: CSSProperties = {
+  fontSize: '12px',
+  fontWeight: 700,
+  color: 'var(--text-primary)'
+}
+
+const emptyHintText: CSSProperties = {
+  marginTop: 2,
+  fontSize: '12px',
+  lineHeight: 1.4
+}
+
+const errorBox: CSSProperties = {
+  padding: '10px 12px',
+  borderRadius: 8,
+  backgroundColor: 'color-mix(in srgb, var(--error) 10%, transparent)',
+  color: 'var(--error)',
+  fontSize: '12px',
+  lineHeight: 1.5
+}
+
+const footerBar: CSSProperties = {
+  flexShrink: 0,
+  padding: '10px 8px 0',
+  borderTop: '1px solid var(--border-subtle)'
 }
