@@ -155,7 +155,7 @@ export function SkillDetailDialog({
           {loading ? (
             <p style={{ color: 'var(--text-secondary)' }}>{t('skillDetail.loading')}</p>
           ) : (
-            <MarkdownRenderer content={markdownBody} />
+            <MarkdownRenderer content={markdownBody} linkMode="external" />
           )}
         </div>
 

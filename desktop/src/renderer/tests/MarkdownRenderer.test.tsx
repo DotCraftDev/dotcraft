@@ -1,24 +1,35 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { MarkdownRenderer } from '../components/conversation/MarkdownRenderer'
 import { LocaleProvider } from '../contexts/LocaleContext'
+
+const openExternal = vi.fn()
 
 beforeAll(() => {
   // highlight.js theme is loaded dynamically from App/main; not required for these tests
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
-      settings: { get: () => Promise.resolve({ locale: 'en' }) }
+      settings: { get: () => Promise.resolve({ locale: 'en' }) },
+      shell: { openExternal }
     }
   })
 })
 
 describe('MarkdownRenderer', () => {
-  function renderWithLocale(content: string): ReturnType<typeof render> {
+  beforeEach(() => {
+    openExternal.mockReset()
+  })
+
+  function renderWithLocale(
+    content: string,
+    props?: Partial<ComponentProps<typeof MarkdownRenderer>>
+  ): ReturnType<typeof render> {
     return render(
       <LocaleProvider>
-        <MarkdownRenderer content={content} />
+        <MarkdownRenderer content={content} {...props} />
       </LocaleProvider>
     )
   }
@@ -115,6 +126,20 @@ describe('MarkdownRenderer', () => {
     expect(link).toBeDefined()
     expect(link.getAttribute('href')).toBe('https://example.com')
     expect(link).toHaveStyle({ textDecoration: 'none' })
+  })
+
+  it('opens http links externally in external link mode', () => {
+    renderWithLocale('[DotCraft](https://example.com/docs)', { linkMode: 'external' })
+    fireEvent.click(screen.getByRole('link', { name: /dotcraft/i }))
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/docs')
+  })
+
+  it('does not open unsupported schemes in external link mode', () => {
+    renderWithLocale('[Unsafe](javascript:alert(1))', { linkMode: 'external' })
+    const anchor = screen.getByText('Unsafe').closest('a')
+    expect(anchor).not.toBeNull()
+    fireEvent.click(anchor!)
+    expect(openExternal).not.toHaveBeenCalled()
   })
 
   it('renders file links as inline reference pills', () => {

@@ -14,6 +14,7 @@ import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface MarkdownRendererProps {
   content: string
+  linkMode?: 'conversation' | 'external'
 }
 
 /**
@@ -22,7 +23,8 @@ interface MarkdownRendererProps {
  * Spec §10.3.3
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({
-  content
+  content,
+  linkMode = 'conversation'
 }: MarkdownRendererProps): JSX.Element {
   const t = useT()
   const workspacePath = useConversationStore((s) => s.workspacePath)
@@ -36,6 +38,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
           href={href}
           workspacePath={workspacePath}
           activeThreadId={activeThreadId}
+          linkMode={linkMode}
           t={t}
           {...props}
         >
@@ -43,7 +46,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         </InlineReferenceLink>
       )
     }
-  }), [activeThreadId, t, workspacePath])
+  }), [activeThreadId, linkMode, t, workspacePath])
 
   return (
     <div className="markdown-body" style={markdownContainerStyle}>
@@ -329,11 +332,13 @@ function InlineReferenceLink({
   children,
   workspacePath,
   activeThreadId,
+  linkMode,
   t,
   ...props
 }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   workspacePath: string
   activeThreadId: string | null
+  linkMode: 'conversation' | 'external'
   t: (key: string) => string
 }): JSX.Element {
   const [hovered, setHovered] = useState(false)
@@ -345,6 +350,17 @@ function InlineReferenceLink({
 
   async function handleClick(event: React.MouseEvent<HTMLAnchorElement>): Promise<void> {
     event.preventDefault()
+    if (!href) return
+    if (linkMode === 'external') {
+      const externalUrl = resolveExternalMarkdownUrl(href)
+      if (!externalUrl) return
+      try {
+        await window.api.shell.openExternal(externalUrl)
+      } catch {
+        // Ignore external handler failures in read-only markdown previews.
+      }
+      return
+    }
     if (!href || !workspacePath || !activeThreadId) return
     await openConversationLink({
       target: href,
@@ -416,6 +432,23 @@ function InlineReferenceLink({
       </span>
     </a>
   )
+}
+
+function resolveExternalMarkdownUrl(href: string): string | null {
+  try {
+    const parsed = new URL(href)
+    if (
+      parsed.protocol === 'http:' ||
+      parsed.protocol === 'https:' ||
+      parsed.protocol === 'mailto:' ||
+      parsed.protocol === 'tel:'
+    ) {
+      return parsed.href
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 function extractText(node: React.ReactNode): string {

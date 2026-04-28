@@ -6,6 +6,7 @@ import { SkillDetailDialog } from './SkillDetailDialog'
 import { addToast } from '../../stores/toastStore'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { RefreshIcon } from '../ui/AppIcons'
+import { SkillMarketplaceView } from './SkillMarketplaceView'
 
 /**
  * Full-width skills management surface (Codex-style list + detail modal).
@@ -24,6 +25,7 @@ export function SkillsView(): JSX.Element {
     clearSelection,
     toggleSkillEnabled
   } = useSkillsStore()
+  const [activeTab, setActiveTab] = useState<'installed' | 'marketplace'>('installed')
   const [query, setQuery] = useState('')
   const [savedSkillName, setSavedSkillName] = useState<string | null>(null)
 
@@ -125,78 +127,106 @@ export function SkillsView(): JSX.Element {
                 {t('skills.refresh')}
               </button>
             </ActionTooltip>
-            <input
-              type="search"
-              placeholder={t('skills.searchPlaceholder')}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{
-                minWidth: '180px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                backgroundColor: 'var(--bg-secondary)',
-                color: 'var(--text-primary)'
-              }}
-            />
+            {activeTab === 'installed' && (
+              <input
+                type="search"
+                placeholder={t('skills.searchPlaceholder')}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{
+                  minWidth: '180px',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)'
+                }}
+              />
+            )}
           </div>
+        </div>
+        <div role="tablist" aria-label={t('skills.tabs')} style={tabList}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'installed'}
+            onClick={() => setActiveTab('installed')}
+            style={activeTab === 'installed' ? tabActive : tab}
+          >
+            {t('skills.tab.installed')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'marketplace'}
+            onClick={() => setActiveTab('marketplace')}
+            style={activeTab === 'marketplace' ? tabActive : tab}
+          >
+            {t('skills.tab.marketplace')}
+          </button>
         </div>
       </header>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-        {loading && <p style={{ color: 'var(--text-secondary)' }}>{t('skills.loading')}</p>}
-        {error && (
-          <p style={{ color: 'var(--error)' }} role="alert">
-            {error}
-          </p>
-        )}
-        {!loading && !error && skills.length === 0 && (
-          <p style={{ color: 'var(--text-secondary)' }}>{t('skills.empty')}</p>
-        )}
-        {!loading &&
-          !error &&
-          grouped.map((section) =>
-            section.items.length === 0 ? null : (
-              <section key={section.source} style={{ marginBottom: '28px' }}>
-                <h2
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    margin: '0 0 12px'
-                  }}
-                >
-                  {section.title}
-                </h2>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-                    gap: '12px'
-                  }}
-                >
-                  {section.items.map((skill) => (
-                    <SkillCard
-                      key={skill.name}
-                      skill={skill}
-                      onOpen={() => void selectSkill(skill.name)}
-                      onToggleEnabled={async (enabled) => {
-                        try {
-                          await toggleSkillEnabled(skill.name, enabled)
-                          setSavedSkillName(skill.name)
-                        } catch {
-                          addToast(t('skills.updateFailed'), 'error')
-                        }
+        {activeTab === 'marketplace' ? (
+          <SkillMarketplaceView onInstalled={fetchSkills} />
+        ) : (
+          <>
+            {loading && <p style={{ color: 'var(--text-secondary)' }}>{t('skills.loading')}</p>}
+            {error && (
+              <p style={{ color: 'var(--error)' }} role="alert">
+                {error}
+              </p>
+            )}
+            {!loading && !error && skills.length === 0 && (
+              <p style={{ color: 'var(--text-secondary)' }}>{t('skills.empty')}</p>
+            )}
+            {!loading &&
+              !error &&
+              grouped.map((section) =>
+                section.items.length === 0 ? null : (
+                  <section key={section.source} style={{ marginBottom: '28px' }}>
+                    <h2
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: 'var(--text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        margin: '0 0 12px'
                       }}
-                    />
-                  ))}
-                </div>
-              </section>
-            )
-          )}
+                    >
+                      {section.title}
+                    </h2>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: '12px'
+                      }}
+                    >
+                      {section.items.map((skill) => (
+                        <SkillCard
+                          key={skill.name}
+                          skill={skill}
+                          onOpen={() => void selectSkill(skill.name)}
+                          onToggleEnabled={async (enabled) => {
+                            try {
+                              await toggleSkillEnabled(skill.name, enabled)
+                              setSavedSkillName(skill.name)
+                            } catch {
+                              addToast(t('skills.updateFailed'), 'error')
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              )}
+          </>
+        )}
       </div>
 
       {selected && (
@@ -235,6 +265,31 @@ const toolbarBtn: React.CSSProperties = {
   lineHeight: 1,
   cursor: 'pointer',
   whiteSpace: 'nowrap'
+}
+
+const tabList: React.CSSProperties = {
+  marginTop: '14px',
+  display: 'inline-flex',
+  padding: '3px',
+  borderRadius: '7px',
+  border: '1px solid var(--border-default)',
+  backgroundColor: 'var(--bg-secondary)'
+}
+
+const tab: React.CSSProperties = {
+  padding: '7px 12px',
+  borderRadius: '5px',
+  border: 'none',
+  backgroundColor: 'transparent',
+  color: 'var(--text-secondary)',
+  fontSize: '13px',
+  cursor: 'pointer'
+}
+
+const tabActive: React.CSSProperties = {
+  ...tab,
+  backgroundColor: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)'
 }
 
 const skillsIntroSubtitle: React.CSSProperties = {

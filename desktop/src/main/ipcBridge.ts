@@ -54,6 +54,16 @@ import type {
 import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 import { parseJsonConfig, parseJsonObjectConfig } from '../shared/jsonConfig'
 import { detectEditors, launchEditor, type EditorId } from './externalEditors'
+import {
+  getSkillMarketDetail,
+  installSkillFromMarket,
+  searchSkillMarket
+} from './skillMarket'
+import type {
+  SkillMarketDetailRequest,
+  SkillMarketInstallRequest,
+  SkillMarketSearchRequest
+} from '../shared/skillMarket'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -837,6 +847,18 @@ export function registerIpcHandlers(
 
   // Renderer -> Main: get workspace path
   handleSafe('window:get-workspace-path', () => workspacePath)
+
+  handleSafe('skill-market:search', async (_event, request: SkillMarketSearchRequest) => {
+    return searchSkillMarket(workspacePath, request)
+  })
+
+  handleSafe('skill-market:detail', async (_event, request: SkillMarketDetailRequest) => {
+    return getSkillMarketDetail(workspacePath, request)
+  })
+
+  handleSafe('skill-market:install', async (_event, request: SkillMarketInstallRequest) => {
+    return installSkillFromMarket(workspacePath, request)
+  })
 
   // Renderer -> Main: open allowed URL in OS default handler
   handleSafe('shell:open-external', async (_event, url: string) => {

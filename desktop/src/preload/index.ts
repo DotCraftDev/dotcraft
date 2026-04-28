@@ -12,6 +12,14 @@ import type {
   TerminalDataEventPayload,
   TerminalExitEventPayload
 } from '../shared/viewer/types'
+import type {
+  MarketInstallResult,
+  MarketSkillDetail,
+  SkillMarketDetailRequest,
+  SkillMarketInstallRequest,
+  SkillMarketSearchRequest,
+  SkillMarketSearchResult
+} from '../shared/skillMarket'
 
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -447,6 +455,18 @@ const api = {
       }
     }> {
       return ipcRenderer.invoke('workspace-config:get-core')
+    }
+  },
+
+  skillMarket: {
+    search(request: SkillMarketSearchRequest): Promise<SkillMarketSearchResult> {
+      return ipcRenderer.invoke('skill-market:search', request)
+    },
+    detail(request: SkillMarketDetailRequest): Promise<MarketSkillDetail> {
+      return ipcRenderer.invoke('skill-market:detail', request)
+    },
+    install(request: SkillMarketInstallRequest): Promise<MarketInstallResult> {
+      return ipcRenderer.invoke('skill-market:install', request)
     }
   },
 
