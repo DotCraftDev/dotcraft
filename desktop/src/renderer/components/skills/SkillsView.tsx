@@ -387,7 +387,7 @@ function SkillsManageView({
             <Search size={15} aria-hidden />
             <input
               type="search"
-              placeholder={t('skills.searchPlaceholder')}
+              placeholder={t('skills.manage.searchPlaceholder')}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               style={searchInput}

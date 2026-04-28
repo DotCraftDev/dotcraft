@@ -236,6 +236,8 @@ describe('SkillsView marketplace browse and manage modes', () => {
 
     expect(await screen.findByText('Skills 2')).toBeInTheDocument()
     expect(screen.getAllByRole('switch')).toHaveLength(2)
+    expect(screen.getByPlaceholderText('Search installed skills')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search skills or install from Marketplace')).not.toBeInTheDocument()
   })
 
   it('refreshes from the more actions menu', async () => {

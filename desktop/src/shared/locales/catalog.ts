@@ -76,6 +76,9 @@ const MESSAGES_EN = {
   'settings.personalization.selfLearningRestartButton': 'Restart now',
   'settings.permissions.description':
     'Choose the default approval behavior for new threads in this workspace. Channels without per-thread controls use this setting.',
+  'settings.permissions.workspaceDefault.label': 'Workspace default permissions',
+  'settings.permissions.workspaceDefault.description':
+    'Used for new threads; channels without per-thread controls use it too.',
   'settings.permissions.default.label': 'Default permissions',
   'settings.permissions.default.description':
     'By default, DotCraft can read and edit files in its workspace. When needed, it can ask for extra permissions.',
@@ -586,6 +589,7 @@ const MESSAGES_EN = {
   'skills.manage': 'Manage',
   'skills.moreActions': 'More actions',
   'skills.searchPlaceholder': 'Search skills or install from Marketplace',
+  'skills.manage.searchPlaceholder': 'Search installed skills',
   'skills.loading': 'Loading skills…',
   'skills.empty': 'No skills found for this workspace.',
   'skills.builtin': 'Built-in skills',
@@ -1703,6 +1707,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.selfLearningRestartButton': '立即重启',
   'settings.permissions.description':
     '选择此工作区中新会话的默认审批行为。没有单会话选项的渠道会使用此设置。',
+  'settings.permissions.workspaceDefault.label': '工作区默认权限',
+  'settings.permissions.workspaceDefault.description': '用于新会话；无单会话选项的渠道也会使用。',
   'settings.permissions.default.label': '默认权限',
   'settings.permissions.default.description':
     '默认情况下，DotCraft 可以读取并编辑其工作区中的文件。必要时，它可以请求额外权限。',
@@ -2131,6 +2137,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'skills.manage': '管理',
   'skills.moreActions': '更多操作',
   'skills.searchPlaceholder': '搜索技能或从市场安装',
+  'skills.manage.searchPlaceholder': '搜索已安装技能',
   'skills.loading': '正在加载技能…',
   'skills.empty': '此工作区未找到技能。',
   'skills.builtin': '内置技能',
