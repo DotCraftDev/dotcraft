@@ -1,3 +1,12 @@
+import type {
+  MarketInstallResult,
+  MarketSkillDetail,
+  SkillMarketDetailRequest,
+  SkillMarketInstallRequest,
+  SkillMarketSearchRequest,
+  SkillMarketSearchResult
+} from '../shared/skillMarket'
+
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
@@ -344,6 +353,11 @@ declare global {
             defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
         }>
+      }
+      skillMarket: {
+        search(request: SkillMarketSearchRequest): Promise<SkillMarketSearchResult>
+        detail(request: SkillMarketDetailRequest): Promise<MarketSkillDetail>
+        install(request: SkillMarketInstallRequest): Promise<MarketInstallResult>
       }
       proxy: {
         getStatus(): Promise<ProxyStatusPayload>

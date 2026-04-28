@@ -72,6 +72,7 @@ export function MessageStream(): JSX.Element {
   const activeTurnId = useConversationStore((s) => s.activeTurnId)
   const streamingMessage = useConversationStore((s) => s.streamingMessage)
   const streamingReasoning = useConversationStore((s) => s.streamingReasoning)
+  const systemLabel = useConversationStore((s) => s.systemLabel)
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
   const activeThread = useThreadStore((s) => s.activeThread)
@@ -80,7 +81,7 @@ export function MessageStream(): JSX.Element {
 
   // Use total character count + turn count as a proxy for content size changes
   const contentLength = turns.reduce((acc, t) => acc + t.items.length, 0) +
-    streamingMessage.length + streamingReasoning.length
+    streamingMessage.length + streamingReasoning.length + (systemLabel?.length ?? 0)
 
   const { scrollRef, showScrollButton, scrollToBottom } = useAutoScroll(contentLength)
 
@@ -243,6 +244,8 @@ export function MessageStream(): JSX.Element {
           />
         )}
 
+        {systemLabel && <SystemStatusDivider labelKey={systemLabel} />}
+
         {/* Bottom anchor for auto-scroll */}
         <div />
       </div>
@@ -262,6 +265,58 @@ export function MessageStream(): JSX.Element {
       />
 
       {showScrollButton && <ScrollToBottomButton onClick={scrollToBottom} />}
+    </div>
+  )
+}
+
+function SystemStatusDivider({ labelKey }: { labelKey: string }): JSX.Element {
+  const t = useT()
+  const label = t(labelKey)
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '14px 4px',
+        color: 'var(--text-secondary, #8a8a8a)',
+        fontSize: 11,
+        lineHeight: 1.4,
+        userSelect: 'none'
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          flex: 1,
+          height: 1,
+          background: 'var(--border-color, rgba(127,127,127,0.25))'
+        }}
+      />
+      <span
+        className="tool-running-gradient-text"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontWeight: 600,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {label}
+      </span>
+      <span
+        aria-hidden
+        style={{
+          flex: 1,
+          height: 1,
+          background: 'var(--border-color, rgba(127,127,127,0.25))'
+        }}
+      />
     </div>
   )
 }

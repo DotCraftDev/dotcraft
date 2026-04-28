@@ -11,6 +11,8 @@ namespace DotCraft.Skills;
 /// </summary>
 public sealed class SkillsLoader(string workspaceRoot)
 {
+    private const int MaxIconBytes = 512 * 1024;
+
     private HashSet<string> _disabledSkills = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -147,17 +149,55 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// </summary>
     public string? LoadSkill(string name)
     {
-        // Check workspace first
-        var workspaceSkill = Path.Combine(WorkspaceSkillsPath, name, "SKILL.md");
-        if (File.Exists(workspaceSkill))
-            return File.ReadAllText(workspaceSkill, Encoding.UTF8);
+        var skillFile = ResolveSkillFile(name);
+        return skillFile == null ? null : File.ReadAllText(skillFile, Encoding.UTF8);
+    }
 
-        // Check user-level skills directory
-        var userSkill = Path.Combine(UserSkillsPath, name, "SKILL.md");
-        if (File.Exists(userSkill))
-            return File.ReadAllText(userSkill, Encoding.UTF8);
+    /// <summary>
+    /// Reads optional Codex-compatible display metadata from <c>agents/openai.yaml</c>.
+    /// Missing or invalid interface metadata is treated as absent.
+    /// </summary>
+    public SkillInterfaceInfo? GetSkillInterface(string name)
+    {
+        var skillFile = ResolveSkillFile(name);
+        if (skillFile == null)
+            return null;
 
-        return null;
+        var skillDir = Path.GetDirectoryName(skillFile);
+        if (string.IsNullOrEmpty(skillDir))
+            return null;
+
+        var manifestPath = Path.Combine(skillDir, "agents", "openai.yaml");
+        if (!File.Exists(manifestPath))
+            return null;
+
+        Dictionary<string, string> values;
+        try
+        {
+            values = ParseOpenAiInterfaceManifest(File.ReadAllText(manifestPath, Encoding.UTF8));
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (values.Count == 0)
+            return null;
+
+        values.TryGetValue("display_name", out var displayName);
+        values.TryGetValue("short_description", out var shortDescription);
+        values.TryGetValue("default_prompt", out var defaultPrompt);
+        values.TryGetValue("icon_small", out var iconSmall);
+        values.TryGetValue("icon_large", out var iconLarge);
+
+        return new SkillInterfaceInfo
+        {
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
+            ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? null : shortDescription,
+            DefaultPrompt = string.IsNullOrWhiteSpace(defaultPrompt) ? null : defaultPrompt,
+            IconSmallDataUrl = TryReadIconDataUrl(skillDir, iconSmall),
+            IconLargeDataUrl = TryReadIconDataUrl(skillDir, iconLarge)
+        };
     }
 
     /// <summary>
@@ -245,7 +285,8 @@ public sealed class SkillsLoader(string workspaceRoot)
                 if (stream == null)
                     continue;
 
-                var targetPath = Path.Combine(skillDir, resource.FileName);
+                var targetPath = Path.Combine(skillDir, NormalizeBuiltInResourceFileName(resource.FileName));
+                Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
                 using var file = File.Create(targetPath);
                 stream.CopyTo(file);
             }
@@ -270,6 +311,15 @@ public sealed class SkillsLoader(string workspaceRoot)
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var content = reader.ReadToEnd();
         return ReadFrontmatterValue(content, "name");
+    }
+
+    private static string NormalizeBuiltInResourceFileName(string fileName)
+    {
+        if (fileName.StartsWith("agents.", StringComparison.Ordinal))
+            return Path.Combine("agents", fileName["agents.".Length..]);
+        if (fileName.StartsWith("assets.", StringComparison.Ordinal))
+            return Path.Combine("assets", fileName["assets.".Length..]);
+        return fileName;
     }
 
     private void MigrateLegacyBuiltInSkillDir(string legacyName, string canonicalName, string markerFile)
@@ -413,6 +463,93 @@ public sealed class SkillsLoader(string workspaceRoot)
         return metadata;
     }
 
+    private string? ResolveSkillFile(string name)
+    {
+        var workspaceSkill = Path.Combine(WorkspaceSkillsPath, name, "SKILL.md");
+        if (File.Exists(workspaceSkill))
+            return workspaceSkill;
+
+        var userSkill = Path.Combine(UserSkillsPath, name, "SKILL.md");
+        if (File.Exists(userSkill))
+            return userSkill;
+
+        return null;
+    }
+
+    private static Dictionary<string, string> ParseOpenAiInterfaceManifest(string content)
+    {
+        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var inInterface = false;
+
+        foreach (var rawLine in content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (string.IsNullOrWhiteSpace(rawLine))
+                continue;
+
+            var trimmed = rawLine.Trim();
+            if (trimmed.StartsWith('#'))
+                continue;
+
+            if (!char.IsWhiteSpace(rawLine[0]))
+            {
+                inInterface = string.Equals(trimmed, "interface:", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
+
+            if (!inInterface)
+                continue;
+
+            var separator = trimmed.IndexOf(':');
+            if (separator <= 0)
+                continue;
+
+            var key = trimmed[..separator].Trim();
+            var value = trimmed[(separator + 1)..].Trim().Trim('"', '\'');
+            metadata[key] = value;
+        }
+
+        return metadata;
+    }
+
+    private static string? TryReadIconDataUrl(string skillDir, string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+            return null;
+
+        try
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(skillDir, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            var root = Path.GetFullPath(skillDir);
+            if (fullPath != root && !fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!File.Exists(fullPath))
+                return null;
+
+            var mimeType = Path.GetExtension(fullPath).ToLowerInvariant() switch
+            {
+                ".svg" => "image/svg+xml",
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                _ => null
+            };
+            if (mimeType == null)
+                return null;
+
+            var info = new FileInfo(fullPath);
+            if (info.Length <= 0 || info.Length > MaxIconBytes)
+                return null;
+
+            var bytes = File.ReadAllBytes(fullPath);
+            return $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static string? ReadFrontmatterValue(string content, string key)
     {
         if (!content.StartsWith("---"))
@@ -489,6 +626,19 @@ public sealed class SkillsLoader(string workspaceRoot)
         /// When false, the skill is disabled via workspace config and omitted from agent context.
         /// </summary>
         public bool Enabled { get; set; } = true;
+    }
+
+    public sealed class SkillInterfaceInfo
+    {
+        public string? DisplayName { get; set; }
+
+        public string? ShortDescription { get; set; }
+
+        public string? IconSmallDataUrl { get; set; }
+
+        public string? IconLargeDataUrl { get; set; }
+
+        public string? DefaultPrompt { get; set; }
     }
 
     /// <summary>

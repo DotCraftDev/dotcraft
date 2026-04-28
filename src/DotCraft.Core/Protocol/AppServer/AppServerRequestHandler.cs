@@ -2183,15 +2183,21 @@ public sealed class AppServerRequestHandler(
     private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
     {
         var metadata = skillsLoader!.GetSkillMetadata(s.Name);
+        var interfaceInfo = skillsLoader.GetSkillInterface(s.Name);
         return new SkillInfoWire
         {
             Name = s.Name,
             Description = skillsLoader.GetSkillDescription(s.Name),
+            DisplayName = interfaceInfo?.DisplayName,
+            ShortDescription = interfaceInfo?.ShortDescription,
             Source = s.Source,
             Available = s.Available,
             UnavailableReason = s.UnavailableReason,
             Enabled = s.Enabled,
             Path = s.Path,
+            IconSmallDataUrl = interfaceInfo?.IconSmallDataUrl,
+            IconLargeDataUrl = interfaceInfo?.IconLargeDataUrl,
+            DefaultPrompt = interfaceInfo?.DefaultPrompt,
             Metadata = metadata
         };
     }

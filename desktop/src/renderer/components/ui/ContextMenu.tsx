@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface ContextMenuItem {
   label: string
   onClick: () => void
+  icon?: ReactNode
   danger?: boolean
   disabled?: boolean
 }
@@ -83,7 +84,9 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps): JSX
             }
           }}
           style={{
-            display: 'block',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
             width: '100%',
             padding: '6px 14px',
             textAlign: 'left',
@@ -107,6 +110,21 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps): JSX
             ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
           }}
         >
+          {item.icon && (
+            <span
+              aria-hidden="true"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 16,
+                height: 16,
+                flexShrink: 0
+              }}
+            >
+              {item.icon}
+            </span>
+          )}
           {item.label}
         </button>
       ))}

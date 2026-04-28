@@ -1148,6 +1148,12 @@ public sealed class SkillInfoWire
 
     public string Description { get; set; } = string.Empty;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShortDescription { get; set; }
+
     public string Source { get; set; } = string.Empty;
 
     public bool Available { get; set; }
@@ -1158,6 +1164,15 @@ public sealed class SkillInfoWire
     public bool Enabled { get; set; } = true;
 
     public string Path { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IconSmallDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IconLargeDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultPrompt { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, string>? Metadata { get; set; }

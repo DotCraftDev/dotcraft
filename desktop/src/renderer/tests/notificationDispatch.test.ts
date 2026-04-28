@@ -824,13 +824,13 @@ describe('notification dispatch payload format', () => {
   it('dispatches system/event and sets systemLabel', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
     dispatch({ method: 'system/event', params: { kind: 'compacting' } })
-    expect(s().systemLabel).toBe('Compacting context...')
+    expect(s().systemLabel).toBe('systemStatus.compacting')
 
     dispatch({ method: 'system/event', params: { kind: 'compacted' } })
     expect(s().systemLabel).toBeNull()
   })
 
-  it('ignores compacted system/event from non-active threads', () => {
+  it('ignores system/event from non-active threads', () => {
     s().setContextUsage({
       tokens: 195_000,
       contextWindow: 200_000,
@@ -853,6 +853,17 @@ describe('notification dispatch payload format', () => {
 
     expect(s().contextUsage?.tokens).toBe(195_000)
     expect(s().contextUsage?.percentLeft).toBe(0.025)
+
+    dispatch({
+      method: 'system/event',
+      params: {
+        threadId: 'thread-2',
+        turnId: 'turn_foreign',
+        kind: 'compacting'
+      }
+    })
+
+    expect(s().systemLabel).toBeNull()
   })
 
   it('ignores unknown notification methods without throwing', () => {

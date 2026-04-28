@@ -113,7 +113,7 @@ interface ConversationState {
   turnStartedAt: number | null
   inputTokens: number
   outputTokens: number
-  /** Transient system label: "Compacting context...", "Consolidating memory..." */
+  /** Transient system status translation key, e.g. "systemStatus.compacting". */
   systemLabel: string | null
   /** Queued follow-up message (sent when current turn completes) */
   pendingMessage: PendingComposerMessage | null
@@ -369,8 +369,8 @@ function isGuidanceUserMessage(item: ConversationItem): boolean {
 }
 
 const SYSTEM_LABELS: Record<string, string | null> = {
-  compacting: 'Compacting context...',
-  consolidating: 'Consolidating memory...',
+  compacting: 'systemStatus.compacting',
+  consolidating: 'systemStatus.consolidating',
   compacted: null,
   compactFailed: null,
   compactSkipped: null,

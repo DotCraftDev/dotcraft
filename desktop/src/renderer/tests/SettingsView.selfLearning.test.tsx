@@ -159,10 +159,10 @@ describe('SettingsView self-learning settings', () => {
 
     renderView()
 
-    const fullAccessToggle = await screen.findByRole('switch', { name: 'Full access' })
-    expect(fullAccessToggle).toHaveAttribute('aria-checked', 'false')
+    const approvalSelect = await screen.findByRole('combobox', { name: 'Workspace default permissions' }) as HTMLSelectElement
+    expect(approvalSelect.value).toBe('default')
 
-    fireEvent.click(fullAccessToggle)
+    fireEvent.change(approvalSelect, { target: { value: 'autoApprove' } })
 
     await waitFor(() => {
       expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
@@ -170,5 +170,25 @@ describe('SettingsView self-learning settings', () => {
         defaultApprovalPolicy: 'autoApprove'
       })
     })
+  })
+
+  it('keeps default approval policy when full access warning is cancelled', async () => {
+    const confirm = vi.fn().mockResolvedValue(false)
+    ;(window as Window & { __confirmDialog?: unknown }).__confirmDialog = confirm
+
+    renderView()
+
+    const approvalSelect = await screen.findByRole('combobox', { name: 'Workspace default permissions' }) as HTMLSelectElement
+    expect(approvalSelect.value).toBe('default')
+
+    fireEvent.change(approvalSelect, { target: { value: 'autoApprove' } })
+
+    await waitFor(() => {
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
+    })
+    expect(appServerSendRequest).not.toHaveBeenCalledWith('workspace/config/update', {
+      defaultApprovalPolicy: 'autoApprove'
+    })
+    expect(approvalSelect.value).toBe('default')
   })
 })

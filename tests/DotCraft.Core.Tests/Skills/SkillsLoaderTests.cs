@@ -21,6 +21,37 @@ public sealed class SkillsLoaderTests : IDisposable
             .ToArray();
 
         Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "skill-authoring"], skills);
+        Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "browser-use", "agents", "openai.yaml")));
+    }
+
+    [Fact]
+    public void GetSkillInterface_ReadsOpenAiManifestAndRejectsEscapingIcons()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        var loader = new SkillsLoader(_tempRoot);
+        var skillDir = Path.Combine(loader.WorkspaceSkillsPath, "demo-skill");
+        Directory.CreateDirectory(Path.Combine(skillDir, "agents"));
+        Directory.CreateDirectory(Path.Combine(skillDir, "assets"));
+        File.WriteAllText(Path.Combine(skillDir, "SKILL.md"), "---\nname: demo-skill\ndescription: Demo\n---\n# Demo");
+        File.WriteAllText(Path.Combine(skillDir, "agents", "openai.yaml"), """
+            interface:
+              display_name: "Demo Skill"
+              short_description: "Short demo"
+              icon_small: "./assets/demo.svg"
+              icon_large: "../secret.svg"
+              default_prompt: "Use $demo-skill."
+            """);
+        File.WriteAllText(Path.Combine(skillDir, "assets", "demo.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" />");
+        File.WriteAllText(Path.Combine(loader.WorkspaceSkillsPath, "secret.svg"), "<svg />");
+
+        var info = loader.GetSkillInterface("demo-skill");
+
+        Assert.NotNull(info);
+        Assert.Equal("Demo Skill", info.DisplayName);
+        Assert.Equal("Short demo", info.ShortDescription);
+        Assert.StartsWith("data:image/svg+xml;base64,", info.IconSmallDataUrl);
+        Assert.Null(info.IconLargeDataUrl);
+        Assert.Equal("Use $demo-skill.", info.DefaultPrompt);
     }
 
     [Fact]

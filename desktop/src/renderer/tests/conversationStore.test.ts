@@ -484,7 +484,7 @@ describe('system events', () => {
   it('sets compacting label on "compacting" event', () => {
     s().onTurnStarted(makeTurn())
     s().onSystemEvent('compacting')
-    expect(s().systemLabel).toBe('Compacting context...')
+    expect(s().systemLabel).toBe('systemStatus.compacting')
   })
 
   it('clears label on "compacted" event', () => {

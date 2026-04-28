@@ -1,0 +1,6 @@
+interface:
+  display_name: "SVG Asset Design"
+  short_description: "Design, simplify, preview, and validate SVG assets"
+  icon_small: "./assets/svg-asset-design-small.svg"
+  icon_large: "./assets/svg-asset-design-small.svg"
+  default_prompt: "Use $svg-asset-design to create or refine SVG icons and verify them with preview screenshots."

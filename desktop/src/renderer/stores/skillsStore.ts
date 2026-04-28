@@ -3,11 +3,16 @@ import { create } from 'zustand'
 export interface SkillEntry {
   name: string
   description: string
+  displayName?: string | null
+  shortDescription?: string | null
   source: 'builtin' | 'workspace' | 'user'
   available: boolean
   unavailableReason?: string | null
   enabled: boolean
   path: string
+  iconSmallDataUrl?: string | null
+  iconLargeDataUrl?: string | null
+  defaultPrompt?: string | null
   metadata?: Record<string, string> | null
 }
 

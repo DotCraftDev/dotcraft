@@ -18,17 +18,19 @@ import {
   buildEditorFragmentFromSegments,
   collectComposerDraftSegments,
   createRefSpan,
-  parseLegacyComposerText,
+  parseComposerTextWithCatalog,
   replaceEditorContentFromSegments,
   serializeEditor,
   stringifyComposerDraftSegments,
-  truncateEditorDomToSerializedLength
+  truncateEditorDomToSerializedLength,
+  type ComposerRefCatalog
 } from './richInputSerialization'
 import type { ComposerDraftSegment } from '../../types/composerDraft'
 
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
 const PLACEHOLDER = 'Ask DotCraft anything…'
+const EMPTY_REF_CATALOG: ComposerRefCatalog = {}
 
 type RefType = 'file' | 'command' | 'skill'
 type RichInputContent = string | { text?: string; segments?: ComposerDraftSegment[] }
@@ -66,6 +68,7 @@ interface RichInputAreaProps {
   onFocusChange?: (focused: boolean) => void
   onPasteImage?: (file: File) => void
   onPasteTextOversized?: () => void
+  refCatalog?: ComposerRefCatalog
 }
 
 /** Same linearization as textBeforeCaretForTriggers (tags = one boundary char). */
@@ -298,8 +301,8 @@ function isImeConfirmKey(
   )
 }
 
-function parseSkillMarkersFromText(text: string): ComposerDraftSegment[] {
-  return parseLegacyComposerText(text)
+function parseSkillMarkersFromText(text: string, catalog: ComposerRefCatalog): ComposerDraftSegment[] {
+  return parseComposerTextWithCatalog(text, catalog)
 }
 
 export const RichInputArea = forwardRef(function RichInputArea(
@@ -317,7 +320,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
     onSelectionChange,
     onFocusChange,
     onPasteImage,
-    onPasteTextOversized
+    onPasteTextOversized,
+    refCatalog = EMPTY_REF_CATALOG
   }: RichInputAreaProps,
   ref: ForwardedRef<RichInputAreaHandle>
 ) {
@@ -586,10 +590,10 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const segments =
           Array.isArray(normalized.segments) && normalized.segments.length > 0
             ? normalized.segments
-            : parseLegacyComposerText(normalized.text ?? '')
+            : parseComposerTextWithCatalog(normalized.text ?? '', refCatalog)
         setStructuredContent(segments)
       },
-      [setStructuredContent]
+      [refCatalog, setStructuredContent]
     )
 
     useImperativeHandle(
@@ -881,7 +885,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         if (pasted.length > MAX_TEXT_LEN) {
           e.preventDefault()
           const truncated = pasted.slice(0, MAX_TEXT_LEN)
-          const segments = parseSkillMarkersFromText(truncated)
+          const segments = parseSkillMarkersFromText(truncated, refCatalog)
           insertClipboardSegmentsAtCaret(segments)
           onInput()
           onPasteTextOversized?.()
@@ -889,11 +893,11 @@ export const RichInputArea = forwardRef(function RichInputArea(
         }
         e.preventDefault()
         const text = e.clipboardData.getData('text/plain')
-        const segments = parseSkillMarkersFromText(text)
+        const segments = parseSkillMarkersFromText(text, refCatalog)
         insertClipboardSegmentsAtCaret(segments)
         onInput()
       },
-      [insertClipboardSegmentsAtCaret, onInput, onPasteImage, onPasteTextOversized]
+      [insertClipboardSegmentsAtCaret, onInput, onPasteImage, onPasteTextOversized, refCatalog]
     )
 
     return (

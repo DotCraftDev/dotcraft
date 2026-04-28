@@ -1,0 +1,6 @@
+interface:
+  display_name: "DotCraft Feature Workflow"
+  short_description: "Guide large DotCraft feature development from planning through implementation"
+  icon_small: "./assets/feature-workflow-small.svg"
+  icon_large: "./assets/feature-workflow-small.svg"
+  default_prompt: "Use $dotcraft-feature-workflow to plan and deliver a substantial DotCraft feature."

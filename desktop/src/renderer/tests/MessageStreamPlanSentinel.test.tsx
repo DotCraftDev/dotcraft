@@ -202,6 +202,29 @@ describe('MessageStream plan-accept sentinel filtering', () => {
     consoleError.mockRestore()
   })
 
+  it('renders and clears the transient system status divider', async () => {
+    useConversationStore.setState({
+      turns: [makeRunningTurn()],
+      turnStatus: 'running',
+      activeTurnId: 'turn-1',
+      turnStartedAt: Date.now(),
+      systemLabel: 'systemStatus.compacting'
+    })
+
+    renderWithLocale(<MessageStream />)
+
+    expect(screen.getByRole('status', { name: 'Auto-compacting context' })).toBeInTheDocument()
+    expect(screen.getByText('Auto-compacting context')).toHaveClass('tool-running-gradient-text')
+
+    act(() => {
+      useConversationStore.setState({ systemLabel: null })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: 'Auto-compacting context' })).toBeNull()
+    })
+  })
+
   it('shows the inline edit affordance only on the last completed text-only user message', () => {
     useConversationStore.setState({
       turns: [

@@ -3021,11 +3021,16 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 {
   "name": "browser",
   "description": "Browser automation via Playwright MCP - navigate, click, fill forms, take screenshots, and inspect web pages.",
+  "displayName": "Browser Use",
+  "shortDescription": "Automate browser-based workflows",
   "source": "builtin",
   "available": true,
   "unavailableReason": null,
   "enabled": true,
   "path": "/home/user/project/skills/browser/SKILL.md",
+  "iconSmallDataUrl": "data:image/svg+xml;base64,...",
+  "iconLargeDataUrl": "data:image/png;base64,...",
+  "defaultPrompt": "Use $browser-use to inspect a local browser target.",
   "metadata": {
     "description": "Browser automation via Playwright MCP...",
     "bins": "npx"
@@ -3037,12 +3042,30 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 |-------|------|-------------|
 | `name` | string | Skill directory name, used as the skill identifier. |
 | `description` | string | Human-readable description extracted from frontmatter `description` field. Falls back to `name` if absent. |
+| `displayName` | string? | Optional UI display name from Codex-compatible `agents/openai.yaml` `interface.display_name`. |
+| `shortDescription` | string? | Optional compact UI description from `agents/openai.yaml` `interface.short_description`. |
 | `source` | string | One of `"builtin"`, `"workspace"`, or `"user"`. Indicates where the skill is installed. |
 | `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
 | `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
 | `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
 | `path` | string | Absolute filesystem path to the `SKILL.md` file. |
+| `iconSmallDataUrl` | string? | Optional small icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
+| `iconLargeDataUrl` | string? | Optional large icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
+| `defaultPrompt` | string? | Optional default starter prompt from `agents/openai.yaml` `interface.default_prompt`. |
 | `metadata` | object | Key-value pairs from the YAML frontmatter of `SKILL.md`. Common keys: `description`, `name`, `bins`, `env`, `always`. |
+
+Servers may read Codex-compatible skill interface metadata from `agents/openai.yaml`:
+
+```yaml
+interface:
+  display_name: "Browser Use"
+  short_description: "Automate browser-based workflows"
+  icon_small: "./assets/browser-use-small.svg"
+  icon_large: "./assets/browser-use.png"
+  default_prompt: "Use $browser-use to inspect a local browser target."
+```
+
+Icon paths MUST be relative to the skill directory, MUST remain inside that directory after normalization, and SHOULD be ignored if missing, too large, or not an allowed image type.
 
 ### 18.3 `skills/list`
 

@@ -787,8 +787,8 @@ export function SettingsView({
   )
 
   const handleDefaultApprovalPolicyChange = useCallback(
-    async (nextPolicy: VisibleApprovalPolicy): Promise<void> => {
-      if (nextPolicy === defaultApprovalPolicy || applyingDefaultApprovalPolicy) return
+    async (nextPolicy: VisibleApprovalPolicy): Promise<boolean> => {
+      if (nextPolicy === defaultApprovalPolicy || applyingDefaultApprovalPolicy) return false
 
       if (nextPolicy === 'autoApprove') {
         const confirmed = await confirm({
@@ -798,7 +798,7 @@ export function SettingsView({
           cancelLabel: t('common.cancel'),
           danger: true
         })
-        if (!confirmed) return
+        if (!confirmed) return false
       }
 
       const previous = defaultApprovalPolicy
@@ -811,10 +811,12 @@ export function SettingsView({
         const persisted = normalizeVisibleApprovalPolicy(result?.defaultApprovalPolicy) ?? nextPolicy
         setDefaultApprovalPolicy(persisted)
         await reloadWorkspaceCore()
+        return true
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setDefaultApprovalPolicy(previous)
         addToast(t('settings.permissions.saveFailed', { error: msg }), 'error')
+        return false
       } finally {
         setApplyingDefaultApprovalPolicy(false)
       }
@@ -2225,31 +2227,28 @@ export function SettingsView({
                   description={t('settings.permissions.description')}
                 >
                   <SettingsRow
-                    label={t('settings.permissions.default.label')}
-                    description={t('settings.permissions.default.description')}
+                    label={t('settings.permissions.workspaceDefault.label')}
+                    description={t('settings.permissions.workspaceDefault.description')}
+                    htmlFor="settings-default-approval-policy"
                     control={
-                      <PillSwitch
-                        checked={defaultApprovalPolicy === 'default'}
+                      <select
+                        id="settings-default-approval-policy"
+                        value={defaultApprovalPolicy}
                         disabled={applyingDefaultApprovalPolicy}
-                        aria-label={t('settings.permissions.default.label')}
-                        onChange={(checked) => {
-                          if (checked) void handleDefaultApprovalPolicyChange('default')
+                        aria-label={t('settings.permissions.workspaceDefault.label')}
+                        onChange={(event) => {
+                          const select = event.currentTarget
+                          const previousPolicy = defaultApprovalPolicy
+                          const nextPolicy = event.target.value as VisibleApprovalPolicy
+                          void handleDefaultApprovalPolicyChange(nextPolicy).then((applied) => {
+                            if (!applied) select.value = previousPolicy
+                          })
                         }}
-                      />
-                    }
-                  />
-                  <SettingsRow
-                    label={t('settings.permissions.fullAccess.label')}
-                    description={t('settings.permissions.fullAccess.description')}
-                    control={
-                      <PillSwitch
-                        checked={defaultApprovalPolicy === 'autoApprove'}
-                        disabled={applyingDefaultApprovalPolicy}
-                        aria-label={t('settings.permissions.fullAccess.label')}
-                        onChange={(checked) => {
-                          if (checked) void handleDefaultApprovalPolicyChange('autoApprove')
-                        }}
-                      />
+                        style={{ ...inputStyle(), width: '180px', cursor: applyingDefaultApprovalPolicy ? 'default' : 'pointer' }}
+                      >
+                        <option value="default">{t('settings.permissions.default.label')}</option>
+                        <option value="autoApprove">{t('settings.permissions.fullAccess.label')}</option>
+                      </select>
                     }
                   />
                 </SettingsGroup>
