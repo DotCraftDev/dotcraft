@@ -24,10 +24,10 @@ Prerequisite: .NET 10 SDK (preview).
 
 - **Modules**: all interaction modes are `IDotCraftModule`, discovered by `DotCraft.Gen` source generator.
   Types: Host (standalone entry), Channel (managed by Gateway), Tool-only (tool providers only).
-  Host priority: CLI=0, API=10, WeCom=20. Gateway runs when no higher-priority Host is active.
+  Host priority: CLI=0, API=10. Gateway runs when no higher-priority Host is active.
 - **Session Core**: defined in `specs/session-core.md` with `Thread -> Turn -> Item` model.
   `ISessionService` is the central API for thread lifecycle, input submission, and approvals.
-  Used by CLI, ACP, WeCom, GitHubTracker, and external channel adapters; API and AG-UI use client-managed history.
+  Used by CLI, ACP, GitHubTracker, and external channel adapters; API and AG-UI use client-managed history.
 - **AppServer**: defined in `specs/appserver-protocol.md`.
   JSON-RPC 2.0 over stdio/WebSocket, projecting `ISessionService` to out-of-process clients.
   Used by TUI, Desktop, and external channel adapters (see `sdk/python/`).

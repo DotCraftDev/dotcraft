@@ -1,6 +1,6 @@
 ---
 name: dotcraft-dev-guide
-description: Development workflow and project-specific norms for DotCraft. Use when adding or modifying modules, changing protocol behavior, or shipping user-facing features. Covers spec-first workflow, testing rules (including when tests are optional), meaningful test criteria, module development pointers, tool naming, and bilingual docs.
+description: Development workflow and project-specific norms for DotCraft. Use when changing protocol behavior, or shipping user-facing features. Covers spec-first workflow, testing rules and bilingual docs.
 ---
 
 # DotCraft Development Guide
@@ -18,7 +18,7 @@ If a proposed change conflicts with an existing spec, resolve the spec-level con
 
 ### Steps
 
-1. **Plan**: For module work, read `references/module-development-spec.md` and satisfy its checklist. Search the codebase for similar features before adding new abstractions.
+1. **Plan**: Search the codebase for similar features before adding new abstractions.
 2. **Implement**: Follow the project-specific norms below. Add XML docs for public C# APIs. Update user-facing docs in both languages when behavior changes.
 3. **Test**: Follow the testing rules below.
 4. **Verify**: Confirm changes conform to the relevant spec and docs/examples are in place.
@@ -45,28 +45,6 @@ A test is meaningful only when (applies to C# xUnit and TypeScript tests equally
 
 Pre-commit: run the relevant full suites for touched areas (`dotnet test` for C#, and corresponding `npm test`/`cargo test` where applicable). Do not commit with known failures.
 
-## Module Development
-
-Module behavior (Host vs Channel, HITL, tool providers, configuration) is defined in **references/module-development-spec.md**. Follow that specification when adding or changing modules. Use the normative checklist there to verify a new module.
-
-When adding a new module: mark the module class with `[DotCraftModule("name", Priority = x, Description = "...")]` and declare the class as **partial** (the source generator provides `Name` and `Priority` and registration). If the module is a Host, add a separate class marked with `[HostFactory("name")]` that implements `IHostFactory`. Implementation details and examples: search the codebase for `[DotCraftModule(`, `[HostFactory(`, `CreateChannelService`, `IApprovalService`, `GetToolProviders`, `AppConfig`, `IHostFactory`.
-
-### Tool naming (AI functions)
-
-Tool names exposed to the model vary by source. There is no global rule; use the **exact** name when configuring whitelists (**EnabledTools**, **Tools.DeferredLoading.AlwaysLoadedTools** in AppConfig).
-
-| Source | Naming | Example |
-|--------|--------|--------|
-| Method-based (`AIFunctionFactory.Create(method)`) | PascalCase (method name as-is; no snake_case conversion) | `ReadFile`, `Exec`, `WebSearch`, `GrepFiles` |
-| Manually created (`AIFunctionFactory.Create(..., name: "...")`) | No fixed convention; often snake_case | e.g. extension/ACP tools |
-| MCP tools | Defined by the MCP server; typically snake_case | As returned by the server |
-
-Use `[Description("...")]` on the method and on parameters for tool and parameter descriptions; optional `[Tool(Icon, DisplayType, DisplayMethod)]` for Dashboard UI (see FileTools.ReadFile).
-
-Tool argument streaming is enabled for every tool by default: AppServer clients receive `item/toolCall/argumentsDelta` notifications as the model fills in the arguments JSON, and the TUI/Desktop render per-tool live previews. If a tool must ship with a single atomic payload (for example because it proxies arguments to another process that cannot consume partial JSON, or because the arguments are sensitive), opt out by annotating the method with `[StreamArguments(false)]`; clients will then only see `item/started` followed by `item/completed` with no deltas. Omit the attribute to keep streaming enabled.
-
-File mutation tools that perform read-modify-write must serialize per canonical path with `PathAsyncMutex.AcquireAsync` (or `AcquireKeyAsync` for virtual filesystems) because model tool calls can run concurrently. This prevents Windows sharing violations and lost updates. A stricter read-before-write stale-check can be added later if the tool contract needs it.
-
 ### Language Preference
 
 - **Code comments**: English
@@ -74,31 +52,11 @@ File mutation tools that perform read-modify-write must serialize per canonical 
 
 ## Documentation Guidelines
 
-### Bilingual Requirements
+DotCraft documentation lives under `docs/` as a VitePress documentation site.
 
-All documentation must be provided in both Chinese and English:
+When creating or updating documentation:
 
-- **Default (Chinese)**: `docs/*.md`, with entry at `docs/index.md`
-- **English**: `docs/en/*.md`, with entry at `docs/en/index.md`
-
-Use a language switcher in documents by linking to the index of the other language, e.g.:
-
-```markdown
-**[中文](../index.md) | English**
-```
-
-(in a doc under `docs/en/`) or
-
-```markdown
-**中文 | [English](./en/index.md)**
-```
-
-(in a doc under `docs/` root)
-
-## Additional Resources
-
-- **Module development (norms and checklist)**: references/module-development-spec.md
-- **Specs (protocol and process design)**: `specs/` — always consult and update these before implementation
-- **Python SDK for external channels**: `sdk/python/`
-- **TUI README**: `tui/README.md` — build instructions, CLI flags, key bindings
-- **Desktop README**: `desktop/README.md` — usage, settings, npm scripts
+- Provide all documentation in both Chinese and English.
+- Consider whether the documentation location fits the existing site structure. When inserting new documentation, ask the user where it should go unless the user has already approved a location.
+- Keep documentation concise and current. Do not include historical explanations, such as old-version migration rationale or why legacy behavior existed.
+- Keep the style user-friendly. Avoid excessive code references unless the document is explicitly providing code examples, such as SDK documentation.

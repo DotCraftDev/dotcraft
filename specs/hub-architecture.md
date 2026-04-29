@@ -1,830 +1,828 @@
-# DotCraft Hub Architecture Specification
+# DotCraft Hub Local Coordinator Specification
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.1.0 |
+| **Version** | 0.2.0 |
 | **Status** | Draft |
-| **Date** | 2026-04-16 |
-| **Parent Spec** | [AppServer Protocol](appserver-protocol.md), [Session Core](session-core.md) |
-| **Related Specs** | [Desktop Client](desktop-client.md) |
+| **Date** | 2026-04-29 |
+| **Parent Spec** | [AppServer Protocol](appserver-protocol.md), [Desktop Client](desktop-client.md), [TUI Client](tui-client.md) |
 
-Purpose: Define the architecture, protocol extensions, process lifecycle, and iteration plan for DotCraft Hub — a single long-lived process that manages multiple workspace runtimes, exposes a unified wire protocol endpoint, hosts a cross-workspace Dashboard, and provides system-tray-resident notification aggregation.
+Purpose: Define DotCraft Hub as a local coordinator that discovers, starts, reuses, monitors, and stops workspace-bound AppServer processes without changing the AppServer protocol or replacing the per-workspace runtime model.
+
+This specification replaces the previous Hub design that hosted multiple workspace runtimes in one process and added workspace routing to the AppServer wire protocol. That direction is explicitly rejected for v1.
 
 ---
 
 ## Table of Contents
 
-- [1. Motivation and Problem Statement](#1-motivation-and-problem-statement)
-- [2. Scope](#2-scope)
-- [3. Architecture Overview](#3-architecture-overview)
-- [4. Hub Process Lifecycle](#4-hub-process-lifecycle)
-- [5. Workspace Runtime](#5-workspace-runtime)
-- [6. Workspace Registry](#6-workspace-registry)
-- [7. Hub Wire Protocol](#7-hub-wire-protocol)
-- [8. Client Connection Lifecycle](#8-client-connection-lifecycle)
-- [9. Notification Routing](#9-notification-routing)
-- [10. Unified Dashboard](#10-unified-dashboard)
-- [11. System Tray Integration](#11-system-tray-integration)
-- [12. Client Bootstrap Protocol](#12-client-bootstrap-protocol)
-- [13. Backward Compatibility](#13-backward-compatibility)
-- [14. Technical Choices](#14-technical-choices)
+- [1. Motivation](#1-motivation)
+- [2. Design Principles](#2-design-principles)
+- [3. Goals and Non-Goals](#3-goals-and-non-goals)
+- [4. Architecture Overview](#4-architecture-overview)
+- [5. Core Components](#5-core-components)
+- [6. Hub Local API](#6-hub-local-api)
+- [7. Client Bootstrap](#7-client-bootstrap)
+- [8. Managed AppServer Lifecycle](#8-managed-appserver-lifecycle)
+- [9. Locks, Registry, and State Files](#9-locks-registry-and-state-files)
+- [10. Port and Endpoint Management](#10-port-and-endpoint-management)
+- [11. Security Model](#11-security-model)
+- [12. Compatibility](#12-compatibility)
+- [13. Technical Choices](#13-technical-choices)
+- [14. Open Questions](#14-open-questions)
 - [15. Iteration Plan](#15-iteration-plan)
-- [16. Design Decisions (Resolved)](#16-design-decisions-resolved)
 
 ---
 
-## 1. Motivation and Problem Statement
+## 1. Motivation
 
-### 1.1 Current Architecture
+### 1.1 Current Model
 
-DotCraft follows a strict **1 process = 1 workspace** model. Each client (Desktop, TUI, CLI) spawns or connects to a dedicated `dotcraft app-server` process bound to one workspace via `Directory.GetCurrentDirectory()`. All core services — `AppConfig`, `ThreadStore`, `MemoryStore`, `SessionService`, `AgentFactory`, `CronService`, `Dashboard` — are singletons scoped to that one workspace.
+DotCraft is intentionally workspace-centric:
 
-### 1.2 Problems
+- One AppServer process is bound to one workspace.
+- The AppServer loads configuration, memory, threads, skills, tools, MCP servers, channels, and `.craft/` state for that workspace.
+- Desktop, TUI, CLI, ACP, and other clients speak the AppServer Protocol to a workspace-bound server.
 
-1. **No unified workspace view.** Users cannot see all their workspaces and threads in a single client window. Switching workspaces requires a full disconnect/reconnect cycle. Operating on multiple workspaces simultaneously requires multiple OS-level processes (Desktop spawns a separate Electron process per workspace).
+This model is a feature. It keeps ownership clear: the process that serves a workspace also owns that workspace's runtime state.
 
-2. **Duplicate AppServer risk.** If a user opens the same workspace from Desktop and TUI simultaneously, each client spawns its own `dotcraft app-server`. Two AppServer processes compete for the same `.craft/` directory with no coordination. The Desktop workspace lock (`desktop.lock`) is Desktop-only and not respected by TUI or CLI.
+### 1.2 Current Problem
 
-3. **Port conflicts.** Dashboard defaults to port 8080. Multiple dotcraft instances on the same machine conflict unless manually reconfigured. There is no dynamic port allocation.
+Local interactive clients do not coordinate AppServer ownership.
 
-4. **Resource overhead.** Each AppServer process carries the full .NET runtime overhead (~50–100 MB). Users with 3–5 active workspaces would run 3–5 separate processes.
+Example:
 
-5. **No cross-workspace notifications.** Each client connection receives events from only its connected workspace. There is no unified notification surface.
+1. Desktop opens workspace `A` and starts `dotcraft app-server` over stdio.
+2. TUI or CLI opens the same workspace `A`.
+3. The second client does not know Desktop already has an AppServer for `A`.
+4. It starts another stdio AppServer for the same workspace.
+5. Two AppServer processes now compete for the same `.craft/` directory, background jobs, MCP processes, workspace files, and runtime side effects.
 
-### 1.3 Design Goal
+This also creates endpoint problems:
 
-Introduce a **Hub** — a single long-lived DotCraft process that hosts multiple workspace runtimes in-process, exposes one wire protocol endpoint for all clients, provides a unified Dashboard, and acts as the system-tray-resident notification hub. All clients connect to Hub; Hub manages workspace lifecycles internally.
+- WebSocket and Dashboard ports can collide.
+- Clients have no shared local authority that can answer "which AppServer owns this workspace?"
+- Desktop-only locks do not protect CLI, TUI, ACP, or future clients.
 
----
+### 1.3 Revised Direction
 
-## 2. Scope
+Hub should be analogous to a local container manager:
 
-### 2.1 What This Spec Defines
+- Each workspace still has its own AppServer.
+- Hub does not sit between the AppServer and the workspace.
+- Hub does not proxy normal AppServer protocol traffic.
+- Hub helps local applications find or create the correct AppServer for a workspace.
 
-- The Hub process model and its relationship to the existing DotCraft module/host system.
-- The WorkspaceRuntime abstraction: what it contains, how it is created/destroyed.
-- The workspace registry: discovery, persistence, lifecycle states.
-- Hub wire protocol extensions: workspace routing, new methods, capability advertisement.
-- Client bootstrap: how clients find or start Hub before connecting.
-- Notification routing: how events from multiple workspaces reach clients.
-- Unified Dashboard: how Hub hosts a single Dashboard for all workspaces.
-- System tray integration: presence, notification, quick-access.
-- Iteration plan: phased delivery from refactoring to full feature.
-
-### 2.2 What This Spec Does Not Define
-
-- Client-side UI layout, component design, or visual design for Desktop, TUI, or Dashboard.
-- Per-workspace agent execution internals, tool implementations, or model orchestration.
-- Deployment topology for server-side multi-tenant scenarios (these continue to use standalone `dotcraft app-server` or `dotcraft gateway` as today).
-- Mobile clients.
+After Hub resolves a workspace, the client connects to that workspace's AppServer exactly like a remote WebSocket AppServer client.
 
 ---
 
-## 3. Architecture Overview
+## 2. Design Principles
 
-### 3.1 Conceptual Model
+1. **Preserve per-workspace AppServer ownership.** Hub must not turn DotCraft into a multi-workspace in-process runtime.
+2. **Do not change the AppServer Protocol for Hub v1.** No `workspacePath` routing parameter, no hub-mode protocol branch, and no multi-workspace JSON-RPC endpoint.
+3. **Hub is not on the hot path.** After bootstrap, clients talk directly to the AppServer WebSocket endpoint.
+4. **Stdio remains useful for supervision.** Hub may keep a stdio connection to the managed AppServer for readiness checks, lifecycle control, and graceful shutdown.
+5. **WebSocket is the shared client transport.** Managed AppServers expose loopback WebSocket endpoints so Desktop, TUI, CLI, and other local clients can share one process.
+6. **Local first.** Hub v1 is a single-user, loopback-only facility. Remote, team, and multi-user Hub scenarios require a separate security spec.
+7. **Legacy standalone mode remains valid.** `dotcraft app-server` can still be run directly for CI, servers, bots, explicit remote setups, and debugging.
+
+---
+
+## 3. Goals and Non-Goals
+
+### 3.1 Goals
+
+- Provide a single local authority that maps normalized workspace paths to running AppServer instances.
+- Ensure local interactive clients reuse the same AppServer for the same workspace.
+- Start a managed AppServer when none exists for a workspace.
+- Allocate AppServer WebSocket endpoints without user-visible port conflicts.
+- Return enough connection metadata for clients to connect using the existing AppServer WebSocket transport.
+- Track process health, startup failures, exit diagnostics, and restart eligibility.
+- Provide a foundation for later Desktop/TUI multi-workspace UX without requiring AppServer protocol changes.
+
+### 3.2 Non-Goals
+
+- Hosting multiple `WorkspaceRuntime` objects inside Hub.
+- Merging multiple workspaces behind one AppServer protocol connection.
+- Adding workspace routing fields to existing AppServer methods.
+- Replacing the AppServer Protocol with a Hub protocol.
+- Proxying normal `thread/*`, `turn/*`, `mcp/*`, `skills/*`, `workspace/config/*`, or extension traffic.
+- Providing a unified cross-workspace Dashboard in v1.
+- Solving remote access, authentication between different OS users, or team-shared Hub deployments.
+
+---
+
+## 4. Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     dotcraft hub (single process)                │
-│                                                                  │
-│  ┌────────────────┐   ┌────────────────┐   ┌────────────────┐   │
-│  │ WorkspaceRuntime│   │ WorkspaceRuntime│   │ WorkspaceRuntime│   │
-│  │   Project A     │   │   Project B     │   │   Project C     │   │
-│  │  ┌───────────┐  │   │  ┌───────────┐  │   │  ┌───────────┐  │   │
-│  │  │AppConfig  │  │   │  │AppConfig  │  │   │  │AppConfig  │  │   │
-│  │  │ThreadStore│  │   │  │ThreadStore│  │   │  │ThreadStore│  │   │
-│  │  │MemoryStore│  │   │  │MemoryStore│  │   │  │MemoryStore│  │   │
-│  │  │Session Svc│  │   │  │Session Svc│  │   │  │Session Svc│  │   │
-│  │  │AgentFactory│  │   │  │AgentFactory│  │   │  │AgentFactory│  │   │
-│  │  │CronService│  │   │  │CronService│  │   │  │CronService│  │   │
-│  │  │Channels   │  │   │  │Channels   │  │   │  │Channels   │  │   │
-│  │  └───────────┘  │   │  └───────────┘  │   │  └───────────┘  │   │
-│  └────────────────┘   └────────────────┘   └────────────────┘   │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │  WebSocket    │  │   Dashboard  │  │   System Tray        │   │
-│  │  Endpoint     │  │   (unified)  │  │   (notifications)    │   │
-│  │  :9200/ws     │  │   :9200/dash │  │                      │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘   │
-└─────────┼─────────────────┼──────────────────────┼───────────────┘
-          │                 │                      │
-     ┌────┴────┐      ┌────┴────┐           ┌─────┴─────┐
-     │ Desktop │      │ Browser │           │ OS Toast  │
-     │ TUI     │      │         │           │ Tray Menu │
-     │ CLI     │      │         │           │           │
-     └─────────┘      └─────────┘           └───────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                         dotcraft hub                          │
+│                                                               │
+│  ┌─────────────────┐  ┌────────────────┐  ┌────────────────┐ │
+│  │ Hub Local API   │  │ Workspace       │  │ AppServer       │ │
+│  │ 127.0.0.1:N     │  │ Registry        │  │ Supervisor      │ │
+│  └────────┬────────┘  └────────────────┘  └───────┬────────┘ │
+│           │                                        │          │
+│           │ ensure workspace A                     │ starts   │
+└───────────┼────────────────────────────────────────┼──────────┘
+            │                                        │
+            │ returns ws://127.0.0.1:43121/ws        │ stdio supervision
+            ▼                                        ▼
+┌─────────────────────┐                    ┌─────────────────────┐
+│ Desktop / TUI / CLI │                    │ dotcraft app-server │
+│                     │◀──────────────────▶│ cwd = workspace A   │
+│ AppServer Protocol  │   WebSocket        │ ws://127.0.0.1:43121│
+└─────────────────────┘                    └─────────────────────┘
+
+┌─────────────────────┐                    ┌─────────────────────┐
+│ Another local       │                    │ dotcraft app-server │
+│ client              │◀──────────────────▶│ cwd = workspace B   │
+│                     │   WebSocket        │ ws://127.0.0.1:43122│
+└─────────────────────┘                    └─────────────────────┘
 ```
 
-### 3.2 Key Architectural Decisions
+The Hub API is only a bootstrap and management API. It answers questions such as:
 
-1. **Hub is a DotCraft Host module** (`dotcraft hub`), not a separate binary. It reuses the existing module registry, config infrastructure, and build pipeline.
+- Is Hub running?
+- Is there an AppServer for this workspace?
+- If not, start one.
+- What WebSocket URL should the client connect to?
+- Is the managed AppServer healthy?
+- Stop or restart the managed AppServer.
 
-2. **WorkspaceRuntimes live in-process**, not as child processes. Each workspace gets its own set of services (config, thread store, memory, session, agent, cron, etc.) as objects in the same .NET process. No child process management, no inter-process communication overhead, no port-per-workspace.
-
-3. **One WebSocket endpoint, one Dashboard port.** Hub binds a single HTTP/WebSocket listener. All clients connect to the same endpoint. Workspace routing happens at the protocol level, not the transport level.
-
-4. **Lazy loading with idle suspension.** Workspace runtimes are created on first access and can be suspended (disposed) after an idle timeout to reclaim memory. Reactivation is transparent to the client.
-
-5. **Hub replaces direct AppServer spawning for local clients.** Desktop, TUI, and CLI connect to Hub instead of spawning their own `dotcraft app-server`. This eliminates duplicate AppServer instances and port conflicts by design.
-
----
-
-## 4. Hub Process Lifecycle
-
-### 4.1 Startup
-
-Hub runs as `dotcraft hub` and does NOT bind to a specific project workspace. Its working context is the global DotCraft home directory (`~/.craft/`).
-
-Startup sequence:
-
-1. Read Hub configuration from `~/.craft/config.json` (Hub-level section).
-2. Load workspace registry from `~/.craft/workspaces.json`.
-3. Start the WebSocket + HTTP listener on the configured address (default `127.0.0.1:9200`).
-4. Mount the unified Dashboard on the same listener.
-5. Initialize the system tray icon (on supported platforms).
-6. Compile the module registry (`ModuleRegistrations.RegisterAll`) once — shared across all workspaces.
-7. Optionally pre-load workspace runtimes for workspaces marked as `autoStart` in the registry.
-
-Hub does NOT call `AddDotCraft` with a specific workspace path. It maintains its own minimal service container for Hub-level concerns (WebSocket listener, workspace registry, tray integration).
-
-### 4.2 Shutdown
-
-On shutdown (tray quit, SIGTERM, or system shutdown):
-
-1. Stop accepting new client connections.
-2. For each active workspace runtime: cancel running turns, flush pending writes, dispose the runtime.
-3. Persist workspace registry state (last-active timestamps, runtime status).
-4. Stop the HTTP listener.
-5. Exit.
-
-### 4.3 Single-Instance Guarantee
-
-Only one Hub process runs per user on a machine. Hub writes a lock file at `~/.craft/hub.lock` containing `{ pid, port, startedAt }`. Clients check this lock to discover a running Hub (see [Section 12](#12-client-bootstrap-protocol)).
-
-If a second `dotcraft hub` is launched while one is already running, it detects the lock, verifies the PID is alive, and either exits with a message or signals the existing Hub to foreground its tray icon.
+Normal conversation, approval, MCP, skills, automations, channel, and config operations continue to use the existing AppServer Protocol directly against the workspace AppServer.
 
 ---
 
-## 5. Workspace Runtime
+## 5. Core Components
 
-### 5.1 Definition
+### 5.1 Hub Process
 
-A `WorkspaceRuntime` is a self-contained service graph equivalent to what `ServiceRegistration.AddDotCraft` + `AppServerHost.RunAsync` currently build for a single workspace. It encapsulates all per-workspace state and services.
+Hub is a global, long-lived local process:
 
-### 5.2 Contents
+- Command: `dotcraft hub`.
+- Scope: current OS user, not a project workspace.
+- Default bind: loopback only.
+- Configuration: global `~/.craft/config.json`, section `Hub`.
+- State: global `~/.craft/hub/`.
 
-Each WorkspaceRuntime contains:
+Hub may be started by:
 
-- **Paths**: `DotCraftPaths` (workspace root + `.craft/` path).
-- **Configuration**: `AppConfig` loaded from the workspace's `.craft/config.json` merged with global `~/.craft/config.json`.
-- **Persistence**: `ThreadStore`, `MemoryStore`, `ApprovalStore`, `PlanStore` — all rooted at the workspace's `.craft/`.
-- **Agent stack**: `AgentFactory`, `AgentRunner`, `Context.Compaction.CompactionPipeline`, `MemoryConsolidator`. Memory consolidation is a Session Core maintenance workflow independent from context compaction; see [Memory Consolidation](memory-consolidation.md).
-- **Session**: `SessionService`, `SessionGate`.
-- **Scheduling**: `CronService`, `HeartbeatService`.
-- **Skills and tools**: `SkillsLoader`, `CustomCommandLoader`, tool providers collected per-workspace config and enabled modules.
-- **Integrations**: `McpClientManager`, `LspServerManager` (per-workspace MCP/LSP connections).
-- **Tracing**: `TraceStore`, `TraceCollector`, `TokenUsageStore`.
-- **Channels**: Per-workspace native and external channels (via `ChannelRunner`), if enabled in that workspace's config.
-- **Hooks**: `HookRunner` for workspace-specific hooks.
+- Desktop on application startup.
+- CLI/TUI during bootstrap.
+- A tray/autostart integration.
+- The user explicitly running `dotcraft hub`.
 
-### 5.3 Lifecycle States
+Hub does not call workspace-bound `AddDotCraft` for itself. It only needs services for configuration, process supervision, logging, endpoint allocation, registry persistence, and its local API.
 
-```
-       ┌──────────┐
-       │ Registered│  (known in registry, not loaded)
-       └─────┬────┘
-             │ client accesses workspace
-             ▼
-       ┌──────────┐
-       │  Loading  │  (creating services, reading config)
-       └─────┬────┘
-             │ success
-             ▼
-       ┌──────────┐
-       │  Active   │  (serving requests, running agents)
-       └─────┬────┘
-             │ idle timeout / explicit close
-             ▼
-       ┌──────────┐
-       │ Suspended │  (disposed, can be reactivated)
-       └─────┬────┘
-             │ client accesses again
-             ▼
-       ┌──────────┐
-       │  Loading  │
-       └──────────┘
+### 5.2 Managed AppServer
 
-       Error at any stage → Faulted (reported to clients, manual retry)
+A managed AppServer is a normal `dotcraft app-server` process started with:
+
+- `WorkingDirectory` set to the workspace root.
+- AppServer mode set to `StdioAndWebSocket`.
+- WebSocket host set to loopback.
+- WebSocket port assigned by Hub.
+- Optional WebSocket token assigned by Hub.
+
+Conceptual command:
+
+```bash
+dotcraft app-server --listen ws+stdio://127.0.0.1:43121
 ```
 
-### 5.4 Isolation Boundaries
+The AppServer remains the only process that owns the workspace runtime. Hub does not read or mutate workspace Session Core state directly.
 
-Each WorkspaceRuntime operates independently:
+Hub keeps the AppServer stdio stream open as a supervisor connection. The supervisor connection can:
 
-- **Config isolation**: Each workspace loads its own `.craft/config.json`. Different workspaces can use different models, API keys, enabled modules, and tool configurations.
-- **Data isolation**: Thread, memory, trace, and cron data are physically separated in each workspace's `.craft/` directory.
-- **Agent isolation**: Each workspace has its own `AgentFactory` and `SessionService`. Conversations in one workspace do not share context with another.
-- **Exception isolation**: Hub wraps all workspace-level operations in exception boundaries. A failure in one workspace's agent does not crash other workspaces or the Hub process. A faulted workspace can be reloaded without restarting Hub.
+- Perform `initialize` / `initialized` to verify readiness.
+- Read server metadata such as version, capabilities, and Dashboard URL.
+- Keep the dual-mode AppServer alive.
+- Gracefully shut down the AppServer by closing stdin.
+- Capture recent stderr for diagnostics.
 
-### 5.5 Shared Resources
+Other clients connect to the AppServer's WebSocket endpoint.
 
-The following are shared across all workspace runtimes within the Hub process:
+### 5.3 Hub Registry
 
-- **Module registry**: Compiled once; module enablement is evaluated per-workspace config.
-- **WebSocket listener and connection management**.
-- **Dashboard HTTP routes**.
-- **.NET runtime, GC, thread pool.**
+Hub keeps a registry of known workspaces and currently managed AppServers. The registry is not authoritative over workspace data; it is only local process metadata.
 
----
+Each entry includes:
 
-## 6. Workspace Registry
+| Field | Description |
+|-------|-------------|
+| `workspacePath` | Canonical absolute workspace root. |
+| `displayName` | User-facing name, defaulting to directory name. |
+| `state` | `stopped`, `starting`, `running`, `unhealthy`, `stopping`, or `exited`. |
+| `pid` | OS process ID of the managed AppServer, if running. |
+| `webSocketUrl` | Direct AppServer WebSocket URL for clients. |
+| `dashboardUrl` | Per-workspace Dashboard URL if the AppServer reports one. |
+| `serverVersion` | Version reported by AppServer initialize. |
+| `lastStartedAt` | Last successful start time. |
+| `lastSeenAt` | Last client ensure or health observation. |
+| `lastExit` | Exit code, time, and recent stderr if the process exited. |
 
-### 6.1 Storage
+### 5.4 Client
 
-The workspace registry is stored at `~/.craft/workspaces.json`. It tracks all workspaces known to Hub.
+Desktop, TUI, CLI, ACP, and future local clients use the same bootstrap shape:
 
-### 6.2 Registry Entry
+1. Locate or start Hub.
+2. Ask Hub to ensure an AppServer for the target workspace.
+3. Connect to the returned AppServer WebSocket URL.
+4. Perform the normal AppServer Protocol handshake.
+5. Continue exactly as an AppServer WebSocket client.
 
-Each entry contains:
-
-- `path` — absolute path to the workspace root.
-- `displayName` — user-facing name (defaults to directory name).
-- `addedAt` — timestamp when the workspace was registered.
-- `lastActiveAt` — timestamp of last client activity.
-- `autoStart` — whether to pre-load the runtime on Hub startup.
-- `status` — current state as observed by Hub (`registered`, `active`, `suspended`, `faulted`).
-
-### 6.3 Registration
-
-Workspaces are added to the registry when:
-
-- A client connects and requests a workspace not yet in the registry (`workspace/open` with a new path).
-- The user adds a workspace via system tray, Dashboard, or CLI (`workspace/register`).
-
-### 6.4 Removal
-
-Workspaces are removed from the registry when:
-
-- The user explicitly removes them via `workspace/remove`.
-- The workspace path no longer exists on disk and the user confirms removal.
-
-Removal does NOT delete the workspace's `.craft/` directory or any data. It only removes the entry from the Hub's registry.
+Clients do not need to know how Hub supervises the process.
 
 ---
 
-## 7. Hub Wire Protocol
+## 6. Hub Local API
 
-Hub extends the existing AppServer wire protocol (JSON-RPC 2.0). All existing methods remain valid. Extensions are additive.
+### 6.1 API Boundary
 
-### 7.1 Transport
+Hub Local API is separate from AppServer Protocol.
 
-Hub listens on a single WebSocket endpoint (default `ws://127.0.0.1:9200/ws`). All clients — Desktop, TUI, CLI — connect to this endpoint.
+It must not expose `thread/*`, `turn/*`, `approval/*`, `mcp/*`, `skills/*`, `workspace/config/*`, or protocol extension methods. Those belong to the AppServer.
 
-Hub does NOT expose a stdio transport. Stdio is reserved for the standalone `dotcraft app-server` mode (which remains available for server deployments and backward compatibility).
+### 6.2 Transport
 
-### 7.2 Initialize Handshake
+Recommended v1 transport:
 
-The `initialize` / `initialized` handshake is performed once per client connection to Hub, not per workspace.
+- HTTP JSON over loopback: `http://127.0.0.1:{hubPort}`.
+- The port and bearer token are published in `~/.craft/hub/hub.lock`.
+- All mutating calls require the bearer token.
 
-The `initialize` response includes a new capability flag:
+Named pipes or Unix domain sockets may be added later as platform-specific optimizations, but the cross-platform contract should start with loopback HTTP because all clients can implement it.
+
+### 6.3 Endpoints
+
+#### `GET /v1/status`
+
+Returns Hub process metadata.
 
 ```json
 {
-  "serverInfo": {
-    "name": "dotcraft-hub",
-    "version": "...",
-    "protocolVersion": "2"
-  },
-  "capabilities": {
-    "hubMode": true,
-    "workspaceManagement": true,
-    ...existing capabilities omitted...
+  "hubVersion": "0.2.0",
+  "pid": 12345,
+  "startedAt": "2026-04-29T08:00:00Z",
+  "statePath": "C:\\Users\\user\\.craft\\hub",
+  "appServers": {
+    "running": 2,
+    "starting": 0,
+    "unhealthy": 0
   }
 }
 ```
 
-When `hubMode` is `true`, clients know they are connected to a Hub and workspace routing is available. Capabilities that are workspace-specific (e.g., `cronManagement`, `mcpManagement`) are reported at the workspace level, not in the global initialize response.
+#### `POST /v1/appservers/ensure`
 
-### 7.3 Workspace Methods
+Ensures an AppServer exists for the given workspace and returns direct connection metadata.
 
-New methods for workspace management:
-
-**`workspace/list`** — List all registered workspaces.
+Request:
 
 ```json
-// Request
-{ "method": "workspace/list", "id": 1, "params": {} }
+{
+  "workspacePath": "F:\\dotcraft",
+  "client": {
+    "name": "dotcraft-desktop",
+    "version": "0.1.0"
+  },
+  "startIfMissing": true
+}
+```
 
-// Response
-{ "id": 1, "result": {
-  "workspaces": [
-    {
-      "path": "/home/user/project-a",
-      "displayName": "Project A",
-      "status": "active",
-      "lastActiveAt": "2026-04-16T10:00:00Z",
-      "capabilities": { "cronManagement": true, "mcpManagement": true, ... }
-    },
-    {
-      "path": "/home/user/project-b",
-      "displayName": "Project B",
-      "status": "registered",
-      "lastActiveAt": "2026-04-15T18:00:00Z"
+Response:
+
+```json
+{
+  "workspacePath": "F:\\dotcraft",
+  "state": "running",
+  "pid": 23456,
+  "webSocketUrl": "ws://127.0.0.1:43121/ws?token=...",
+  "dashboardUrl": "http://127.0.0.1:43122/dashboard",
+  "serverVersion": "0.0.1.0+abcdef",
+  "startedByHub": true
+}
+```
+
+If `startIfMissing` is `false` and no server exists, Hub returns `404`.
+
+#### `GET /v1/appservers`
+
+Lists known AppServers and workspaces.
+
+#### `GET /v1/appservers/by-workspace?path=...`
+
+Returns the registry entry for one workspace without starting it.
+
+#### `POST /v1/appservers/stop`
+
+Stops a managed AppServer.
+
+Request:
+
+```json
+{
+  "workspacePath": "F:\\dotcraft",
+  "mode": "graceful"
+}
+```
+
+`mode` values:
+
+| Value | Meaning |
+|-------|---------|
+| `graceful` | Close AppServer stdin and wait for normal shutdown. |
+| `force` | Kill the process tree after a short grace period. |
+
+#### `POST /v1/appservers/restart`
+
+Stops and starts the AppServer for a workspace, returning new connection metadata.
+
+### 6.4 Error Shape
+
+Hub API errors use a simple structured JSON shape:
+
+```json
+{
+  "error": {
+    "code": "workspaceNotFound",
+    "message": "Workspace path does not exist.",
+    "details": {
+      "workspacePath": "F:\\missing"
     }
-  ]
-}}
+  }
+}
 ```
 
-**`workspace/open`** — Ensure a workspace runtime is active. If the workspace is not registered, it is added to the registry. If suspended, it is reactivated.
+Common error codes:
 
-```json
-{ "method": "workspace/open", "id": 2, "params": {
-  "path": "/home/user/project-a"
-}}
-// Response: workspace info + capabilities for that workspace
-```
-
-**`workspace/close`** — Suspend a workspace runtime. Active turns are cancelled. The workspace remains in the registry.
-
-**`workspace/register`** — Add a workspace to the registry without activating it.
-
-**`workspace/remove`** — Remove a workspace from the registry. Fails if the workspace has active client subscriptions.
-
-**`workspace/status`** — Get detailed status of a specific workspace (runtime state, active threads, resource usage).
-
-### 7.4 Workspace Routing for Existing Methods
-
-All existing AppServer methods that operate on workspace-scoped data gain an **explicit `workspacePath` parameter** at the top level of `params`:
-
-```json
-{ "method": "thread/list", "id": 3, "params": {
-  "workspacePath": "/home/user/project-a",
-  "identity": { "channelName": "desktop", "userId": "local" }
-}}
-```
-
-```json
-{ "method": "turn/start", "id": 4, "params": {
-  "workspacePath": "/home/user/project-a",
-  "threadId": "thr_abc",
-  "input": [{ "type": "text", "text": "Hello" }]
-}}
-```
-
-The `workspacePath` routing field is **required in Hub mode** for all workspace-scoped methods. Hub resolves the target `WorkspaceRuntime` and dispatches the request to its `SessionService`.
-
-The `identity.workspacePath` field (used by `SessionIdentity` for thread filtering) is automatically filled from the routing `workspacePath` if omitted — preserving backward compatibility of the identity contract.
-
-### 7.5 Non-Workspace Methods
-
-Some methods are Hub-level and do not require `workspacePath`:
-
-- `initialize` / `initialized`
-- `workspace/*` methods
-- `hub/status` — Hub process health and resource overview
-
-### 7.6 Error Codes
-
-New error codes for Hub-specific failures:
-
-- `-33001` — Workspace not found (path not in registry and does not exist on disk).
-- `-33002` — Workspace faulted (runtime failed to load or crashed; includes diagnostic info).
-- `-33003` — Workspace suspended (client attempted an operation on a suspended workspace without triggering reactivation).
-- `-33004` — Hub overloaded (too many active workspace runtimes).
+| Code | Meaning |
+|------|---------|
+| `hubNotReady` | Hub has started but cannot serve requests yet. |
+| `workspaceNotFound` | The requested workspace path does not exist. |
+| `workspaceLocked` | Another live AppServer appears to own the workspace. |
+| `appServerStartFailed` | The child process failed before readiness. |
+| `appServerUnhealthy` | A known process exists but does not respond. |
+| `portUnavailable` | Hub could not allocate a usable local port. |
+| `unauthorized` | Missing or invalid Hub API token. |
 
 ---
 
-## 8. Client Connection Lifecycle
+## 7. Client Bootstrap
 
-### 8.1 Connection Model
+### 7.1 Default Bootstrap
 
-A single client connection to Hub can interact with any number of workspaces. There is no "active workspace" at the connection level — each request specifies its target workspace.
+Local interactive clients should prefer Hub by default once the feature is enabled.
 
-### 8.2 Workspace Subscriptions
+```
+1. Determine target workspace path.
+2. Locate Hub using ~/.craft/hub/hub.lock.
+3. If Hub is alive:
+   - call POST /v1/appservers/ensure.
+4. If Hub is not alive and auto-start is enabled:
+   - start `dotcraft hub` detached.
+   - wait for hub.lock and /v1/status readiness.
+   - call POST /v1/appservers/ensure.
+5. Connect to the returned AppServer WebSocket URL.
+6. Run the normal AppServer Protocol initialize / initialized handshake.
+7. Continue normal client behavior.
+```
 
-Clients subscribe to workspace events by calling `workspace/open`. After opening, the client receives notifications for that workspace (thread events, turn events, system events). A client can have multiple workspace subscriptions active simultaneously.
+### 7.2 Fallback
 
-When a client disconnects, all its workspace subscriptions are removed. If a workspace has no remaining subscriptions and no background work (cron, heartbeat), it becomes eligible for idle suspension.
+If Hub is disabled, unavailable, or explicitly bypassed, clients may use the existing behavior:
 
-### 8.3 Thread Subscriptions
+- CLI/TUI may spawn stdio `dotcraft app-server`.
+- Desktop may use its existing AppServer connection path.
+- `--remote` or explicit WebSocket URLs continue to connect directly to an AppServer.
 
-Thread subscriptions (existing `thread/subscribe` mechanism) work as before, scoped to a workspace. The client must have the workspace open to subscribe to its threads.
+The fallback path is for compatibility and debugging. It does not provide cross-client duplicate-process protection.
+
+### 7.3 Client UX Requirements
+
+Clients should present connection failures as AppServer availability problems, not as protocol incompatibilities:
+
+- "Hub could not start AppServer for this workspace."
+- "Another process appears to own this workspace."
+- "Managed AppServer exited during startup."
+- "Connected to Hub, but the workspace AppServer did not become ready."
+
+Once connected to the AppServer WebSocket, existing client UX rules from Desktop and TUI specs apply unchanged.
 
 ---
 
-## 9. Notification Routing
+## 8. Managed AppServer Lifecycle
 
-### 9.1 Workspace-Tagged Notifications
+### 8.1 States
 
-All server-initiated notifications from workspace runtimes carry a `workspacePath` field in `params`:
+```
+stopped
+   │ ensure(startIfMissing=true)
+   ▼
+starting
+   │ process started + readiness handshake succeeds
+   ▼
+running
+   │ health check fails / process exits
+   ▼
+unhealthy or exited
+   │ restart / ensure
+   ▼
+starting
 
-```json
-{ "method": "turn/started", "params": {
-  "workspacePath": "/home/user/project-a",
-  "turn": { "id": "turn_123", "threadId": "thr_abc", ... }
-}}
+running
+   │ stop requested / hub shutdown
+   ▼
+stopping
+   │ process exits
+   ▼
+stopped
 ```
 
-```json
-{ "method": "thread/started", "params": {
-  "workspacePath": "/home/user/project-a",
-  "thread": { "id": "thr_new", ... }
-}}
-```
+### 8.2 Start Sequence
 
-This allows clients to attribute events to workspaces without maintaining correlation state.
+1. Canonicalize the workspace path.
+2. Validate that the path exists and is a directory.
+3. Check the Hub registry for an already running managed AppServer.
+4. Verify the process is alive and the WebSocket endpoint is reachable.
+5. If valid, return the existing endpoint.
+6. If not valid, acquire the workspace AppServer lock.
+7. Allocate a loopback WebSocket port and optional token.
+8. Start `dotcraft app-server` with cwd set to the workspace and `ws+stdio://127.0.0.1:{port}`.
+9. Attach to stdio and stderr.
+10. Perform AppServer Protocol initialize over stdio as the supervisor client.
+11. Poll or connect to the WebSocket endpoint until ready.
+12. Persist registry metadata.
+13. Return the WebSocket URL to the caller.
 
-### 9.2 Notification Delivery
+### 8.3 Readiness
 
-Notifications are delivered to all client connections that have the source workspace open (via `workspace/open`). Clients that have not opened a workspace do not receive its notifications.
+A managed AppServer is ready only when:
 
-### 9.3 Hub-Level Notifications
+- The OS process is alive.
+- The stdio supervisor handshake completed successfully.
+- The WebSocket endpoint accepts connections.
+- The workspace lock is still owned by the same process.
 
-Hub can emit its own notifications:
+### 8.4 Health
 
-- `workspace/statusChanged` — when a workspace runtime transitions state (loading, active, suspended, faulted).
-- `hub/workspaceAdded` — when a new workspace is registered.
-- `hub/workspaceRemoved` — when a workspace is removed from the registry.
+Hub should perform lightweight health checks:
+
+- Process liveness.
+- WebSocket TCP reachability.
+- Optional AppServer `initialize` probe using a short-lived WebSocket connection.
+
+Hub should not subscribe to user threads or perform workspace operations just for health.
+
+### 8.5 Shutdown
+
+For graceful shutdown:
+
+1. Mark the entry as `stopping`.
+2. Close the supervisor stdio input stream.
+3. Wait for AppServer to exit.
+4. If it does not exit within the grace period, kill the process tree.
+5. Release the workspace lock.
+6. Update registry state.
+
+Hub shutdown should stop AppServers it started unless configuration says to leave them running.
+
+### 8.6 Restart
+
+Restart should be explicit. Hub should not automatically restart an AppServer that exits while clients are connected unless a client subsequently calls `ensure` or the user requests restart.
+
+This avoids surprising background work after a crash.
 
 ---
 
-## 10. Unified Dashboard
+## 9. Locks, Registry, and State Files
 
-### 10.1 Single Endpoint
+### 9.1 Hub Lock
 
-Hub hosts Dashboard on the same HTTP listener as the WebSocket endpoint (e.g., `http://127.0.0.1:9200/dashboard`). There is exactly one Dashboard URL regardless of how many workspaces are active.
-
-### 10.2 Workspace-Aware Dashboard
-
-Dashboard gains a workspace context:
-
-- A workspace selector allows switching the Dashboard view between registered workspaces.
-- Trace viewer, thread list, config editor, and token usage are all scoped to the selected workspace.
-- Dashboard reads data directly from the in-process `WorkspaceRuntime` objects (TraceStore, ThreadStore, TokenUsageStore). No wire protocol round-trip needed.
-- Clearing trace sessions deletes the selected workspace's trace rows plus usage rows linked by `thread_id` or `session_key`; global usage rows without either link are preserved. Bulk trace clearing may run SQLite WAL truncation and conditional compaction for that workspace's `.craft/state.db`.
-
-### 10.3 Cross-Workspace Views
-
-Dashboard may provide aggregate views:
-
-- Total token usage across all workspaces.
-- Recent activity timeline across workspaces.
-- Global search across thread names.
-
-These are additive features that build on the per-workspace data already accessible in-process.
-
-### 10.4 Per-Workspace Dashboard Elimination
-
-When Hub is running, individual workspace AppServer processes do NOT need to host their own Dashboard. The Hub Dashboard replaces all per-workspace Dashboard instances. This eliminates all Dashboard port conflicts.
-
----
-
-## 11. System Tray Integration
-
-### 11.1 Tray Presence
-
-Hub runs as a system tray application on supported platforms (Windows initially). The tray icon provides:
-
-- Visual indicator that Hub is running.
-- Workspace list with status indicators.
-- Quick access to open Dashboard in browser.
-- Quick access to launch Desktop for a specific workspace.
-- Quit Hub option.
-
-### 11.2 Notification Aggregation
-
-Hub aggregates notifications from all active workspace runtimes and surfaces them as OS-level toast notifications:
-
-- Turn completed (with workspace name and thread context).
-- Approval request pending (with workspace and action context).
-- Workspace errors or faults.
-- Cron job results.
-
-Notification preferences (which events to surface, quiet hours) are configurable in Hub config.
-
-### 11.3 Auto-Start
-
-Hub can be configured to start on user login. On Windows, this is achieved via a startup registry entry or scheduled task. The tray icon appears in the system tray after login, and Hub is ready for client connections.
-
----
-
-## 12. Client Bootstrap Protocol
-
-### 12.1 The Bootstrap Problem
-
-Today, each client spawns its own `dotcraft app-server`. In the Hub model, clients must instead connect to the single Hub. If Hub is not running, the client must start it first.
-
-### 12.2 Bootstrap Sequence
-
-All clients (Desktop, TUI, CLI) follow the same bootstrap:
-
-```
-1. Check for hub.lock at ~/.craft/hub.lock
-2. If lock exists and PID is alive:
-   → Read port from lock file
-   → Connect to ws://127.0.0.1:{port}/ws
-3. If lock does not exist or PID is dead:
-   → Start Hub: spawn `dotcraft hub` as a detached background process
-   → Poll hub.lock until it appears and contains a valid port (timeout: 10s)
-   → Connect to ws://127.0.0.1:{port}/ws
-4. Perform initialize handshake
-5. Call workspace/open for the desired workspace
-6. Proceed with normal operation
-```
-
-### 12.3 Hub Lock File
-
-`~/.craft/hub.lock` contains:
+Hub writes `~/.craft/hub/hub.lock` atomically.
 
 ```json
 {
   "pid": 12345,
-  "port": 9200,
-  "startedAt": "2026-04-16T10:00:00Z"
+  "apiBaseUrl": "http://127.0.0.1:42100",
+  "token": "...",
+  "startedAt": "2026-04-29T08:00:00Z",
+  "version": "0.2.0"
 }
 ```
 
-The lock file is created atomically by Hub on startup and removed on clean shutdown. Stale locks (PID no longer alive) are ignored by clients and overwritten by a new Hub instance.
+Clients must verify the process is alive and `/v1/status` responds before trusting the lock. Stale locks are ignored.
 
-### 12.4 Solving the Duplicate AppServer Problem
+### 9.2 Hub Registry
 
-The bootstrap protocol solves the existing problem of duplicate AppServer instances:
+Hub stores registry state in `~/.craft/hub/appservers.json`.
 
-- **Before Hub**: Desktop opens workspace A and spawns AppServer A. TUI opens workspace A and spawns AppServer A'. Two processes fight over `.craft/`.
-- **With Hub**: Desktop starts (or finds) Hub, calls `workspace/open` for A. TUI starts (or finds) the same Hub, calls `workspace/open` for A. Both connect to the same `WorkspaceRuntime`. One process, one set of services, no conflicts.
+The registry is best-effort recovery metadata. The live OS process and workspace lock are the source of truth.
 
-### 12.5 Workspace Lock Replacement
+### 9.3 Workspace AppServer Lock
 
-The current Desktop-only workspace lock (`desktop.lock`) is replaced by the Hub's intrinsic single-runtime guarantee. Since all clients go through Hub, and Hub creates exactly one `WorkspaceRuntime` per workspace path, there is no possibility of duplicate runtimes. The `desktop.lock` mechanism is removed.
+Each managed AppServer workspace should have an advisory lock file under its `.craft/` directory, for example:
+
+```text
+<workspace>/.craft/runtime/appserver.lock
+```
+
+The lock records:
+
+```json
+{
+  "owner": "dotcraft-hub",
+  "hubPid": 12345,
+  "appServerPid": 23456,
+  "webSocketUrl": "ws://127.0.0.1:43121/ws",
+  "startedAt": "2026-04-29T08:01:00Z"
+}
+```
+
+Hub must hold an OS-level exclusive lock where the platform supports it. The JSON file is for diagnostics and stale-lock recovery; the file lock is the concurrency guard.
+
+Standalone AppServer should eventually respect this lock on startup:
+
+- If a live lock exists, fail with a clear diagnostic unless an explicit override is provided.
+- If the lock is stale, remove it and continue.
+
+This change is not an AppServer Protocol change. It is local process safety.
+
+### 9.4 Path Canonicalization
+
+Hub must canonicalize workspace paths before using them as registry keys:
+
+- Resolve relative paths.
+- Normalize directory separators.
+- Resolve symlinks where practical.
+- Use case-insensitive comparison on Windows.
+- Treat paths that resolve to the same directory as the same workspace.
 
 ---
 
-## 13. Backward Compatibility
+## 10. Port and Endpoint Management
 
-### 13.1 Standalone AppServer Mode
+### 10.1 AppServer WebSocket Ports
 
-The existing `dotcraft app-server` command remains fully functional. It continues to serve a single workspace with stdio or WebSocket transport. This mode is used for:
+Hub owns port allocation for managed AppServer WebSocket endpoints.
 
-- Server-side deployments (bots, CI, automated pipelines).
-- Environments where Hub is not desired.
-- SDK and external channel adapter connections that target a specific workspace.
+Recommended policy:
 
-### 13.2 Standalone Gateway Mode
+- Bind to `127.0.0.1`.
+- Allocate from a configurable range, default `43000-43999`.
+- Retry on bind failure.
+- Persist the chosen port only for diagnostics; do not require stable ports.
 
-`dotcraft gateway` remains unchanged. It manages multiple channels within one workspace, which is orthogonal to Hub's multi-workspace management.
+Hub may either:
 
-### 13.3 Protocol Version
+- Choose a free port before launch and pass it to AppServer.
+- Or, if AppServer later supports `port=0` with actual endpoint reporting, let the OS choose the port.
 
-Hub advertises `protocolVersion: "2"` in the initialize response. Protocol version 2 is a superset of version 1:
+The first option is the v1 recommendation because it requires fewer AppServer startup changes.
 
-- All v1 methods work unchanged when `workspacePath` is provided in params.
-- New `workspace/*` methods and `hubMode` capability are v2 additions.
-- Clients that do not understand v2 can still connect to a standalone AppServer (v1) as today.
+### 10.2 Dashboard Ports
 
-### 13.4 Client Compatibility
+Hub v1 does not provide a unified Dashboard. Per-workspace Dashboard remains owned by each AppServer.
 
-Clients should support both connection paths:
+To avoid Dashboard conflicts, managed AppServer launch must use one of these policies:
 
-- **Hub available**: connect to Hub, use v2 protocol with workspace routing.
-- **Hub not available, standalone mode requested**: spawn `dotcraft app-server` directly (existing behavior), use v1 protocol.
+| Policy | Description |
+|--------|-------------|
+| `disable` | Disable per-workspace Dashboard for managed AppServers. Simplest MVP. |
+| `allocate` | Hub allocates a Dashboard port per workspace and passes it as a runtime override. |
+| `existing-config` | Use workspace config as-is and report conflicts clearly. Compatibility fallback only. |
 
-This dual-path is a transitional mechanism. Once Hub is stable, the standalone local spawn path can be deprecated for interactive clients.
+Recommended v1 policy: `allocate` if the current Dashboard host supports runtime port override; otherwise `disable` for the first milestone and add allocation before making Hub default.
+
+### 10.3 Native Channels and Webhooks
+
+Hub should not silently rewrite user-configured ports for native channels, bot webhooks, API modules, or external integrations.
+
+If two workspaces configure incompatible callback ports or routes, Hub should report a conflict and leave the affected workspace AppServer unhealthy rather than mutating behavior. Future specs may define module-level port allocation contracts.
 
 ---
 
-## 14. Technical Choices
+## 11. Security Model
 
-### 14.1 Hub as a Host Module
+### 11.1 Local-Only Default
 
-Hub is implemented as a new DotCraft Host module:
+Hub API and managed AppServer WebSocket endpoints bind to loopback only by default.
 
-- Module name: `hub`
-- Priority: 300 (higher than AppServer's 250)
-- Entry: `dotcraft hub` via CLI args
-- Host factory: `HubHostFactory` creating `HubHost`
+Hub must not expose managed AppServers on non-loopback interfaces in v1 unless a future remote-access spec defines authentication, authorization, and audit behavior.
 
-Hub does not participate in the normal workspace-bound `AddDotCraft` registration. Instead, Hub's `RunAsync` builds its own minimal service container and creates `WorkspaceRuntime` objects on demand.
+### 11.2 Tokens
 
-### 14.2 WorkspaceRuntime Extraction
+Hub API uses a bearer token stored in `hub.lock`. The file must be created with user-only permissions where the platform supports it.
 
-The service-creation logic currently split across `ServiceRegistration.AddDotCraft` and `AppServerHost.RunAsync` is extracted into a reusable `WorkspaceRuntime` factory. This is the core refactoring that enables both Hub (multi-workspace) and a cleaner AppServer (single-workspace using the same abstraction).
+Managed AppServer WebSocket endpoints should use per-process tokens when feasible:
 
-After extraction, `AppServerHost` itself becomes a thin wrapper: create one `WorkspaceRuntime`, wire it to transports, run until shutdown. Hub creates N `WorkspaceRuntime` instances and wires them through a shared transport with routing.
+- Hub generates a random token for each managed AppServer.
+- Hub includes the token in the WebSocket URL returned to clients.
+- AppServer enforces the token using the existing WebSocket token behavior.
 
-### 14.3 HTTP / WebSocket Stack
+### 11.3 Trust Boundary
 
-Hub reuses the same ASP.NET Core minimal API and WebSocket stack that AppServer's WebSocket mode and Dashboard already use. The Hub listener serves:
+Hub is a same-user local coordinator. It is not a security boundary against malicious processes running as the same OS user.
 
-- `/ws` — WebSocket endpoint for wire protocol clients.
-- `/dashboard/*` — unified Dashboard routes.
-- `/healthz`, `/readyz` — health probes.
+---
 
-### 14.4 System Tray Technology
+## 12. Compatibility
 
-On Windows, Hub uses a lightweight system tray implementation. Options include:
+### 12.1 AppServer Protocol
 
-- .NET `System.Windows.Forms.NotifyIcon` (minimal dependency, proven).
-- A thin native helper process that communicates with Hub (if WinForms dependency is undesirable in a console app context).
+No AppServer Protocol changes are required for Hub v1.
 
-The tray component runs on its own thread and communicates with Hub's main loop via an internal event bus. Tray is an optional feature — Hub functions correctly without it (headless mode for WSL, Linux servers, CI).
+Clients still perform:
 
-### 14.5 Module Registry Sharing
+- `initialize`
+- `initialized`
+- `thread/list`
+- `turn/start`
+- approvals
+- extension methods
+- management methods
 
-`ModuleRegistry` is populated once at Hub startup via the source-generated `ModuleRegistrations.RegisterAll`. Each `WorkspaceRuntime` receives a reference to the shared registry but evaluates module enablement against its own `AppConfig`. This means:
+against the workspace AppServer.
 
-- The set of *compiled* modules is identical across workspaces (they are part of the binary).
-- The set of *enabled* modules can differ per workspace (driven by per-workspace config).
-- Tool providers are collected per-workspace: `ToolProviderCollector.Collect(sharedRegistry, workspaceConfig)`.
+### 12.2 Existing AppServer Modes
+
+Existing modes remain valid:
+
+| Mode | Status |
+|------|--------|
+| `stdio` | Supported for direct subprocess clients and debugging. |
+| `websocket` | Supported for explicit remote/local endpoints. |
+| `stdio + websocket` | Required for Hub-managed AppServers. |
+
+### 12.3 Existing Clients
+
+Client changes are limited to bootstrap:
+
+- Add Hub discovery.
+- Add `ensure` call.
+- Prefer returned WebSocket connection over spawning stdio.
+- Keep the existing direct AppServer fallback.
+
+The normal wire client, event handling, approval handling, and UI state do not need Hub-specific protocol branches.
+
+---
+
+## 13. Technical Choices
+
+### 13.1 Hub as DotCraft Host Module
+
+Recommended:
+
+- Module name: `hub`.
+- Command: `dotcraft hub`.
+- Host factory: `HubHostFactory`.
+- Hub does not build a workspace `WorkspaceRuntime`.
+
+Rationale: It keeps packaging simple and lets the same binary provide CLI, AppServer, Gateway, ACP, and Hub entry points.
+
+### 13.2 HTTP JSON for Hub API
+
+Recommended for v1.
+
+Rationale:
+
+- Cross-platform.
+- Easy for C#, TypeScript, and Rust clients.
+- Easy to inspect during debugging.
+- No need to reuse AppServer Protocol for non-AppServer concerns.
+
+Named pipes may be added later for stronger local access semantics.
+
+### 13.3 Managed AppServer Transport
+
+Required:
+
+- `StdioAndWebSocket`.
+- Hub uses stdio for supervision.
+- End-user clients use WebSocket.
+
+Rationale: Existing AppServer already supports this shape, and it gives Hub a graceful lifetime handle without becoming a protocol proxy.
+
+### 13.4 Port Allocation
+
+Recommended:
+
+- Hub allocates from a configurable local range.
+- Avoid `port=0` until AppServer can reliably report the actual bound endpoint to the supervisor.
+
+### 13.5 Runtime Overrides
+
+Hub should pass managed runtime settings as ephemeral launch overrides, not by editing workspace config.
+
+Examples:
+
+- AppServer mode.
+- WebSocket host and port.
+- WebSocket token.
+- Dashboard port or disabled state.
+
+This keeps workspace configuration user-owned and avoids surprising config file churn.
+
+---
+
+## 14. Open Questions
+
+These choices should be resolved before implementation begins.
+
+1. **Hub API transport final choice.** Is loopback HTTP acceptable for v1, or should Windows named pipes be required from the start?
+2. **Dashboard policy.** Should Hub-managed AppServers disable Dashboard initially, or should we add runtime Dashboard port allocation before the first usable milestone?
+3. **Managed override mechanism.** Should AppServer accept ephemeral overrides via CLI flags, environment variables, or an inherited temporary config file?
+4. **Standalone lock enforcement.** Should direct `dotcraft app-server` fail when a Hub-managed lock exists, or warn first during a transition period?
+5. **Hub auto-start default.** Should CLI/TUI auto-start Hub by default, or only use Hub when Desktop/tray has already started it?
+6. **Idle shutdown.** Should v1 leave managed AppServers running until Hub exits, or should clients acquire leases so Hub can stop idle AppServers safely?
 
 ---
 
 ## 15. Iteration Plan
 
-The Hub feature is delivered in phases. Each phase produces a usable increment.
+### Phase 0: Spec and Spike
 
-### Phase 1: WorkspaceRuntime Extraction (Refactoring)
+Goal: Validate the coordinator model without changing AppServer Protocol.
 
-**Goal**: Extract the per-workspace service graph into a reusable `WorkspaceRuntime` class without changing any external behavior.
+Work:
 
-**Work**:
-- Define `WorkspaceRuntime` class encapsulating all per-workspace services.
-- Extract creation logic from `ServiceRegistration.AddDotCraft` + `AppServerHost.RunAsync` into `WorkspaceRuntime.CreateAsync(path, moduleRegistry)`.
-- Refactor `AppServerHost` to create a single `WorkspaceRuntime` and delegate to it.
-- Verify all existing tests pass. No protocol changes, no client changes.
+- Confirm `StdioAndWebSocket` startup works reliably for one workspace.
+- Confirm multiple WebSocket clients can share one AppServer.
+- Decide Hub API transport and managed override mechanism.
+- Decide Dashboard policy for managed AppServers.
 
-**Outcome**: AppServer works exactly as before, but internally uses the new abstraction. This is the foundation for all subsequent phases.
+Outcome: Implementation choices are settled before production code.
 
-### Phase 2: Hub Host with Workspace Management
+### Phase 1: Hub Core
 
-**Goal**: Implement the Hub process with workspace registry, multi-runtime management, and WebSocket endpoint.
+Goal: Build a local Hub that can start and return managed AppServer endpoints.
 
-**Work**:
-- Implement `HubHost` as a new Host module.
-- Implement workspace registry (`~/.craft/workspaces.json`).
-- Implement Hub lock file (`~/.craft/hub.lock`).
-- Implement `workspace/*` wire protocol methods.
-- Implement workspace routing for existing methods (`workspacePath` in params).
-- Implement workspace-tagged notifications.
-- Implement lazy loading and idle suspension of workspace runtimes.
-- Hub exposes a WebSocket endpoint; clients can connect and perform all operations.
+Work:
 
-**Outcome**: A functional Hub that clients can connect to via WebSocket and operate on multiple workspaces through one connection. No client changes yet (clients still use their existing connection paths).
+- Add `dotcraft hub` host module.
+- Implement single-instance Hub lock.
+- Implement Hub Local API.
+- Implement workspace path canonicalization.
+- Implement managed AppServer process supervisor.
+- Implement registry and diagnostics.
+- Start AppServer with `StdioAndWebSocket`.
+- Return direct WebSocket URL from `ensure`.
 
-### Phase 3: Client Bootstrap and Integration
+Outcome: Manual clients can ask Hub for a workspace endpoint and connect over existing WebSocket AppServer Protocol.
 
-**Goal**: Clients discover and connect to Hub instead of spawning AppServer directly.
+### Phase 2: CLI and TUI Bootstrap
 
-**Work**:
-- Implement the client bootstrap protocol (hub.lock discovery, Hub auto-start).
-- Update Desktop main process to connect to Hub, manage multiple workspace connections, namespace Zustand stores by workspace.
-- Update TUI to support `--hub` mode (connect to Hub, workspace switching).
-- Update CLI's `AppServerProcess` to use Hub when available.
-- Remove Desktop-only workspace lock in favor of Hub's intrinsic guarantee.
+Goal: Stop CLI/TUI from starting duplicate stdio AppServers when Hub is available.
 
-**Outcome**: All clients use Hub as their default connection target. Multiple clients on the same workspace share one `WorkspaceRuntime`. Duplicate AppServer problem is solved.
+Work:
 
-### Phase 4: Unified Dashboard
+- Add Hub discovery to CLI.
+- Add Hub discovery to TUI.
+- Prefer Hub-managed WebSocket endpoint.
+- Preserve explicit `--remote` and direct stdio fallback.
+- Add user-facing diagnostics for Hub/AppServer startup failures.
 
-**Goal**: Hub hosts a single Dashboard that serves all workspaces.
+Outcome: Terminal clients share AppServer processes with each other and with Desktop when Hub is running.
 
-**Work**:
-- Mount Dashboard routes on Hub's HTTP listener.
-- Add workspace selector to Dashboard UI.
-- Dashboard reads from in-process `WorkspaceRuntime` stores directly.
-- Disable per-workspace Dashboard when Hub is the active host.
-- Add cross-workspace aggregate views (token usage, activity timeline).
+### Phase 3: Desktop Bootstrap
 
-**Outcome**: One Dashboard URL, all workspaces accessible. No more port conflicts.
+Goal: Make Desktop create and reuse workspace AppServers through Hub.
 
-### Phase 5: System Tray and Notification Hub
+Work:
 
-**Goal**: Hub runs as a system tray resident with cross-workspace notifications.
+- Start or locate Hub from Desktop.
+- Replace Desktop-only workspace lock with Hub ensure flow.
+- Connect each Desktop workspace window to the returned WebSocket endpoint.
+- Show managed AppServer status in connection recovery UI.
 
-**Work**:
-- Implement system tray icon with workspace list and status.
-- Implement OS-level toast notification integration.
-- Implement notification preferences in Hub config.
-- Implement auto-start on login.
-- Implement "open in Desktop" quick-action from tray.
+Outcome: Desktop, CLI, and TUI share the same AppServer for the same workspace.
 
-**Outcome**: Full Hub experience — persistent tray presence, unified notifications, one-click workspace access.
+### Phase 4: Safety and Default Enablement
 
-### Phase 6: Client UX for Multi-Workspace
+Goal: Make Hub safe enough to become the default local interactive path.
 
-**Goal**: Desktop and TUI provide polished multi-workspace user experiences.
+Work:
 
-**Work**:
-- Desktop: workspace sidebar, cross-workspace thread browsing, notification badges per workspace, workspace management (add/remove/rename).
-- TUI: workspace overlay/picker, status line with workspace indicator, workspace switching commands.
+- Add workspace AppServer lock enforcement.
+- Add stale lock recovery.
+- Add Dashboard conflict policy.
+- Add per-AppServer WebSocket tokens.
+- Add robust process crash diagnostics.
+- Add tests for duplicate ensure races and stale process recovery.
 
-**Outcome**: The end-user multi-workspace experience is complete across all client surfaces.
+Outcome: Hub can be enabled by default for local interactive clients.
 
----
+### Phase 5: Tray and Multi-Workspace UX
 
-## 16. Design Decisions (Resolved)
+Goal: Build user-facing management on top of the stable coordinator.
 
-The following questions were evaluated during the design phase. Decisions are recorded here as binding constraints for milestone implementation.
+Work:
 
-### 16.1 Hub Config Section Structure
+- Add optional tray process controls.
+- List managed workspaces and AppServer health.
+- Open Desktop for a workspace.
+- Stop/restart workspace AppServers.
+- Link to per-workspace Dashboard when available.
 
-**Decision**: Hub config is a `[ConfigSection("Hub")]` section inside `~/.craft/config.json`.
-
-**Rationale**: All DotCraft configuration follows the `config.json` + `[ConfigSection]` attribute pattern. A separate file would break the unified config loading, Dashboard schema generation, and `AppConfig.GetSection<T>` access pattern. Since Hub is inherently global (not workspace-scoped), its section lives in the global config only.
-
-**Config shape**:
-
-```json
-{
-  "Hub": {
-    "Port": 9200,
-    "AutoStartWorkspaces": [],
-    "IdleTimeoutMinutes": 30,
-    "MaxActiveWorkspaces": 10,
-    "Tray": {
-      "Enabled": true,
-      "NotifyOnTurnCompleted": true,
-      "NotifyOnApprovalRequest": true
-    }
-  }
-}
-```
-
-### 16.2 Channel Routing in Hub
-
-**Decision**: Native channels register into a Hub-level shared `WebHostPool`. Channels remain logically owned by their `WorkspaceRuntime`, but their HTTP listeners are hosted centrally by Hub.
-
-**Rationale**: The existing `WebHostPool` already merges `IWebHostingChannel` instances that share the same `(scheme, host, port)` into a single Kestrel server with composed routes. Hub reuses this mechanism at the Hub level:
-
-- When a `WorkspaceRuntime` activates and has enabled native channels, those channels register into Hub's shared pool.
-- Channels from different workspaces sharing the same address are merged (the pool already supports this).
-- If routes collide (e.g., two workspaces both enable QQ on the same callback path and port), the second workspace's channel fails with a clear diagnostic. This is correct behavior — two bots cannot share the same callback URL.
-- Workspaces that need independent channel ports configure different ports in their workspace `config.json`; Hub's pool handles them as separate listeners.
-
-This eliminates per-workspace port conflicts while preserving the existing channel registration pattern.
-
-### 16.3 Remote Hub
-
-**Decision**: Deferred to a future spec. Hub is loopback-only (`127.0.0.1`) in v1.
-
-**Rationale**: Remote Hub (non-loopback, team-shared) introduces authentication, authorization, user isolation, encrypted transport, and audit requirements that are orthogonal to the core Hub value (local multi-workspace UX).
-
-The wire protocol is designed to not preclude remote use — `workspacePath` routing, per-connection subscriptions, and `SessionIdentity.userId` are already present. A future remote spec would add:
-
-- TLS on the WebSocket endpoint.
-- Token or OAuth authentication on `initialize`.
-- Per-user workspace access control.
-
-Until then, Hub follows the same pattern as `AppServer.WebSocket`: non-loopback binding requires a `Hub.Token` and is rejected without one.
-
-### 16.4 Workspace Config Reload
-
-**Decision**: Explicit reload via a `workspace/reload` wire method. No automatic hot-reload.
-
-**Rationale**: Automatic file-watching is dangerous and complex:
-
-- Config changes mid-turn could change the model, API key, or enabled tools, causing unpredictable agent behavior.
-- File watchers add platform-specific edge cases (Windows file locking, network drives, editor atomic save patterns).
-- Some config changes require full runtime recreation (API endpoint, module enable/disable) and cannot be applied incrementally.
-
-The `workspace/reload` method provides a controlled reload path:
-
-1. Client (Desktop, Dashboard) calls `workspace/reload` after editing config.
-2. Hub waits for active turns in that workspace to complete (or the client confirms interruption).
-3. Hub disposes the old `WorkspaceRuntime` and creates a new one with fresh config.
-4. Clients receive `workspace/statusChanged` notifications through the reload cycle (active -> loading -> active).
-
-Dashboard's config editor calls `workspace/reload` automatically after saving, giving the user the same convenience as hot-reload without the risk. Desktop and TUI can prompt "Config changed, reload?" when they detect the file has been modified (client-side file watch, server-side reload).
-
-### 16.5 Maximum Concurrent Workspace Runtimes
-
-**Decision**: Soft limit with LRU auto-suspension, configurable via `Hub.MaxActiveWorkspaces` (default 10) and `Hub.IdleTimeoutMinutes` (default 30).
-
-**Resource model per active WorkspaceRuntime**:
-
-- Memory: ~10–30 MB (thread cache, agent state, MCP connection state).
-- MCP server child processes (if configured in that workspace).
-- Cron timers and heartbeat timers.
-- Potential background agent work (running turns).
-
-**Suspension rules**:
-
-- Workspaces with no client subscriptions and no active background work (cron, heartbeat, running turns) are eligible for idle suspension after `IdleTimeoutMinutes`.
-- When `MaxActiveWorkspaces` is reached and a new workspace is requested, Hub suspends the least-recently-used eligible workspace. If no workspace is eligible (all have active work), Hub returns error `-33004` (Hub overloaded).
-- Suspension is transparent to future access: a request targeting a suspended workspace triggers automatic reactivation. The client observes a brief loading delay, not an error.
-- Workspaces with active cron jobs or heartbeats are exempt from idle suspension (they have ongoing background responsibilities).
-
-### 16.6 CLI Session Mode
-
-**Decision**: CLI connects to Hub as a wire client, same as Desktop and TUI.
-
-**Rationale**: The current `CliHost` already operates as a wire protocol client — it spawns `dotcraft app-server` as a subprocess and communicates via `AppServerWireClient`. The REPL (`ReplHost`) never calls `SessionService` directly; it goes through the wire. This means CLI is architecturally ready to connect to Hub with minimal changes.
-
-**Bootstrap behavior for CLI**:
-
-1. CLI checks for `~/.craft/hub.lock`.
-2. If Hub is running: connect to Hub's WebSocket, call `workspace/open` for the CLI's cwd.
-3. If Hub is not running: start Hub as a detached background process, then connect.
-4. The `WireCliSession`, `ReplHost`, and notification listener require no changes — only the connection setup in `CliHost.RunAsync` changes.
-
-**UX benefit**: If Desktop is open with Hub running, and the user opens a terminal and runs `dotcraft` in the same workspace, CLI connects to the same Hub and the same `WorkspaceRuntime`. No duplicate processes, shared thread history, consistent cron/heartbeat behavior across clients.
+Outcome: Hub becomes the local workspace manager without changing the AppServer runtime or protocol.
