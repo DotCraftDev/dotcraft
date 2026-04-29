@@ -18,6 +18,13 @@ This page collects configuration fields in one place. For first-time setup, read
 | `DebugMode` | Prints untruncated tool arguments in the console | `false` |
 | `EnabledTools` | Globally enabled tool names. Empty enables all tools | `[]` |
 
+## Memory
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `Memory.AutoConsolidateEnabled` | Enables automatic long-term memory consolidation | `true` |
+| `Memory.ConsolidateEveryNTurns` | Successful turns per thread between long-term memory consolidation attempts | `5` |
+
 ## Compaction
 
 | Field | Description | Default |
@@ -37,7 +44,6 @@ This page collects configuration fields in one place. For first-time setup, read
 | `Compaction.MicrocompactTriggerCount` | Compressible tool-result count that triggers micro-compaction | `30` |
 | `Compaction.MicrocompactKeepRecent` | Recent tool results kept during micro-compaction | `8` |
 | `Compaction.MicrocompactGapMinutes` | Also triggers after this many minutes since last assistant message; `0` disables it | `20` |
-| `Compaction.MemoryConsolidationPrefixTokens` | Prefix size that triggers memory consolidation | `20000` |
 | `Compaction.MaxConsecutiveFailures` | Consecutive failures before circuit breaking compaction | `3` |
 
 ## Reasoning

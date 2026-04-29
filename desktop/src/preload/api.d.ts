@@ -343,6 +343,7 @@ declare global {
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            memoryAutoConsolidateEnabled: boolean | null
             defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
           userDefaults: {
@@ -350,6 +351,7 @@ declare global {
             endPoint: string | null
             welcomeSuggestionsEnabled: boolean | null
             skillsSelfLearningEnabled: boolean | null
+            memoryAutoConsolidateEnabled: boolean | null
             defaultApprovalPolicy: 'default' | 'autoApprove' | null
           }
         }>

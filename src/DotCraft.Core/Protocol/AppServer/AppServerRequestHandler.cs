@@ -6,6 +6,7 @@ using DotCraft.Abstractions;
 using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
+using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Logging;
@@ -1792,6 +1793,20 @@ public sealed class AppServerRequestHandler(
         };
     }
 
+    private void RefreshCurrentMemoryConfig()
+    {
+        if (appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+            return;
+
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
+        appConfigMonitor.Current.Memory = new MemoryConfig
+        {
+            AutoConsolidateEnabled = mergedConfig.Memory.AutoConsolidateEnabled,
+            ConsolidateEveryNTurns = mergedConfig.Memory.ConsolidateEveryNTurns
+        };
+    }
+
     private static void SaveWorkspaceExternalChannels(string workspaceCraftPath, IReadOnlyCollection<ExternalChannelEntry> channels)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
@@ -1852,7 +1867,7 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
         if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
-            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', or 'defaultApprovalPolicy' is required.");
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', 'memoryAutoConsolidateEnabled', or 'defaultApprovalPolicy' is required.");
 
         var hasModel = TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl);
         var hasApiKey = TryGetCaseInsensitiveProperty(msg.Params.Value, "apiKey", out var apiKeyEl);
@@ -1865,6 +1880,10 @@ public sealed class AppServerRequestHandler(
             msg.Params.Value,
             "skillsSelfLearningEnabled",
             out var skillsSelfLearningEnabledEl);
+        var hasMemoryAutoConsolidateEnabled = TryGetCaseInsensitiveProperty(
+            msg.Params.Value,
+            "memoryAutoConsolidateEnabled",
+            out var memoryAutoConsolidateEnabledEl);
         var hasDefaultApprovalPolicy = TryGetCaseInsensitiveProperty(
             msg.Params.Value,
             "defaultApprovalPolicy",
@@ -1874,10 +1893,11 @@ public sealed class AppServerRequestHandler(
             && !hasEndPoint
             && !hasWelcomeSuggestionsEnabled
             && !hasSkillsSelfLearningEnabled
+            && !hasMemoryAutoConsolidateEnabled
             && !hasDefaultApprovalPolicy)
         {
             throw AppServerErrors.InvalidParams(
-                "At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', or 'defaultApprovalPolicy' is required.");
+                "At least one of 'model', 'apiKey', 'endPoint', 'welcomeSuggestionsEnabled', 'skillsSelfLearningEnabled', 'memoryAutoConsolidateEnabled', or 'defaultApprovalPolicy' is required.");
         }
 
         var model = hasModel ? ParseNullableString(modelEl, "model") : null;
@@ -1888,6 +1908,9 @@ public sealed class AppServerRequestHandler(
             : null;
         var skillsSelfLearningEnabled = hasSkillsSelfLearningEnabled
             ? ParseNullableBoolean(skillsSelfLearningEnabledEl, "skillsSelfLearningEnabled")
+            : null;
+        var memoryAutoConsolidateEnabled = hasMemoryAutoConsolidateEnabled
+            ? ParseNullableBoolean(memoryAutoConsolidateEnabledEl, "memoryAutoConsolidateEnabled")
             : null;
         var defaultApprovalPolicy = hasDefaultApprovalPolicy
             ? ParseNullableString(defaultApprovalPolicyEl, "defaultApprovalPolicy")
@@ -1900,12 +1923,14 @@ public sealed class AppServerRequestHandler(
             hasEndPoint ? NormalizeOptionalString(endPoint) : null,
             welcomeSuggestionsEnabled,
             skillsSelfLearningEnabled,
+            memoryAutoConsolidateEnabled,
             hasDefaultApprovalPolicy ? NormalizeDefaultApprovalPolicy(defaultApprovalPolicy) : null,
             hasModel,
             hasApiKey,
             hasEndPoint,
             hasWelcomeSuggestionsEnabled,
             hasSkillsSelfLearningEnabled,
+            hasMemoryAutoConsolidateEnabled,
             hasDefaultApprovalPolicy);
 
         var changedRegions = new List<string>();
@@ -1919,6 +1944,11 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (saveResult.SkillsSelfLearningChanged)
             changedRegions.Add(ConfigChangeRegions.Skills);
+        if (saveResult.MemoryAutoConsolidateChanged)
+        {
+            changedRegions.Add(ConfigChangeRegions.Memory);
+            RefreshCurrentMemoryConfig();
+        }
         if (saveResult.DefaultApprovalPolicyChanged)
         {
             changedRegions.Add(ConfigChangeRegions.WorkspaceDefaultApprovalPolicy);
@@ -1938,6 +1968,7 @@ public sealed class AppServerRequestHandler(
             EndPoint = saveResult.EndPoint,
             WelcomeSuggestionsEnabled = saveResult.WelcomeSuggestionsEnabled,
             SkillsSelfLearningEnabled = saveResult.SkillsSelfLearningEnabled,
+            MemoryAutoConsolidateEnabled = saveResult.MemoryAutoConsolidateEnabled,
             DefaultApprovalPolicy = saveResult.DefaultApprovalPolicy
         });
     }
@@ -2609,12 +2640,14 @@ public sealed class AppServerRequestHandler(
         string? endPoint,
         bool? welcomeSuggestionsEnabled,
         bool? skillsSelfLearningEnabled,
+        bool? memoryAutoConsolidateEnabled,
         string? defaultApprovalPolicy,
         bool updateModel,
         bool updateApiKey,
         bool updateEndPoint,
         bool updateWelcomeSuggestionsEnabled,
         bool updateSkillsSelfLearningEnabled,
+        bool updateMemoryAutoConsolidateEnabled,
         bool updateDefaultApprovalPolicy)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
@@ -2631,6 +2664,8 @@ public sealed class AppServerRequestHandler(
             ? null
             : GetOrCreateConfigSection(skillsSection, "SelfLearning", createIfMissing: updateSkillsSelfLearningEnabled);
         var selfLearningEnabledKey = selfLearningSection == null ? null : FindCaseInsensitiveKey(selfLearningSection, "Enabled");
+        var memorySection = GetOrCreateConfigSection(root, "Memory", createIfMissing: updateMemoryAutoConsolidateEnabled);
+        var memoryAutoConsolidateEnabledKey = memorySection == null ? null : FindCaseInsensitiveKey(memorySection, "AutoConsolidateEnabled");
         var permissionsSection = GetOrCreateConfigSection(root, "Permissions", createIfMissing: updateDefaultApprovalPolicy);
         var defaultApprovalPolicyKey = permissionsSection == null ? null : FindCaseInsensitiveKey(permissionsSection, "DefaultApprovalPolicy");
 
@@ -2639,6 +2674,7 @@ public sealed class AppServerRequestHandler(
         var existingEndPoint = NormalizeOptionalString(ReadConfigStringValue(root, endPointKey));
         var existingWelcomeSuggestionsEnabled = ReadConfigBooleanValue(welcomeSection, welcomeEnabledKey);
         var existingSkillsSelfLearningEnabled = ReadConfigBooleanValue(selfLearningSection, selfLearningEnabledKey);
+        var existingMemoryAutoConsolidateEnabled = ReadConfigBooleanValue(memorySection, memoryAutoConsolidateEnabledKey);
         var existingDefaultApprovalPolicy = NormalizeDefaultApprovalPolicy(ReadConfigStringValue(permissionsSection, defaultApprovalPolicyKey));
 
         var modelChanged = updateModel && !string.Equals(existingModel, model, StringComparison.Ordinal);
@@ -2648,6 +2684,8 @@ public sealed class AppServerRequestHandler(
             && existingWelcomeSuggestionsEnabled != welcomeSuggestionsEnabled;
         var skillsSelfLearningChanged = updateSkillsSelfLearningEnabled
             && existingSkillsSelfLearningEnabled != skillsSelfLearningEnabled;
+        var memoryAutoConsolidateChanged = updateMemoryAutoConsolidateEnabled
+            && existingMemoryAutoConsolidateEnabled != memoryAutoConsolidateEnabled;
         var defaultApprovalPolicyChanged = updateDefaultApprovalPolicy
             && !string.Equals(existingDefaultApprovalPolicy, defaultApprovalPolicy, StringComparison.Ordinal);
 
@@ -2673,6 +2711,13 @@ public sealed class AppServerRequestHandler(
             RemoveConfigSectionIfEmpty(skills, "SelfLearning");
             RemoveConfigSectionIfEmpty(root, "Skills");
         }
+        if (updateMemoryAutoConsolidateEnabled)
+        {
+            var memory = GetOrCreateConfigSection(root, "Memory", createIfMissing: true)!;
+            var autoConsolidateExistingKey = FindCaseInsensitiveKey(memory, "AutoConsolidateEnabled");
+            UpsertOrRemoveConfigValue(memory, autoConsolidateExistingKey, "AutoConsolidateEnabled", memoryAutoConsolidateEnabled);
+            RemoveConfigSectionIfEmpty(root, "Memory");
+        }
         if (updateDefaultApprovalPolicy)
         {
             var permissions = GetOrCreateConfigSection(root, "Permissions", createIfMissing: true)!;
@@ -2686,6 +2731,7 @@ public sealed class AppServerRequestHandler(
             || endPointChanged
             || welcomeSuggestionsChanged
             || skillsSelfLearningChanged
+            || memoryAutoConsolidateChanged
             || defaultApprovalPolicyChanged)
         {
             var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -2703,6 +2749,9 @@ public sealed class AppServerRequestHandler(
             SkillsSelfLearningEnabled = updateSkillsSelfLearningEnabled
                 ? skillsSelfLearningEnabled
                 : existingSkillsSelfLearningEnabled,
+            MemoryAutoConsolidateEnabled = updateMemoryAutoConsolidateEnabled
+                ? memoryAutoConsolidateEnabled
+                : existingMemoryAutoConsolidateEnabled,
             DefaultApprovalPolicy = updateDefaultApprovalPolicy
                 ? defaultApprovalPolicy
                 : existingDefaultApprovalPolicy,
@@ -2711,6 +2760,7 @@ public sealed class AppServerRequestHandler(
             EndPointChanged = endPointChanged,
             WelcomeSuggestionsChanged = welcomeSuggestionsChanged,
             SkillsSelfLearningChanged = skillsSelfLearningChanged,
+            MemoryAutoConsolidateChanged = memoryAutoConsolidateChanged,
             DefaultApprovalPolicyChanged = defaultApprovalPolicyChanged
         };
     }
@@ -2862,6 +2912,8 @@ public sealed class AppServerRequestHandler(
 
         public bool? SkillsSelfLearningEnabled { get; init; }
 
+        public bool? MemoryAutoConsolidateEnabled { get; init; }
+
         public string? DefaultApprovalPolicy { get; init; }
 
         public bool ModelChanged { get; init; }
@@ -2873,6 +2925,8 @@ public sealed class AppServerRequestHandler(
         public bool WelcomeSuggestionsChanged { get; init; }
 
         public bool SkillsSelfLearningChanged { get; init; }
+
+        public bool MemoryAutoConsolidateChanged { get; init; }
 
         public bool DefaultApprovalPolicyChanged { get; init; }
     }

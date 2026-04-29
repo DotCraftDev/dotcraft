@@ -65,6 +65,8 @@ Use `[Description("...")]` on the method and on parameters for tool and paramete
 
 Tool argument streaming is enabled for every tool by default: AppServer clients receive `item/toolCall/argumentsDelta` notifications as the model fills in the arguments JSON, and the TUI/Desktop render per-tool live previews. If a tool must ship with a single atomic payload (for example because it proxies arguments to another process that cannot consume partial JSON, or because the arguments are sensitive), opt out by annotating the method with `[StreamArguments(false)]`; clients will then only see `item/started` followed by `item/completed` with no deltas. Omit the attribute to keep streaming enabled.
 
+File mutation tools that perform read-modify-write must serialize per canonical path with `PathAsyncMutex.AcquireAsync` (or `AcquireKeyAsync` for virtual filesystems) because model tool calls can run concurrently. This prevents Windows sharing violations and lost updates. A stricter read-before-write stale-check can be added later if the tool contract needs it.
+
 ### Language Preference
 
 - **Code comments**: English

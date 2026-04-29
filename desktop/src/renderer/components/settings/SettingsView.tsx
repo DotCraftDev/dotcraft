@@ -89,6 +89,7 @@ interface WorkspaceCoreConfig {
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
   skillsSelfLearningEnabled: boolean | null
+  memoryAutoConsolidateEnabled: boolean | null
   defaultApprovalPolicy: VisibleApprovalPolicy | null
 }
 
@@ -102,6 +103,7 @@ const EMPTY_WORKSPACE_CORE_CONFIG: WorkspaceCoreConfig = {
   endPoint: null,
   welcomeSuggestionsEnabled: null,
   skillsSelfLearningEnabled: null,
+  memoryAutoConsolidateEnabled: null,
   defaultApprovalPolicy: null
 }
 
@@ -123,6 +125,10 @@ function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
     skillsSelfLearningEnabled:
       typeof source.skillsSelfLearningEnabled === 'boolean'
         ? source.skillsSelfLearningEnabled
+        : null,
+    memoryAutoConsolidateEnabled:
+      typeof source.memoryAutoConsolidateEnabled === 'boolean'
+        ? source.memoryAutoConsolidateEnabled
         : null,
     defaultApprovalPolicy: normalizeVisibleApprovalPolicy(source.defaultApprovalPolicy)
   }
@@ -600,6 +606,7 @@ export function SettingsView({
     endPoint: null,
     welcomeSuggestionsEnabled: null,
     skillsSelfLearningEnabled: null,
+    memoryAutoConsolidateEnabled: null,
     defaultApprovalPolicy: null
   })
   const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
@@ -607,6 +614,7 @@ export function SettingsView({
     endPoint: null,
     welcomeSuggestionsEnabled: null,
     skillsSelfLearningEnabled: null,
+    memoryAutoConsolidateEnabled: null,
     defaultApprovalPolicy: null
   })
   const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
@@ -619,6 +627,8 @@ export function SettingsView({
   const [selfLearningEnabled, setSelfLearningEnabled] = useState(true)
   const [applyingSelfLearning, setApplyingSelfLearning] = useState(false)
   const [selfLearningRestartPending, setSelfLearningRestartPending] = useState(false)
+  const [memoryAutoConsolidateEnabled, setMemoryAutoConsolidateEnabled] = useState(true)
+  const [applyingMemoryAutoConsolidate, setApplyingMemoryAutoConsolidate] = useState(false)
   const [defaultApprovalPolicy, setDefaultApprovalPolicy] = useState<VisibleApprovalPolicy>('default')
   const [applyingDefaultApprovalPolicy, setApplyingDefaultApprovalPolicy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -694,6 +704,11 @@ export function SettingsView({
       core.userDefaults.skillsSelfLearningEnabled ??
       true
     setSelfLearningEnabled(resolvedSelfLearningEnabled)
+    const resolvedMemoryAutoConsolidateEnabled =
+      core.workspace.memoryAutoConsolidateEnabled ??
+      core.userDefaults.memoryAutoConsolidateEnabled ??
+      true
+    setMemoryAutoConsolidateEnabled(resolvedMemoryAutoConsolidateEnabled)
     const resolvedDefaultApprovalPolicy =
       core.workspace.defaultApprovalPolicy ??
       core.userDefaults.defaultApprovalPolicy ??
@@ -784,6 +799,31 @@ export function SettingsView({
       }
     },
     [reloadWorkspaceCore, selfLearningEnabled, t]
+  )
+
+  const handleMemoryAutoConsolidateToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = memoryAutoConsolidateEnabled
+      setMemoryAutoConsolidateEnabled(checked)
+      setApplyingMemoryAutoConsolidate(true)
+      try {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', {
+          memoryAutoConsolidateEnabled: checked
+        }) as { memoryAutoConsolidateEnabled?: boolean | null }
+        const persisted = typeof result?.memoryAutoConsolidateEnabled === 'boolean'
+          ? result.memoryAutoConsolidateEnabled
+          : checked
+        setMemoryAutoConsolidateEnabled(persisted)
+        await reloadWorkspaceCore()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setMemoryAutoConsolidateEnabled(previous)
+        addToast(t('settings.personalization.longTermMemorySaveFailed', { error: msg }), 'error')
+      } finally {
+        setApplyingMemoryAutoConsolidate(false)
+      }
+    },
+    [memoryAutoConsolidateEnabled, reloadWorkspaceCore, t]
   )
 
   const handleDefaultApprovalPolicyChange = useCallback(
@@ -2454,6 +2494,20 @@ export function SettingsView({
                         aria-label={t('settings.personalization.selfLearning')}
                         onChange={(checked) => {
                           void handleSelfLearningToggle(checked)
+                        }}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.personalization.longTermMemory')}
+                    description={t('settings.personalization.longTermMemoryHint')}
+                    control={
+                      <PillSwitch
+                        checked={memoryAutoConsolidateEnabled}
+                        disabled={applyingMemoryAutoConsolidate}
+                        aria-label={t('settings.personalization.longTermMemory')}
+                        onChange={(checked) => {
+                          void handleMemoryAutoConsolidateToggle(checked)
                         }}
                       />
                     }

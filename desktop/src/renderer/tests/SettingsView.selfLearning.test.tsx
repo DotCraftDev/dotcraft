@@ -29,6 +29,7 @@ describe('SettingsView self-learning settings', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: false,
+        memoryAutoConsolidateEnabled: false,
         defaultApprovalPolicy: 'default'
       },
       userDefaults: {
@@ -36,6 +37,7 @@ describe('SettingsView self-learning settings', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       }
     }
@@ -48,6 +50,10 @@ describe('SettingsView self-learning settings', () => {
         if (typeof params?.defaultApprovalPolicy === 'string') {
           core.workspace.defaultApprovalPolicy = params.defaultApprovalPolicy
           return { defaultApprovalPolicy: core.workspace.defaultApprovalPolicy }
+        }
+        if (typeof params?.memoryAutoConsolidateEnabled === 'boolean') {
+          core.workspace.memoryAutoConsolidateEnabled = params.memoryAutoConsolidateEnabled
+          return { memoryAutoConsolidateEnabled: core.workspace.memoryAutoConsolidateEnabled }
         }
         core.workspace.skillsSelfLearningEnabled = params?.skillsSelfLearningEnabled === true
         return { skillsSelfLearningEnabled: core.workspace.skillsSelfLearningEnabled }
@@ -134,6 +140,7 @@ describe('SettingsView self-learning settings', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       },
       userDefaults: {
@@ -141,6 +148,7 @@ describe('SettingsView self-learning settings', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       }
     })
@@ -151,6 +159,23 @@ describe('SettingsView self-learning settings', () => {
     const toggle = await screen.findByRole('switch', { name: 'Enable self-learning' })
 
     expect(toggle).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('saves long-term memory toggle without restart banner', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Personalization' }))
+    const toggle = await screen.findByRole('switch', { name: 'Enable long-term memory' })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('workspace/config/update', {
+        memoryAutoConsolidateEnabled: true
+      })
+    })
+    expect(screen.queryByText('Self-learning changes are saved. Restart AppServer to apply them.')).not.toBeInTheDocument()
   })
 
   it('warns and saves full access default approval policy', async () => {

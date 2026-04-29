@@ -1629,9 +1629,9 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 | Field | Type | Description |
 |-------|------|-------------|
 | `threadId` | string | Parent thread. |
-| `turnId` | string | Active turn. |
-| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`. |
-| `message` | string? | Human-readable description (or machine-readable failure reason on `compactSkipped` / `compactFailed`). May be null. |
+| `turnId` | string? | Active turn. May be null for asynchronous thread-scoped maintenance events such as `consolidated` and `consolidationFailed`. |
+| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`, `"consolidationFailed"`. |
+| `message` | string? | Human-readable description (or machine-readable failure reason on `compactSkipped` / `compactFailed` / `consolidationFailed`). May be null. |
 | `percentLeft` | number? | Fraction of the effective context window still unused (`0.0`-`1.0`). Populated for compaction-related events. |
 | `tokenCount` | number? | Current estimated prompt token usage. Populated for compaction-related events. |
 
@@ -1645,8 +1645,9 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 | `compacted` | Compaction completed successfully. Token tracker has been reset. |
 | `compactSkipped` | Compaction was evaluated but not executed (below threshold, nothing new to summarize, or circuit breaker tripped). |
 | `compactFailed` | Compaction attempted but failed (LLM error, cancellation). Repeated failures trip the circuit breaker. |
-| `consolidating` | Memory consolidation is starting (fire-and-forget, driven by the compaction pipeline). |
+| `consolidating` | Memory consolidation is starting (fire-and-forget, driven by Session Core after a configured number of successful Turns). |
 | `consolidated` | Memory consolidation completed successfully. MEMORY.md / HISTORY.md have been updated. |
+| `consolidationFailed` | Memory consolidation failed. Clients should dismiss any active consolidation status and may surface `message`. |
 
 **Emission rules**:
 
@@ -1654,7 +1655,7 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 - Threshold advisory events (`compactWarning`, `compactError`) fire when token usage crosses a threshold but auto-compaction has not yet been triggered.
 - Auto-compaction is a synchronous pair: `compacting` → one of `compacted` / `compactSkipped` / `compactFailed`.
 - Reactive compaction fires on the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. The Turn still fails, but `compacting` and its terminal event are emitted first so UIs know the history was repaired before the user retries.
-- Consolidation is fire-and-forget after a successful compaction; the Turn completes without awaiting it. Clients see `consolidating` / `consolidated` events asynchronously.
+- Memory consolidation is fire-and-forget after a configured number of successful Turns; it is independent from compaction and the Turn completes without awaiting it. The start event is `consolidating`; the terminal event is either `consolidated` or `consolidationFailed`. See [Memory Consolidation](memory-consolidation.md) for the design contract.
 - Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
 - On a successful `compacted` event (auto or reactive trigger), Session Core additionally persists a `SystemNotice` SessionItem (kind = `"compacted"`) into the current turn and emits the normal `item/started` + `item/completed` pair for it. This gives clients a persistent timeline marker that survives thread reload, alongside the transient `system/event` notification used to drive toast/status-line UX. See [Session Core](session-core.md#systemnotice) for the payload schema.
 
@@ -4165,6 +4166,7 @@ Update workspace-level config values.
 | `endPoint` | string \| null | no | Workspace API endpoint. `null` or empty removes the `EndPoint` key. |
 | `welcomeSuggestionsEnabled` | boolean \| null | no | Workspace-level override for personalized welcome suggestions. `true` enables, `false` disables, and `null` removes the explicit override so server defaults apply. |
 | `skillsSelfLearningEnabled` | boolean \| null | no | Workspace-level override for `Skills.SelfLearning.Enabled`. `true` enables the SkillManage tool surface and skill-authoring built-in skill, `false` disables, and `null` removes the explicit override so server defaults apply (`true` by default). Takes effect on next AppServer restart (`Skills.SelfLearning.Enabled` is a `ProcessRestart` field). |
+| `memoryAutoConsolidateEnabled` | boolean \| null | no | Workspace-level override for `Memory.AutoConsolidateEnabled`. `true` enables turn-count-based long-term memory consolidation, `false` disables it, and `null` removes the explicit override so server defaults apply (`true` by default). Takes effect for future successful turns without restart. |
 | `defaultApprovalPolicy` | string \| null | no | Workspace default approval policy for threads whose `ThreadConfiguration.approvalPolicy` is `default` or unset. Supported values are `default` and `autoApprove`; `null` removes the explicit workspace override so server defaults apply. |
 
 **Result**:
@@ -4176,6 +4178,7 @@ Update workspace-level config values.
   "endPoint": "https://example.com/v1",
   "welcomeSuggestionsEnabled": true,
   "skillsSelfLearningEnabled": true,
+  "memoryAutoConsolidateEnabled": true,
   "defaultApprovalPolicy": "default"
 }
 ```
@@ -4193,11 +4196,12 @@ If `model` is removed, the result returns:
 - This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
 - Server preserves unrelated configuration state.
-- At least one of `model`, `apiKey`, `endPoint`, `welcomeSuggestionsEnabled`, `skillsSelfLearningEnabled`, or `defaultApprovalPolicy` must be provided.
+- At least one of `model`, `apiKey`, `endPoint`, `welcomeSuggestionsEnabled`, `skillsSelfLearningEnabled`, `memoryAutoConsolidateEnabled`, or `defaultApprovalPolicy` must be provided.
 - Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
 - When `skillsSelfLearningEnabled` is provided, the server writes the boolean to the nested `Skills.SelfLearning.Enabled` key. Setting it to `null` removes the leaf, and the server prunes empty `Skills.SelfLearning` / `Skills` objects when no other keys remain.
+- When `memoryAutoConsolidateEnabled` is provided, the server writes the boolean to `Memory.AutoConsolidateEnabled`. Setting it to `null` removes the leaf, and the server prunes the empty `Memory` object when no other keys remain.
 - When `defaultApprovalPolicy` is provided, the server writes the value to `Permissions.DefaultApprovalPolicy`. Setting it to `null` removes the leaf, and the server prunes the empty `Permissions` object when no other keys remain.
-- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`, `skills`, `workspace.defaultApprovalPolicy`.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`, `skills`, `memory`, `workspace.defaultApprovalPolicy`.
 
 ### 25.4 Capability Advertisement
 
@@ -4236,6 +4240,7 @@ Server notification emitted after a successful workspace configuration write.
 | `workspace.endpoint` | `workspace/config/update` |
 | `welcomeSuggestions` | `workspace/config/update` |
 | `skills` | `skills/setEnabled`, `workspace/config/update` |
+| `memory` | `workspace/config/update` |
 | `workspace.defaultApprovalPolicy` | `workspace/config/update` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |

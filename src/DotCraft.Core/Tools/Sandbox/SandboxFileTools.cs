@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using DotCraft.Tools;
 using OpenSandbox.Models;
 
 namespace DotCraft.Tools.Sandbox;
@@ -105,18 +106,21 @@ public sealed class SandboxFileTools
             var sandbox = await _sandboxManager.GetOrCreateAsync();
             var fullPath = ResolveSandboxPath(path);
 
-            // Ensure parent directory exists
-            var parentDir = fullPath[..fullPath.LastIndexOf('/')];
-            if (!string.IsNullOrEmpty(parentDir))
+            using (await PathAsyncMutex.AcquireKeyAsync($"sandbox:{fullPath}"))
             {
-                await sandbox.Files.CreateDirectoriesAsync([
-                    new CreateDirectoryEntry { Path = parentDir, Mode = 755 }
+                // Ensure parent directory exists
+                var parentDir = fullPath[..fullPath.LastIndexOf('/')];
+                if (!string.IsNullOrEmpty(parentDir))
+                {
+                    await sandbox.Files.CreateDirectoriesAsync([
+                        new CreateDirectoryEntry { Path = parentDir, Mode = 755 }
+                    ]);
+                }
+
+                await sandbox.Files.WriteFilesAsync([
+                    new WriteEntry { Path = fullPath, Data = content, Mode = 644 }
                 ]);
             }
-
-            await sandbox.Files.WriteFilesAsync([
-                new WriteEntry { Path = fullPath, Data = content, Mode = 644 }
-            ]);
 
             var lineCount = content.Split('\n').Length;
             return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
@@ -147,32 +151,40 @@ public sealed class SandboxFileTools
             var sandbox = await _sandboxManager.GetOrCreateAsync();
             var fullPath = ResolveSandboxPath(path);
 
-            var content = await sandbox.Files.ReadFileAsync(fullPath);
             newText = UnescapeUnicodeSequences(newText);
             oldText = UnescapeUnicodeSequences(oldText);
 
-            var useCrLf = content.Contains("\r\n", StringComparison.Ordinal);
-            var lfContent = content.Replace("\r\n", "\n", StringComparison.Ordinal);
-            var lfOld = oldText.Replace("\r\n", "\n", StringComparison.Ordinal);
-            var lfNew = newText.Replace("\r\n", "\n", StringComparison.Ordinal);
+            string result;
+            using (await PathAsyncMutex.AcquireKeyAsync($"sandbox:{fullPath}"))
+            {
+                var content = await sandbox.Files.ReadFileAsync(fullPath);
+                var useCrLf = content.Contains("\r\n", StringComparison.Ordinal);
+                var lfContent = content.Replace("\r\n", "\n", StringComparison.Ordinal);
+                var lfOld = oldText.Replace("\r\n", "\n", StringComparison.Ordinal);
+                var lfNew = newText.Replace("\r\n", "\n", StringComparison.Ordinal);
 
-            var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
-                FileEditSearchReplace.Apply(lfContent, lfOld, lfNew, replaceAll);
-            if (!ok)
-                return error!;
+                var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
+                    FileEditSearchReplace.Apply(lfContent, lfOld, lfNew, replaceAll);
+                if (!ok)
+                    return error!;
 
-            var newContent = useCrLf ? newLfContent.Replace("\n", "\r\n", StringComparison.Ordinal) : newLfContent;
+                var newContent = useCrLf ? newLfContent.Replace("\n", "\r\n", StringComparison.Ordinal) : newLfContent;
 
-            await sandbox.Files.WriteFilesAsync([
-                new WriteEntry { Path = fullPath, Data = newContent, Mode = 644 }
-            ]);
+                await sandbox.Files.WriteFilesAsync([
+                    new WriteEntry { Path = fullPath, Data = newContent, Mode = 644 }
+                ]);
 
-            if (replaceCount > 1)
-                return $"Successfully replaced {replaceCount} occurrences in {path}";
+                if (replaceCount > 1)
+                    result = $"Successfully replaced {replaceCount} occurrences in {path}";
+                else
+                {
+                    var newLineCount = string.IsNullOrEmpty(lfNew) ? 0 : lfNew.Count(c => c == '\n') + 1;
+                    var suffix = matchKind != null ? $" ({matchKind})" : "";
+                    result = $"Successfully edited {path} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}";
+                }
+            }
 
-            var newLineCount = string.IsNullOrEmpty(lfNew) ? 0 : lfNew.Count(c => c == '\n') + 1;
-            var suffix = matchKind != null ? $" ({matchKind})" : "";
-            return $"Successfully edited {path} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}";
+            return result;
         }
         catch (OpenSandbox.Core.SandboxException ex)
         {

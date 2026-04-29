@@ -374,7 +374,8 @@ const SYSTEM_LABELS: Record<string, string | null> = {
   compacted: null,
   compactFailed: null,
   compactSkipped: null,
-  consolidated: null
+  consolidated: null,
+  consolidationFailed: null
 }
 
 function computeSeverity(tokens: number, snapshot: {

@@ -1,4 +1,5 @@
 using DotCraft.Configuration;
+using DotCraft.Context;
 using DotCraft.Mcp;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
@@ -161,6 +162,83 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
     }
 
     [Fact]
+    public async Task WorkspaceConfigUpdate_MemoryAutoConsolidateOnly_WritesConfigUpdatesMonitorAndEmitsMemoryRegion()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.WorkspaceConfigUpdate, new
+        {
+            memoryAutoConsolidateEnabled = false
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.Memory);
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.GetProperty("Memory").GetProperty("AutoConsolidateEnabled").GetBoolean());
+        Assert.False(harness.Monitor.Current.Memory.AutoConsolidateEnabled);
+    }
+
+    [Fact]
+    public async Task WorkspaceConfigUpdate_MemoryAutoConsolidateNull_RemovesLeafAndPrunesEmptySection()
+    {
+        var configPath = Path.Combine(_workspaceCraftPath, "config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """
+            {
+              "Memory": {
+                "AutoConsolidateEnabled": false
+              }
+            }
+            """);
+
+        var monitor = new AppConfigMonitor(new AppConfig
+        {
+            Memory = new MemoryConfig
+            {
+                AutoConsolidateEnabled = false
+            }
+        });
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath, appConfigMonitor: monitor);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        using var requestDoc = JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "workspace/config/update",
+              "params": {
+                "memoryAutoConsolidateEnabled": null
+              }
+            }
+            """);
+        var req = new AppServerIncomingMessage
+        {
+            JsonRpc = "2.0",
+            Id = requestDoc.RootElement.GetProperty("id").Clone(),
+            Method = AppServerMethods.WorkspaceConfigUpdate,
+            Params = requestDoc.RootElement.GetProperty("params").Clone()
+        };
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        var response = Assert.Single(sent, d => d.RootElement.TryGetProperty("result", out _));
+        Assert.Equal(JsonValueKind.Null, response.RootElement.GetProperty("result").GetProperty("memoryAutoConsolidateEnabled").ValueKind);
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.Memory);
+        var json = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.TryGetProperty("Memory", out _));
+        Assert.True(harness.Monitor.Current.Memory.AutoConsolidateEnabled);
+    }
+
+    [Fact]
     public async Task WorkspaceConfigUpdate_DefaultApprovalPolicy_RoundTripsAndEmitsRegion()
     {
         var configPath = Path.Combine(_workspaceCraftPath, "config.json");
@@ -257,6 +335,7 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
             endPoint = "https://example.com/v1",
             welcomeSuggestionsEnabled = false,
             skillsSelfLearningEnabled = true,
+            memoryAutoConsolidateEnabled = false,
             defaultApprovalPolicy = "autoApprove"
         });
         await harness.ExecuteRequestAsync(req);
@@ -271,6 +350,7 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
                 ConfigChangeRegions.WorkspaceEndPoint,
                 ConfigChangeRegions.WelcomeSuggestions,
                 ConfigChangeRegions.Skills,
+                ConfigChangeRegions.Memory,
                 ConfigChangeRegions.WorkspaceDefaultApprovalPolicy
             ]);
     }

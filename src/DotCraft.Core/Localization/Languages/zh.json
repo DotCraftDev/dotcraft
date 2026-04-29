@@ -97,6 +97,7 @@
 
   "memory.consolidating": "正在整理记忆...",
   "memory.consolidated": "记忆整理完成。",
+  "memory.consolidation_failed": "记忆整理失败。",
 
   "agent.interrupted": "Agent 已中断",
 

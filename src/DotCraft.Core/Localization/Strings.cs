@@ -114,6 +114,7 @@ public static class Strings
     // ── Memory consolidation ─────────────────────────────────────────
     public static string MemoryConsolidating => LanguageService.Current.T("memory.consolidating");
     public static string MemoryConsolidated => LanguageService.Current.T("memory.consolidated");
+    public static string MemoryConsolidationFailed => LanguageService.Current.T("memory.consolidation_failed");
 
     // ── Agent interrupt ──────────────────────────────────────────────
     public static string AgentInterrupted => LanguageService.Current.T("agent.interrupted");

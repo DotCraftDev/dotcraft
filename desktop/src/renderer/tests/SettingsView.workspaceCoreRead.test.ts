@@ -12,6 +12,7 @@ describe('SettingsView workspace core readers', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       },
       userDefaults: {
@@ -19,6 +20,7 @@ describe('SettingsView workspace core readers', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       }
     })
@@ -40,10 +42,18 @@ describe('SettingsView workspace core readers', () => {
     ).rejects.toThrow('boom')
   })
 
-  it('normalizes self-learning config from workspace and user defaults', async () => {
+  it('normalizes personalization config from workspace and user defaults', async () => {
     const getCore = vi.fn<() => Promise<unknown>>().mockResolvedValue({
-      workspace: { skillsSelfLearningEnabled: true, defaultApprovalPolicy: 'autoApprove' },
-      userDefaults: { skillsSelfLearningEnabled: false, defaultApprovalPolicy: 'default' }
+      workspace: {
+        skillsSelfLearningEnabled: true,
+        memoryAutoConsolidateEnabled: false,
+        defaultApprovalPolicy: 'autoApprove'
+      },
+      userDefaults: {
+        skillsSelfLearningEnabled: false,
+        memoryAutoConsolidateEnabled: true,
+        defaultApprovalPolicy: 'default'
+      }
     })
 
     await expect(
@@ -56,6 +66,7 @@ describe('SettingsView workspace core readers', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: true,
+        memoryAutoConsolidateEnabled: false,
         defaultApprovalPolicy: 'autoApprove'
       },
       userDefaults: {
@@ -63,6 +74,7 @@ describe('SettingsView workspace core readers', () => {
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: false,
+        memoryAutoConsolidateEnabled: true,
         defaultApprovalPolicy: 'default'
       }
     })

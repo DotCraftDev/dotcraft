@@ -64,6 +64,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadQueueLocks = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadAgentLocks = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
+    private readonly ConcurrentDictionary<string, int> _turnsSinceConsolidation = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
@@ -327,6 +328,7 @@ public sealed class SessionService(
             if (_threadAgentLocks.TryRemove(normalizedThreadId, out var agentLock))
                 agentLock.Dispose();
             _materializedThreads.TryRemove(normalizedThreadId, out _);
+            _turnsSinceConsolidation.TryRemove(normalizedThreadId, out _);
             _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
             if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
                 await mcpManager.DisposeAsync();
@@ -1381,6 +1383,7 @@ public sealed class SessionService(
                 thread.LastActiveAt = DateTimeOffset.UtcNow;
                 RecordTurnTokenUsage(thread, turn);
                 eventChannel.EmitTurnCompleted(turn);
+                TryScheduleMemoryConsolidation(threadId, session, eventChannel);
                 ThreadRuntimeSignalForBroadcast?.Invoke(
                     threadId,
                     EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
@@ -2196,6 +2199,58 @@ public sealed class SessionService(
         }
 
         return false;
+    }
+
+    private void TryScheduleMemoryConsolidation(
+        string threadId,
+        AgentSession session,
+        SessionEventChannel eventChannel)
+    {
+        var consolidator = agentFactory.Consolidator;
+        var memoryConfig = _appConfigMonitor?.Current.Memory
+            ?? agentFactory.ToolProviderContext.Config.Memory;
+
+        if (consolidator is null || !memoryConfig.AutoConsolidateEnabled)
+            return;
+
+        var interval = Math.Max(1, memoryConfig.ConsolidateEveryNTurns);
+        var count = _turnsSinceConsolidation.AddOrUpdate(
+            threadId,
+            1,
+            static (_, previous) => previous + 1);
+
+        if (count < interval)
+            return;
+
+        _turnsSinceConsolidation[threadId] = 0;
+        var history = SnapshotSessionHistoryForConsolidation(session);
+        if (history.Count == 0)
+            return;
+
+        eventChannel.EmitSystemEvent("consolidating");
+
+        var broker = GetOrCreateBroker(threadId);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await consolidator.ConsolidateAsync(history);
+                broker.PublishSystemEvent("consolidated");
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "Memory consolidation failed for thread {ThreadId}", threadId);
+                broker.PublishSystemEvent("consolidationFailed", message: ex.Message);
+            }
+        });
+    }
+
+    private static IReadOnlyList<ChatMessage> SnapshotSessionHistoryForConsolidation(AgentSession session)
+    {
+        var chatHistory = session.GetService<ChatHistoryProvider>();
+        return chatHistory is InMemoryChatHistoryProvider provider
+            ? [.. provider.GetMessages(session)]
+            : [];
     }
 
     private async Task TrySaveThreadAsync(SessionThread thread)

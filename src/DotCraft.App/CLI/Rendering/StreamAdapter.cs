@@ -286,6 +286,9 @@ public static class StreamAdapter
                 // The completion event dismisses the SystemStatus spinner in the renderer.
                 yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated);
                 break;
+            case "consolidationFailed":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidationFailed);
+                break;
         }
     }
 }

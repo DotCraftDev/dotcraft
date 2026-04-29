@@ -750,10 +750,17 @@ export function App(): JSX.Element {
           case 'system/event': {
             const tid = (p.threadId as string | undefined) ?? ''
             if (!shouldUpdateActiveConversation(tid)) break
-            conv.onSystemEvent((p.kind as string) ?? '', {
+            const kind = (p.kind as string) ?? ''
+            conv.onSystemEvent(kind, {
               tokenCount: typeof p.tokenCount === 'number' ? (p.tokenCount as number) : null,
               percentLeft: typeof p.percentLeft === 'number' ? (p.percentLeft as number) : null
             })
+            if (kind === 'consolidationFailed') {
+              addToast(
+                (p.message as string | undefined) ?? translate(localeRef.current, 'systemNotice.consolidationFailed.message'),
+                'warning'
+              )
+            }
             break
           }
 

@@ -771,7 +771,7 @@ SessionEvent
     {
       "kind": string,          // One of: "compactWarning", "compactError",
                                 //         "compacting", "compacted", "compactSkipped", "compactFailed",
-                                //         "consolidating", "consolidated"
+                                //         "consolidating", "consolidated", "consolidationFailed"
       "message": string,       // Human-readable description (nullable)
       "percentLeft": double,   // Fraction of the effective context window still unused (nullable; 0.0-1.0)
       "tokenCount": long       // Current estimated prompt token usage (nullable)
@@ -788,16 +788,17 @@ SessionEvent
     | `compacted` | Compaction finished successfully. Token tracker has been reset and `percentLeft`/`tokenCount` reflect the post-compaction state. | Synchronous, immediately after the pipeline returns `Micro` or `Partial`. |
     | `compactSkipped` | Compaction was evaluated but not executed (e.g. below threshold, nothing new to summarize, circuit breaker tripped). | Synchronous, immediately after the pipeline returns `Skipped`. |
     | `compactFailed` | Compaction attempted but failed (LLM error, cancellation). The circuit breaker may trip after several consecutive failures. | Synchronous, immediately after the pipeline returns `Failed`. |
-    | `consolidating` | Memory consolidation is starting. Now driven by the compaction pipeline: the prefix it just summarized is handed to the `MemoryConsolidator`. | Fire-and-forget, immediately after a successful compaction (no post-turn block). |
-    | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | After background consolidation completes. |
+    | `consolidating` | Memory consolidation is starting. Consolidation is driven by Session Core after every configured number of successful Turns, independent from compaction. | Reserved for asynchronous memory-maintenance notifications. |
+    | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | Reserved for asynchronous memory-maintenance notifications. |
+    | `consolidationFailed` | Memory consolidation failed (LLM error, provider error, or persistence failure). UIs should dismiss any active consolidation status. | Asynchronous, after the background consolidation task throws. |
 
   - **Emission rules**:
     - System events are emitted during the Turn's post-processing phase (after agent execution completes, before `turn/completed`), except when raised reactively (see below).
     - The threshold advisory events (`compactWarning`, `compactError`) carry `percentLeft` and `tokenCount` so UIs can render a "context almost full" warning bar without needing a separate usage request.
     - Auto-compaction events (`compacting`, `compacted`, `compactSkipped`, `compactFailed`) are synchronous within Step 5k and always fire in the order `compacting` → one terminal event (`compacted` / `compactSkipped` / `compactFailed`).
     - The pipeline may also be invoked **reactively** from the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. In that case the Turn still fails, but `compacting` followed by `compacted` / `compactFailed` is emitted first so UIs know the history was repaired before the user retries.
-    - Consolidation events (`consolidating`, `consolidated`) bracket the fire-and-forget background task spawned by the pipeline after a successful compaction. The Turn's completion is **not** deferred for consolidation.
-    - All system events are emitted through the turn-scoped `SessionEventChannel`, so they are guaranteed to arrive before `turn/completed`.
+    - Memory consolidation is a fire-and-forget maintenance task scheduled by Session Core after a configured number of successful Turns. It is not spawned by the compaction pipeline, and Turn completion is **not** deferred for consolidation. Its start event (`consolidating`) is emitted through the turn-scoped `SessionEventChannel`; its terminal events (`consolidated` / `consolidationFailed`) are emitted through the thread event broker with `turnId = null`. See [Memory Consolidation](memory-consolidation.md) for the design contract.
+    - Turn-scoped system events are emitted through the turn-scoped `SessionEventChannel`, so they are guaranteed to arrive before `turn/completed`. Thread-scoped maintenance events may arrive later.
     - The `message` field carries a localized human-readable description suitable for display (on `compactSkipped` / `compactFailed` it contains the machine-readable failure reason, e.g. `circuit_breaker_tripped`, `summary_unavailable`).
   - **Adapters**: Adapters that display session maintenance status (e.g., CLI spinner for consolidation, status text for compaction) should consume `system/event` notifications. Adapters that do not need maintenance status may ignore this event type or opt out via `optOutNotificationMethods`.
 
