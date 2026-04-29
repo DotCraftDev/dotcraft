@@ -10,7 +10,7 @@ struct Cli {
     #[arg(long, value_name = "URL")]
     remote: Option<String>,
 
-    /// Path to the dotcraft binary to spawn as AppServer (subprocess mode).
+    /// Path to the dotcraft binary used to auto-start Hub in local mode.
     /// Defaults to "dotcraft" on PATH.
     #[arg(long, value_name = "PATH", env = "DOTCRAFT_BIN")]
     server_bin: Option<String>,

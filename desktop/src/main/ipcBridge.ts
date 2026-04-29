@@ -324,18 +324,13 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
 
 function resolveConnectionMode(settings: AppSettings): 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote' {
   const mode = settings.connectionMode
-  if (
-    mode === 'stdio' ||
-    mode === 'websocket' ||
-    mode === 'stdioAndWebSocket' ||
-    mode === 'remote'
-  ) {
-    return mode
-  }
-  return 'stdio'
+  return mode === 'remote' ? 'remote' : 'stdioAndWebSocket'
 }
 
-function resolveModuleWsConfig(settings: AppSettings): { wsUrl: string; token?: string } {
+function resolveModuleWsConfig(
+  settings: AppSettings,
+  runtime?: { wsUrl: string; token?: string } | null
+): { wsUrl: string; token?: string } {
   const mode = resolveConnectionMode(settings)
   if (mode === 'remote') {
     const raw = settings.remote?.url?.trim()
@@ -353,6 +348,12 @@ function resolveModuleWsConfig(settings: AppSettings): { wsUrl: string; token?: 
     }
     const token = settings.remote?.token?.trim()
     return token ? { wsUrl: parsed.toString(), token } : { wsUrl: parsed.toString() }
+  }
+
+  if (runtime?.wsUrl?.trim()) {
+    return runtime.token?.trim()
+      ? { wsUrl: runtime.wsUrl.trim(), token: runtime.token.trim() }
+      : { wsUrl: runtime.wsUrl.trim() }
   }
 
   const host = settings.webSocket?.host?.trim() || '127.0.0.1'
@@ -451,6 +452,8 @@ export interface IpcHandlerCallbacks {
   }>
   /** Returns the current settings object. */
   getSettings: () => AppSettings
+  /** Returns the active AppServer WebSocket endpoint for Hub-managed local mode. */
+  getAppServerWsConfig?: () => { wsUrl: string; token?: string } | null
   /** Updates and persists partial settings. */
   updateSettings: (partial: Partial<AppSettings>) => void | Promise<void>
   /** Returns the recent workspaces list. */
@@ -1444,7 +1447,7 @@ export function registerIpcHandlers(
       }
       const configPath = path.join(workspacePath, '.craft', params.configFileName)
       const settings = callbacks?.getSettings() ?? {}
-      const wsConfig = resolveModuleWsConfig(settings)
+      const wsConfig = resolveModuleWsConfig(settings, callbacks?.getAppServerWsConfig?.())
       const mergedConfig = injectModuleDotcraftConfig(ensureObjectConfig(params.config), wsConfig)
       const previous = configWriteQueues.get(configPath) ?? Promise.resolve()
       const writeTask = previous
@@ -1487,7 +1490,7 @@ export function registerIpcHandlers(
         const raw = await fs.readFile(configPath, 'utf-8')
         const parsed = parseJsonObjectConfig(raw)
         const settings = callbacks?.getSettings() ?? {}
-        const wsConfig = resolveModuleWsConfig(settings)
+        const wsConfig = resolveModuleWsConfig(settings, callbacks?.getAppServerWsConfig?.())
         const merged = injectModuleDotcraftConfig(parsed, wsConfig)
         const missingFields = findMissingRequiredFields(merged, module)
         if (missingFields.length > 0) {

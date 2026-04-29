@@ -11,14 +11,13 @@ import { nodeReplManager } from './nodeReplManager'
 // Register the custom viewer scheme as privileged BEFORE app.whenReady().
 registerViewerScheme()
 import type { MenuItemConstructorOptions } from 'electron'
-import { join, basename } from 'path'
+import { join, basename, resolve as resolvePath } from 'path'
 import { existsSync } from 'fs'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
-import { AppServerManager } from './AppServerManager'
 import { ProxyProcessManager } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
-import { waitForReadyz } from './appServerReady'
+import { HubClient, type HubAppServerResponse, type HubEvent } from './HubClient'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
@@ -109,26 +108,25 @@ import {
 // multi-window-in-one-process design had.
 
 let mainWindow: BrowserWindow | null = null
-let appServerManager: AppServerManager | null = null
 let proxyManager: ProxyProcessManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
-let crashRetries = 0
 /** Last DashBoard URL from a successful initialize (for View menu). */
 let lastDashboardUrl: string | null = null
+let lastAppServerWsUrl: string | null = null
 let lastConnectionStatus: ConnectionStatusPayload = { status: 'disconnected' }
 let lastWorkspaceStatus: WorkspaceStatusPayload = {
   status: 'no-workspace',
   workspacePath: '',
   hasUserConfig: false
 }
-let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
 let isAppQuitting = false
 let ipcHandlersRegistered = false
 let finalQuitCleanupDone = false
 let finalQuitCleanupRunning = false
 let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
+let hubEventAbortController: AbortController | null = null
 
 function buildAddTabPopupWindowOptions(): AddTabPopupWindowOptions {
   return {
@@ -194,8 +192,6 @@ function resolveWindowIconPath(): string | null {
 // ─── Shared (mutable) settings ────────────────────────────────────────────────
 
 let sharedSettings: AppSettings = {}
-const DEFAULT_WS_HOST = '127.0.0.1'
-const DEFAULT_WS_PORT = 9100
 const WINDOW_SHOW_FALLBACK_MS = 3000
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
@@ -241,15 +237,7 @@ function resolveWorkspacePath(settings: AppSettings): string | null {
 
 function resolveConnectionMode(settings: AppSettings): ConnectionMode {
   const mode = settings.connectionMode
-  if (
-    mode === 'stdio' ||
-    mode === 'websocket' ||
-    mode === 'stdioAndWebSocket' ||
-    mode === 'remote'
-  ) {
-    return mode
-  }
-  return 'stdio'
+  return mode === 'remote' ? 'remote' : 'local'
 }
 
 function resolveBinarySource(settings: AppSettings): BinarySource {
@@ -258,28 +246,6 @@ function resolveBinarySource(settings: AppSettings): BinarySource {
     return source
   }
   return settings.appServerBinaryPath?.trim() ? 'custom' : 'bundled'
-}
-
-function resolveWebSocketHostPort(settings: AppSettings): { host: string; port: number } {
-  const host = settings.webSocket?.host?.trim() || DEFAULT_WS_HOST
-  const candidatePort = settings.webSocket?.port
-  const port =
-    typeof candidatePort === 'number' && Number.isInteger(candidatePort) && candidatePort > 0 && candidatePort <= 65535
-      ? candidatePort
-      : DEFAULT_WS_PORT
-  return { host, port }
-}
-
-function buildManagedWsUrl(settings: AppSettings): string {
-  const { host, port } = resolveWebSocketHostPort(settings)
-  return `ws://${host}:${port}/ws`
-}
-
-function buildManagedListenUrl(settings: AppSettings, mode: ConnectionMode): string | undefined {
-  const { host, port } = resolveWebSocketHostPort(settings)
-  if (mode === 'websocket') return `ws://${host}:${port}`
-  if (mode === 'stdioAndWebSocket') return `ws+stdio://${host}:${port}`
-  return undefined
 }
 
 function appendTokenToWsUrlIfMissing(urlRaw: string, token: string | undefined): string {
@@ -420,15 +386,6 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
   })
 }
 
-function clearCrashRetryTimer(): boolean {
-  if (crashRetryTimer) {
-    clearTimeout(crashRetryTimer)
-    crashRetryTimer = null
-    return true
-  }
-  return false
-}
-
 function releaseCurrentWorkspaceLock(): void {
   if (!currentWorkspacePath) return
   releaseWorkspaceLock(currentWorkspacePath)
@@ -504,11 +461,9 @@ async function teardownRuntime(
   }
 ): Promise<void> {
   const moduleManager = getModuleProcessManager()
-  const clearedCrashRetry = clearCrashRetryTimer()
   const cleanedIpc = options?.cleanupIpcHandlers
     ? unregisterDesktopIpcHandlers()
     : false
-  const hadAppServer = appServerManager !== null
   const hadProxy = proxyManager !== null
   const hadWireClient = wireClient !== null
   const workspacePathAtTeardown = currentWorkspacePath
@@ -518,7 +473,8 @@ async function teardownRuntime(
       console.warn('[desktop] failed to stop channel modules during teardown', error)
     })
   }
-  appServerManager?.shutdown()
+  hubEventAbortController?.abort()
+  hubEventAbortController = null
   proxyManager?.shutdown()
   stopMacProxyOAuthCallbackForwarders()
   if (hadProxy && workspacePathAtTeardown) {
@@ -528,9 +484,9 @@ async function teardownRuntime(
     })
   }
   wireClient?.dispose()
-  appServerManager = null
   proxyManager = null
   wireClient = null
+  lastAppServerWsUrl = null
   proxyStatus = { status: 'stopped' }
   let releasedWorkspaceLock = false
   if (options?.releaseWorkspaceLock) {
@@ -543,9 +499,7 @@ async function teardownRuntime(
     mainWindow = null
   }
   const changed =
-    clearedCrashRetry ||
     cleanedIpc ||
-    hadAppServer ||
     hadProxy ||
     hadWireClient ||
     releasedWorkspaceLock ||
@@ -702,6 +656,7 @@ async function connectViaWebSocket(
     return
   }
   const win = mainWindow!
+  lastAppServerWsUrl = wsUrl
   emitConnectionStatus(win, { status: 'connecting' })
   reregisterIpcForWorkspace(workspacePath)
 
@@ -748,6 +703,59 @@ async function connectViaWebSocket(
     const message = err instanceof Error ? err.message : String(err)
     if (mainWindow && !mainWindow.isDestroyed()) {
       emitConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
+    }
+  })
+}
+
+function getManagedAppServerEndpoint(response: HubAppServerResponse): string {
+  const endpoint = response.endpoints?.appServerWebSocket
+  if (!endpoint?.trim()) {
+    throw new Error('Hub did not return an AppServer WebSocket endpoint.')
+  }
+  return endpoint
+}
+
+function isCurrentWorkspaceEvent(event: HubEvent, workspacePath: string): boolean {
+  if (!event.workspacePath) return false
+  return resolvePath(event.workspacePath) === resolvePath(workspacePath)
+}
+
+function startHubEventSubscription(workspacePath: string, hubClient: HubClient): void {
+  hubEventAbortController?.abort()
+  const controller = new AbortController()
+  hubEventAbortController = controller
+
+  void hubClient.subscribeEvents((event) => {
+    if (!isCurrentWorkspaceEvent(event, workspacePath)) return
+
+    if (event.kind === 'appserver.exited') {
+      wireClient?.dispose()
+      wireClient = null
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const loc = normalizeLocale(sharedSettings.locale)
+        emitConnectionStatus(mainWindow, {
+          status: 'disconnected',
+          errorMessage: translate(loc, 'main.status.reconnecting')
+        })
+      }
+      return
+    }
+
+    if (event.kind === 'appserver.running') {
+      const data = event.data as { endpoints?: Record<string, string> } | null
+      const endpoint = data?.endpoints?.appServerWebSocket
+      if (endpoint && currentWorkspacePath === workspacePath && !isAppQuitting) {
+        void connectViaWebSocket(workspacePath, endpoint)
+      }
+    }
+
+    if (event.kind === 'notification.requested' && mainWindow && !mainWindow.isDestroyed()) {
+      const data = event.data as { kind?: string; title?: string; body?: string } | null
+      broadcastNotification(mainWindow, data?.kind ?? 'hub/notification', data ?? {})
+    }
+  }, controller.signal).catch((error) => {
+    if (!controller.signal.aborted) {
+      console.warn('[desktop] Hub event subscription ended', error)
     }
   })
 }
@@ -803,9 +811,15 @@ function buildCallbacks(): IpcHandlerCallbacks {
         throw new Error('Cannot restart AppServer while using a remote WebSocket connection.')
       }
       if (resolveConnectionMode(sharedSettings) === 'remote') {
-        throw new Error('Restart is only available for Desktop-managed AppServer subprocesses.')
+        throw new Error('Restart is only available for Hub-managed local AppServers.')
       }
-      await connectToAppServer(currentWorkspacePath)
+      const hubClient = new HubClient({
+        binarySource: resolveBinarySource(sharedSettings),
+        binaryPath: sharedSettings.appServerBinaryPath
+      })
+      const restarted = await hubClient.restartAppServer(currentWorkspacePath)
+      await connectViaWebSocket(currentWorkspacePath, getManagedAppServerEndpoint(restarted))
+      startHubEventSubscription(currentWorkspacePath, hubClient)
     },
     onRestartManagedProxy: async () => {
       if (!currentWorkspacePath) {
@@ -824,6 +838,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
     updateSettings: async (partial) => {
       await updateSharedSettings(partial)
     },
+    getAppServerWsConfig: () => lastAppServerWsUrl ? { wsUrl: lastAppServerWsUrl } : null,
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
     clearRecentWorkspaces: () => {
       clearRecentWorkspaces(sharedSettings)
@@ -1015,141 +1030,30 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
   emitConnectionStatus(win, { status: 'connecting' })
 
-  const manager = new AppServerManager({
-    workspacePath,
-    binarySource: resolveBinarySource(sharedSettings),
-    binaryPath: sharedSettings.appServerBinaryPath,
-    listenUrl: buildManagedListenUrl(sharedSettings, connectionMode)
-  })
-  appServerManager = manager
-
   reregisterIpcForWorkspace(workspacePath)
+  try {
+    const hubClient = new HubClient({
+      binarySource: resolveBinarySource(sharedSettings),
+      binaryPath: sharedSettings.appServerBinaryPath
+    })
+    const ensured = await hubClient.ensureAppServer(workspacePath)
+    if (currentWorkspacePath !== workspacePath || isAppQuitting) return
 
-  manager.on('error', (err: Error) => {
+    startHubEventSubscription(workspacePath, hubClient)
+    await connectViaWebSocket(workspacePath, getManagedAppServerEndpoint(ensured))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     const isBinaryError =
-      err.message.includes('not found') || err.message.includes('ENOENT')
-    const payload: ConnectionStatusPayload = {
-      status: 'error',
-      errorMessage: err.message,
-      ...(isBinaryError ? { binarySource: resolveBinarySource(sharedSettings) } : {}),
-      ...(isBinaryError ? { errorType: 'binary-not-found' } : {})
-    }
+      message.includes('binary') || message.includes('not found') || message.includes('ENOENT')
     if (mainWindow && !mainWindow.isDestroyed()) {
-      emitConnectionStatus(mainWindow, payload as ConnectionStatusPayload)
-    }
-  })
-
-  manager.on('crash', () => {
-    console.error('[desktop] appserver crashed')
-    wireClient?.dispose()
-    wireClient = null
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const loc = normalizeLocale(sharedSettings.locale)
       emitConnectionStatus(mainWindow, {
-        status: 'disconnected',
-        errorMessage: translate(loc, 'main.status.reconnecting')
-      })
+        status: 'error',
+        errorMessage: message,
+        ...(isBinaryError ? { binarySource: resolveBinarySource(sharedSettings) } : {}),
+        ...(isBinaryError ? { errorType: 'binary-not-found' } : {})
+      } as ConnectionStatusPayload)
     }
-
-    if (crashRetries < 3) {
-      crashRetries++
-      clearCrashRetryTimer()
-      crashRetryTimer = setTimeout(() => {
-        if (isAppQuitting) {
-          return
-        }
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          void connectToAppServer(currentWorkspacePath)
-        }
-      }, 2000)
-    }
-  })
-
-  manager.on('started', async () => {
-    crashRetries = 0
-    clearCrashRetryTimer()
-    const isCurrentStartup = (): boolean =>
-      !isAppQuitting &&
-      manager.isRunning &&
-      appServerManager === manager &&
-      currentWorkspacePath === workspacePath
-
-    if (connectionMode === 'websocket') {
-      try {
-        const { host, port } = resolveWebSocketHostPort(sharedSettings)
-        const ready = await waitForReadyz(host, port, isCurrentStartup)
-        if (!ready || !isCurrentStartup()) return
-        await connectViaWebSocket(workspacePath, buildManagedWsUrl(sharedSettings))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          emitConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
-        }
-      }
-      return
-    }
-
-    const { stdin, stdout } = manager
-    if (!stdin || !stdout) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const loc = normalizeLocale(sharedSettings.locale)
-        emitConnectionStatus(mainWindow, {
-          status: 'error',
-          errorMessage: translate(loc, 'main.error.streamsUnavailable')
-        })
-      }
-      return
-    }
-
-    const client = new WireProtocolClient(stdout, stdin)
-    wireClient = client
-
-    client.onNotification((method, params) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        broadcastNotification(mainWindow, method, params)
-      }
-    })
-
-    client.onServerRequest(async (method, params) => {
-      const handledInMain = await handleServerRequestInMain(method, params)
-      if (handledInMain !== undefined) return handledInMain
-      const win = mainWindow!
-      const { bridgeId, promise } = createServerRequestBridge()
-      broadcastServerRequest(win, { bridgeId, method, params })
-      return promise
-    })
-
-    try {
-      const result = await client.initialize()
-      if (!isCurrentStartup()) return
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        emitConnectionStatus(mainWindow, {
-          status: 'connected',
-          serverInfo: result.serverInfo,
-          capabilities: result.capabilities as Record<string, unknown>,
-          dashboardUrl: result.dashboardUrl
-        })
-      }
-      await autoStartEnabledModules()
-    } catch (err) {
-      if (!isCurrentStartup()) return
-      console.error('[desktop] appserver initialize failed', err)
-      const message = err instanceof Error ? err.message : String(err)
-      const isTimeout = message.includes('timed out')
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const loc = normalizeLocale(sharedSettings.locale)
-        emitConnectionStatus(mainWindow, {
-          status: 'error',
-          errorMessage: isTimeout
-            ? translate(loc, 'main.error.handshakeTimeout')
-            : message,
-          ...(isTimeout ? { errorType: 'handshake-timeout' } : {})
-        } as ConnectionStatusPayload)
-      }
-    }
-  })
-
-  manager.spawn()
+  }
 }
 
 // ─── App menu ─────────────────────────────────────────────────────────────────

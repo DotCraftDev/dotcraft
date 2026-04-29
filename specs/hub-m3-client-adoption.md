@@ -19,6 +19,12 @@ Local clients no longer start independent workspace AppServers by default. Inste
 
 The AppServer Protocol remains the client conversation protocol. Hub is only involved in local discovery, lifecycle, endpoint metadata, and optional event/notification integration.
 
+Locked M3 decisions:
+
+- Desktop, TUI, and CLI auto-start Hub by default in local mode when no live Hub is found.
+- Desktop exposes only minimal Hub controls in M3: Local/Remote status and restart for the current local AppServer.
+- Client local mode does not retain a legacy direct stdio option. The `dotcraft app-server` command remains available for explicit server/debug use.
+
 ---
 
 ## 2. Goal
@@ -100,26 +106,26 @@ User-facing terminology should distinguish the modes clearly:
 | Hub-managed local workspace | Hub 管理的本地工作区 |
 | Remote AppServer | 远端 AppServer |
 
-### 5.3 Debug or Legacy Mode
+### 5.3 Direct AppServer Command
 
-Clients may retain an explicit debug or legacy option to spawn stdio AppServer directly. It must not be the default local path after M3.
+Interactive clients do not expose a legacy direct stdio local mode after M3.
 
-This mode should communicate that it bypasses Hub and may not prevent duplicate AppServers.
+The `dotcraft app-server` command remains supported for explicit server hosting, integration tests, CI, bots, and debugging. It is not used by Desktop, TUI, or CLI as the normal local bootstrap path.
 
 ---
 
 ## 6. Desktop Contract
 
-Desktop local workspace opening uses Hub by default.
+Desktop local workspace opening uses Hub by default. Desktop starts Hub lazily when opening the first ready local workspace and no live Hub is available.
 
 Desktop settings behavior:
 
-- Local AppServer port settings should be removed, hidden, or marked advanced legacy.
+- Local AppServer port settings should be removed or hidden.
 - Local AppServer restart should call Hub restart for the active workspace.
 - Remote connection settings remain available under Remote wording.
 - Connection errors should distinguish Hub startup failure from AppServer startup failure.
 
-Desktop may show Hub status in connection UI, but M3 does not require a complete Hub management UI.
+Desktop may show Hub status in connection UI, but M3 does not include a complete Hub management UI, Hub quit action, or rich tray workspace manager.
 
 Desktop should use Hub event subscription when useful for:
 
@@ -152,10 +158,9 @@ CLI local sessions use Hub by default.
 CLI should:
 
 - Use the current working directory as the target workspace.
-- Start or locate Hub according to local mode policy.
+- Start or locate Hub automatically in local mode.
 - Connect to returned AppServer WebSocket endpoint.
 - Preserve explicit remote mode.
-- Preserve an explicit legacy direct stdio mode for debugging if needed.
 
 CLI welcome/status output should identify the backend as Hub-managed local or Remote.
 
@@ -202,7 +207,7 @@ Clients should preserve existing AppServer reconnection rules after the AppServe
 
 - Local Hub mode must preserve existing thread, approval, tool, and streaming behavior because those remain AppServer Protocol concerns.
 - Remote mode must not require Hub.
-- Clients should be able to run against older installations that do not have Hub by falling back or explaining the requirement.
+- Clients should be able to run against older installations that do not have Hub by explaining the requirement clearly. They should not silently fall back to direct stdio local AppServer startup.
 - M3 should not require workspace config migration for local ports.
 - User-facing copy must support bilingual localization where applicable.
 

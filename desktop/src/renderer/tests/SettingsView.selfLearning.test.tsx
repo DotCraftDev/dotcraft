@@ -220,14 +220,14 @@ describe('SettingsView self-learning settings', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
     const modeSelect = await screen.findByRole('combobox', { name: 'Connection mode' }) as HTMLSelectElement
-    fireEvent.change(modeSelect, { target: { value: 'stdioAndWebSocket' } })
+    fireEvent.change(modeSelect, { target: { value: 'remote' } })
 
     expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
 
     await waitFor(() => {
       expect(settingsSet).toHaveBeenCalledWith(expect.objectContaining({
-        connectionMode: 'stdioAndWebSocket'
+        connectionMode: 'remote'
       }))
       expect(appServerRestartManaged).toHaveBeenCalledOnce()
     })

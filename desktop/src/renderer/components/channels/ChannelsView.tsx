@@ -55,13 +55,11 @@ interface ChannelModuleGroup {
 }
 
 function normalizeConnectionMode(mode: unknown): ConnectionMode {
-  return mode === 'websocket' || mode === 'stdioAndWebSocket' || mode === 'remote'
-    ? mode
-    : 'stdio'
+  return mode === 'remote' ? 'remote' : 'local'
 }
 
 function isModuleWsAvailable(mode: ConnectionMode): boolean {
-  return mode !== 'stdio'
+  return mode === 'local' || mode === 'remote'
 }
 
 function normalizeChannelName(value: string): string {
@@ -271,7 +269,7 @@ export function ChannelsView(): JSX.Element {
   const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
   const [variantSwitchingChannel, setVariantSwitchingChannel] = useState<string | null>(null)
   const [activeModuleVariants, setActiveModuleVariants] = useState<Record<string, string>>({})
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('local')
   const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
   const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
   const moduleConnectedSnapshotRef = useRef<Record<string, boolean>>({})
