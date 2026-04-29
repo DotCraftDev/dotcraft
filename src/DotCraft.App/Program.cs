@@ -1,5 +1,6 @@
 using System.Text;
 using DotCraft.CLI;
+using DotCraft.AppServer;
 using DotCraft.Diagnostics;
 using DotCraft.Configuration;
 using DotCraft.Hub;
@@ -192,6 +193,10 @@ var config = AppConfig.LoadWithGlobalFallback(configPath);
 
 // CLI arguments take precedence over config.json values.
 cliArgs.ApplyTo(config);
+if (cliArgs.Mode == CommandLineArgs.RunMode.AppServer)
+{
+    ManagedAppServerEnvironment.ApplyTo(config);
+}
 
 // -------------------------------------------------------------------------
 // 5. Language & debug mode

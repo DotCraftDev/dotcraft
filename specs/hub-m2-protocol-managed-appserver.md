@@ -79,7 +79,7 @@ Hub Protocol v1 uses HTTP JSON over loopback.
 - Mutating endpoints require the Hub token.
 - Clients must treat Hub Protocol as separate from AppServer Protocol.
 
-An event stream endpoint is reserved for lifecycle events. The concrete transport may be Server-Sent Events or WebSocket, but it must remain Hub Protocol, not AppServer Protocol.
+Lifecycle events use Server-Sent Events at `GET /v1/events`. This remains Hub Protocol, not AppServer Protocol.
 
 ### 5.2 Capabilities
 
@@ -94,7 +94,7 @@ An event stream endpoint is reserved for lifecycle events. The concrete transpor
     "portManagement": true,
     "events": true,
     "notifications": true,
-    "tray": true
+    "tray": false
   }
 }
 ```
@@ -218,7 +218,7 @@ Request shape:
 }
 ```
 
-M2 may implement this as a no-op or lifecycle event only if OS notification integration is not ready. The protocol shape should still be reserved before M3 clients depend on it.
+M2 implements this as an accepted no-op plus a `notification.requested` lifecycle event. OS notification integration is deferred to M3.
 
 ### 5.7 Error Shape
 
@@ -335,10 +335,10 @@ Workspace config still controls whether a service is enabled and any user-visibl
 
 ---
 
-## 10. Open Questions
+## 10. Decisions
 
-1. Should Hub Protocol events use Server-Sent Events or WebSocket in v1?
-2. Which runtime override mechanism should be normative: CLI flags, environment variables, or a temporary override file?
-3. Should direct standalone AppServer fail immediately when a managed workspace lock exists, or warn during one transition release?
-4. Should notification requests be accepted from AppServer only, clients only, or both?
-5. Should Dashboard be disabled when override support is missing, or should Hub fail the workspace ensure?
+1. Hub Protocol events use Server-Sent Events in v1.
+2. Managed runtime overrides use environment variables.
+3. Direct standalone AppServer participates in the workspace lock and fails when another live owner holds it.
+4. Notification requests may come from clients or managed AppServers, authorized with the Hub token.
+5. Dashboard/API/AG-UI are allocated when enabled and supported; missing or disabled services are reported as unavailable or disabled instead of failing ensure.

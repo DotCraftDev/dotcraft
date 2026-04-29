@@ -16,18 +16,22 @@ public sealed class HubHost : IDotCraftHost
 {
     private readonly HubConfig _config;
     private readonly HubPaths _paths;
+    private readonly string? _dotcraftBin;
     private readonly CancellationTokenSource _shutdownCts = new();
     private WebApplication? _app;
     private HubLockFile? _lockFile;
+    private HubEventBus? _eventBus;
+    private ManagedAppServerRegistry? _registry;
     private bool _disposed;
 
     /// <summary>
     /// Creates a new Hub host.
     /// </summary>
-    public HubHost(HubConfig config, HubPaths paths)
+    public HubHost(HubConfig config, HubPaths paths, string? dotcraftBin = null)
     {
         _config = config;
         _paths = paths;
+        _dotcraftBin = dotcraftBin;
     }
 
     /// <inheritdoc />
@@ -59,7 +63,9 @@ public sealed class HubHost : IDotCraftHost
 
         try
         {
-            _app = BuildApp(apiBaseUrl, token, startedAt);
+            _eventBus = new HubEventBus();
+            _registry = new ManagedAppServerRegistry(_eventBus, apiBaseUrl, token, _dotcraftBin);
+            _app = BuildApp(apiBaseUrl, token, startedAt, _registry, _eventBus);
             _app.Urls.Add(apiBaseUrl);
             await _app.StartAsync(cancellationToken);
 
@@ -70,6 +76,7 @@ public sealed class HubHost : IDotCraftHost
                 StartedAt: startedAt,
                 Version: AppVersion.Informational);
             lockFile.Publish(lockInfo);
+            _eventBus.Publish("hub.started", data: new { apiBaseUrl, pid = Environment.ProcessId });
 
             AnsiConsole.MarkupLine($"[green][[Hub]][/] DotCraft Hub started at {Markup.Escape(apiBaseUrl)}");
 
@@ -84,11 +91,18 @@ public sealed class HubHost : IDotCraftHost
         }
         finally
         {
+            _eventBus?.Publish("hub.stopping", data: new { pid = Environment.ProcessId });
             if (_app is not null)
             {
                 await _app.StopAsync(CancellationToken.None);
                 await _app.DisposeAsync();
                 _app = null;
+            }
+
+            if (_registry is not null)
+            {
+                await _registry.DisposeAsync();
+                _registry = null;
             }
 
             _lockFile?.DeleteAfterDispose();
@@ -97,7 +111,12 @@ public sealed class HubHost : IDotCraftHost
         }
     }
 
-    private WebApplication BuildApp(string apiBaseUrl, string token, DateTimeOffset startedAt)
+    private WebApplication BuildApp(
+        string apiBaseUrl,
+        string token,
+        DateTimeOffset startedAt,
+        ManagedAppServerRegistry registry,
+        HubEventBus events)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -106,16 +125,79 @@ public sealed class HubHost : IDotCraftHost
         app.MapGet("/v1/status", () => Results.Json(CreateStatus(apiBaseUrl, startedAt), HubJson.Options));
         app.MapPost("/v1/shutdown", (HttpRequest request) =>
         {
-            if (!IsAuthorized(request, token))
-            {
-                return Results.Json(
-                    new HubErrorResponse(new HubError("unauthorized", "Missing or invalid Hub token.")),
-                    HubJson.Options,
-                    statusCode: StatusCodes.Status401Unauthorized);
-            }
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
 
             _shutdownCts.Cancel();
             return Results.Json(new { ok = true }, HubJson.Options);
+        });
+        app.MapPost("/v1/appservers/ensure", async (HttpRequest request, EnsureAppServerRequest body, CancellationToken ct) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return await ProtectedAsync(async () =>
+                Results.Json(await registry.EnsureAsync(body, ct), HubJson.Options));
+        });
+        app.MapGet("/v1/appservers", (HttpRequest request) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return Protected(() => Results.Json(registry.List(), HubJson.Options));
+        });
+        app.MapGet("/v1/appservers/by-workspace", (HttpRequest request) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return Protected(() =>
+            {
+                var workspacePath = request.Query["path"].FirstOrDefault();
+                return Results.Json(registry.GetByWorkspace(workspacePath ?? string.Empty), HubJson.Options);
+            });
+        });
+        app.MapPost("/v1/appservers/stop", async (HttpRequest request, WorkspacePathRequest body, CancellationToken ct) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return await ProtectedAsync(async () =>
+                Results.Json(await registry.StopAsync(body.WorkspacePath, ct), HubJson.Options));
+        });
+        app.MapPost("/v1/appservers/restart", async (HttpRequest request, WorkspacePathRequest body, CancellationToken ct) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return await ProtectedAsync(async () =>
+                Results.Json(await registry.RestartAsync(body.WorkspacePath, ct), HubJson.Options));
+        });
+        app.MapGet("/v1/events", async (HttpRequest request, HttpResponse response, CancellationToken ct) =>
+        {
+            if (!IsAuthorized(request, token))
+            {
+                response.StatusCode = StatusCodes.Status401Unauthorized;
+                await response.WriteAsJsonAsync(
+                    new HubErrorResponse(new HubError("unauthorized", "Missing or invalid Hub token.", null)),
+                    HubJson.Options,
+                    ct);
+                return;
+            }
+
+            var reader = events.Subscribe(ct);
+            await HubEventBus.WriteSseAsync(response, reader, ct);
+        });
+        app.MapPost("/v1/notifications/request", (HttpRequest request, HubNotificationRequest body) =>
+        {
+            if (Unauthorized(request, token) is { } unauthorized)
+                return unauthorized;
+
+            return Protected(() =>
+            {
+                events.Publish("notification.requested", body.WorkspacePath, body);
+                return Results.Json(new { accepted = true }, HubJson.Options);
+            });
         });
 
         return app;
@@ -129,10 +211,10 @@ public sealed class HubHost : IDotCraftHost
             StatePath: _paths.HubStatePath,
             ApiBaseUrl: apiBaseUrl,
             Capabilities: new HubCapabilities(
-                AppServerManagement: false,
-                PortManagement: false,
-                Events: false,
-                Notifications: false,
+                AppServerManagement: true,
+                PortManagement: true,
+                Events: true,
+                Notifications: true,
                 Tray: false));
 
     private static bool IsAuthorized(HttpRequest request, string token)
@@ -142,6 +224,44 @@ public sealed class HubHost : IDotCraftHost
         return authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                && string.Equals(authorization[prefix.Length..], token, StringComparison.Ordinal);
     }
+
+    private static IResult? Unauthorized(HttpRequest request, string token)
+        => IsAuthorized(request, token)
+            ? null
+            : Results.Json(
+                new HubErrorResponse(new HubError("unauthorized", "Missing or invalid Hub token.", null)),
+                HubJson.Options,
+                statusCode: StatusCodes.Status401Unauthorized);
+
+    private static IResult Protected(Func<IResult> action)
+    {
+        try
+        {
+            return action();
+        }
+        catch (HubProtocolException ex)
+        {
+            return ToErrorResult(ex);
+        }
+    }
+
+    private static async Task<IResult> ProtectedAsync(Func<Task<IResult>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (HubProtocolException ex)
+        {
+            return ToErrorResult(ex);
+        }
+    }
+
+    private static IResult ToErrorResult(HubProtocolException ex)
+        => Results.Json(
+            new HubErrorResponse(new HubError(ex.Code, ex.Message, ex.Details)),
+            HubJson.Options,
+            statusCode: ex.StatusCode);
 
     private static string NormalizeHost(string host)
         => string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host.Trim();
@@ -166,6 +286,12 @@ public sealed class HubHost : IDotCraftHost
             await _app.StopAsync(CancellationToken.None);
             await _app.DisposeAsync();
             _app = null;
+        }
+
+        if (_registry is not null)
+        {
+            await _registry.DisposeAsync();
+            _registry = null;
         }
 
         _lockFile?.DeleteAfterDispose();
@@ -203,4 +329,4 @@ public sealed record HubErrorResponse(HubError Error);
 /// <summary>
 /// Hub API error payload.
 /// </summary>
-public sealed record HubError(string Code, string Message);
+public sealed record HubError(string Code, string Message, object? Details);

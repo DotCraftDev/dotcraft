@@ -20,9 +20,11 @@ public sealed class AppServerProcess : IAsyncDisposable
     private const int MaxStderrCaptureChars = 16384;
 
     private readonly Process _process;
+    private readonly int _processId;
     private readonly Task _stderrForwarderTask;
     private readonly StringBuilder _stderrBuffer = new();
     private readonly Lock _stderrLock = new();
+    private int? _exitCode;
 
     /// <summary>
     /// The underlying JSON-RPC 2.0 wire client connected to the subprocess's stdio streams.
@@ -32,12 +34,44 @@ public sealed class AppServerProcess : IAsyncDisposable
     /// <summary>
     /// Whether the subprocess is still running.
     /// </summary>
-    public bool IsRunning => !_process.HasExited;
+    public bool IsRunning
+    {
+        get
+        {
+            if (_disposed)
+                return false;
+
+            try
+            {
+                return !_process.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
     /// <summary>
     /// Exit code after the subprocess has exited; null while still running.
     /// </summary>
-    public int? ExitCode => _process.HasExited ? _process.ExitCode : null;
+    public int? ExitCode
+    {
+        get
+        {
+            if (_exitCode.HasValue)
+                return _exitCode;
+
+            try
+            {
+                return _process.HasExited ? _process.ExitCode : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
 
     /// <summary>
     /// Recent stderr lines from the subprocess (capped), for diagnostics when the process crashes.
@@ -56,7 +90,7 @@ public sealed class AppServerProcess : IAsyncDisposable
     /// <summary>
     /// OS process ID of the AppServer subprocess.
     /// </summary>
-    public int ProcessId => _process.Id;
+    public int ProcessId => _processId;
 
     /// <summary>
     /// Server version string reported by the AppServer during the <c>initialize</c> handshake,
@@ -89,6 +123,7 @@ public sealed class AppServerProcess : IAsyncDisposable
     private AppServerProcess(Process process, AppServerWireClient wire)
     {
         _process = process;
+        _processId = process.Id;
         Wire = wire;
         _stderrForwarderTask = ForwardStderrAsync();
 
@@ -127,36 +162,13 @@ public sealed class AppServerProcess : IAsyncDisposable
         string? dotcraftBin = null,
         string? workspacePath = null,
         string? listenUrl = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null,
         CancellationToken ct = default)
     {
-        dotcraftBin ??= Environment.ProcessPath
-            ?? throw new InvalidOperationException("Cannot determine dotcraft executable path.");
-
-        // Build the argument string: "app-server [--listen <url>]"
-        var arguments = "app-server";
-        if (!string.IsNullOrWhiteSpace(listenUrl))
-        {
-            arguments += $" --listen {listenUrl}";
-        }
-
-        var psi = new ProcessStartInfo(dotcraftBin, arguments)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            // Redirect stderr so diagnostic output from the subprocess does not bleed into the
-            // CLI's own console and confuse the JSON-RPC reader on stdout.
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-
-        if (workspacePath != null)
-            psi.WorkingDirectory = workspacePath;
+        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables);
 
         var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} {arguments}");
+            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {DescribeStartInfo(psi)}");
 
         var wire = new AppServerWireClient(
             process.StandardOutput.BaseStream,
@@ -167,18 +179,26 @@ public sealed class AppServerProcess : IAsyncDisposable
         var appServer = new AppServerProcess(process, wire);
 
         // Handshake: send initialize → wait for response → send initialized
-        var initResponse = await wire.InitializeAsync(
-            clientName: "dotcraft-cli",
-            clientVersion: AppVersion.Informational,
-            approvalSupport: true,
-            streamingSupport: true);
+        try
+        {
+            var initResponse = await wire.InitializeAsync(
+                clientName: "dotcraft-cli",
+                clientVersion: AppVersion.Informational,
+                approvalSupport: true,
+                streamingSupport: true);
 
-        // Extract server version from the initialize response for display in the welcome screen.
-        // Response shape: { "result": { "serverInfo": { "version": "..." } } }
-        appServer.ServerVersion = TryGetServerVersion(initResponse);
-        appServer.DashboardUrl = TryGetDashboardUrl(initResponse);
-        appServer.ModelCatalogManagement = TryGetModelCatalogManagement(initResponse);
-        appServer.WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(initResponse);
+            // Extract server version from the initialize response for display in the welcome screen.
+            // Response shape: { "result": { "serverInfo": { "version": "..." } } }
+            appServer.ServerVersion = TryGetServerVersion(initResponse);
+            appServer.DashboardUrl = TryGetDashboardUrl(initResponse);
+            appServer.ModelCatalogManagement = TryGetModelCatalogManagement(initResponse);
+            appServer.WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(initResponse);
+        }
+        catch
+        {
+            await appServer.DisposeAsync();
+            throw;
+        }
 
         return appServer;
     }
@@ -192,31 +212,13 @@ public sealed class AppServerProcess : IAsyncDisposable
         string? dotcraftBin = null,
         string? workspacePath = null,
         string? listenUrl = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null,
         CancellationToken ct = default)
     {
-        dotcraftBin ??= Environment.ProcessPath
-            ?? throw new InvalidOperationException("Cannot determine dotcraft executable path.");
-
-        var arguments = "app-server";
-        if (!string.IsNullOrWhiteSpace(listenUrl))
-            arguments += $" --listen {listenUrl}";
-
-        var psi = new ProcessStartInfo(dotcraftBin, arguments)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
-
-        if (workspacePath != null)
-            psi.WorkingDirectory = workspacePath;
+        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables);
 
         var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} {arguments}");
+            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {DescribeStartInfo(psi)}");
 
         var wire = new AppServerWireClient(
             process.StandardOutput.BaseStream,
@@ -255,6 +257,15 @@ public sealed class AppServerProcess : IAsyncDisposable
             }
         }
 
+        try
+        {
+            _exitCode = _process.HasExited ? _process.ExitCode : null;
+        }
+        catch
+        {
+            _exitCode = null;
+        }
+
         // Drain stderr forwarder
         try
         {
@@ -284,6 +295,71 @@ public sealed class AppServerProcess : IAsyncDisposable
             }
         }
     }
+
+    private static ProcessStartInfo CreateStartInfo(
+        string? dotcraftBin,
+        string? workspacePath,
+        string? listenUrl,
+        IReadOnlyDictionary<string, string?>? environmentVariables)
+    {
+        dotcraftBin ??= ResolveCurrentDotCraftBinary();
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = dotcraftBin.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? "dotnet"
+                : dotcraftBin,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        if (dotcraftBin.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            psi.ArgumentList.Add(dotcraftBin);
+
+        psi.ArgumentList.Add("app-server");
+        if (!string.IsNullOrWhiteSpace(listenUrl))
+        {
+            psi.ArgumentList.Add("--listen");
+            psi.ArgumentList.Add(listenUrl);
+        }
+
+        if (workspacePath != null)
+            psi.WorkingDirectory = workspacePath;
+
+        if (environmentVariables != null)
+        {
+            foreach (var (key, value) in environmentVariables)
+                psi.Environment[key] = value ?? string.Empty;
+        }
+
+        return psi;
+    }
+
+    private static string ResolveCurrentDotCraftBinary()
+    {
+        var processPath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(processPath)
+            && Path.GetFileNameWithoutExtension(processPath).Equals("dotcraft", StringComparison.OrdinalIgnoreCase))
+        {
+            return processPath;
+        }
+
+        var assemblyPath = typeof(AppServerProcess).Assembly.Location;
+        if (!string.IsNullOrWhiteSpace(assemblyPath) && File.Exists(assemblyPath))
+            return assemblyPath;
+
+        return processPath ?? throw new InvalidOperationException("Cannot determine dotcraft executable path.");
+    }
+
+    private static string DescribeStartInfo(ProcessStartInfo psi)
+        => psi.ArgumentList.Count == 0
+            ? psi.FileName
+            : psi.FileName + " " + string.Join(" ", psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
 
     private async Task ForwardStderrAsync()
     {
