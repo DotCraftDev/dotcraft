@@ -37,7 +37,7 @@ export const usePendingRestartStore = create<PendingRestartStore>((set, get) => 
       }
       return {
         signature,
-        applying: state.signature === signature ? state.applying : false,
+        applying: state.applying,
         visible
       }
     })
