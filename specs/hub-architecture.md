@@ -741,88 +741,52 @@ These choices should be resolved before implementation begins.
 
 ## 15. Iteration Plan
 
-### Phase 0: Spec and Spike
+The Hub feature is delivered in three milestones. Each milestone has its own behavior contract:
 
-Goal: Validate the coordinator model without changing AppServer Protocol.
+- [M1: Shell and Local Presence](hub-m1-shell.md)
+- [M2: Protocol and Managed AppServer](hub-m2-protocol-managed-appserver.md)
+- [M3: Client Adoption](hub-m3-client-adoption.md)
 
-Work:
+### M1: Shell and Local Presence
 
-- Confirm `StdioAndWebSocket` startup works reliably for one workspace.
-- Confirm multiple WebSocket clients can share one AppServer.
-- Decide Hub API transport and managed override mechanism.
-- Decide Dashboard policy for managed AppServers.
-
-Outcome: Implementation choices are settled before production code.
-
-### Phase 1: Hub Core
-
-Goal: Build a local Hub that can start and return managed AppServer endpoints.
+Goal: Establish Hub as a workspace-independent local process in the existing DotCraft binary.
 
 Work:
 
-- Add `dotcraft hub` host module.
-- Implement single-instance Hub lock.
-- Implement Hub Local API.
-- Implement workspace path canonicalization.
-- Implement managed AppServer process supervisor.
-- Implement registry and diagnostics.
-- Start AppServer with `StdioAndWebSocket`.
-- Return direct WebSocket URL from `ensure`.
+- Add `dotcraft hub` host mode.
+- Add global Hub state directory and single-instance lock.
+- Add minimal local status/shutdown API.
+- Support headless mode on every platform.
+- Add optional Windows tray presence as a shell feature, not as the Hub core.
 
-Outcome: Manual clients can ask Hub for a workspace endpoint and connect over existing WebSocket AppServer Protocol.
+Outcome: Hub can run as a global local coordinator shell without depending on any workspace `.craft/` directory.
 
-### Phase 2: CLI and TUI Bootstrap
+### M2: Protocol and Managed AppServer
 
-Goal: Stop CLI/TUI from starting duplicate stdio AppServers when Hub is available.
+Goal: Define and implement the lightweight Hub Protocol and managed AppServer lifecycle.
 
 Work:
 
-- Add Hub discovery to CLI.
-- Add Hub discovery to TUI.
-- Prefer Hub-managed WebSocket endpoint.
-- Preserve explicit `--remote` and direct stdio fallback.
-- Add user-facing diagnostics for Hub/AppServer startup failures.
+- Add Hub Protocol v1 for AppServer ensure/list/get/stop/restart.
+- Add managed AppServer process supervision.
+- Add workspace path canonicalization and duplicate ensure handling.
+- Add Hub-owned local port allocation for managed endpoints.
+- Add runtime override support for AppServer WebSocket and eligible services such as Dashboard, API, and AG-UI.
+- Add lifecycle event stream and notification request reservation.
 
-Outcome: Terminal clients share AppServer processes with each other and with Desktop when Hub is running.
+Outcome: Clients can ask Hub for a workspace endpoint and then connect directly to the returned AppServer WebSocket using the existing AppServer Protocol.
 
-### Phase 3: Desktop Bootstrap
+### M3: Client Adoption
 
-Goal: Make Desktop create and reuse workspace AppServers through Hub.
-
-Work:
-
-- Start or locate Hub from Desktop.
-- Replace Desktop-only workspace lock with Hub ensure flow.
-- Connect each Desktop workspace window to the returned WebSocket endpoint.
-- Show managed AppServer status in connection recovery UI.
-
-Outcome: Desktop, CLI, and TUI share the same AppServer for the same workspace.
-
-### Phase 4: Safety and Default Enablement
-
-Goal: Make Hub safe enough to become the default local interactive path.
+Goal: Make Hub-managed local AppServer the default local connection path for interactive clients.
 
 Work:
 
-- Add workspace AppServer lock enforcement.
-- Add stale lock recovery.
-- Add Dashboard conflict policy.
-- Add per-AppServer WebSocket tokens.
-- Add robust process crash diagnostics.
-- Add tests for duplicate ensure races and stale process recovery.
+- Update Desktop local workspace bootstrap to use Hub.
+- Update TUI local workspace bootstrap to use Hub.
+- Update CLI local workspace bootstrap to use Hub.
+- Preserve explicit Remote mode for direct WebSocket AppServer URLs.
+- Move local AppServer restart/stop behavior to Hub Protocol.
+- Hide or remove local port settings from normal local-mode UX.
 
-Outcome: Hub can be enabled by default for local interactive clients.
-
-### Phase 5: Tray and Multi-Workspace UX
-
-Goal: Build user-facing management on top of the stable coordinator.
-
-Work:
-
-- Add optional tray process controls.
-- List managed workspaces and AppServer health.
-- Open Desktop for a workspace.
-- Stop/restart workspace AppServers.
-- Link to per-workspace Dashboard when available.
-
-Outcome: Hub becomes the local workspace manager without changing the AppServer runtime or protocol.
+Outcome: Desktop, TUI, and CLI reuse the same Hub-managed AppServer for the same local workspace while AppServer Protocol behavior remains unchanged after connection.
