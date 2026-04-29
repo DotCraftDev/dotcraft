@@ -402,9 +402,9 @@ describe('ConversationWelcome composer', () => {
     ])
   })
 
-  it('restores legacy text drafts into tags and keeps serialized text when sending', async () => {
+  it('restores text drafts into tags and keeps serialized text when sending', async () => {
     useUIStore.getState().setWelcomeDraft({
-      text: 'Check @src/foo.ts /code-review [[Use Skill: memory]]',
+      text: 'Check @src/foo.ts /code-review $memory',
       images: [],
       mode: 'agent',
       model: 'Default'

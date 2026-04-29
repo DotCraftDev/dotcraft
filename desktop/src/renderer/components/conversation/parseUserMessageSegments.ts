@@ -9,8 +9,6 @@ export type UserMessageSegment =
   | { type: 'commandRef'; commandText: string }
   | { type: 'skillRef'; skillName: string }
 
-const LEGACY_SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
-
 interface Match {
   type: 'file' | 'command' | 'skill'
   start: number
@@ -55,20 +53,6 @@ function findNextCommandRef(text: string, from: number): Match | null {
 }
 
 function findNextSkillRef(text: string, from: number): Match | null {
-  LEGACY_SKILL_MARKER_RE.lastIndex = from
-  const legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
-  if (legacyMatch) {
-    const skillName = legacyMatch[1]?.trim() ?? ''
-    if (skillName.length > 0) {
-      return {
-        type: 'skill',
-        start: legacyMatch.index,
-        end: legacyMatch.index + legacyMatch[0].length,
-        value: skillName
-      }
-    }
-  }
-
   let i = from
   while (i < text.length) {
     if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {

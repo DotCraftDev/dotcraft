@@ -179,8 +179,6 @@ export function replaceEditorContentFromSegments(root: HTMLElement, segments: Co
   root.appendChild(buildEditorFragmentFromSegments(segments))
 }
 
-const LEGACY_SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
-
 function findNextFileRef(text: string, from: number): Match | null {
   let i = from
   while (i < text.length) {
@@ -200,20 +198,6 @@ function findNextFileRef(text: string, from: number): Match | null {
 }
 
 function findNextSkillRef(text: string, from: number): Match | null {
-  LEGACY_SKILL_MARKER_RE.lastIndex = from
-  const legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
-  if (legacyMatch) {
-    const skillName = legacyMatch[1]?.trim() ?? ''
-    if (skillName) {
-      return {
-        type: 'skill',
-        start: legacyMatch.index,
-        end: legacyMatch.index + legacyMatch[0].length,
-        value: skillName
-      }
-    }
-  }
-
   let i = from
   while (i < text.length) {
     if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {
@@ -270,21 +254,6 @@ function skillCatalogSet(skills: RefCatalogSkill[] | undefined): Set<string> {
 }
 
 function findNextSkillRefWithCatalog(text: string, from: number, skills: Set<string>): Match | null {
-  LEGACY_SKILL_MARKER_RE.lastIndex = from
-  let legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
-  while (legacyMatch) {
-    const skillName = legacyMatch[1]?.trim() ?? ''
-    if (skillName && skills.has(normalizeSkillToken(skillName))) {
-      return {
-        type: 'skill',
-        start: legacyMatch.index,
-        end: legacyMatch.index + legacyMatch[0].length,
-        value: skillName
-      }
-    }
-    legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
-  }
-
   let i = from
   while (i < text.length) {
     if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {

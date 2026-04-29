@@ -181,14 +181,6 @@ describe('truncateEditorDomToSerializedLength', () => {
     ])
   })
 
-  it('still parses legacy double-bracket skill markers for backward compatibility', () => {
-    expect(parseLegacyComposerText('Check [[Use Skill: memory]] now')).toEqual([
-      { type: 'text', value: 'Check ' },
-      { type: 'skill', skillName: 'memory' },
-      { type: 'text', value: ' now' }
-    ])
-  })
-
   it('does not misclassify plain text email or slash path as refs in legacy parsing', () => {
     expect(parseLegacyComposerText('email user@domain.com and path /usr/bin ok')).toEqual([
       { type: 'text', value: 'email user@domain.com and path /usr/bin ok' }
@@ -204,6 +196,16 @@ describe('truncateEditorDomToSerializedLength', () => {
     ])
   })
 
+  it('picks the earliest matching ref when $skill precedes @file', () => {
+    expect(parseComposerTextWithCatalog('$memory @src/foo.ts', {
+      skills: [{ name: 'memory', available: true }]
+    })).toEqual([
+      { type: 'skill', skillName: 'memory' },
+      { type: 'text', value: ' ' },
+      { type: 'file', relativePath: 'src/foo.ts' }
+    ])
+  })
+
   it('parses slash commands before slash skills when both catalogs are present', () => {
     expect(parseComposerTextWithCatalog('/code-review /memory /unknown', {
       commands: [{ name: '/code-review', aliases: ['/cr'] }],
@@ -213,23 +215,6 @@ describe('truncateEditorDomToSerializedLength', () => {
       { type: 'text', value: ' ' },
       { type: 'skill', skillName: 'memory' },
       { type: 'text', value: ' /unknown' }
-    ])
-  })
-
-  it('keeps unmatched legacy skill markers as text with catalog-aware parsing', () => {
-    expect(parseComposerTextWithCatalog('Use [[Use Skill: unknown]] now', {
-      skills: [{ name: 'memory', available: true }]
-    })).toEqual([
-      { type: 'text', value: 'Use [[Use Skill: unknown]] now' }
-    ])
-  })
-
-  it('continues scanning legacy skill markers after unmatched entries', () => {
-    expect(parseComposerTextWithCatalog('Use [[Use Skill: unknown]] then [[Use Skill: memory]]', {
-      skills: [{ name: 'memory', available: true }]
-    })).toEqual([
-      { type: 'text', value: 'Use [[Use Skill: unknown]] then ' },
-      { type: 'skill', skillName: 'memory' }
     ])
   })
 })

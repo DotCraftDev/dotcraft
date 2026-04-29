@@ -57,12 +57,6 @@ describe('parseUserMessageFileRefs', () => {
     ])
   })
 
-  it('still parses legacy double-bracket skill markers', () => {
-    expect(parseUserMessageFileRefs('[[Use Skill: memory]]')).toEqual([
-      { type: 'skillRef', skillName: 'memory' }
-    ])
-  })
-
   it('treats plain "Use Skill:" text as normal text', () => {
     expect(parseUserMessageFileRefs('Please Use Skill: memory today')).toEqual([
       { type: 'text', value: 'Please Use Skill: memory today' }
