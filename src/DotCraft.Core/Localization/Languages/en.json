@@ -97,6 +97,7 @@
 
   "memory.consolidating": "Consolidating memory...",
   "memory.consolidated": "Memory consolidation complete.",
+  "memory.consolidation_failed": "Memory consolidation failed.",
 
   "agent.interrupted": "Agent interrupted",
 

@@ -18,6 +18,13 @@
 | `DebugMode` | 控制台不截断工具调用参数输出 | `false` |
 | `EnabledTools` | 全局启用的工具名称列表，为空时启用所有工具 | `[]` |
 
+## Memory
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `Memory.AutoConsolidateEnabled` | 启用长期记忆自动沉淀 | `true` |
+| `Memory.ConsolidateEveryNTurns` | 每个线程成功完成多少轮后触发一次长期记忆沉淀 | `5` |
+
 ## Compaction
 
 | 配置项 | 说明 | 默认值 |
@@ -37,7 +44,6 @@
 | `Compaction.MicrocompactTriggerCount` | 可压缩工具结果数量达到该值时触发微压缩 | `30` |
 | `Compaction.MicrocompactKeepRecent` | 微压缩时保留的最近工具结果数 | `8` |
 | `Compaction.MicrocompactGapMinutes` | 距离上次助理消息超过该分钟数也触发微压缩；`0` 表示禁用 | `20` |
-| `Compaction.MemoryConsolidationPrefixTokens` | 当前缀超过此 Token 数时触发记忆整合 | `20000` |
 | `Compaction.MaxConsecutiveFailures` | 连续失败次数达到该值时熔断 | `3` |
 
 ## Reasoning

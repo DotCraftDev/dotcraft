@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using DotCraft.Context;
 using DotCraft.Context.Compaction;
 using DotCraft.Localization;
 using DotCraft.Lsp;
@@ -65,6 +66,13 @@ public sealed class AppConfig
     /// </summary>
     [ConfigField(Ignore = true)]
     public CompactionConfig Compaction { get; set; } = new();
+
+    /// <summary>
+    /// Long-term memory consolidation settings. These settings are independent
+    /// from context compaction.
+    /// </summary>
+    [ConfigField(Ignore = true)]
+    public MemoryConfig Memory { get; set; } = new();
 
     /// <summary>
     /// Model used for memory consolidation. When empty, uses <see cref="Model"/> (same as main agent).

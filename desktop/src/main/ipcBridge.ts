@@ -247,6 +247,7 @@ interface WorkspaceCoreConfigSnapshot {
   endPoint: string | null
   welcomeSuggestionsEnabled: boolean | null
   skillsSelfLearningEnabled: boolean | null
+  memoryAutoConsolidateEnabled: boolean | null
   defaultApprovalPolicy: 'default' | 'autoApprove' | null
 }
 
@@ -302,6 +303,7 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
       endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint),
       welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled'),
       skillsSelfLearningEnabled: readSkillsSelfLearningEnabled(parsed),
+      memoryAutoConsolidateEnabled: readNestedBoolean(parsed, 'Memory', 'AutoConsolidateEnabled'),
       defaultApprovalPolicy: readDefaultApprovalPolicy(parsed)
     }
   } catch (error) {
@@ -312,6 +314,7 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
         endPoint: null,
         welcomeSuggestionsEnabled: null,
         skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
         defaultApprovalPolicy: null
       }
     }
@@ -707,6 +710,7 @@ export function registerIpcHandlers(
             endPoint: null,
             welcomeSuggestionsEnabled: null,
             skillsSelfLearningEnabled: null,
+            memoryAutoConsolidateEnabled: null,
             defaultApprovalPolicy: null
           },
           userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))

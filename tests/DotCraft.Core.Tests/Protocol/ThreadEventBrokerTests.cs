@@ -54,6 +54,26 @@ public sealed class ThreadEventBrokerTests
         Assert.Null(events[0].TurnId);
     }
 
+    [Fact]
+    public async Task PublishSystemEvent_PublishesThreadScopedSystemPayload()
+    {
+        var broker = new ThreadEventBroker("thread_001");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var collectTask = CollectAsync(broker.SubscribeAsync(ct: cts.Token), expectedCount: 1, cts);
+
+        broker.PublishSystemEvent("consolidationFailed", message: "provider unavailable");
+
+        var events = await collectTask;
+        Assert.Single(events);
+        var payload = events[0].SystemEventPayload;
+        Assert.NotNull(payload);
+        Assert.Equal(SessionEventType.SystemEvent, events[0].EventType);
+        Assert.Equal("thread_001", events[0].ThreadId);
+        Assert.Null(events[0].TurnId);
+        Assert.Equal("consolidationFailed", payload.Kind);
+        Assert.Equal("provider unavailable", payload.Message);
+    }
+
     private static async Task<List<SessionEvent>> CollectAsync(
         IAsyncEnumerable<SessionEvent> events,
         int expectedCount,

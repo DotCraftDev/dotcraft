@@ -78,8 +78,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         CompactionPipeline = new CompactionPipeline(
             config.Compaction,
-            _chatClient.AsIChatClient(),
-            Consolidator);
+            _chatClient.AsIChatClient());
 
         // Build tool provider context
         _toolProviderContext = toolProviderContext ?? new ToolProviderContext
@@ -122,9 +121,8 @@ public sealed class AgentFactory : IAsyncDisposable
 
     /// <summary>
     /// Gets the memory consolidator for persisting conversation knowledge.
-    /// Memory consolidation is driven by the <see cref="CompactionPipeline"/>:
-    /// the prefix that was summarized is handed directly to the consolidator
-    /// so <c>MEMORY.md</c> / <c>HISTORY.md</c> see exactly what the LLM saw.
+    /// Session Core drives consolidation independently from context
+    /// compaction, using completed thread history as input.
     /// </summary>
     public MemoryConsolidator? Consolidator { get; }
 

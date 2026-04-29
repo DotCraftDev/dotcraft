@@ -10,6 +10,10 @@ namespace DotCraft.Tools;
 /// <summary>
 /// File system tools: read, write, edit, search files with safety guards.
 /// </summary>
+/// <remarks>
+/// Write and edit operations serialize per canonical file path across the process so concurrent
+/// tool calls cannot overlap their read-modify-write sections.
+/// </remarks>
 public sealed class FileTools(
     string workspaceRoot,
     bool requireApprovalOutsideWorkspace = true,
@@ -104,7 +108,7 @@ public sealed class FileTools(
                         "Error: Line offset/limit pagination is not supported for image files; call ReadFile without offset and limit to load the image as vision input.");
                 }
 
-                var bytes = await File.ReadAllBytesAsync(fullPath);
+                var bytes = await WithSharingViolationRetryAsync(() => File.ReadAllBytesAsync(fullPath));
                 var summary = $"Image: {path} ({bytes.Length:N0} bytes, {mediaType})";
                 return [new TextContent(summary), new DataContent(bytes, mediaType)];
             }
@@ -113,7 +117,7 @@ public sealed class FileTools(
 
             if (offset > 0)
             {
-                var lines = await File.ReadAllLinesAsync(fullPath, encoding);
+                var lines = await WithSharingViolationRetryAsync(() => File.ReadAllLinesAsync(fullPath, encoding));
                 var startIndex = offset - 1;
                 if (startIndex >= lines.Length)
                     return ReadFileTextResult($"Error: Offset {offset} is out of range for this file ({lines.Length} lines).");
@@ -137,7 +141,7 @@ public sealed class FileTools(
                 return ReadFileTextResult(sb.ToString());
             }
 
-            return ReadFileTextResult(await File.ReadAllTextAsync(fullPath, encoding));
+            return ReadFileTextResult(await WithSharingViolationRetryAsync(() => File.ReadAllTextAsync(fullPath, encoding)));
         }
         catch (UnauthorizedAccessException)
         {
@@ -174,17 +178,22 @@ public sealed class FileTools(
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
-            var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
-            if (File.Exists(fullPath))
+            using (await PathAsyncMutex.AcquireAsync(fullPath))
             {
-                var existing = await File.ReadAllTextAsync(fullPath, encoding);
-                content = RestoreLineEndings(NormalizeToLf(content), UsesCrLf(existing));
+                var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
+                if (File.Exists(fullPath))
+                {
+                    var existing = await File.ReadAllTextAsync(fullPath, encoding);
+                    content = RestoreLineEndings(NormalizeToLf(content), UsesCrLf(existing));
+                }
+                else
+                {
+                    content = NormalizeToLf(content);
+                }
+
+                await File.WriteAllTextAsync(fullPath, content, encoding);
             }
-            else
-            {
-                content = NormalizeToLf(content);
-            }
-            await File.WriteAllTextAsync(fullPath, content, encoding);
+
             await NotifyLspFileChangedAsync(fullPath, content);
             var lineCount = content.Split('\n').Length;
             return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
@@ -214,23 +223,27 @@ public sealed class FileTools(
             if (validateResult != null)
                 return validateResult;
 
-            if (!File.Exists(fullPath))
-                return $"Error: File not found: {path}";
-
-            var encoding = DetectFileEncoding(fullPath);
-            var content = await File.ReadAllTextAsync(fullPath, encoding);
             newText = UnescapeUnicodeSequences(newText);
 
             if (string.IsNullOrEmpty(oldText))
                 return "Error: oldText is required. Provide the exact snippet to find and replace.";
 
             oldText = UnescapeUnicodeSequences(oldText);
-            var result = await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
-            if (result.StartsWith("Successfully", StringComparison.Ordinal))
+
+            string result;
+            string? writtenContent;
+            using (await PathAsyncMutex.AcquireAsync(fullPath))
             {
-                var latest = await File.ReadAllTextAsync(fullPath, encoding);
-                await NotifyLspFileChangedAsync(fullPath, latest);
+                if (!File.Exists(fullPath))
+                    return $"Error: File not found: {path}";
+
+                var encoding = DetectFileEncoding(fullPath);
+                var content = await File.ReadAllTextAsync(fullPath, encoding);
+                (result, writtenContent) = await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
             }
+
+            if (writtenContent != null)
+                await NotifyLspFileChangedAsync(fullPath, writtenContent);
 
             return result;
         }
@@ -542,7 +555,7 @@ public sealed class FileTools(
         }
     }
 
-    private static async Task<string> ApplySearchReplaceEdit(
+    private static async Task<(string Result, string? WrittenContent)> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,
         Encoding encoding, bool replaceAll)
     {
@@ -555,18 +568,37 @@ public sealed class FileTools(
         var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
             FileEditSearchReplace.Apply(content, oldText, newText, replaceAll);
         if (!ok)
-            return error!;
+            return (error!, null);
 
         var newContent = RestoreLineEndings(newLfContent, useCrLf);
         await File.WriteAllTextAsync(fullPath, newContent, encoding);
 
         if (replaceCount > 1)
-            return $"Successfully replaced {replaceCount} occurrences in {displayPath}";
+            return ($"Successfully replaced {replaceCount} occurrences in {displayPath}", newContent);
 
         var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
         var suffix = matchKind != null ? $" ({matchKind})" : "";
-        return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}";
+        return ($"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}", newContent);
     }
+
+    private static async Task<T> WithSharingViolationRetryAsync<T>(Func<Task<T>> operation)
+    {
+        var delays = new[] { 20, 40, 80 };
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await operation();
+            }
+            catch (IOException ex) when (attempt < delays.Length && IsSharingOrLockViolation(ex))
+            {
+                await Task.Delay(delays[attempt]);
+            }
+        }
+    }
+
+    private static bool IsSharingOrLockViolation(IOException ex)
+        => ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021);
 
     private static bool UsesCrLf(string content)
         => content.Contains("\r\n");

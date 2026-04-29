@@ -46,6 +46,7 @@ export function useSettingsWorkspaceConfigChangeEffects({
     const workspaceCoreChanged =
       llmCoreChanged ||
       changedRegions.has('welcomeSuggestions') ||
+      changedRegions.has('memory') ||
       changedRegions.has(WORKSPACE_DEFAULT_APPROVAL_POLICY_REGION)
 
     if (workspaceCoreChanged) {

@@ -67,6 +67,26 @@ internal sealed class ThreadEventBroker(string threadId)
             });
     }
 
+    /// <summary>
+    /// Publishes a thread-scoped system maintenance event.
+    /// </summary>
+    public void PublishSystemEvent(
+        string kind,
+        string? message = null,
+        double? percentLeft = null,
+        long? tokenCount = null)
+    {
+        PublishThreadEvent(
+            SessionEventType.SystemEvent,
+            new SystemEventPayload
+            {
+                Kind = kind,
+                Message = message,
+                PercentLeft = percentLeft,
+                TokenCount = tokenCount
+            });
+    }
+
     public void PublishItemEvent(SessionEventType eventType, string turnId, SessionItem item)
     {
         var payload = new SessionItem

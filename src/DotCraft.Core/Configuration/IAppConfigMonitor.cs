@@ -44,6 +44,7 @@ public static class ConfigChangeRegions
     public const string WorkspaceApiKey = "workspace.apiKey";
     public const string WorkspaceEndPoint = "workspace.endpoint";
     public const string WelcomeSuggestions = "welcomeSuggestions";
+    public const string Memory = "memory";
     public const string Skills = "skills";
     public const string WorkspaceDefaultApprovalPolicy = "workspace.defaultApprovalPolicy";
     public const string Mcp = "mcp";

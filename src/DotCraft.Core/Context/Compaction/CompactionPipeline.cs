@@ -72,18 +72,15 @@ public sealed class CompactionPipeline
     private readonly CompactionConfig _config;
     private readonly MicroCompactor _micro;
     private readonly PartialCompactor _partial;
-    private readonly MemoryConsolidator? _memoryConsolidator;
     private readonly CompactionFailureTracker _failures;
 
     public CompactionPipeline(
         CompactionConfig config,
-        IChatClient summaryChatClient,
-        MemoryConsolidator? memoryConsolidator = null)
+        IChatClient summaryChatClient)
     {
         _config = config;
         _micro = new MicroCompactor(config);
         _partial = new PartialCompactor(summaryChatClient, config);
-        _memoryConsolidator = memoryConsolidator;
         _failures = new CompactionFailureTracker(config.MaxConsecutiveFailures);
     }
 
@@ -427,11 +424,6 @@ public sealed class CompactionPipeline
         var newHistory = new List<ChatMessage>(1 + partial.PreservedTail.Count) { summaryMessage };
         newHistory.AddRange(partial.PreservedTail);
 
-        if (_memoryConsolidator != null && ShouldConsolidate(partial))
-        {
-            _memoryConsolidator.ConsolidateInBackground(partial.SummarizedPrefix);
-        }
-
         var afterTokens = MessageTokenEstimator.Estimate(newHistory);
         var afterThreshold = EvaluateThreshold(afterTokens);
         _failures.RecordSuccess(threadId);
@@ -445,18 +437,6 @@ public sealed class CompactionPipeline
                 afterThreshold,
                 microResult.ClearedCount),
             newHistory);
-    }
-
-    private bool ShouldConsolidate(PartialCompactResult partial)
-    {
-        if (_memoryConsolidator is null)
-            return false;
-
-        if (_config.MemoryConsolidationPrefixTokens <= 0)
-            return true;
-
-        return partial.PrefixEstimatedTokens >= _config.MemoryConsolidationPrefixTokens
-            || partial.SummarizedPrefix.Count >= 10;
     }
 
     private static IReadOnlyList<ChatMessage> SnapshotHistory(

@@ -1740,6 +1740,12 @@ public sealed class WorkspaceConfigUpdateParams
     public bool? SkillsSelfLearningEnabled { get; set; }
 
     /// <summary>
+    /// Workspace-level toggle for long-term memory consolidation. Null removes the workspace override.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? MemoryAutoConsolidateEnabled { get; set; }
+
+    /// <summary>
     /// Workspace default approval policy. Null removes the workspace override.
     /// Supported values: default, autoApprove.
     /// </summary>
@@ -1786,6 +1792,13 @@ public sealed class WorkspaceConfigUpdateResult
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool? SkillsSelfLearningEnabled { get; set; }
+
+    /// <summary>
+    /// Persisted workspace long-term memory consolidation toggle after normalization.
+    /// Null means the workspace override was removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? MemoryAutoConsolidateEnabled { get; set; }
 
     /// <summary>
     /// Persisted workspace default approval policy after normalization.

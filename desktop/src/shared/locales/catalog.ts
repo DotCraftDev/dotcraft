@@ -74,6 +74,10 @@ const MESSAGES_EN = {
   'settings.personalization.selfLearningRestartBannerRemote':
     'Self-learning changes are saved. Restart the remote AppServer to apply them.',
   'settings.personalization.selfLearningRestartButton': 'Restart now',
+  'settings.personalization.longTermMemory': 'Enable long-term memory',
+  'settings.personalization.longTermMemoryHint':
+    'Let DotCraft progressively accumulate facts about you and the workspace so future sessions can reference them.',
+  'settings.personalization.longTermMemorySaveFailed': 'Failed to save long-term memory setting: {{error}}',
   'settings.permissions.description':
     'Choose the default approval behavior for new threads in this workspace. Channels without per-thread controls use this setting.',
   'settings.permissions.workspaceDefault.label': 'Workspace default permissions',
@@ -774,6 +778,7 @@ const MESSAGES_EN = {
   'contextRing.tooltip.autoCompact': 'Auto-compact triggers at {{percent}}%',
   'systemStatus.compacting': 'Auto-compacting context',
   'systemStatus.consolidating': 'Consolidating memory',
+  'systemNotice.consolidationFailed.message': 'Long-term memory consolidation failed.',
   'systemNotice.compacted.title': 'Context compacted',
   'systemNotice.compacted.auto': 'Auto-compacted',
   'systemNotice.compacted.reactive': 'Recovered from context overflow',
@@ -1705,6 +1710,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.selfLearningRestartBannerRemote':
     '自我学习设置已保存。请重启远程 AppServer 使其生效。',
   'settings.personalization.selfLearningRestartButton': '立即重启',
+  'settings.personalization.longTermMemory': '启用长期记忆',
+  'settings.personalization.longTermMemoryHint':
+    '让 DotCraft 在对话期间逐步积累关于你和工作区的事实，下次会话仍可被引用。',
+  'settings.personalization.longTermMemorySaveFailed': '保存长期记忆设置失败：{{error}}',
   'settings.permissions.description':
     '选择此工作区中新会话的默认审批行为。没有单会话选项的渠道会使用此设置。',
   'settings.permissions.workspaceDefault.label': '工作区默认权限',
@@ -2319,6 +2328,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'contextRing.tooltip.autoCompact': '达到 {{percent}}% 时自动压缩',
   'systemStatus.compacting': '正在自动压缩上下文',
   'systemStatus.consolidating': '正在整理记忆',
+  'systemNotice.consolidationFailed.message': '长期记忆整理失败。',
   'systemNotice.compacted.title': '上下文已压缩',
   'systemNotice.compacted.auto': '自动压缩完成',
   'systemNotice.compacted.reactive': '已在溢出后恢复',

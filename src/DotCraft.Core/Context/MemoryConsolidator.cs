@@ -9,9 +9,11 @@ using AiChatRole = Microsoft.Extensions.AI.ChatRole;
 namespace DotCraft.Context;
 
 /// <summary>
-/// Consolidates conversation messages into dual-layer memory:
+/// Consolidates thread history into dual-layer long-term memory:
 /// - MEMORY.md: updated structured long-term facts
 /// - HISTORY.md: appended grep-searchable event paragraph
+/// Session Core schedules consolidation after successful turns; context
+/// compaction does not drive this workflow.
 /// </summary>
 public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memoryStore, Action<string>? onStatus = null)
 {
@@ -40,7 +42,7 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
         """));
 
     /// <summary>
-    /// Consolidate the given messages into MEMORY.md and HISTORY.md.
+    /// Consolidate the given thread-history snapshot into MEMORY.md and HISTORY.md.
     /// Runs the LLM consolidation call and writes results to disk.
     /// </summary>
     public async Task ConsolidateAsync(
@@ -117,6 +119,7 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
         catch (Exception ex)
         {
             onStatus?.Invoke($"[grey][[Memory]][/] [red]Consolidation failed: {Markup.Escape(ex.Message)}[/]");
+            throw;
         }
     }
 

@@ -331,6 +331,9 @@ describe('registerIpcHandlers', () => {
       const pathText = String(filePath)
       if (pathText.includes('dotcraft')) {
         return JSON.stringify({
+          Memory: {
+            AutoConsolidateEnabled: true
+          },
           Skills: {
             SelfLearning: {
               Enabled: true
@@ -339,6 +342,9 @@ describe('registerIpcHandlers', () => {
         })
       }
       return JSON.stringify({
+        Memory: {
+          AutoConsolidateEnabled: false
+        },
         Skills: {
           SelfLearning: {
             Enabled: false
@@ -379,8 +385,8 @@ describe('registerIpcHandlers', () => {
 
     const result = await handlers.get('workspace-config:get-core')?.({})
     expect(result).toMatchObject({
-      workspace: { skillsSelfLearningEnabled: true },
-      userDefaults: { skillsSelfLearningEnabled: false }
+      workspace: { skillsSelfLearningEnabled: true, memoryAutoConsolidateEnabled: true },
+      userDefaults: { skillsSelfLearningEnabled: false, memoryAutoConsolidateEnabled: false }
     })
   })
 

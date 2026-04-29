@@ -501,6 +501,14 @@ describe('system events', () => {
     expect(s().systemLabel).toBeNull()
   })
 
+  it('clears label on "consolidationFailed" event', () => {
+    s().onTurnStarted(makeTurn())
+    s().onSystemEvent('consolidating')
+    expect(s().systemLabel).toBe('systemStatus.consolidating')
+    s().onSystemEvent('consolidationFailed')
+    expect(s().systemLabel).toBeNull()
+  })
+
   it('ignores unknown system event kinds', () => {
     s().onTurnStarted(makeTurn())
     s().onSystemEvent('unknown-event-xyz')

@@ -21,7 +21,8 @@ public sealed class SessionEvent
     public string ThreadId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Parent Turn ID. Null for thread-level events (thread/created, thread/resumed, thread/statusChanged).
+    /// Parent Turn ID. Null for thread-level events (thread/created, thread/resumed, thread/statusChanged)
+    /// and thread-scoped maintenance events.
     /// </summary>
     public string? TurnId { get; set; }
 
@@ -241,7 +242,7 @@ public sealed record SystemEventPayload
     /// <summary>
     /// System event kind. One of: "compactWarning", "compactError",
     /// "compacting", "compacted", "compactSkipped", "compactFailed",
-    /// "consolidating", "consolidated".
+    /// "consolidating", "consolidated", "consolidationFailed".
     /// </summary>
     public required string Kind { get; init; }
 

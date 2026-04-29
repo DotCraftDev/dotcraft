@@ -116,14 +116,6 @@ public sealed class CompactionConfig
     public int MicrocompactGapMinutes { get; set; } = 20;
 
     /// <summary>
-    /// Consolidate MEMORY.md / HISTORY.md when the prefix handed to the
-    /// summary step exceeds this many estimated tokens, even if the pipeline
-    /// did not need to run a full summary.
-    /// </summary>
-    [ConfigField(Min = 0, Hint = "Secondary token-based trigger for memory consolidation.")]
-    public int MemoryConsolidationPrefixTokens { get; set; } = 20_000;
-
-    /// <summary>
     /// Maximum consecutive compaction failures before the pipeline trips its
     /// circuit breaker for this thread and skips future attempts until reset.
     /// </summary>

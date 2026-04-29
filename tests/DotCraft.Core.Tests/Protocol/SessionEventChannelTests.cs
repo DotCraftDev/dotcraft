@@ -216,6 +216,23 @@ public sealed class SessionEventChannelTests
         Assert.Equal(ThreadStatus.Paused, payload.NewStatus);
     }
 
+    [Fact]
+    public async Task EmitSystemEvent_ContainsSystemPayload()
+    {
+        var channel = MakeChannel();
+
+        channel.EmitSystemEvent("consolidationFailed", message: "provider unavailable");
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        var payload = events[0].SystemEventPayload;
+        Assert.NotNull(payload);
+        Assert.Equal(SessionEventType.SystemEvent, events[0].EventType);
+        Assert.Equal(TestTurnId, events[0].TurnId);
+        Assert.Equal("consolidationFailed", payload.Kind);
+        Assert.Equal("provider unavailable", payload.Message);
+    }
+
     // -------------------------------------------------------------------------
     // Snapshot semantics (spec appserver-protocol.md §6.3)
     // -------------------------------------------------------------------------

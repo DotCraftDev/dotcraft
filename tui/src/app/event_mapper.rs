@@ -630,7 +630,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         message: message.clone(),
                     });
                 }
-                "compacted" | "compactSkipped" | "consolidated" => {
+                "compacted" | "compactSkipped" | "consolidated" | "consolidationFailed" => {
                     state.system_status = None;
                     if let Some(msg) = message {
                         state
@@ -761,6 +761,43 @@ mod tests {
             result: None,
             error: None,
         }
+    }
+
+    #[test]
+    fn consolidation_failed_clears_system_status_and_records_message() {
+        let mut state = AppState::new("workspace".to_string());
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "system/event",
+                serde_json::json!({
+                    "kind": "consolidating",
+                    "message": "Consolidating memory"
+                })
+            )
+        ));
+        assert_eq!(
+            state.system_status.as_ref().map(|status| status.kind.as_str()),
+            Some("consolidating")
+        );
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "system/event",
+                serde_json::json!({
+                    "kind": "consolidationFailed",
+                    "message": "Memory consolidation failed"
+                })
+            )
+        ));
+
+        assert!(state.system_status.is_none());
+        assert!(matches!(
+            state.history.last(),
+            Some(HistoryEntry::SystemInfo { message }) if message == "Memory consolidation failed"
+        ));
     }
 
     #[test]
