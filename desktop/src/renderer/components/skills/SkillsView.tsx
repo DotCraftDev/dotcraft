@@ -401,7 +401,12 @@ function SkillsManageView({
         {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
         {!loading && !error && skills.map((skill) => (
           <div key={skill.name} style={manageRow}>
-            <SkillAvatar name={skillTitle(skill)} size={38} iconDataUrl={skill.iconSmallDataUrl} />
+            <SkillAvatar
+              name={skill.name}
+              displayName={skillTitle(skill)}
+              size={38}
+              iconDataUrl={skill.iconSmallDataUrl}
+            />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={rowTitle}>{skillTitle(skill)}</div>
               <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
@@ -424,7 +429,12 @@ function LocalSkillItem({ skill, onOpen }: { skill: SkillEntry; onOpen: () => vo
   const t = useT()
   return (
     <button type="button" onClick={onOpen} style={compactItem}>
-      <SkillAvatar name={skillTitle(skill)} size={40} iconDataUrl={skill.iconSmallDataUrl} />
+      <SkillAvatar
+        name={skill.name}
+        displayName={skillTitle(skill)}
+        size={40}
+        iconDataUrl={skill.iconSmallDataUrl}
+      />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={rowTitle}>{skillTitle(skill)}</div>
         <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
