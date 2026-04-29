@@ -3,16 +3,34 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { SettingsView } from '../components/settings/SettingsView'
 import { useConnectionStore } from '../stores/connectionStore'
+import { usePendingRestartStore } from '../stores/pendingRestartStore'
 
 const settingsGet = vi.fn()
 const settingsSet = vi.fn()
 const workspaceConfigGetCore = vi.fn()
 const appServerSendRequest = vi.fn()
 const appServerRestartManaged = vi.fn()
+const proxyRestartManaged = vi.fn()
+
+function PendingRestartHarness(): JSX.Element | null {
+  const visible = usePendingRestartStore((s) => s.visible)
+  const applying = usePendingRestartStore((s) => s.applying)
+  const apply = usePendingRestartStore((s) => s.apply)
+  const ignore = usePendingRestartStore((s) => s.ignore)
+  if (!visible) return null
+  return (
+    <div role="status">
+      <span>Changes require a service restart to take effect</span>
+      <button type="button" onClick={() => ignore()} disabled={applying}>Ignore</button>
+      <button type="button" onClick={() => void apply()} disabled={applying}>Apply & Restart</button>
+    </div>
+  )
+}
 
 function renderView(): void {
   render(
     <LocaleProvider>
+      <PendingRestartHarness />
       <SettingsView workspacePath="E:\\Git\\dotcraft" />
     </LocaleProvider>
   )
@@ -21,6 +39,7 @@ function renderView(): void {
 describe('SettingsView self-learning settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    usePendingRestartStore.getState().clear()
     delete (window as Window & { __confirmDialog?: unknown }).__confirmDialog
 
     const core = {
@@ -81,7 +100,7 @@ describe('SettingsView self-learning settings', () => {
           getStatus: vi.fn().mockResolvedValue({ status: 'stopped' }),
           listAuthFiles: vi.fn().mockResolvedValue([]),
           pickBinary: vi.fn(),
-          restartManaged: vi.fn(),
+          restartManaged: proxyRestartManaged,
           startOAuth: vi.fn(),
           getAuthStatus: vi.fn(),
           getUsageSummary: vi.fn().mockResolvedValue({
@@ -110,7 +129,7 @@ describe('SettingsView self-learning settings', () => {
     })
   })
 
-  it('saves self-learning toggle, shows restart banner, and restarts managed AppServer', async () => {
+  it('saves self-learning toggle, shows global restart banner, and restarts managed AppServer', async () => {
     renderView()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Personalization' }))
@@ -124,12 +143,15 @@ describe('SettingsView self-learning settings', () => {
         skillsSelfLearningEnabled: true
       })
     })
-    expect(await screen.findByText('Self-learning changes are saved. Restart AppServer to apply them.')).toBeInTheDocument()
+    expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Restart now/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
 
     await waitFor(() => {
       expect(appServerRestartManaged).toHaveBeenCalledOnce()
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Changes require a service restart to take effect')).not.toBeInTheDocument()
     })
   })
 
@@ -175,7 +197,59 @@ describe('SettingsView self-learning settings', () => {
         memoryAutoConsolidateEnabled: true
       })
     })
-    expect(screen.queryByText('Self-learning changes are saved. Restart AppServer to apply them.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Changes require a service restart to take effect')).not.toBeInTheDocument()
+  })
+
+  it('shows restart banner for LLM edits and ignore only hides the banner', async () => {
+    renderView()
+
+    const endpointInput = await screen.findByPlaceholderText('https://api.openai.com/v1') as HTMLInputElement
+    fireEvent.change(endpointInput, { target: { value: 'https://models.example.test/v1' } })
+
+    expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ignore' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Changes require a service restart to take effect')).not.toBeInTheDocument()
+    })
+    expect(endpointInput.value).toBe('https://models.example.test/v1')
+  })
+
+  it('applies connection edits through the global restart banner', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    const modeSelect = await screen.findByRole('combobox', { name: 'Connection mode' }) as HTMLSelectElement
+    fireEvent.change(modeSelect, { target: { value: 'stdioAndWebSocket' } })
+
+    expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalledWith(expect.objectContaining({
+        connectionMode: 'stdioAndWebSocket'
+      }))
+      expect(appServerRestartManaged).toHaveBeenCalledOnce()
+    })
+  })
+
+  it('applies API proxy edits through the global restart banner', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByText('API Proxy'))
+    await screen.findByText('Enable local API proxy (CLIProxyAPI)')
+    const proxyToggle = screen.getAllByRole('switch')[0]
+    fireEvent.click(proxyToggle)
+
+    expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalledWith(expect.objectContaining({
+        proxy: expect.objectContaining({ enabled: true })
+      }))
+      expect(proxyRestartManaged).toHaveBeenCalledOnce()
+    })
   })
 
   it('warns and saves full access default approval policy', async () => {

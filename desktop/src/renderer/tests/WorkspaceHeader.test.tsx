@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { WorkspaceHeader } from '../components/sidebar/WorkspaceHeader'
+import { ConfirmDialogHost } from '../components/ui/ConfirmDialog'
 
 const settingsGet = vi.fn()
 const workspaceGetRecent = vi.fn()
@@ -13,6 +14,7 @@ const shellOpenPath = vi.fn()
 function renderHeader(): void {
   render(
     <LocaleProvider>
+      <ConfirmDialogHost />
       <WorkspaceHeader workspaceName='dotcraft' workspacePath='F:\\dotcraft' />
     </LocaleProvider>
   )
@@ -43,7 +45,6 @@ describe('WorkspaceHeader', () => {
     workspaceSwitch.mockResolvedValue(undefined)
     workspacePickFolder.mockResolvedValue(null)
     shellOpenPath.mockResolvedValue('')
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.spyOn(window, 'alert').mockImplementation(() => {})
 
     Object.defineProperty(window, 'api', {
@@ -79,7 +80,6 @@ describe('WorkspaceHeader', () => {
   })
 
   it('does not clear recents when confirmation is cancelled', async () => {
-    vi.mocked(window.confirm).mockReturnValue(false)
     renderHeader()
 
     openWorkspaceMenu()
@@ -90,7 +90,11 @@ describe('WorkspaceHeader', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Clear Recently Opened...' }))
 
-    expect(window.confirm).toHaveBeenCalledOnce()
+    expect(await screen.findByRole('dialog', { name: 'Clear recently opened workspaces?' })).toBeInTheDocument()
+    expect(screen.getByText('This removes all saved workspace history from the recent list.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
     expect(workspaceClearRecent).not.toHaveBeenCalled()
   })
 
@@ -105,6 +109,8 @@ describe('WorkspaceHeader', () => {
 
     expect(await screen.findByText('workspace-a')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Clear Recently Opened...' }))
+    expect(await screen.findByRole('dialog', { name: 'Clear recently opened workspaces?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
 
     await waitFor(() => {
       expect(workspaceClearRecent).toHaveBeenCalledOnce()

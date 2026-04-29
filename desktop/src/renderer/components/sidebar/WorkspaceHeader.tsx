@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { stripWorkspaceLockedIpcPrefix } from '../../../shared/workspaceSwitchErrors'
 import { useT } from '../../contexts/LocaleContext'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 /** Extracts a clean user-facing message from a workspace switch error. */
 function switchErrorMessage(err: unknown): string {
@@ -31,6 +32,7 @@ interface WorkspaceHeaderProps {
  */
 export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeaderProps): JSX.Element {
   const t = useT()
+  const confirm = useConfirmDialog()
   const [open, setOpen] = useState(false)
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [showRecents, setShowRecents] = useState(false)
@@ -79,9 +81,13 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
   }
 
   async function clearRecentWorkspaces(): Promise<void> {
-    const confirmed = window.confirm(
-      `${t('workspaceHeader.clearRecentConfirmTitle')}\n\n${t('workspaceHeader.clearRecentConfirmMessage')}`
-    )
+    const confirmed = await confirm({
+      title: t('workspaceHeader.clearRecentConfirmTitle'),
+      message: t('workspaceHeader.clearRecentConfirmMessage'),
+      confirmLabel: t('workspaceHeader.clearRecentConfirmAction'),
+      cancelLabel: t('common.cancel'),
+      danger: true
+    })
     if (!confirmed) return
     try {
       await window.api.workspace.clearRecent()

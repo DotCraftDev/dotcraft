@@ -21,6 +21,7 @@ import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults
 import { mergeAvailableChannels } from '../../utils/availableChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { usePendingRestartStore } from '../../stores/pendingRestartStore'
 import { useSettingsWorkspaceConfigChangeEffects } from '../../hooks/useSettingsWorkspaceConfigChangeEffects'
 import { SecretInput } from '../channels/FormShared'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
@@ -534,7 +535,7 @@ export function SettingsView({
   const [resolvedBinaryPath, setResolvedBinaryPath] = useState<string | null>(null)
   const [resolvingBinary, setResolvingBinary] = useState(false)
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
-  const [savedConnectionMode, setSavedConnectionMode] = useState<ConnectionMode>('stdio')
+  const [, setSavedConnectionMode] = useState<ConnectionMode>('stdio')
   const [wsHost, setWsHost] = useState(DEFAULT_WS_HOST)
   const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
   const [remoteUrl, setRemoteUrl] = useState('')
@@ -621,7 +622,7 @@ export function SettingsView({
   const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
   const [llmApiKey, setLlmApiKey] = useState('')
   const [llmEndPoint, setLlmEndPoint] = useState('')
-  const [applyingLlm, setApplyingLlm] = useState(false)
+  const [, setApplyingLlm] = useState(false)
   const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
   const [selfLearningEnabled, setSelfLearningEnabled] = useState(true)
@@ -654,7 +655,6 @@ export function SettingsView({
 
   const mcpEnabled = capabilities?.mcpManagement === true
   const subAgentEnabled = capabilities?.subAgentManagement === true
-  const canRestartManagedAppServer = savedConnectionMode !== 'remote'
   const proxyLockActive = proxyStatusText === 'running'
   const llmApiKeyTrimmed = llmApiKey.trim()
   const llmEndPointTrimmed = llmEndPoint.trim()
@@ -1640,68 +1640,6 @@ export function SettingsView({
     })
   }
 
-  async function handleApplyConnectionAndRestart(): Promise<void> {
-    setSaving(true)
-    setRestartingAppServer(true)
-    try {
-      await persistConnectionSettings()
-      setExpectedRestart(true)
-      await window.api.appServer.restartManaged()
-      addToast(t('settings.restartAppServerSuccess'), 'success')
-    } catch (err) {
-      setExpectedRestart(false)
-      addToast(
-        t('settings.restartAppServerFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    } finally {
-      setRestartingAppServer(false)
-      setSaving(false)
-    }
-  }
-
-  async function handleRestartManagedAppServer(): Promise<void> {
-    setRestartingAppServer(true)
-    try {
-      setExpectedRestart(true)
-      await window.api.appServer.restartManaged()
-      addToast(t('settings.restartAppServerSuccess'), 'success')
-    } catch (err) {
-      setExpectedRestart(false)
-      addToast(
-        t('settings.restartAppServerFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    } finally {
-      setRestartingAppServer(false)
-    }
-  }
-
-  async function handleRestartManagedAppServerForSelfLearning(): Promise<void> {
-    setRestartingAppServer(true)
-    try {
-      setExpectedRestart(true)
-      await window.api.appServer.restartManaged()
-      setSelfLearningRestartPending(false)
-      await reloadWorkspaceCore()
-      addToast(t('settings.restartAppServerSuccess'), 'success')
-    } catch (err) {
-      setExpectedRestart(false)
-      addToast(
-        t('settings.restartAppServerFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    } finally {
-      setRestartingAppServer(false)
-    }
-  }
-
   async function handlePickBinary(): Promise<void> {
     try {
       const picked = await window.api.appServer.pickBinary()
@@ -1747,53 +1685,6 @@ export function SettingsView({
         }),
         'error'
       )
-    }
-  }
-
-  async function handleRestartProxy(): Promise<void> {
-    setRestartingProxy(true)
-    setSaving(true)
-    let appServerRestartAttempted = false
-    try {
-      const willEnable = proxyEnabled
-      await persistProxySettings()
-      if (willEnable) {
-        await window.api.proxy.restartManaged()
-      }
-      const core = await readWorkspaceCoreStrict()
-      const workspaceCoreChanged = hasWorkspaceCoreChanged(core.workspace)
-      applyWorkspaceCoreBaseline(core, !workspaceCoreChanged && llmDirty)
-      if (workspaceCoreChanged) {
-        setRestartingAppServer(true)
-        setExpectedRestart(true)
-        appServerRestartAttempted = true
-        await window.api.appServer.restartManaged()
-      }
-      const status = await window.api.proxy.getStatus()
-      setProxyStatusText(status.status)
-      setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
-      addToast(willEnable ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
-    } catch (err) {
-      if (appServerRestartAttempted) {
-        setExpectedRestart(false)
-        addToast(
-          t('settings.restartAppServerFailed', {
-            error: err instanceof Error ? err.message : String(err)
-          }),
-          'error'
-        )
-      } else {
-        addToast(
-          t('settings.proxy.restartFailed', {
-            error: err instanceof Error ? err.message : String(err)
-          }),
-          'error'
-        )
-      }
-    } finally {
-      setRestartingAppServer(false)
-      setRestartingProxy(false)
-      setSaving(false)
     }
   }
 
@@ -1978,49 +1869,16 @@ export function SettingsView({
     }
   }
 
-  async function handleApplyLlmAndRestart(): Promise<void> {
-    const apiKey = llmApiKey.trim()
-    const endPoint = llmEndPoint.trim()
-    const payload: Record<string, string | null> = {}
-    if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) {
-      payload.apiKey = apiKey || null
-    }
-    if (!proxyLockActive && endPoint !== (workspaceCoreBaseline.endPoint ?? '')) {
-      payload.endPoint = endPoint || null
-    }
-    if (Object.keys(payload).length === 0) return
-
-    setApplyingLlm(true)
-    setRestartingAppServer(true)
-    try {
-      await window.api.appServer.sendRequest('workspace/config/update', payload)
-      setExpectedRestart(true)
-      await window.api.appServer.restartManaged()
-      const core = await readWorkspaceCoreStrict()
-      applyWorkspaceCoreBaseline(core, false)
-      addToast(t('settings.restartAppServerSuccess'), 'success')
-    } catch (err) {
-      setExpectedRestart(false)
-      addToast(
-        t('settings.restartAppServerFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    } finally {
-      setRestartingAppServer(false)
-      setApplyingLlm(false)
-    }
-  }
-
   async function handleApplyAndRestartAll(): Promise<void> {
-    let needsAppServerRestart = connectionDirty || llmDirty
+    let needsAppServerRestart = connectionDirty || llmDirty || selfLearningRestartPending
     let appServerRestartAttempted = false
     let proxyApplied = false
     let proxyEnabledAfterApply = proxyEnabled
     let latestCore: WorkspaceCoreConfigResult | null = null
     setSaving(true)
     setRestartingAppServer(needsAppServerRestart)
+    setRestartingProxy(proxyDirty)
+    setApplyingLlm(llmDirty)
     try {
       if (connectionDirty) {
         await persistConnectionSettings()
@@ -2062,6 +1920,7 @@ export function SettingsView({
           latestCore = await readWorkspaceCoreStrict()
         }
         applyWorkspaceCoreBaseline(latestCore, false)
+        setSelfLearningRestartPending(false)
         addToast(t('settings.restartAppServerSuccess'), 'success')
       } else if (proxyApplied) {
         if (latestCore) {
@@ -2069,6 +1928,7 @@ export function SettingsView({
         }
         addToast(proxyEnabledAfterApply ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
       }
+      usePendingRestartStore.getState().clear()
     } catch (err) {
       if (appServerRestartAttempted) {
         setExpectedRestart(false)
@@ -2081,9 +1941,86 @@ export function SettingsView({
       )
     } finally {
       setRestartingAppServer(false)
+      setRestartingProxy(false)
+      setApplyingLlm(false)
       setSaving(false)
     }
   }
+
+  const pendingRestartSignature = useMemo(() => {
+    const parts: string[] = []
+    if (connectionDirty) {
+      parts.push([
+        'connection',
+        binarySource,
+        binaryPath.trim(),
+        connectionMode,
+        wsHost.trim(),
+        wsPort.trim(),
+        remoteUrl.trim(),
+        remoteToken.trim()
+      ].join(':'))
+    }
+    if (llmDirty) {
+      parts.push([
+        'llm',
+        apiKeyOverrideActive,
+        llmApiKeyTrimmed,
+        endPointOverrideActive,
+        llmEndPointTrimmed
+      ].join(':'))
+    }
+    if (proxyDirty) {
+      parts.push([
+        'proxy',
+        proxyEnabled,
+        proxyPort.trim(),
+        proxyAuthDir.trim(),
+        proxyBinarySource,
+        proxyBinaryPath.trim()
+      ].join(':'))
+    }
+    if (selfLearningRestartPending) {
+      parts.push(`selfLearning:${selfLearningEnabled}`)
+    }
+    return parts.join('|')
+  }, [
+    apiKeyOverrideActive,
+    binaryPath,
+    binarySource,
+    connectionDirty,
+    connectionMode,
+    endPointOverrideActive,
+    llmApiKeyTrimmed,
+    llmDirty,
+    llmEndPointTrimmed,
+    proxyAuthDir,
+    proxyBinaryPath,
+    proxyBinarySource,
+    proxyDirty,
+    proxyEnabled,
+    proxyPort,
+    remoteToken,
+    remoteUrl,
+    selfLearningEnabled,
+    selfLearningRestartPending,
+    wsHost,
+    wsPort
+  ])
+
+  useEffect(() => {
+    if (pendingRestartSignature) {
+      usePendingRestartStore.getState().setPending(pendingRestartSignature, handleApplyAndRestartAll)
+    } else {
+      usePendingRestartStore.getState().clear()
+    }
+  })
+
+  useEffect(() => {
+    return () => {
+      usePendingRestartStore.getState().clear()
+    }
+  }, [])
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
     { id: 'general', label: t('settings.tab.general'), icon: SettingsIcon },
@@ -2184,37 +2121,6 @@ export function SettingsView({
 
         <main style={settingsMainStyle()}>
           <div style={settingsContentContainerStyle()}>
-            {(connectionDirty || llmDirty || proxyDirty) && (
-              <div
-                style={{
-                  marginBottom: '12px',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: '10px',
-                  padding: '10px 12px',
-                  background: 'var(--bg-secondary)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {t('settings.pendingChanges.banner', {
-                    tabs: [connectionDirty ? t('settings.tab.connection') : null, llmDirty ? t('settings.llm.title') : null, proxyDirty ? t('settings.tab.proxy') : null].filter(Boolean).join(', ')
-                  })}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleApplyAndRestartAll()
-                  }}
-                  disabled={restartingAppServer || saving}
-                  style={primaryButtonStyle(restartingAppServer || saving)}
-                >
-                  {t('settings.pendingChanges.applyAll')}
-                </button>
-              </div>
-            )}
             {activeSettingsTab === 'general' && (
               <GeneralPanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2406,20 +2312,6 @@ export function SettingsView({
                       />
                     }
                   />
-                  <SettingsRow
-                    control={
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleApplyLlmAndRestart()
-                        }}
-                        disabled={!llmDirty || applyingLlm || restartingAppServer}
-                        style={primaryButtonStyle(!llmDirty || applyingLlm || restartingAppServer)}
-                      >
-                        {t('settings.llm.applyAndRestart')}
-                      </button>
-                    }
-                  />
                 </SettingsGroup>
               </div>
               </GeneralPanel>
@@ -2431,45 +2323,6 @@ export function SettingsView({
                 <SettingsGroup
                   title={t('settings.group.personalization')}
                 >
-                  {selfLearningRestartPending && (
-                    <SettingsRow>
-                      <div
-                        role="status"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '12px',
-                          width: '100%',
-                          padding: '8px 12px',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: '8px',
-                          background: 'var(--bg-tertiary)',
-                          color: 'var(--text-secondary)',
-                          fontSize: '12px',
-                          lineHeight: 1.5
-                        }}
-                      >
-                        <span style={{ flex: 1 }}>
-                          {canRestartManagedAppServer
-                            ? t('settings.personalization.selfLearningRestartBanner')
-                            : t('settings.personalization.selfLearningRestartBannerRemote')}
-                        </span>
-                        {canRestartManagedAppServer && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void handleRestartManagedAppServerForSelfLearning()
-                            }}
-                            disabled={restartingAppServer}
-                            style={secondaryActionButtonStyle(restartingAppServer)}
-                          >
-                            <RefreshIcon size={14} />
-                            {t('settings.personalization.selfLearningRestartButton')}
-                          </button>
-                        )}
-                      </div>
-                    </SettingsRow>
-                  )}
                   <SettingsRow
                     label={t('settings.personalization.welcomeSuggestions')}
                     description={t('settings.personalization.welcomeSuggestionsHint')}
@@ -2663,63 +2516,27 @@ export function SettingsView({
                     </div>
                   </SettingsRow>
 
-                  {canRestartManagedAppServer && (
+                  {connectionDirty && (
                     <SettingsRow
-                      label={t('settings.appServerControl')}
-                      description={connectionDirty ? t('settings.pendingChanges.connection') : t('settings.restartAppServerHint')}
+                      description={t('settings.pendingChanges.connection')}
                       control={
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          {connectionDirty && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!baselineConnection) return
-                                setBinarySource(baselineConnection.binarySource)
-                                setBinaryPath(baselineConnection.binaryPath)
-                                setConnectionMode(baselineConnection.connectionMode)
-                                setWsHost(baselineConnection.wsHost)
-                                setWsPort(baselineConnection.wsPort)
-                                setRemoteUrl(baselineConnection.remoteUrl)
-                                setRemoteToken(baselineConnection.remoteToken)
-                              }}
-                              disabled={restartingAppServer || saving}
-                              style={secondaryActionButtonStyle(restartingAppServer || saving)}
-                            >
-                              {t('settings.llm.revert')}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            aria-label={
-                              restartingAppServer
-                                ? t('settings.restartingAppServer')
-                                : connectionDirty
-                                  ? t('settings.connection.applyAndRestart')
-                                  : t('settings.restartAppServer')
-                            }
-                            onClick={() => {
-                              if (connectionDirty) {
-                                void handleApplyConnectionAndRestart()
-                              } else {
-                                void handleRestartManagedAppServer()
-                              }
-                            }}
-                            disabled={restartingAppServer || saving}
-                            style={secondaryActionButtonStyle(restartingAppServer || saving)}
-                          >
-                            <RefreshIcon
-                              size={16}
-                              style={restartingAppServer ? { animation: 'spin 0.8s linear infinite' } : undefined}
-                            />
-                            <span>
-                              {restartingAppServer
-                                ? t('settings.action.restarting')
-                                : connectionDirty
-                                  ? t('settings.connection.applyAndRestart')
-                                  : t('settings.action.restart')}
-                            </span>
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!baselineConnection) return
+                            setBinarySource(baselineConnection.binarySource)
+                            setBinaryPath(baselineConnection.binaryPath)
+                            setConnectionMode(baselineConnection.connectionMode)
+                            setWsHost(baselineConnection.wsHost)
+                            setWsPort(baselineConnection.wsPort)
+                            setRemoteUrl(baselineConnection.remoteUrl)
+                            setRemoteToken(baselineConnection.remoteToken)
+                          }}
+                          disabled={restartingAppServer || saving}
+                          style={secondaryActionButtonStyle(restartingAppServer || saving)}
+                        >
+                          {t('settings.llm.revert')}
+                        </button>
                       }
                     />
                   )}
@@ -2740,7 +2557,7 @@ export function SettingsView({
                   <SettingsRow
                     label={
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span>{t('settings.proxy.restart')}</span>
+                        <span>{t('settings.proxy.status')}</span>
                         <ProxyRuntimeStatusPill
                           status={proxyStatusText}
                           label={t(`settings.proxy.status.${proxyStatusText}`)}
@@ -2748,47 +2565,11 @@ export function SettingsView({
                       </span>
                     }
                     description={
-                      <>
-                        {t('settings.proxy.restartHint')}
-                        {proxyStatusError && (
-                          <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '6px' }}>
-                            {proxyStatusError}
-                          </div>
-                        )}
-                      </>
-                    }
-                    control={
-                      <button
-                        type="button"
-                        aria-label={
-                          restartingProxy
-                            ? t('settings.proxy.restarting')
-                            : proxyDirty
-                              ? proxyEnabled
-                                ? t('settings.proxy.applyAndRestart')
-                                : t('settings.proxy.saveAndStop')
-                              : t('settings.proxy.restart')
-                        }
-                        onClick={() => {
-                          void handleRestartProxy()
-                        }}
-                        disabled={restartingProxy || saving || (!proxyDirty && !proxyEnabled)}
-                        style={secondaryActionButtonStyle(restartingProxy || saving || (!proxyDirty && !proxyEnabled))}
-                      >
-                        <RefreshIcon
-                          size={16}
-                          style={restartingProxy ? { animation: 'spin 0.8s linear infinite' } : undefined}
-                        />
-                        <span>
-                          {restartingProxy
-                            ? t('settings.action.restarting')
-                            : proxyDirty
-                              ? proxyEnabled
-                                ? t('settings.proxy.applyAndRestart')
-                                : t('settings.proxy.saveAndStop')
-                              : t('settings.action.restart')}
-                        </span>
-                      </button>
+                      proxyStatusError ? (
+                        <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '6px' }}>
+                          {proxyStatusError}
+                        </div>
+                      ) : undefined
                     }
                   />
                 </SettingsGroup>
