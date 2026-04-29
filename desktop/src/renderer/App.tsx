@@ -23,6 +23,7 @@ import type { AutomationTask } from './stores/automationsStore'
 import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { useMcpStore, type McpServerStatusWire } from './stores/mcpStore'
 import { useSkillsStore } from './stores/skillsStore'
+import { usePendingRestartStore } from './stores/pendingRestartStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -167,6 +168,34 @@ function dialogPrimaryButtonStyle(): CSSProperties {
   }
 }
 
+function topBannerSecondaryButtonStyle(disabled = false): CSSProperties {
+  return {
+    padding: '6px 10px',
+    border: '1px solid var(--border-default)',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: 'var(--text-primary)',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1
+  }
+}
+
+function topBannerPrimaryButtonStyle(disabled = false): CSSProperties {
+  return {
+    padding: '6px 10px',
+    border: '1px solid transparent',
+    borderRadius: '8px',
+    background: 'var(--accent)',
+    color: 'var(--on-accent)',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1
+  }
+}
+
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
   const showCustomMenu = window.api.platform !== 'darwin'
   return (
@@ -228,6 +257,10 @@ export function App(): JSX.Element {
   const detailPanelVisible = useUIStore((s) => s.detailPanelVisible)
   const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
   const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
+  const pendingRestartVisible = usePendingRestartStore((s) => s.visible)
+  const pendingRestartApplying = usePendingRestartStore((s) => s.applying)
+  const applyPendingRestart = usePendingRestartStore((s) => s.apply)
+  const ignorePendingRestart = usePendingRestartStore((s) => s.ignore)
   const {
     setThreadList,
     setLoading
@@ -1593,6 +1626,51 @@ export function App(): JSX.Element {
             }}
           >
             {translate(locale, 'settings.restartingAppServer')}
+          </div>
+        )}
+        {activeMainView === 'settings' && pendingRestartVisible && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px 12px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <span style={{ minWidth: '180px', flex: '1 1 220px', overflowWrap: 'anywhere' }}>
+              {translate(locale, 'settings.pendingRestart.message')}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => ignorePendingRestart()}
+                disabled={pendingRestartApplying}
+                style={topBannerSecondaryButtonStyle(pendingRestartApplying)}
+              >
+                {translate(locale, 'settings.pendingRestart.ignore')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void applyPendingRestart()
+                }}
+                disabled={pendingRestartApplying}
+                style={topBannerPrimaryButtonStyle(pendingRestartApplying)}
+              >
+                {pendingRestartApplying
+                  ? translate(locale, 'settings.action.restarting')
+                  : translate(locale, 'settings.pendingRestart.apply')}
+              </button>
+            </span>
           </div>
         )}
         {showSlowConnectingHint && (

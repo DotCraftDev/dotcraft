@@ -117,6 +117,9 @@ const MESSAGES_EN = {
   'settings.pendingChanges.applyAll': 'Apply & Restart all',
   'settings.pendingChanges.leaveConfirm': 'You have pending changes. Click OK to discard and leave Settings, or Cancel to keep editing.',
   'settings.pendingChanges.connection': 'Connection changes are staged. Apply and restart AppServer to take effect.',
+  'settings.pendingRestart.message': 'Changes require a service restart to take effect',
+  'settings.pendingRestart.apply': 'Apply & Restart',
+  'settings.pendingRestart.ignore': 'Ignore',
   'settings.connection.applyAndRestart': 'Apply & Restart AppServer',
   'settings.version': 'Version',
   'settings.binaryPlaceholder': 'Choose a dotcraft executable',
@@ -1704,7 +1707,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.welcomeSuggestionsSaveFailed': '保存欢迎建议设置失败：{{error}}',
   'settings.personalization.selfLearning': '启用自我学习',
   'settings.personalization.selfLearningHint':
-    '允许 Agent 从已完成的任务中学习技能，并保存到当前工作区。重启 AppServer 后生效。',
+    '允许 DotCraft 从已完成的任务中学习技能，并保存到当前工作区。重启 AppServer 后生效。',
   'settings.personalization.selfLearningSaveFailed': '保存自我学习设置失败：{{error}}',
   'settings.personalization.selfLearningRestartBanner': '自我学习设置已保存。重启 AppServer 后生效。',
   'settings.personalization.selfLearningRestartBannerRemote':
@@ -1752,6 +1755,9 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.pendingChanges.applyAll': '全部应用并重启',
   'settings.pendingChanges.leaveConfirm': '你有待应用的变更。点击确定将丢弃并离开设置，点击取消继续编辑。',
   'settings.pendingChanges.connection': '连接设置变更已暂存。应用并重启 AppServer 后生效。',
+  'settings.pendingRestart.message': '当前修改需要重启服务生效',
+  'settings.pendingRestart.apply': '应用并重启',
+  'settings.pendingRestart.ignore': '忽略',
   'settings.connection.applyAndRestart': '应用并重启 AppServer',
   'settings.version': '版本',
   'settings.binaryPlaceholder': '选择 dotcraft 可执行文件',
