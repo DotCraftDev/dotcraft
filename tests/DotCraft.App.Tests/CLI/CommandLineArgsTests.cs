@@ -23,6 +23,15 @@ public sealed class CommandLineArgsTests
     }
 
     [Fact]
+    public void Parse_HubSubcommand_UsesHubMode()
+    {
+        var args = CommandLineArgs.Parse(["hub"]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Hub, args.Mode);
+        Assert.False(args.ReservesStdout);
+    }
+
+    [Fact]
     public void Parse_AppServerSubcommand_UsesAppServerMode()
     {
         var args = CommandLineArgs.Parse(["app-server", "--listen", "ws://127.0.0.1:9100"]);
