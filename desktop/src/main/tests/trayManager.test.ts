@@ -14,12 +14,16 @@ const electronMocks = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false, quit: vi.fn(), on: vi.fn() },
+  app: { isPackaged: false, resourcesPath: 'resources', quit: vi.fn(), on: vi.fn() },
   Menu: { buildFromTemplate: vi.fn((template) => ({ template })) },
   nativeImage: { createFromPath: vi.fn(), createEmpty: vi.fn() },
   Notification: Object.assign(electronMocks.Notification, { isSupported: vi.fn(() => true) }),
   shell: { openExternal: electronMocks.openExternal },
   Tray: vi.fn()
+}))
+
+vi.mock('fs', () => ({
+  existsSync: vi.fn(() => true)
 }))
 
 describe('trayManager notifications', () => {
@@ -58,7 +62,8 @@ describe('trayManager notifications', () => {
     expect(shown).toBe(true)
     expect(electronMocks.Notification).toHaveBeenCalledWith({
       title: 'Done',
-      body: 'Finished'
+      body: 'Finished',
+      icon: expect.any(String)
     })
     expect(electronMocks.show).toHaveBeenCalled()
   })

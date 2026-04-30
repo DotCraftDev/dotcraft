@@ -8,6 +8,7 @@ using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Localization;
 using DotCraft.Logging;
 using DotCraft.Hosting;
 using DotCraft.Lsp;
@@ -1033,30 +1034,51 @@ public sealed class AppServerHost(
 
     private void RequestHubTurnNotification(string threadId, SessionThreadRuntimeSignal signal)
     {
-        var (kind, title, body, severity) = signal switch
+        var (kind, titleKey, bodyKey, severity) = signal switch
         {
             SessionThreadRuntimeSignal.TurnCompleted => (
                 "turnCompleted",
-                "DotCraft task completed",
-                $"Thread {threadId} finished.",
+                "hub.notification.turn_completed.title",
+                "hub.notification.turn_completed.body",
                 "success"),
             SessionThreadRuntimeSignal.TurnFailed => (
                 "turnFailed",
-                "DotCraft task failed",
-                $"Thread {threadId} failed.",
+                "hub.notification.turn_failed.title",
+                "hub.notification.turn_failed.body",
                 "error"),
             _ => (null, null, null, null)
         };
 
-        if (kind is null || title is null || severity is null)
+        if (kind is null || titleKey is null || bodyKey is null || severity is null)
             return;
 
-        _ = Task.Run(() => HubNotificationClient.RequestAsync(
-            _runtime.Paths.WorkspacePath,
-            kind,
-            title,
-            body,
-            severity));
+        _ = Task.Run(async () =>
+        {
+            var lang = LanguageService.Current;
+            var displayName = await ResolveThreadDisplayNameForNotificationAsync(threadId);
+            await HubNotificationClient.RequestAsync(
+                _runtime.Paths.WorkspacePath,
+                kind,
+                lang.T(titleKey),
+                lang.T(bodyKey, displayName),
+                severity);
+        });
+    }
+
+    private async Task<string> ResolveThreadDisplayNameForNotificationAsync(string threadId)
+    {
+        try
+        {
+            var thread = await _runtime.SessionService.GetThreadAsync(threadId);
+            if (!string.IsNullOrWhiteSpace(thread.DisplayName))
+                return thread.DisplayName.Trim();
+        }
+        catch
+        {
+            // Notifications are best-effort; falling back keeps turn completion isolated.
+        }
+
+        return LanguageService.Current.T("hub.notification.thread.default");
     }
 
     private void BroadcastThreadRuntime(string threadId, ThreadRuntimeState runtime)

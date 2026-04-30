@@ -200,6 +200,12 @@
   "approval.result.always": "✓ 已批准并永久保存",
   "approval.result.reject": "✗ 已拒绝",
 
+  "hub.notification.turn_completed.title": "DotCraft 任务已完成",
+  "hub.notification.turn_completed.body": "“{0}”已完成。",
+  "hub.notification.turn_failed.title": "DotCraft 任务失败",
+  "hub.notification.turn_failed.body": "“{0}”失败。",
+  "hub.notification.thread.default": "当前聊天",
+
   "setup.mode": "当前处于初始化配置模式。",
   "setup.open_browser": "请在浏览器中打开 {0} 完成全局和工作区配置。",
   "setup.after_save": "保存完成后，请按 Ctrl+C 停止当前进程，然后重新运行 `dotcraft`。"

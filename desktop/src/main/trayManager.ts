@@ -13,8 +13,6 @@ import { tryAcquireTrayLock, type TrayLockHandle } from './trayLock'
 import { normalizeLocale, translate, type AppLocale } from '../shared/locales'
 
 interface TrayState {
-  status: 'starting' | 'running' | 'offline'
-  hubLabel: string
   appServers: HubAppServerResponse[]
   recentWorkspaces: RecentWorkspace[]
   locale: AppLocale
@@ -30,10 +28,12 @@ interface HubNotificationPayload {
 }
 
 function resolveTrayIconPath(): string | null {
-  const packaged = join(process.resourcesPath, 'icon.png')
+  const packaged = typeof process.resourcesPath === 'string'
+    ? join(process.resourcesPath, 'icon.png')
+    : null
   const dev = join(__dirname, '../../resources/icon.png')
   const path = app.isPackaged ? packaged : dev
-  return existsSync(path) ? path : null
+  return path && existsSync(path) ? path : null
 }
 
 function createTrayIcon(): Electron.NativeImage {
@@ -151,18 +151,11 @@ function buildTrayMenu(
     : [{ label: L('tray.noManagedAppServers'), enabled: false } satisfies MenuItemConstructorOptions]
 
   const template: MenuItemConstructorOptions[] = [
-    { label: `${L('tray.hub')}: ${state.hubLabel}`, enabled: false },
+    { label: L('tray.hub'), enabled: false },
     { type: 'separator' },
     {
-      label: L('tray.openDotCraft'),
-      click: () => spawnDesktopWindow()
-    },
-    {
       label: L('tray.newChat'),
-      click: () => {
-        const recent = state.recentWorkspaces[0]
-        spawnDesktopWindow(recent?.path)
-      }
+      click: () => spawnDesktopWindow()
     },
     buildRecentMenu(state.recentWorkspaces, state.locale),
     { type: 'separator' },
@@ -209,7 +202,8 @@ export function showHubNotification(event: HubEvent): boolean {
 
   const notification = new Notification({
     title: payload.title,
-    body: payload.body ?? undefined
+    body: payload.body ?? undefined,
+    icon: resolveTrayIconPath() ?? undefined
   })
 
   notification.on('click', () => {
@@ -242,7 +236,7 @@ export async function runTrayProcess(): Promise<void> {
 
   const setMenu = (state: TrayState): void => {
     if (!tray) return
-    tray.setToolTip(`DotCraft Hub: ${state.hubLabel}`)
+    tray.setToolTip(translate(state.locale, 'tray.hub'))
     tray.setContextMenu(buildTrayMenu(state, hubClient, () => {
       void refresh()
     }, exitAll))
@@ -252,13 +246,11 @@ export async function runTrayProcess(): Promise<void> {
     if (disposed) return
     settings = loadSettings()
     try {
-      const [status, appServers] = await Promise.all([
+      const [, appServers] = await Promise.all([
         hubClient.getStatus(),
         hubClient.listAppServers()
       ])
       setMenu({
-        status: 'running',
-        hubLabel: `${translate(normalizeLocale(settings.locale), 'tray.running')} (pid ${status.pid})`,
         appServers,
         recentWorkspaces: getRecentWorkspaces(settings),
         locale: normalizeLocale(settings.locale)
@@ -266,8 +258,6 @@ export async function runTrayProcess(): Promise<void> {
       subscribeEvents()
     } catch {
       setMenu({
-        status: 'offline',
-        hubLabel: translate(normalizeLocale(settings.locale), 'tray.offline'),
         appServers: [],
         recentWorkspaces: getRecentWorkspaces(settings),
         locale: normalizeLocale(settings.locale)
@@ -319,8 +309,6 @@ export async function runTrayProcess(): Promise<void> {
   app.on('before-quit', () => cleanup(lock))
 
   setMenu({
-    status: 'starting',
-    hubLabel: translate(normalizeLocale(settings.locale), 'tray.starting'),
     appServers: [],
     recentWorkspaces: getRecentWorkspaces(settings),
     locale: normalizeLocale(settings.locale)

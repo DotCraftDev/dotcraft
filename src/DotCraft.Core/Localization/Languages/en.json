@@ -200,6 +200,12 @@
   "approval.result.always": "✓ Approved and saved permanently",
   "approval.result.reject": "✗ Rejected",
 
+  "hub.notification.turn_completed.title": "DotCraft task completed",
+  "hub.notification.turn_completed.body": "\"{0}\" finished.",
+  "hub.notification.turn_failed.title": "DotCraft task failed",
+  "hub.notification.turn_failed.body": "\"{0}\" failed.",
+  "hub.notification.thread.default": "Current chat",
+
   "setup.mode": "DotCraft is running in setup mode.",
   "setup.open_browser": "Open {0} in your browser to finish global and workspace configuration.",
   "setup.after_save": "After saving, press Ctrl+C to stop this process, then run `dotcraft` again."

@@ -259,7 +259,7 @@ Tray responsibilities:
 - Run as an independent Desktop background process.
 - Enforce one tray process per user.
 - Start or discover Hub.
-- Show Hub and known AppServer status.
+- Show Hub and known workspace status without exposing AppServer terminology in user-facing tray labels.
 - Open recent or running workspaces.
 - Restart or stop Hub-managed AppServers through Hub Protocol.
 - Stop Hub and Hub-managed AppServers on tray Exit.
@@ -269,8 +269,10 @@ Notification flow:
 
 1. A client or managed AppServer calls `POST /v1/notifications/request`.
 2. Hub validates the request and emits `notification.requested` on SSE.
-3. Desktop tray receives the event and displays the OS notification.
+3. Desktop tray receives the event and displays the OS notification with the DotCraft app icon.
 4. Clicking the notification opens the related workspace or action URL.
+
+Turn-related notifications should use the thread display name in user-visible copy instead of the internal thread ID.
 
 Hub itself never displays OS UI.
 
