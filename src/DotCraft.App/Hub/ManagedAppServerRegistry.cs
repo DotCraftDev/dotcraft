@@ -73,9 +73,13 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             RefreshExited(entry);
             if (entry.Process is { IsRunning: true } && entry.State == HubAppServerStates.Running)
             {
-                if (RequiresAppServerRestartForApiProxy(entry, request.ApiProxy))
+                var apiProxyRestartReason = GetApiProxyRestartReason(entry, request.ApiProxy);
+                if (apiProxyRestartReason is not null)
                 {
-                    await StopManagedProcessesAsync(entry, craftPath);
+                    ApplyApiProxyRestartRequiredStatus(entry, request.ApiProxy, apiProxyRestartReason);
+                    entry.LastSeenAt = DateTimeOffset.UtcNow;
+                    Persist(entry);
+                    return entry.ToResponse();
                 }
                 else
                 {
@@ -480,8 +484,15 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         ManagedEntry entry,
         HubApiProxySidecarRequest? apiProxy)
     {
+        return GetApiProxyRestartReason(entry, apiProxy) is not null;
+    }
+
+    private static string? GetApiProxyRestartReason(
+        ManagedEntry entry,
+        HubApiProxySidecarRequest? apiProxy)
+    {
         entry.Endpoints.TryGetValue("apiProxy", out var currentEndpoint);
-        return RequiresAppServerRestartForApiProxy(
+        return GetApiProxyRestartReason(
             apiProxy,
             currentEndpoint,
             entry.ApiProxyBinaryPath,
@@ -495,35 +506,85 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         string? currentBinaryPath,
         string? currentConfigPath,
         string? currentApiKey)
+        => GetApiProxyRestartReason(
+            apiProxy,
+            currentEndpoint,
+            currentBinaryPath,
+            currentConfigPath,
+            currentApiKey) is not null;
+
+    internal static string? GetApiProxyRestartReason(
+        HubApiProxySidecarRequest? apiProxy,
+        string? currentEndpoint,
+        string? currentBinaryPath,
+        string? currentConfigPath,
+        string? currentApiKey)
     {
         var requested = apiProxy?.Enabled is true;
         var hasCurrentEndpoint = !string.IsNullOrWhiteSpace(currentEndpoint);
 
         if (!requested)
-            return hasCurrentEndpoint;
+            return hasCurrentEndpoint
+                ? "APIProxy is disabled in the latest request; restart the AppServer to remove the active proxy override."
+                : null;
 
         var requestedPlan = CreateApiProxySidecarPlan(apiProxy!);
         if (string.IsNullOrWhiteSpace(currentBinaryPath)
             || string.IsNullOrWhiteSpace(currentConfigPath)
             || string.IsNullOrWhiteSpace(currentApiKey))
         {
-            return true;
+            return "APIProxy is requested, but the running AppServer was not started with a complete proxy identity.";
         }
 
-        return !hasCurrentEndpoint
-            || !string.Equals(
+        if (!hasCurrentEndpoint)
+            return "APIProxy is requested, but the running AppServer has no active proxy endpoint.";
+
+        if (!string.Equals(
                 NormalizeRequiredUrl(currentEndpoint, "Current APIProxy endpoint is required."),
                 requestedPlan.Endpoint,
-                StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "APIProxy endpoint changed; restart the AppServer to apply the new proxy endpoint.";
+        }
+
+        if (!string.Equals(
                 NormalizeRequiredFilePath(currentBinaryPath, "Current APIProxy binary path is required."),
                 requestedPlan.BinaryPath,
-                StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "APIProxy binary path changed; restart the AppServer to apply the new proxy runtime.";
+        }
+
+        if (!string.Equals(
                 NormalizeRequiredFilePath(currentConfigPath, "Current APIProxy config path is required."),
                 requestedPlan.ConfigPath,
-                StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(currentApiKey, requestedPlan.ApiKey, StringComparison.Ordinal);
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "APIProxy config path changed; restart the AppServer to apply the new proxy runtime.";
+        }
+
+        if (!string.Equals(currentApiKey, requestedPlan.ApiKey, StringComparison.Ordinal))
+            return "APIProxy API key changed; restart the AppServer to apply the new proxy credentials.";
+
+        return null;
+    }
+
+    private static void ApplyApiProxyRestartRequiredStatus(
+        ManagedEntry entry,
+        HubApiProxySidecarRequest? apiProxy,
+        string reason)
+    {
+        var statusUrl = entry.ApiProxyEndpoint;
+        if (apiProxy?.Enabled is true)
+        {
+            var plan = CreateApiProxySidecarPlan(apiProxy);
+            statusUrl = plan.Endpoint;
+        }
+
+        entry.ServiceStatus = WithServiceStatus(
+            entry.ServiceStatus,
+            "apiProxy",
+            new HubServiceStatus("restartRequired", statusUrl, reason));
     }
 
     private async Task EnsureApiProxySidecarAsync(

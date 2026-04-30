@@ -222,6 +222,8 @@ If health fails, Hub marks the entry `unhealthy`, records diagnostics, and emits
 
 Closing Desktop or another local client does not stop a healthy Hub-managed AppServer and must not cancel already-started persisted turns. The client WebSocket connection and passive subscriptions are connection-scoped; active turn execution remains AppServer-scoped and continues in the background until completion, failure, cancellation, Hub shutdown, or explicit AppServer stop/restart.
 
+`POST /v1/appservers/ensure` is a non-destructive reconnect/bootstrap operation for a healthy running AppServer. If a local client reconnects with sidecar settings that differ from the running process, Hub must return the existing AppServer endpoint instead of stopping or replacing the process. Services that require AppServer recreation to apply the new settings should be reported with `serviceStatus.<service>.state = "restartRequired"` and a diagnostic reason. Only explicit `POST /v1/appservers/restart`, `POST /v1/appservers/stop`, Hub shutdown, or a later ensure of an unhealthy/exited entry may stop a managed AppServer.
+
 Hub shutdown stops AppServers it manages, releases local state, and removes its `hub.lock`.
 
 ---
@@ -296,6 +298,8 @@ Hub allocates ports for:
 If optional modules are disabled or unavailable, Hub reports service status as `disabled` or `unavailable` and still starts the AppServer.
 
 APIProxy is an optional workspace sidecar in Hub-managed local mode. Desktop may pass resolved proxy runtime settings in `POST /v1/appservers/ensure`; Hub starts the proxy process before the managed AppServer and injects the proxy endpoint and API key as in-memory AppServer configuration overrides. Hub reports the sidecar URL and state through the workspace `endpoints` and `serviceStatus` maps using the `apiProxy` key. APIProxy secrets must not be emitted in Hub events or status responses.
+
+When a healthy AppServer is already running, an APIProxy mismatch during `ensure` must not restart the AppServer. Hub should keep returning the existing AppServer endpoint and report `serviceStatus.apiProxy.state = "restartRequired"` when the requested proxy enabled state, endpoint, binary, config, or credential identity cannot be applied without recreating the AppServer. The explicit restart endpoint is the boundary for applying those disruptive proxy changes.
 
 If APIProxy is requested and cannot be started or probed, Hub must fail the ensure request instead of returning an AppServer whose model endpoint points at a dead proxy. If APIProxy is not requested, Hub must not start or configure it.
 

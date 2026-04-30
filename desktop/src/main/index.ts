@@ -298,6 +298,12 @@ async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiP
       proxyPort: proxy.port,
       proxyApiKey: proxy.apiKey
     })
+    console.info('[desktop] APIProxy sidecar request for Hub-managed AppServer', {
+      enabled: false,
+      workspacePath,
+      configuredPort: proxy.port,
+      hasApiKey: Boolean(proxy.apiKey)
+    })
     return { enabled: false }
   }
 
@@ -323,6 +329,16 @@ async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiP
   await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
     proxyPort: runtime.port,
     proxyApiKey: runtime.apiKey
+  })
+
+  console.info('[desktop] APIProxy sidecar request for Hub-managed AppServer', {
+    enabled: true,
+    workspacePath,
+    endpoint: buildLocalProxyEndpoint(runtime.port),
+    binarySource: runtime.binarySource,
+    binaryPath: resolvedBinary.path,
+    configPath: runtime.configPath,
+    hasApiKey: Boolean(runtime.apiKey)
   })
 
   return {

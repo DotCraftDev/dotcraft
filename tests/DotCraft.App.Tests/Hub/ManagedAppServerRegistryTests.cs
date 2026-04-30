@@ -78,6 +78,68 @@ public sealed class ManagedAppServerRegistryTests : IDisposable
             currentApiKey: null));
     }
 
+    [Fact]
+    public void GetApiProxyRestartReason_ReturnsNullWhenRunningProxyMatchesRequest()
+    {
+        var binary = Touch("cliproxyapi.exe");
+        var config = Touch("proxy.yaml");
+        var request = new HubApiProxySidecarRequest
+        {
+            Enabled = true,
+            BinaryPath = binary,
+            ConfigPath = config,
+            Endpoint = "http://127.0.0.1:8317/v1",
+            ApiKey = "proxy-key"
+        };
+
+        var reason = ManagedAppServerRegistry.GetApiProxyRestartReason(
+            request,
+            currentEndpoint: "http://127.0.0.1:8317/v1",
+            currentBinaryPath: binary,
+            currentConfigPath: config,
+            currentApiKey: "proxy-key");
+
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void GetApiProxyRestartReason_ReportsChangedProxyIdentityForReconnectDiagnostics()
+    {
+        var binary = Touch("cliproxyapi.exe");
+        var config = Touch("proxy.yaml");
+        var request = new HubApiProxySidecarRequest
+        {
+            Enabled = true,
+            BinaryPath = binary,
+            ConfigPath = config,
+            Endpoint = "http://127.0.0.1:8317/v1",
+            ApiKey = "proxy-key"
+        };
+
+        var endpointReason = ManagedAppServerRegistry.GetApiProxyRestartReason(
+            request,
+            currentEndpoint: "http://127.0.0.1:8318/v1",
+            currentBinaryPath: binary,
+            currentConfigPath: config,
+            currentApiKey: "proxy-key");
+        var keyReason = ManagedAppServerRegistry.GetApiProxyRestartReason(
+            request,
+            currentEndpoint: "http://127.0.0.1:8317/v1",
+            currentBinaryPath: binary,
+            currentConfigPath: config,
+            currentApiKey: "old-proxy-key");
+        var disabledReason = ManagedAppServerRegistry.GetApiProxyRestartReason(
+            new HubApiProxySidecarRequest { Enabled = false },
+            currentEndpoint: "http://127.0.0.1:8317/v1",
+            currentBinaryPath: binary,
+            currentConfigPath: config,
+            currentApiKey: "proxy-key");
+
+        Assert.Contains("endpoint changed", endpointReason);
+        Assert.Contains("API key changed", keyReason);
+        Assert.Contains("disabled", disabledReason);
+    }
+
     private string Touch(string fileName)
     {
         Directory.CreateDirectory(_tempDir);
