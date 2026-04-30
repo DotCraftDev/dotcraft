@@ -527,8 +527,19 @@ public sealed class AppServerRequestHandler(
                 CreatedAt = m.CreatedAt
             })],
             ErrorCode = result.Success ? null : result.ErrorCode.ToString(),
-            ErrorMessage = result.Success ? null : result.ErrorMessage
+            ErrorMessage = result.Success ? null : FormatModelListErrorMessage(result.ErrorMessage, config.EndPoint)
         };
+    }
+
+    private static string? FormatModelListErrorMessage(string? message, string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return message;
+
+        var baseMessage = string.IsNullOrWhiteSpace(message)
+            ? "Model list request failed."
+            : message.Trim();
+        return $"{baseMessage} Endpoint: {endpoint.Trim()}";
     }
 
     private async Task<object?> HandleMcpListAsync(AppServerIncomingMessage msg, CancellationToken ct)

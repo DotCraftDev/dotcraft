@@ -137,6 +137,7 @@ export function ConversationWelcome({
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
+  const modelCatalogErrorCode = useModelCatalogStore((s) => s.errorCode)
   const modelCatalogErrorMessage = useModelCatalogStore((s) => s.errorMessage)
   const loadModels = useModelCatalogStore((s) => s.loadIfNeeded)
   const { addThread, setActiveThreadId } = useThreadStore()
@@ -987,7 +988,11 @@ export function ConversationWelcome({
                     unsupported={modelListUnsupportedEndpoint}
                     errorMessage={
                       modelCatalogStatus === 'error'
-                        ? (modelCatalogErrorMessage || t('composer.modelListError'))
+                        ? (
+                            modelCatalogErrorCode
+                              ? `${modelCatalogErrorCode}: ${modelCatalogErrorMessage ?? ''}`.trim()
+                              : (modelCatalogErrorMessage || t('composer.modelListError'))
+                          )
                         : null
                     }
                     disabled={modelApplying || starting}

@@ -598,6 +598,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         entry.ApiProxyConfigPath = null;
         entry.ApiProxyEndpoint = null;
         entry.ApiProxyApiKey = null;
+        entry.Endpoints = WithoutKey(entry.Endpoints, "apiProxy");
+        entry.ServiceStatus = WithoutKey(entry.ServiceStatus, "apiProxy");
     }
 
     private void OnApiProxyCrashed(ManagedEntry entry)
@@ -692,6 +694,18 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         {
             [key] = value
         };
+        return next;
+    }
+
+    private static IReadOnlyDictionary<string, TValue> WithoutKey<TValue>(
+        IReadOnlyDictionary<string, TValue> current,
+        string key)
+    {
+        if (!current.ContainsKey(key))
+            return current;
+
+        var next = new Dictionary<string, TValue>(current, StringComparer.OrdinalIgnoreCase);
+        next.Remove(key);
         return next;
     }
 

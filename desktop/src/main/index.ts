@@ -290,7 +290,7 @@ async function fetchProxyManagementJson<T>(settings: AppSettings, path: string):
   return (await res.json()) as T
 }
 
-async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiProxySidecarRequest | undefined> {
+async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiProxySidecarRequest> {
   const proxy = resolveProxySettings(sharedSettings)
   if (!proxy.enabled) {
     proxyStatus = { status: 'stopped' }
@@ -298,7 +298,7 @@ async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiP
       proxyPort: proxy.port,
       proxyApiKey: proxy.apiKey
     })
-    return undefined
+    return { enabled: false }
   }
 
   const runtime = materializeProxyRuntimeSettings(sharedSettings)
@@ -791,10 +791,6 @@ function buildCallbacks(): IpcHandlerCallbacks {
     onRestartManagedProxy: async () => {
       if (!currentWorkspacePath) {
         throw new Error('Open a workspace before restarting proxy.')
-      }
-      const proxy = resolveProxySettings(sharedSettings)
-      if (!proxy.enabled) {
-        throw new Error('Local proxy is disabled in Settings.')
       }
       if (resolveConnectionMode(sharedSettings) === 'remote' || process.argv.includes('--remote')) {
         throw new Error('Proxy restart is only available for Hub-managed local AppServers.')

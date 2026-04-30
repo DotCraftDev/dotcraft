@@ -1872,11 +1872,12 @@ export function SettingsView({
   async function handleApplyAndRestartAll(): Promise<void> {
     let needsAppServerRestart = connectionDirty || llmDirty || selfLearningRestartPending
     let appServerRestartAttempted = false
+    let proxyRestartAttempted = false
     let proxyApplied = false
     let proxyEnabledAfterApply = proxyEnabled
     let latestCore: WorkspaceCoreConfigResult | null = null
     setSaving(true)
-    setRestartingAppServer(needsAppServerRestart)
+    setRestartingAppServer(needsAppServerRestart || proxyDirty)
     setRestartingProxy(proxyDirty)
     setApplyingLlm(llmDirty)
     try {
@@ -1897,9 +1898,9 @@ export function SettingsView({
         proxyApplied = true
         proxyEnabledAfterApply = proxyEnabled
         await persistProxySettings()
-        if (proxyEnabledAfterApply) {
-          await window.api.proxy.restartManaged()
-        }
+        proxyRestartAttempted = true
+        setExpectedRestart(true)
+        await window.api.proxy.restartManaged()
         const status = await window.api.proxy.getStatus()
         setProxyStatusText(status.status)
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
@@ -1910,6 +1911,9 @@ export function SettingsView({
           setRestartingAppServer(true)
         }
         needsAppServerRestart = needsAppServerRestart || workspaceCoreChanged
+        // The proxy refresh path already restarts the Hub-managed AppServer with
+        // the current settings, including the disabled-proxy case.
+        needsAppServerRestart = false
       }
 
       if (needsAppServerRestart) {
@@ -1926,11 +1930,15 @@ export function SettingsView({
         if (latestCore) {
           applyWorkspaceCoreBaseline(latestCore, false)
         }
+        setSelfLearningRestartPending(false)
         addToast(proxyEnabledAfterApply ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
       }
       usePendingRestartStore.getState().clear()
     } catch (err) {
       if (appServerRestartAttempted) {
+        setExpectedRestart(false)
+      }
+      if (proxyRestartAttempted) {
         setExpectedRestart(false)
       }
       addToast(

@@ -57,6 +57,7 @@ public sealed class AppServerModelCatalogRuntimeConfigTests : IDisposable
         var result = response.RootElement.GetProperty("result");
         Assert.False(result.GetProperty("success").GetBoolean());
         Assert.Equal("MissingApiKey", result.GetProperty("errorCode").GetString());
+        Assert.Contains("http://127.0.0.1:8317/v1", result.GetProperty("errorMessage").GetString());
     }
 
     [Fact]

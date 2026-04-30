@@ -63,6 +63,13 @@ public sealed class ManagedAppServerRegistryTests : IDisposable
             currentConfigPath: null,
             currentApiKey: null));
 
+        Assert.True(ManagedAppServerRegistry.RequiresAppServerRestartForApiProxy(
+            apiProxy: new HubApiProxySidecarRequest { Enabled = false },
+            currentEndpoint: "http://127.0.0.1:8317/v1",
+            currentBinaryPath: null,
+            currentConfigPath: null,
+            currentApiKey: null));
+
         Assert.False(ManagedAppServerRegistry.RequiresAppServerRestartForApiProxy(
             apiProxy: null,
             currentEndpoint: null,

@@ -81,4 +81,31 @@ describe('HubClient AppServer management', () => {
       }
     })
   })
+
+  it('sends disabled APIProxy sidecar options when restarting AppServer without proxy', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          workspacePath: 'E:/repo',
+          canonicalWorkspacePath: 'E:/repo',
+          state: 'running',
+          endpoints: {
+            appServerWebSocket: 'ws://127.0.0.1:9000/ws'
+          },
+          serviceStatus: {},
+          startedByHub: true
+        })
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await new HubClient().restartAppServer('E:/repo', { enabled: false })
+
+    const restartInit = fetchMock.mock.calls[1][1] as RequestInit
+    expect(JSON.parse(String(restartInit.body))).toMatchObject({
+      workspacePath: 'E:/repo',
+      apiProxy: { enabled: false }
+    })
+  })
 })
