@@ -10,6 +10,9 @@ public sealed class AppServerConnection
 {
     private volatile bool _isInitialized;
     private volatile bool _isClientReady;
+    private volatile bool _isClosed;
+    private readonly TaskCompletionSource _closedTcs =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private AppServerClientInfo? _clientInfo;
     private AppServerClientCapabilities? _clientCapabilities;
     private HashSet<string>? _optOutMethods;
@@ -32,6 +35,17 @@ public sealed class AppServerConnection
     /// The server may begin proactively sending notifications only after this is true.
     /// </summary>
     public bool IsClientReady => _isClientReady;
+
+    /// <summary>
+    /// True after the underlying transport has closed and connection-scoped
+    /// subscriptions/capabilities are no longer available.
+    /// </summary>
+    public bool IsClosed => _isClosed;
+
+    /// <summary>
+    /// Completes when the underlying transport closes.
+    /// </summary>
+    public Task Closed => _closedTcs.Task;
 
     /// <summary>Client identity from the <c>initialize</c> params.</summary>
     public AppServerClientInfo? ClientInfo => _clientInfo;
@@ -182,6 +196,15 @@ public sealed class AppServerConnection
     /// Called when the client sends the <c>initialized</c> notification.
     /// </summary>
     public void MarkClientReady() => _isClientReady = true;
+
+    /// <summary>
+    /// Marks the connection as closed. Safe to call more than once.
+    /// </summary>
+    public void MarkClosed()
+    {
+        _isClosed = true;
+        _closedTcs.TrySetResult();
+    }
 
     // -------------------------------------------------------------------------
     // Notification opt-out

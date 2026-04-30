@@ -602,7 +602,9 @@ public sealed class AppServerHost(
             }, ct);
         }
 
-        // Clean up active subscriptions when the client disconnects
+        // Clean up connection-scoped capabilities when the client disconnects.
+        // Active persisted turns are drained independently by the request handler.
+        connection.MarkClosed();
         connection.CancelAllSubscriptions();
         wireAcpProxy?.UnbindTransport(transport);
         wireNodeReplProxy?.UnbindTransport(transport);

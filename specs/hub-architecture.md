@@ -220,6 +220,8 @@ Health checks are lightweight and only apply to processes supervised by the curr
 
 If health fails, Hub marks the entry `unhealthy`, records diagnostics, and emits `appserver.unhealthy`. Hub does not automatically restart unhealthy or exited AppServers; restart is explicit or triggered by a later `ensure`.
 
+Closing Desktop or another local client does not stop a healthy Hub-managed AppServer and must not cancel already-started persisted turns. The client WebSocket connection and passive subscriptions are connection-scoped; active turn execution remains AppServer-scoped and continues in the background until completion, failure, cancellation, Hub shutdown, or explicit AppServer stop/restart.
+
 Hub shutdown stops AppServers it manages, releases local state, and removes its `hub.lock`.
 
 ---
@@ -239,6 +241,8 @@ Local clients should default to Hub-managed local mode:
 Desktop, TUI, and CLI expose local mode as Hub-managed local execution. Explicit remote WebSocket mode remains available and bypasses Hub.
 
 Local mode does not require users to configure AppServer, Dashboard, API, or AG-UI ports. Hub owns those runtime allocations for managed processes.
+
+When a Desktop window closes during a running turn, notification delivery to that window is best-effort and may stop immediately. Reopening the workspace should reuse the same managed AppServer and recover the thread state through normal AppServer Protocol reads or subscriptions.
 
 Clients should present failures as local runtime availability problems, such as:
 

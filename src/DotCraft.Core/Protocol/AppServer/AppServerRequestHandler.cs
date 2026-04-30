@@ -1124,8 +1124,22 @@ public sealed class AppServerRequestHandler(
         {
             // Build and send the turn/start JSON-RPC response before the notification
             var responsePayload = new { turn = initialTurn };
-            await transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
-            // Signal that the response was sent successfully
+            try
+            {
+                await transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Client disconnected before the response could be delivered; the
+                // turn has already started and must keep draining in the background.
+            }
+            catch (Exception ex) when (AppServerEventDispatcher.IsTransportUnavailableException(ex))
+            {
+                // Client disconnected before the response could be delivered; the
+                // turn has already started and must keep draining in the background.
+            }
+
+            // Signal that the response phase is complete even if the client is gone.
             initialTurnTcs.TrySetResult(initialTurn);
         }
 
@@ -1140,7 +1154,7 @@ public sealed class AppServerRequestHandler(
             content,
             p.Sender,
             messages,
-            ct,
+            CancellationToken.None,
             new SessionInputSnapshot
             {
                 NativeInputParts = materializedInput.NativeInputParts,
@@ -1153,26 +1167,43 @@ public sealed class AppServerRequestHandler(
         // notification delivery path. Creating a second AppServerEventDispatcher here would send
         // every turn event twice on the same transport. Instead, we read only the first TurnStarted
         // event from the turn channel (needed to build the turn/start response), send the response,
-        // and then drain the turn channel silently so the unbounded channel does not accumulate.
+        // and then drain the turn channel in the background so disconnects cannot strand approvals.
         if (connection.HasSubscription(p.ThreadId))
         {
-            await foreach (var evt in events.WithCancellation(ct))
+            var subscribedEnumerator = events.GetAsyncEnumerator(CancellationToken.None);
+            var drainOwnsEnumerator = false;
+            try
             {
-                if (evt.EventType == SessionEventType.TurnStarted && evt.TurnPayload is { } startedTurn)
+                while (await subscribedEnumerator.MoveNextAsync())
                 {
-                    var wireTurn = startedTurn.ToWire(includeItems: false) with { Items = [] };
-                    await transport.WriteMessageAsync(BuildResponse(msg.Id, new { turn = wireTurn }), ct);
-                    break;
+                    var evt = subscribedEnumerator.Current;
+                    if (evt.EventType == SessionEventType.TurnStarted && evt.TurnPayload is { } startedTurn)
+                    {
+                        var wireTurn = startedTurn.ToWire(includeItems: false) with { Items = [] };
+                        try
+                        {
+                            await transport.WriteMessageAsync(BuildResponse(msg.Id, new { turn = wireTurn }), ct);
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            // The response is best-effort after disconnect; keep draining below.
+                        }
+                        catch (Exception ex) when (AppServerEventDispatcher.IsTransportUnavailableException(ex))
+                        {
+                            // The response is best-effort after disconnect; keep draining below.
+                        }
+
+                        _ = DrainSubscribedTurnEventsAsync(subscribedEnumerator, connection, CancellationToken.None);
+                        drainOwnsEnumerator = true;
+                        break;
+                    }
                 }
             }
-
-            // Drain the rest of the turn channel in the background so the unbounded channel does
-            // not hold memory for the duration of the turn. The subscription dispatcher on the
-            // broker side is the authoritative delivery path and handles all further events.
-            _ = Task.Run(async () =>
+            finally
             {
-                await foreach (var _ in events.WithCancellation(ct)) { }
-            }, ct);
+                if (!drainOwnsEnumerator)
+                    await subscribedEnumerator.DisposeAsync();
+            }
 
             return null;
         }
@@ -1182,7 +1213,7 @@ public sealed class AppServerRequestHandler(
             defaultApprovalDecision: _defaultApprovalDecision,
             streamDebugLogger: streamDebugLogger);
 
-        var dispatchTask = dispatcher.RunAsync(ct);
+        var dispatchTask = dispatcher.RunAsync(CancellationToken.None);
 
         // Propagate dispatch failures to the TCS so we don't hang indefinitely
         _ = dispatchTask.ContinueWith(t =>
@@ -1202,6 +1233,104 @@ public sealed class AppServerRequestHandler(
 
         // Return null to signal the host that the response has already been sent inline
         return null;
+    }
+
+    private async Task DrainSubscribedTurnEventsAsync(
+        IAsyncEnumerator<SessionEvent> events,
+        AppServerConnection owningConnection,
+        CancellationToken ct)
+    {
+        try
+        {
+            while (await events.MoveNextAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                var evt = events.Current;
+                if (evt.EventType == SessionEventType.ApprovalRequested)
+                    await ScheduleDisconnectedApprovalFallbackAsync(evt, owningConnection, ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Host shutdown or explicit drain cancellation.
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync(
+                $"[AppServer] Subscribed turn drain error for thread {ex.Message}");
+        }
+        finally
+        {
+            await events.DisposeAsync();
+        }
+    }
+
+    private Task ScheduleDisconnectedApprovalFallbackAsync(
+        SessionEvent evt,
+        AppServerConnection owningConnection,
+        CancellationToken ct)
+    {
+        var item = evt.ItemPayload;
+        if (item?.Payload is not ApprovalRequestPayload req)
+            return Task.CompletedTask;
+
+        if (owningConnection.IsClosed)
+            return ResolveApprovalWithFallbackAsync(evt, req.RequestId, ct);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await owningConnection.Closed;
+                await ResolveApprovalWithFallbackAsync(evt, req.RequestId, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"[AppServer] Disconnected approval fallback failed: {ex.Message}");
+            }
+        }, CancellationToken.None);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ResolveApprovalWithFallbackAsync(
+        SessionEvent evt,
+        string requestId,
+        CancellationToken ct)
+    {
+        if (evt.TurnId == null)
+            return;
+
+        var decision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
+        try
+        {
+            await sessionService.ResolveApprovalAsync(evt.ThreadId, evt.TurnId, requestId, decision, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Ignore shutdown cancellation.
+        }
+    }
+
+    private async Task<SessionApprovalDecision> ResolveNonInteractiveApprovalDecisionAsync(
+        SessionEvent evt,
+        CancellationToken ct)
+    {
+        try
+        {
+            var thread = await sessionService.GetThreadAsync(evt.ThreadId, ct);
+            return thread.Configuration?.ApprovalPolicy switch
+            {
+                ApprovalPolicy.AutoApprove => SessionApprovalDecision.AcceptOnce,
+                ApprovalPolicy.Interrupt => SessionApprovalDecision.CancelTurn,
+                _ => _defaultApprovalDecision
+            };
+        }
+        catch
+        {
+            return _defaultApprovalDecision;
+        }
     }
 
     private async Task<object?> HandleTurnEnqueueAsync(AppServerIncomingMessage msg, CancellationToken ct)

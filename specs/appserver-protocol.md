@@ -820,7 +820,9 @@ Before starting the agent, the server **must** ensure the in-memory thread is lo
 
 The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
 
-**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
+For persisted server-managed threads, the execution lifecycle of a started turn is owned by the AppServer, not by the single request transport that submitted it. If the client WebSocket disconnects after `turn/start` has begun, the server must continue consuming the turn event stream so the turn can complete or fail normally. The disconnected client may miss notifications and should recover by reconnecting and calling `thread/read` or `thread/subscribe`.
+
+**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. The server must still keep an internal active-turn drain for the submitted turn so connection loss does not stop execution or strand approvals after the passive subscription is cancelled. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
 
 **Direction**: client → server (request)
 
@@ -1857,7 +1859,7 @@ If a client declared `capabilities.approvalSupport = false` during initializatio
 - `approvalPolicy = interrupt` resolves as `cancel`.
 - `approvalPolicy = default` first resolves through the workspace default approval policy. If both the thread policy and workspace default are `default` or unset, the server cannot prompt on a non-interactive client, so it falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
 
-The same non-interactive fallback may also be applied when an approval-capable client disconnects or times out before replying.
+The same non-interactive fallback may also be applied when an approval-capable client disconnects, the approval request cannot be written to the transport, or the client times out before replying.
 
 ---
 
@@ -2055,6 +2057,8 @@ Broadcast summary notifications such as `thread/started`, `thread/renamed`, `thr
 **Rationale**: Without this rule, a connection that both subscribes to a thread and starts a turn on that thread could receive duplicate notifications through multiple delivery paths.
 
 **Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives before the first `turn/started` notification.
+
+**Best-effort delivery**: Notifications are best-effort per connection. A transport write failure must stop further writes to that client, but it must not stop the server from draining an already-started persisted turn's event stream. Passive `thread/subscribe` streams remain tied to the connection and are cancelled when that connection closes; active turn execution continues independently. When `turn/start` uses the subscription path, the server's internal active-turn drain must continue after subscription cancellation and resolve disconnected approvals through the same non-interactive fallback described in [Section 7.4](#74-clients-without-approval-support). Reconnected clients recover state through `thread/read`, `thread/list`, and fresh subscriptions.
 
 ---
 
