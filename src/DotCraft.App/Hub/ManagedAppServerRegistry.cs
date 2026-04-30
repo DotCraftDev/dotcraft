@@ -480,15 +480,50 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         ManagedEntry entry,
         HubApiProxySidecarRequest? apiProxy)
     {
+        entry.Endpoints.TryGetValue("apiProxy", out var currentEndpoint);
+        return RequiresAppServerRestartForApiProxy(
+            apiProxy,
+            currentEndpoint,
+            entry.ApiProxyBinaryPath,
+            entry.ApiProxyConfigPath,
+            entry.ApiProxyApiKey);
+    }
+
+    internal static bool RequiresAppServerRestartForApiProxy(
+        HubApiProxySidecarRequest? apiProxy,
+        string? currentEndpoint,
+        string? currentBinaryPath,
+        string? currentConfigPath,
+        string? currentApiKey)
+    {
         var requested = apiProxy?.Enabled is true;
-        var hasEndpoint = entry.Endpoints.TryGetValue("apiProxy", out var currentEndpoint)
-            && !string.IsNullOrWhiteSpace(currentEndpoint);
+        var hasCurrentEndpoint = !string.IsNullOrWhiteSpace(currentEndpoint);
 
         if (!requested)
-            return hasEndpoint;
+            return hasCurrentEndpoint;
 
-        var requestedEndpoint = NormalizeRequiredUrl(apiProxy!.Endpoint, "APIProxy endpoint is required.");
-        return !hasEndpoint || !string.Equals(currentEndpoint, requestedEndpoint, StringComparison.OrdinalIgnoreCase);
+        var requestedPlan = CreateApiProxySidecarPlan(apiProxy!);
+        if (string.IsNullOrWhiteSpace(currentBinaryPath)
+            || string.IsNullOrWhiteSpace(currentConfigPath)
+            || string.IsNullOrWhiteSpace(currentApiKey))
+        {
+            return true;
+        }
+
+        return !hasCurrentEndpoint
+            || !string.Equals(
+                NormalizeRequiredUrl(currentEndpoint, "Current APIProxy endpoint is required."),
+                requestedPlan.Endpoint,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                NormalizeRequiredFilePath(currentBinaryPath, "Current APIProxy binary path is required."),
+                requestedPlan.BinaryPath,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                NormalizeRequiredFilePath(currentConfigPath, "Current APIProxy config path is required."),
+                requestedPlan.ConfigPath,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(currentApiKey, requestedPlan.ApiKey, StringComparison.Ordinal);
     }
 
     private async Task EnsureApiProxySidecarAsync(
@@ -506,7 +541,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         if (entry.ApiProxyProcess is { IsRunning: true }
             && string.Equals(entry.ApiProxyEndpoint, plan.Endpoint, StringComparison.OrdinalIgnoreCase)
             && string.Equals(entry.ApiProxyConfigPath, plan.ConfigPath, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(entry.ApiProxyBinaryPath, plan.BinaryPath, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(entry.ApiProxyBinaryPath, plan.BinaryPath, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.ApiProxyApiKey, plan.ApiKey, StringComparison.Ordinal))
         {
             entry.ServiceStatus = WithServiceStatus(entry.ServiceStatus, "apiProxy", new HubServiceStatus("running", plan.Endpoint));
             return;

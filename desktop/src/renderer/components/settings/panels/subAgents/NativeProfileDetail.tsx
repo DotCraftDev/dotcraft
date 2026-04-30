@@ -34,6 +34,7 @@ export function NativeProfileDetail({
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
+  const modelCatalogErrorMessage = useModelCatalogStore((s) => s.errorMessage)
   const loadModels = useModelCatalogStore((s) => s.loadIfNeeded)
 
   useEffect(() => {
@@ -123,6 +124,43 @@ export function NativeProfileDetail({
               placeholder={t('settings.subAgents.preset.nativeModelPlaceholder')}
               style={inputStyle()}
             />
+          )}
+          {modelCatalogStatus === 'error' && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                marginTop: '8px',
+                color: 'var(--error)',
+                fontSize: '12px'
+              }}
+            >
+              <span style={{ minWidth: 0 }}>
+                {modelCatalogErrorMessage || t('composer.modelListError')}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void loadModels(true)
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--accent)',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  flexShrink: 0
+                }}
+              >
+                {t('composer.modelListRetry')}
+              </button>
+            </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
             <button
