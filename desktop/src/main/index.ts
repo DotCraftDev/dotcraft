@@ -15,9 +15,9 @@ import { join, basename, resolve as resolvePath } from 'path'
 import { existsSync } from 'fs'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
-import { ProxyProcessManager } from './ProxyProcessManager'
+import { resolveProxyBinaryLocation } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
-import { HubClient, type HubAppServerResponse, type HubEvent } from './HubClient'
+import { HubClient, type HubApiProxySidecarRequest, type HubAppServerResponse, type HubEvent } from './HubClient'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
@@ -86,7 +86,7 @@ import {
   type ProxyAuthFileSummary,
   type RawProxyAuthFileSummary
 } from './proxyAuthFiles'
-import { applyWorkspaceProxyOverrides, cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
+import { cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
 import {
   materializeProxyRuntimeSettings,
   resolveExistingProxyRuntimeSettings,
@@ -96,10 +96,6 @@ import {
   ensureMacProxyOAuthCallbackForwarder,
   stopMacProxyOAuthCallbackForwarders
 } from './proxyOAuthCallbackForwarder'
-import {
-  registerGuardedProxyManagerStatusHandlers,
-  runIfCurrentProxyManager
-} from './proxyManagerStatus'
 import { ensureTrayProcess, runTrayProcess } from './trayManager'
 import { configureAppIdentity } from './appIdentity'
 
@@ -110,7 +106,6 @@ import { configureAppIdentity } from './appIdentity'
 // multi-window-in-one-process design had.
 
 let mainWindow: BrowserWindow | null = null
-let proxyManager: ProxyProcessManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
 /** Last DashBoard URL from a successful initialize (for View menu). */
@@ -207,8 +202,6 @@ async function updateSharedSettings(partial: Partial<AppSettings>): Promise<void
   Object.assign(sharedSettings, next)
   saveSettings(sharedSettings)
   if (resolveProxySettings(sharedSettings).enabled !== true) {
-    proxyManager?.shutdown()
-    proxyManager = null
     proxyStatus = { status: 'stopped' }
     if (currentWorkspacePath) {
       await scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
@@ -284,25 +277,6 @@ function resolveRemoteWsUrl(settings: AppSettings): string | null {
   return appendTokenToWsUrlIfMissing(parsed.toString(), settings.remote?.token)
 }
 
-async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_000): Promise<void> {
-  const started = Date.now()
-  const modelsUrl = `${buildLocalProxyEndpoint(port)}/models`
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const res = await fetch(modelsUrl, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`
-        }
-      })
-      if (res.ok) return
-    } catch {
-      // Keep polling until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300))
-  }
-  throw new Error(`CLIProxyAPI did not become ready in ${timeoutMs}ms`)
-}
-
 async function fetchProxyManagementJson<T>(settings: AppSettings, path: string): Promise<T> {
   const runtime = resolveExistingProxyRuntimeSettings(settings)
   const url = `${buildLocalProxyManagementBaseUrl(runtime.port)}${path}`
@@ -316,17 +290,15 @@ async function fetchProxyManagementJson<T>(settings: AppSettings, path: string):
   return (await res.json()) as T
 }
 
-async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<void> {
+async function prepareHubApiProxySidecar(workspacePath: string): Promise<HubApiProxySidecarRequest | undefined> {
   const proxy = resolveProxySettings(sharedSettings)
   if (!proxy.enabled) {
-    proxyManager?.shutdown()
-    proxyManager = null
     proxyStatus = { status: 'stopped' }
     await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
       proxyPort: proxy.port,
       proxyApiKey: proxy.apiKey
     })
-    return
+    return undefined
   }
 
   const runtime = materializeProxyRuntimeSettings(sharedSettings)
@@ -339,56 +311,56 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     managementKey: runtime.managementKey
   })
 
-  if (proxyManager?.isRunning) {
-    await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
+  const resolvedBinary = resolveProxyBinaryLocation({
+    binarySource: runtime.binarySource,
+    binaryPath: runtime.binaryPath
+  })
+  if (!resolvedBinary.path) {
+    throw new Error('CLIProxyAPI binary not found. Check proxy binary settings.')
+  }
+
+  proxyStatus = { status: 'starting', port: runtime.port }
+  await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
+    proxyPort: runtime.port,
+    proxyApiKey: runtime.apiKey
+  })
+
+  return {
+    enabled: true,
+    binaryPath: resolvedBinary.path,
+    configPath: runtime.configPath,
+    endpoint: buildLocalProxyEndpoint(runtime.port),
+    apiKey: runtime.apiKey
+  }
+}
+
+function updateProxyStatusFromHubResponse(
+  ensured: HubAppServerResponse,
+  apiProxy: HubApiProxySidecarRequest | undefined
+): void {
+  if (!apiProxy?.enabled) {
+    proxyStatus = { status: 'stopped' }
+    return
+  }
+
+  const status = ensured.serviceStatus.apiProxy
+  const endpoint = ensured.endpoints.apiProxy ?? apiProxy.endpoint
+  if (status?.state === 'running' && endpoint) {
+    const port = new URL(endpoint).port
     proxyStatus = {
       status: 'running',
-      pid: proxyManager.pid ?? undefined,
-      port: runtime.port,
-      baseUrl: buildLocalProxyEndpoint(runtime.port),
-      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+      port: port ? Number(port) : undefined,
+      baseUrl: endpoint,
+      managementUrl: port ? buildLocalProxyManagementBaseUrl(Number(port)) : undefined
     }
     return
   }
 
-  const manager = new ProxyProcessManager({
-    workspacePath,
-    configPath: runtime.configPath,
-    binarySource: runtime.binarySource,
-    binaryPath: runtime.binaryPath
-  })
-  proxyManager = manager
-  proxyStatus = { status: 'starting', port: runtime.port }
-  const currentManager = manager
-
-  registerGuardedProxyManagerStatusHandlers({
-    manager: currentManager,
-    workspacePath,
-    port: runtime.port,
-    apiKey: runtime.apiKey,
-    getCurrentManager: () => proxyManager,
-    setProxyStatus: (status) => {
-      proxyStatus = status
-    },
-    cleanupWorkspaceProxyOverrides: scheduleWorkspaceProxyOverrideCleanup
-  })
-
-  manager.spawn()
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  if (proxyStatus.status === 'error') {
-    throw new Error(proxyStatus.errorMessage || 'CLIProxyAPI failed to start')
+  proxyStatus = {
+    status: status?.state === 'exited' ? 'error' : 'starting',
+    errorMessage: status?.reason ?? undefined,
+    baseUrl: endpoint ?? undefined
   }
-  await waitForProxyReady(runtime.port, runtime.apiKey)
-  await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
-  runIfCurrentProxyManager(currentManager, () => proxyManager, () => {
-    proxyStatus = {
-      status: 'running',
-      pid: manager.pid ?? undefined,
-      port: runtime.port,
-      baseUrl: buildLocalProxyEndpoint(runtime.port),
-      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
-    }
-  })
 }
 
 function releaseCurrentWorkspaceLock(): void {
@@ -469,10 +441,7 @@ async function teardownRuntime(
   const cleanedIpc = options?.cleanupIpcHandlers
     ? unregisterDesktopIpcHandlers()
     : false
-  const hadProxy = proxyManager !== null
   const hadWireClient = wireClient !== null
-  const workspacePathAtTeardown = currentWorkspacePath
-  const proxyAtTeardown = resolveProxySettings(sharedSettings)
   if (moduleManager) {
     void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
       console.warn('[desktop] failed to stop channel modules during teardown', error)
@@ -480,16 +449,8 @@ async function teardownRuntime(
   }
   hubEventAbortController?.abort()
   hubEventAbortController = null
-  proxyManager?.shutdown()
   stopMacProxyOAuthCallbackForwarders()
-  if (hadProxy && workspacePathAtTeardown) {
-    await scheduleWorkspaceProxyOverrideCleanup(workspacePathAtTeardown, {
-      proxyPort: proxyAtTeardown.port,
-      proxyApiKey: proxyAtTeardown.apiKey
-    })
-  }
   wireClient?.dispose()
-  proxyManager = null
   wireClient = null
   lastAppServerWsUrl = null
   proxyStatus = { status: 'stopped' }
@@ -505,7 +466,6 @@ async function teardownRuntime(
   }
   const changed =
     cleanedIpc ||
-    hadProxy ||
     hadWireClient ||
     releasedWorkspaceLock ||
     clearedMainWindow
@@ -822,7 +782,9 @@ function buildCallbacks(): IpcHandlerCallbacks {
         binarySource: resolveBinarySource(sharedSettings),
         binaryPath: sharedSettings.appServerBinaryPath
       })
-      const restarted = await hubClient.restartAppServer(currentWorkspacePath)
+      const apiProxy = await prepareHubApiProxySidecar(currentWorkspacePath)
+      const restarted = await hubClient.restartAppServer(currentWorkspacePath, apiProxy)
+      updateProxyStatusFromHubResponse(restarted, apiProxy)
       await connectViaWebSocket(currentWorkspacePath, getManagedAppServerEndpoint(restarted))
       startHubEventSubscription(currentWorkspacePath, hubClient)
     },
@@ -834,10 +796,18 @@ function buildCallbacks(): IpcHandlerCallbacks {
       if (!proxy.enabled) {
         throw new Error('Local proxy is disabled in Settings.')
       }
-      proxyManager?.shutdown()
-      proxyManager = null
-      proxyStatus = { status: 'stopped' }
-      await ensureProxyRunningForWorkspace(currentWorkspacePath)
+      if (resolveConnectionMode(sharedSettings) === 'remote' || process.argv.includes('--remote')) {
+        throw new Error('Proxy restart is only available for Hub-managed local AppServers.')
+      }
+      const hubClient = new HubClient({
+        binarySource: resolveBinarySource(sharedSettings),
+        binaryPath: sharedSettings.appServerBinaryPath
+      })
+      const apiProxy = await prepareHubApiProxySidecar(currentWorkspacePath)
+      const restarted = await hubClient.restartAppServer(currentWorkspacePath, apiProxy)
+      updateProxyStatusFromHubResponse(restarted, apiProxy)
+      await connectViaWebSocket(currentWorkspacePath, getManagedAppServerEndpoint(restarted))
+      startHubEventSubscription(currentWorkspacePath, hubClient)
     },
     getSettings: () => sharedSettings,
     updateSettings: async (partial) => {
@@ -1020,30 +990,19 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   const win = mainWindow!
-  try {
-    await ensureProxyRunningForWorkspace(workspacePath)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.warn('[proxy] Failed to start API proxy, continuing without it:', message)
-    proxyStatus = { status: 'error', errorMessage: message }
-    const proxySettings = resolveProxySettings(sharedSettings)
-    await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
-      proxyPort: proxySettings.port,
-      proxyApiKey: proxySettings.apiKey
-    })
-  }
-
   emitConnectionStatus(win, { status: 'connecting' })
 
   reregisterIpcForWorkspace(workspacePath)
   try {
+    const apiProxy = await prepareHubApiProxySidecar(workspacePath)
     const hubClient = new HubClient({
       binarySource: resolveBinarySource(sharedSettings),
       binaryPath: sharedSettings.appServerBinaryPath
     })
-    const ensured = await hubClient.ensureAppServer(workspacePath)
+    const ensured = await hubClient.ensureAppServer(workspacePath, { apiProxy })
     if (currentWorkspacePath !== workspacePath || isAppQuitting) return
 
+    updateProxyStatusFromHubResponse(ensured, apiProxy)
     startHubEventSubscription(workspacePath, hubClient)
     await connectViaWebSocket(workspacePath, getManagedAppServerEndpoint(ensured))
   } catch (err) {

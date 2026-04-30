@@ -32,6 +32,14 @@ export interface HubAppServerResponse {
   recentStderr?: string | null
 }
 
+export interface HubApiProxySidecarRequest {
+  enabled: boolean
+  binaryPath?: string
+  configPath?: string
+  endpoint?: string
+  apiKey?: string
+}
+
 export interface HubStatusResponse {
   hubVersion: string
   pid: number
@@ -111,8 +119,15 @@ async function sleep(ms: number): Promise<void> {
 export class HubClient {
   constructor(private readonly options: HubClientOptions = {}) {}
 
-  async ensureAppServer(workspacePath: string, clientName = 'dotcraft-desktop'): Promise<HubAppServerResponse> {
+  async ensureAppServer(
+    workspacePath: string,
+    options: {
+      clientName?: string
+      apiProxy?: HubApiProxySidecarRequest
+    } = {}
+  ): Promise<HubAppServerResponse> {
     const hub = await this.ensureHub()
+    const clientName = options.clientName ?? 'dotcraft-desktop'
     return this.requestJson<HubAppServerResponse>(
       hub,
       '/v1/appservers/ensure',
@@ -121,20 +136,24 @@ export class HubClient {
         body: JSON.stringify({
           workspacePath,
           client: { name: clientName, version: process.env.npm_package_version ?? '0.1.0' },
-          startIfMissing: true
+          startIfMissing: true,
+          apiProxy: options.apiProxy
         })
       }
     )
   }
 
-  async restartAppServer(workspacePath: string): Promise<HubAppServerResponse> {
+  async restartAppServer(
+    workspacePath: string,
+    apiProxy?: HubApiProxySidecarRequest
+  ): Promise<HubAppServerResponse> {
     const hub = await this.ensureHub()
     return this.requestJson<HubAppServerResponse>(
       hub,
       '/v1/appservers/restart',
       {
         method: 'POST',
-        body: JSON.stringify({ workspacePath })
+        body: JSON.stringify({ workspacePath, apiProxy })
       }
     )
   }

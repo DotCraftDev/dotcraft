@@ -1,11 +1,15 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using DotCraft.AppServer;
 using DotCraft.CLI;
 using DotCraft.Common;
 using DotCraft.Configuration;
+using DotCraft.Processes;
 using DotCraft.Protocol.AppServer;
 using Microsoft.AspNetCore.Http;
 
@@ -69,6 +73,21 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             RefreshExited(entry);
             if (entry.Process is { IsRunning: true } && entry.State == HubAppServerStates.Running)
             {
+                if (RequiresAppServerRestartForApiProxy(entry, request.ApiProxy))
+                {
+                    await StopManagedProcessesAsync(entry, craftPath);
+                }
+                else
+                {
+                    await EnsureApiProxySidecarAsync(entry, request.ApiProxy, cancellationToken);
+                    entry.LastSeenAt = DateTimeOffset.UtcNow;
+                    Persist(entry);
+                    return entry.ToResponse();
+                }
+            }
+
+            if (entry.Process is { IsRunning: true } && entry.State == HubAppServerStates.Running)
+            {
                 entry.LastSeenAt = DateTimeOffset.UtcNow;
                 Persist(entry);
                 return entry.ToResponse();
@@ -84,17 +103,12 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
 
             if (entry.Process is { } staleProcess)
             {
-                await staleProcess.DisposeAsync();
-                entry.RecentStderr = staleProcess.RecentStderr;
-                entry.ExitCode = staleProcess.ExitCode;
-                entry.Process = null;
-                entry.Pid = null;
-                CleanupWorkspaceLock(craftPath);
+                await StopManagedProcessesAsync(entry, craftPath);
             }
 
             ThrowIfExternalLockIsLive(entry, craftPath);
 
-            var plan = BuildServicePlan(canonical, craftPath);
+            var plan = BuildServicePlan(canonical, craftPath, request.ApiProxy);
             entry.State = HubAppServerStates.Starting;
             entry.LastError = null;
             entry.RecentStderr = null;
@@ -107,6 +121,7 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
 
             try
             {
+                await EnsureApiProxySidecarAsync(entry, request.ApiProxy, cancellationToken);
                 var process = await AppServerProcess.StartAsync(
                     dotcraftBin: _dotcraftBin,
                     workspacePath: canonical,
@@ -133,6 +148,7 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not HubProtocolException)
             {
+                await StopApiProxySidecarAsync(entry);
                 entry.State = HubAppServerStates.Exited;
                 entry.LastError = ex.Message;
                 entry.LastExitedAt = DateTimeOffset.UtcNow;
@@ -233,12 +249,11 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             {
                 entry.State = HubAppServerStates.Stopping;
                 Persist(entry);
-                await process.DisposeAsync();
-                entry.RecentStderr = process.RecentStderr;
-                entry.ExitCode = process.ExitCode;
-                entry.Process = null;
-                entry.Pid = null;
-                CleanupWorkspaceLock(craftPath);
+                await StopManagedProcessesAsync(entry, craftPath);
+            }
+            else
+            {
+                await StopApiProxySidecarAsync(entry);
             }
 
             entry.State = HubAppServerStates.Stopped;
@@ -253,13 +268,18 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         }
     }
 
-    public async Task<HubAppServerResponse> RestartAsync(string workspacePath, CancellationToken cancellationToken)
+    public async Task<HubAppServerResponse> RestartAsync(
+        string workspacePath,
+        HubApiProxySidecarRequest? apiProxy,
+        CancellationToken cancellationToken)
     {
+        apiProxy ??= TryCreateApiProxyRequestFromEntry(workspacePath);
         await StopAsync(workspacePath, cancellationToken);
         return await EnsureAsync(new EnsureAppServerRequest
         {
             WorkspacePath = workspacePath,
-            StartIfMissing = true
+            StartIfMissing = true,
+            ApiProxy = apiProxy
         }, cancellationToken);
     }
 
@@ -281,15 +301,11 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             await entry.Mutex.WaitAsync();
             try
             {
-                if (entry.Process is { } process)
-                {
-                    await process.DisposeAsync();
-                    entry.Process = null;
-                    entry.State = HubAppServerStates.Stopped;
-                    entry.LastExitedAt = DateTimeOffset.UtcNow;
-                    Persist(entry);
-                    _events.Publish("appserver.exited", entry.CanonicalWorkspacePath, new { hubStopping = true });
-                }
+                await StopManagedProcessesAsync(entry, Path.Combine(entry.CanonicalWorkspacePath, ".craft"));
+                entry.State = HubAppServerStates.Stopped;
+                entry.LastExitedAt = DateTimeOffset.UtcNow;
+                Persist(entry);
+                _events.Publish("appserver.exited", entry.CanonicalWorkspacePath, new { hubStopping = true });
             }
             finally
             {
@@ -301,7 +317,10 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         _healthCts.Dispose();
     }
 
-    private ServicePlan BuildServicePlan(string canonicalWorkspacePath, string craftPath)
+    private ServicePlan BuildServicePlan(
+        string canonicalWorkspacePath,
+        string craftPath,
+        HubApiProxySidecarRequest? apiProxy)
     {
         var configPath = Path.Combine(craftPath, "config.json");
         var config = AppConfig.LoadWithGlobalFallback(configPath);
@@ -344,8 +363,31 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
 
         AddOptionalModuleService(config, "Api", "api", null, ManagedAppServerEnvironment.ApiHost, ManagedAppServerEnvironment.ApiPort, endpoints, status, environment, usedPorts, canonicalWorkspacePath);
         AddOptionalModuleService(config, "AgUi", "agui", "Path", ManagedAppServerEnvironment.AguiHost, ManagedAppServerEnvironment.AguiPort, endpoints, status, environment, usedPorts, canonicalWorkspacePath);
+        AddApiProxyService(apiProxy, endpoints, status, environment);
 
         return new ServicePlan(environment, endpoints, status, wsProbeUrl, wsToken);
+    }
+
+    private static void AddApiProxyService(
+        HubApiProxySidecarRequest? apiProxy,
+        Dictionary<string, string> endpoints,
+        Dictionary<string, HubServiceStatus> status,
+        Dictionary<string, string?> environment)
+    {
+        if (apiProxy?.Enabled is not true)
+            return;
+
+        var endpoint = NormalizeRequiredUrl(apiProxy.Endpoint, "APIProxy endpoint is required.");
+        if (string.IsNullOrWhiteSpace(apiProxy.ApiKey))
+            throw new HubProtocolException(
+                "invalidProxySidecar",
+                "APIProxy API key is required.",
+                StatusCodes.Status400BadRequest);
+
+        endpoints["apiProxy"] = endpoint;
+        status["apiProxy"] = new HubServiceStatus("allocated", endpoint);
+        environment[ManagedAppServerEnvironment.ProxyEndpoint] = endpoint;
+        environment[ManagedAppServerEnvironment.ProxyApiKey] = apiProxy.ApiKey;
     }
 
     private void AddOptionalModuleService(
@@ -432,6 +474,189 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             "Managed AppServer did not publish the expected workspace lock.",
             StatusCodes.Status500InternalServerError,
             new { workspacePath = canonicalWorkspacePath, expectedPid, lockPath });
+    }
+
+    private static bool RequiresAppServerRestartForApiProxy(
+        ManagedEntry entry,
+        HubApiProxySidecarRequest? apiProxy)
+    {
+        var requested = apiProxy?.Enabled is true;
+        var hasEndpoint = entry.Endpoints.TryGetValue("apiProxy", out var currentEndpoint)
+            && !string.IsNullOrWhiteSpace(currentEndpoint);
+
+        if (!requested)
+            return hasEndpoint;
+
+        var requestedEndpoint = NormalizeRequiredUrl(apiProxy!.Endpoint, "APIProxy endpoint is required.");
+        return !hasEndpoint || !string.Equals(currentEndpoint, requestedEndpoint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task EnsureApiProxySidecarAsync(
+        ManagedEntry entry,
+        HubApiProxySidecarRequest? apiProxy,
+        CancellationToken cancellationToken)
+    {
+        if (apiProxy?.Enabled is not true)
+        {
+            await StopApiProxySidecarAsync(entry);
+            return;
+        }
+
+        var plan = CreateApiProxySidecarPlan(apiProxy);
+        if (entry.ApiProxyProcess is { IsRunning: true }
+            && string.Equals(entry.ApiProxyEndpoint, plan.Endpoint, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.ApiProxyConfigPath, plan.ConfigPath, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.ApiProxyBinaryPath, plan.BinaryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            entry.ServiceStatus = WithServiceStatus(entry.ServiceStatus, "apiProxy", new HubServiceStatus("running", plan.Endpoint));
+            return;
+        }
+
+        await StopApiProxySidecarAsync(entry);
+        var process = await ApiProxySidecarProcess.StartAsync(
+            plan.BinaryPath,
+            plan.ConfigPath,
+            entry.CanonicalWorkspacePath,
+            plan.Endpoint,
+            plan.ApiKey,
+            cancellationToken);
+
+        process.OnCrashed += () => OnApiProxyCrashed(entry);
+        entry.ApiProxyProcess = process;
+        entry.ApiProxyBinaryPath = plan.BinaryPath;
+        entry.ApiProxyConfigPath = plan.ConfigPath;
+        entry.ApiProxyEndpoint = plan.Endpoint;
+        entry.ApiProxyApiKey = plan.ApiKey;
+        entry.ServiceStatus = WithServiceStatus(entry.ServiceStatus, "apiProxy", new HubServiceStatus("running", plan.Endpoint));
+        _events.Publish("apiProxy.running", entry.CanonicalWorkspacePath, new
+        {
+            pid = process.ProcessId,
+            endpoint = plan.Endpoint
+        });
+    }
+
+    private static async Task StopManagedProcessesAsync(ManagedEntry entry, string craftPath)
+    {
+        if (entry.Process is { } process)
+        {
+            await process.DisposeAsync();
+            entry.RecentStderr = process.RecentStderr;
+            entry.ExitCode = process.ExitCode;
+            entry.Process = null;
+            entry.Pid = null;
+            CleanupWorkspaceLock(craftPath);
+        }
+
+        await StopApiProxySidecarAsync(entry);
+    }
+
+    private static async Task StopApiProxySidecarAsync(ManagedEntry entry)
+    {
+        if (entry.ApiProxyProcess is { } apiProxy)
+        {
+            await apiProxy.DisposeAsync();
+            entry.ApiProxyProcess = null;
+        }
+
+        entry.ApiProxyBinaryPath = null;
+        entry.ApiProxyConfigPath = null;
+        entry.ApiProxyEndpoint = null;
+        entry.ApiProxyApiKey = null;
+    }
+
+    private void OnApiProxyCrashed(ManagedEntry entry)
+    {
+        entry.ServiceStatus = WithServiceStatus(
+            entry.ServiceStatus,
+            "apiProxy",
+            new HubServiceStatus("exited", entry.ApiProxyEndpoint, "APIProxy process exited."));
+        _events.Publish("apiProxy.exited", entry.CanonicalWorkspacePath, new
+        {
+            endpoint = entry.ApiProxyEndpoint,
+            stderr = entry.ApiProxyProcess?.RecentStderr
+        });
+    }
+
+    private static ApiProxySidecarPlan CreateApiProxySidecarPlan(HubApiProxySidecarRequest apiProxy)
+    {
+        var binaryPath = NormalizeRequiredFilePath(apiProxy.BinaryPath, "APIProxy binary path is required.");
+        var configPath = NormalizeRequiredFilePath(apiProxy.ConfigPath, "APIProxy config path is required.");
+        var endpoint = NormalizeRequiredUrl(apiProxy.Endpoint, "APIProxy endpoint is required.");
+        if (string.IsNullOrWhiteSpace(apiProxy.ApiKey))
+        {
+            throw new HubProtocolException(
+                "invalidProxySidecar",
+                "APIProxy API key is required.",
+                StatusCodes.Status400BadRequest);
+        }
+
+        return new ApiProxySidecarPlan(binaryPath, configPath, endpoint, apiProxy.ApiKey);
+    }
+
+    private HubApiProxySidecarRequest? TryCreateApiProxyRequestFromEntry(string workspacePath)
+    {
+        var (_, canonical, _) = ResolveWorkspace(workspacePath);
+        if (!_entries.TryGetValue(canonical, out var entry)
+            || string.IsNullOrWhiteSpace(entry.ApiProxyBinaryPath)
+            || string.IsNullOrWhiteSpace(entry.ApiProxyConfigPath)
+            || string.IsNullOrWhiteSpace(entry.ApiProxyEndpoint)
+            || string.IsNullOrWhiteSpace(entry.ApiProxyApiKey))
+        {
+            return null;
+        }
+
+        return new HubApiProxySidecarRequest
+        {
+            Enabled = true,
+            BinaryPath = entry.ApiProxyBinaryPath,
+            ConfigPath = entry.ApiProxyConfigPath,
+            Endpoint = entry.ApiProxyEndpoint,
+            ApiKey = entry.ApiProxyApiKey
+        };
+    }
+
+    private static string NormalizeRequiredFilePath(string? path, string message)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new HubProtocolException("invalidProxySidecar", message, StatusCodes.Status400BadRequest);
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            throw new HubProtocolException(
+                "invalidProxySidecar",
+                message,
+                StatusCodes.Status400BadRequest,
+                new { path = fullPath });
+        }
+
+        return fullPath;
+    }
+
+    private static string NormalizeRequiredUrl(string? url, string message)
+    {
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new HubProtocolException("invalidProxySidecar", message, StatusCodes.Status400BadRequest);
+        }
+
+        return uri.ToString().TrimEnd('/');
+    }
+
+    private static IReadOnlyDictionary<string, HubServiceStatus> WithServiceStatus(
+        IReadOnlyDictionary<string, HubServiceStatus> current,
+        string key,
+        HubServiceStatus value)
+    {
+        var next = new Dictionary<string, HubServiceStatus>(current, StringComparer.OrdinalIgnoreCase)
+        {
+            [key] = value
+        };
+        return next;
     }
 
     private static void CleanupWorkspaceLock(string craftPath)
@@ -715,6 +940,198 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         string WebSocketProbeUrl,
         string WebSocketToken);
 
+    private sealed record ApiProxySidecarPlan(
+        string BinaryPath,
+        string ConfigPath,
+        string Endpoint,
+        string ApiKey);
+
+    private sealed class ApiProxySidecarProcess : IAsyncDisposable
+    {
+        private const int MaxOutputCaptureChars = 16384;
+
+        private readonly ManagedChildProcess _managedChild;
+        private readonly StringBuilder _stderrBuffer = new();
+        private readonly Lock _stderrLock = new();
+        private readonly Task _stdoutForwarderTask;
+        private readonly Task _stderrForwarderTask;
+        private bool _disposed;
+
+        private ApiProxySidecarProcess(ManagedChildProcess managedChild)
+        {
+            _managedChild = managedChild;
+            _stdoutForwarderTask = ForwardOutputAsync(managedChild.Process.StandardOutput, Console.Out, "APIProxy");
+            _stderrForwarderTask = ForwardStderrAsync();
+            managedChild.Process.Exited += (_, _) =>
+            {
+                if (!_disposed)
+                    OnCrashed?.Invoke();
+            };
+            managedChild.Process.EnableRaisingEvents = true;
+        }
+
+        public event Action? OnCrashed;
+
+        public int ProcessId => _managedChild.Process.Id;
+
+        public int? ExitCode
+        {
+            get
+            {
+                try
+                {
+                    return _managedChild.Process.HasExited ? _managedChild.Process.ExitCode : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        public bool IsRunning
+        {
+            get
+            {
+                if (_disposed)
+                    return false;
+
+                try
+                {
+                    return !_managedChild.Process.HasExited;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        public string RecentStderr
+        {
+            get
+            {
+                lock (_stderrLock)
+                {
+                    return _stderrBuffer.ToString();
+                }
+            }
+        }
+
+        public static async Task<ApiProxySidecarProcess> StartAsync(
+            string binaryPath,
+            string configPath,
+            string workspacePath,
+            string endpoint,
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = binaryPath,
+                WorkingDirectory = workspacePath,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+            psi.ArgumentList.Add("--config");
+            psi.ArgumentList.Add(configPath);
+
+            var sidecar = new ApiProxySidecarProcess(ManagedChildProcess.Start(psi));
+            try
+            {
+                await ProbeReadyAsync(endpoint, apiKey, cancellationToken);
+                return sidecar;
+            }
+            catch
+            {
+                await sidecar.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            await _managedChild.DisposeAsync();
+            try { await _stdoutForwarderTask; } catch { }
+            try { await _stderrForwarderTask; } catch { }
+        }
+
+        private static async Task ProbeReadyAsync(string endpoint, string apiKey, CancellationToken cancellationToken)
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+            var modelsUrl = $"{endpoint.TrimEnd('/')}/models";
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    using var response = await http.SendAsync(request, cancellationToken);
+                    if (response.IsSuccessStatusCode)
+                        return;
+                }
+                catch when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Keep polling until timeout.
+                }
+
+                await Task.Delay(300, cancellationToken);
+            }
+
+            throw new TimeoutException("CLIProxyAPI did not become ready in 15 seconds.");
+        }
+
+        private async Task ForwardStderrAsync()
+        {
+            try
+            {
+                while (await _managedChild.Process.StandardError.ReadLineAsync() is { } line)
+                {
+                    AppendStderrLine(line);
+                    await Console.Error.WriteLineAsync($"[APIProxy] {line}");
+                }
+            }
+            catch
+            {
+                // Process exited.
+            }
+        }
+
+        private static async Task ForwardOutputAsync(StreamReader reader, TextWriter writer, string prefix)
+        {
+            try
+            {
+                while (await reader.ReadLineAsync() is { } line)
+                    await writer.WriteLineAsync($"[{prefix}] {line}");
+            }
+            catch
+            {
+                // Process exited.
+            }
+        }
+
+        private void AppendStderrLine(string line)
+        {
+            lock (_stderrLock)
+            {
+                _stderrBuffer.AppendLine(line);
+                if (_stderrBuffer.Length > MaxOutputCaptureChars)
+                    _stderrBuffer.Remove(0, _stderrBuffer.Length - MaxOutputCaptureChars);
+            }
+        }
+    }
+
     private sealed class ManagedEntry
     {
         public ManagedEntry(string workspacePath, string canonicalWorkspacePath)
@@ -732,6 +1149,16 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         public string State { get; set; } = HubAppServerStates.Stopped;
 
         public AppServerProcess? Process { get; set; }
+
+        public ApiProxySidecarProcess? ApiProxyProcess { get; set; }
+
+        public string? ApiProxyBinaryPath { get; set; }
+
+        public string? ApiProxyConfigPath { get; set; }
+
+        public string? ApiProxyEndpoint { get; set; }
+
+        public string? ApiProxyApiKey { get; set; }
 
         public int? Pid { get; set; }
 

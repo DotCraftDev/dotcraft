@@ -177,7 +177,7 @@ public sealed class HubHost : IDotCraftHost
                 return unauthorized;
 
             return await ProtectedAsync(async () =>
-                Results.Json(await registry.RestartAsync(body.WorkspacePath, ct), HubJson.Options));
+                Results.Json(await registry.RestartAsync(body.WorkspacePath, body.ApiProxy, ct), HubJson.Options));
         });
         app.MapGet("/v1/events", async (HttpRequest request, HttpResponse response, CancellationToken ct) =>
         {

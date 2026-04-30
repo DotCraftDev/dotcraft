@@ -67,8 +67,7 @@ export function spawnDesktopWindow(workspacePath?: string): void {
   }
   const child = spawn(process.execPath, args, {
     detached: true,
-    stdio: 'ignore',
-    windowsHide: true
+    stdio: 'ignore'
   })
   child.unref()
 }

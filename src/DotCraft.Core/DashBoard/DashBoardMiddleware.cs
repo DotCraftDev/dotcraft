@@ -273,7 +273,8 @@ public static class DashBoardMiddleware
         endpoints.MapGet("/dashboard/api/config/models", async (HttpContext ctx) =>
         {
             var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
-            var config = AppConfig.LoadWithGlobalFallback(workspaceConfigPath);
+            var config = ctx.RequestServices.GetService<IAppConfigMonitor>()?.Current
+                ?? AppConfig.LoadWithGlobalFallback(workspaceConfigPath);
             var provider = ctx.RequestServices.GetService<OpenAIClientProvider>();
             var result = await OpenAIModelCatalog.FetchAsync(config, ctx.RequestAborted, provider);
 

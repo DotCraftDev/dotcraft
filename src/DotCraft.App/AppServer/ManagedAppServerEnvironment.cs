@@ -21,6 +21,8 @@ public static class ManagedAppServerEnvironment
     public const string ApiPort = "DOTCRAFT_MANAGED_API_PORT";
     public const string AguiHost = "DOTCRAFT_MANAGED_AGUI_HOST";
     public const string AguiPort = "DOTCRAFT_MANAGED_AGUI_PORT";
+    public const string ProxyEndpoint = RuntimeConfigOverrides.ManagedProxyEndpoint;
+    public const string ProxyApiKey = RuntimeConfigOverrides.ManagedProxyApiKey;
 
     /// <summary>
     /// Returns whether the current AppServer process was launched by Hub.
@@ -54,6 +56,7 @@ public static class ManagedAppServerEnvironment
         ApplyDashboard(config);
         ApplyModuleEndpoint(config, "Api", ApiHost, ApiPort);
         ApplyModuleEndpoint(config, "AgUi", AguiHost, AguiPort);
+        RuntimeConfigOverrides.ApplyManagedProxy(config);
     }
 
     private static void ApplyDashboard(AppConfig config)

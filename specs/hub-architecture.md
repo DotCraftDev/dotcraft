@@ -128,7 +128,7 @@ Required endpoints:
 |----------|---------|
 | `GET /v1/status` | Return Hub metadata and capabilities. |
 | `POST /v1/shutdown` | Stop Hub and Hub-managed AppServers. |
-| `POST /v1/appservers/ensure` | Ensure a workspace AppServer exists and return connection metadata. |
+| `POST /v1/appservers/ensure` | Ensure a workspace AppServer and optional workspace sidecars exist, then return connection metadata. |
 | `GET /v1/appservers` | List live and known AppServer registry entries. |
 | `GET /v1/appservers/by-workspace?path=...` | Inspect one workspace without starting it. |
 | `POST /v1/appservers/stop` | Stop a managed AppServer. |
@@ -287,8 +287,15 @@ Hub allocates ports for:
 - AppServer WebSocket.
 - Dashboard when enabled.
 - API and AG-UI when the module exists and is enabled.
+- APIProxy when requested by a local Desktop client.
 
 If optional modules are disabled or unavailable, Hub reports service status as `disabled` or `unavailable` and still starts the AppServer.
+
+APIProxy is an optional workspace sidecar in Hub-managed local mode. Desktop may pass resolved proxy runtime settings in `POST /v1/appservers/ensure`; Hub starts the proxy process before the managed AppServer and injects the proxy endpoint and API key as in-memory AppServer configuration overrides. Hub reports the sidecar URL and state through the workspace `endpoints` and `serviceStatus` maps using the `apiProxy` key. APIProxy secrets must not be emitted in Hub events or status responses.
+
+If APIProxy is requested and cannot be started or probed, Hub must fail the ensure request instead of returning an AppServer whose model endpoint points at a dead proxy. If APIProxy is not requested, Hub must not start or configure it.
+
+Hub-managed APIProxy does not change the remote AppServer protocol, does not proxy normal conversation traffic, and does not manage TypeScript social channel adapters. Built-in TypeScript channels remain a separate AppServer/adapter lifecycle concern.
 
 Hub must not silently rewrite unrelated user-configured ports for native channels, webhook modules, or future integrations unless a service explicitly participates in Hub-managed runtime overrides.
 

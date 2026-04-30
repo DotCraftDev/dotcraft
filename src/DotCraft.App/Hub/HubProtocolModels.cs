@@ -17,11 +17,15 @@ public sealed class EnsureAppServerRequest
     public HubClientInfo? Client { get; set; }
 
     public bool StartIfMissing { get; set; } = true;
+
+    public HubApiProxySidecarRequest? ApiProxy { get; set; }
 }
 
 public sealed class WorkspacePathRequest
 {
     public string WorkspacePath { get; set; } = string.Empty;
+
+    public HubApiProxySidecarRequest? ApiProxy { get; set; }
 }
 
 public sealed class HubClientInfo
@@ -29,6 +33,19 @@ public sealed class HubClientInfo
     public string? Name { get; set; }
 
     public string? Version { get; set; }
+}
+
+public sealed class HubApiProxySidecarRequest
+{
+    public bool Enabled { get; set; }
+
+    public string? BinaryPath { get; set; }
+
+    public string? ConfigPath { get; set; }
+
+    public string? Endpoint { get; set; }
+
+    public string? ApiKey { get; set; }
 }
 
 public sealed class HubNotificationRequest

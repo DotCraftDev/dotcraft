@@ -513,8 +513,8 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.ModelList);
 
-        var configPath = Path.Combine(workspaceCraftPath, "config.json");
-        var config = AppConfig.LoadWithGlobalFallback(configPath);
+        var config = appConfigMonitor?.Current
+            ?? AppConfig.LoadWithGlobalFallback(Path.Combine(workspaceCraftPath, "config.json"));
         var result = await OpenAIModelCatalog.FetchAsync(config, ct, openAIClientProvider);
 
         return new ModelListResult
@@ -1812,6 +1812,7 @@ public sealed class AppServerRequestHandler(
         appConfigMonitor.Current.Model = mergedConfig.Model;
         appConfigMonitor.Current.ApiKey = mergedConfig.ApiKey;
         appConfigMonitor.Current.EndPoint = mergedConfig.EndPoint;
+        RuntimeConfigOverrides.ApplyManagedProxy(appConfigMonitor.Current);
     }
 
     private void InvalidateThreadAgents()

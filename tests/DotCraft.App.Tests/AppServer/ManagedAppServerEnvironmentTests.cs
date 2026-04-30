@@ -27,7 +27,9 @@ public sealed class ManagedAppServerEnvironmentTests
             [ManagedAppServerEnvironment.ApiHost] = "127.0.0.1",
             [ManagedAppServerEnvironment.ApiPort] = "43103",
             [ManagedAppServerEnvironment.AguiHost] = "127.0.0.1",
-            [ManagedAppServerEnvironment.AguiPort] = "43104"
+            [ManagedAppServerEnvironment.AguiPort] = "43104",
+            [ManagedAppServerEnvironment.ProxyEndpoint] = "http://127.0.0.1:8317/v1",
+            [ManagedAppServerEnvironment.ProxyApiKey] = "proxy-key"
         };
 
         WithEnvironment(env, () => ManagedAppServerEnvironment.ApplyTo(config));
@@ -47,6 +49,9 @@ public sealed class ManagedAppServerEnvironmentTests
         var agui = config.GetSection<AguiConfig>("AgUi");
         Assert.Equal("127.0.0.1", agui.Host);
         Assert.Equal(43104, agui.Port);
+
+        Assert.Equal("http://127.0.0.1:8317/v1", config.EndPoint);
+        Assert.Equal("proxy-key", config.ApiKey);
     }
 
     private static void WithEnvironment(IReadOnlyDictionary<string, string?> values, Action action)
