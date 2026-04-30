@@ -563,13 +563,20 @@ List threads matching a given identity.
       "status": "active",
       "originChannel": "vscode",
       "createdAt": "2026-03-16T10:00:00Z",
-      "lastActiveAt": "2026-03-16T10:05:00Z"
+      "lastActiveAt": "2026-03-16T10:05:00Z",
+      "runtime": {
+        "running": true,
+        "waitingOnApproval": false,
+        "waitingOnPlanConfirmation": false
+      }
     }
   ]
 }
 ```
 
 Results are ordered by `lastActiveAt` descending. Cursor pagination is deferred from v1 because the current Core only guarantees deterministic full-list ordering.
+
+Each `ThreadSummary` may include an optional `runtime` snapshot with the same shape as `thread/runtimeChanged`. This snapshot is best-effort process-local state intended to hydrate thread-list activity indicators after reconnect. Clients should apply it as initial list state and continue to consume `thread/runtimeChanged` as the incremental source of truth. Older servers may omit `runtime`, and clients must treat omission as unknown rather than as an idle thread.
 
 ### 4.3.1 `channel/list`
 

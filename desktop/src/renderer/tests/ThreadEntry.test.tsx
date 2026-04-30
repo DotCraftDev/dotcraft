@@ -253,6 +253,22 @@ describe('ThreadEntry', () => {
     expect(screen.getByLabelText('Turn running')).toBeInTheDocument()
   })
 
+  it('shows a running spinner after thread list runtime hydration', () => {
+    const thread = makeThread({
+      runtime: {
+        running: true,
+        waitingOnApproval: false,
+        waitingOnPlanConfirmation: false
+      }
+    })
+    useThreadStore.getState().setThreadList([thread])
+
+    renderThreadEntry(thread)
+
+    expect(screen.getByTestId('thread-running-indicator-thread-1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Turn running')).toBeInTheDocument()
+  })
+
   it('shows a running spinner for the active thread with an active turn', () => {
     useThreadStore.setState({
       activeThreadId: 'thread-1',
