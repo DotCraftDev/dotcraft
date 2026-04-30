@@ -11,7 +11,7 @@ public static class WelcomeSuggestionConstants
 
     public const string InternalUserId = "internal";
 
-    public const string InternalMetadataKey = "dotcraft.internal";
+    public const string InternalMetadataKey = ThreadVisibility.InternalMetadataKey;
 
     public const string InternalMetadataValue = "welcome-suggest";
 }

@@ -1037,51 +1037,24 @@ public sealed class AppServerHost(
 
     private void RequestHubTurnNotification(string threadId, SessionThreadRuntimeSignal signal)
     {
-        var (kind, titleKey, bodyKey, severity) = signal switch
-        {
-            SessionThreadRuntimeSignal.TurnCompleted => (
-                "turnCompleted",
-                "hub.notification.turn_completed.title",
-                "hub.notification.turn_completed.body",
-                "success"),
-            SessionThreadRuntimeSignal.TurnFailed => (
-                "turnFailed",
-                "hub.notification.turn_failed.title",
-                "hub.notification.turn_failed.body",
-                "error"),
-            _ => (null, null, null, null)
-        };
-
-        if (kind is null || titleKey is null || bodyKey is null || severity is null)
+        var spec = HubTurnNotificationPolicy.GetSpec(signal);
+        if (spec is null)
             return;
 
         _ = Task.Run(async () =>
         {
             var lang = LanguageService.Current;
-            var displayName = await ResolveThreadDisplayNameForNotificationAsync(threadId);
+            var decision = await HubTurnNotificationPolicy.ResolveDecisionAsync(_runtime.SessionService, threadId);
+            if (!decision.ShouldNotify)
+                return;
+
             await HubNotificationClient.RequestAsync(
                 _runtime.Paths.WorkspacePath,
-                kind,
-                lang.T(titleKey),
-                lang.T(bodyKey, displayName),
-                severity);
+                spec.Kind,
+                lang.T(spec.TitleKey),
+                lang.T(spec.BodyKey, decision.DisplayName),
+                spec.Severity);
         });
-    }
-
-    private async Task<string> ResolveThreadDisplayNameForNotificationAsync(string threadId)
-    {
-        try
-        {
-            var thread = await _runtime.SessionService.GetThreadAsync(threadId);
-            if (!string.IsNullOrWhiteSpace(thread.DisplayName))
-                return thread.DisplayName.Trim();
-        }
-        catch
-        {
-            // Notifications are best-effort; falling back keeps turn completion isolated.
-        }
-
-        return LanguageService.Current.T("hub.notification.thread.default");
     }
 
     private void BroadcastThreadRuntime(string threadId, ThreadRuntimeState runtime)

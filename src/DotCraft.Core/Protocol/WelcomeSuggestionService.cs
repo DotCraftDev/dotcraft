@@ -765,20 +765,7 @@ public sealed class WelcomeSuggestionService(
 
     internal static bool IsInternalThread(ThreadSummary summary)
     {
-        if (summary.Metadata.TryGetValue(WelcomeSuggestionConstants.InternalMetadataKey, out var value)
-            && string.Equals(value, WelcomeSuggestionConstants.InternalMetadataValue, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (summary.Metadata.TryGetValue(CommitMessageSuggestConstants.InternalMetadataKey, out var commitValue)
-            && string.Equals(commitValue, CommitMessageSuggestConstants.InternalMetadataValue, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return string.Equals(summary.OriginChannel, WelcomeSuggestionConstants.ChannelName, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(summary.OriginChannel, CommitMessageSuggestConstants.ChannelName, StringComparison.OrdinalIgnoreCase);
+        return ThreadVisibility.IsInternal(summary);
     }
 
     internal static string NormalizeWorkspacePath(string? path) =>

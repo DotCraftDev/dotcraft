@@ -278,7 +278,7 @@ Notification flow:
 3. Desktop tray receives the event and displays the OS notification with the DotCraft app icon.
 4. Clicking the notification opens the related workspace or action URL.
 
-Turn-related notifications should use the thread display name in user-visible copy instead of the internal thread ID.
+Turn-related OS notifications are for user-visible work. AppServer-managed turn notifications must suppress internal-only helper threads, such as threads marked with `dotcraft.internal` metadata or known internal origins used for welcome suggestions and commit-message suggestions. User-visible copy should use the thread display name instead of the internal thread ID.
 
 Hub itself never displays OS UI.
 
