@@ -215,6 +215,10 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return Task.CompletedTask;
     }
 
+    public void InvalidateThreadAgents()
+    {
+    }
+
     public async Task UpdateThreadConfigurationAsync(
         string threadId, ThreadConfiguration config, CancellationToken ct = default)
     {

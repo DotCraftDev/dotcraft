@@ -101,6 +101,7 @@ import {
   runIfCurrentProxyManager
 } from './proxyManagerStatus'
 import { ensureTrayProcess, runTrayProcess } from './trayManager'
+import { configureAppIdentity } from './appIdentity'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -129,6 +130,8 @@ let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
 let hubEventAbortController: AbortController | null = null
 const isTrayMode = process.argv.includes('--tray')
+
+configureAppIdentity()
 
 function buildAddTabPopupWindowOptions(): AddTabPopupWindowOptions {
   return {

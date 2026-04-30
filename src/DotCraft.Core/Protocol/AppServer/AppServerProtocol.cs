@@ -2163,11 +2163,16 @@ public sealed class SubAgentProfileListResult
 public sealed class SubAgentSettingsWire
 {
     public bool ExternalCliSessionResumeEnabled { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; set; }
 }
 
 public sealed class SubAgentSettingsUpdateParams
 {
     public bool? ExternalCliSessionResumeEnabled { get; set; }
+
+    public string? Model { get; set; }
 }
 
 public sealed class SubAgentSettingsUpdateResult

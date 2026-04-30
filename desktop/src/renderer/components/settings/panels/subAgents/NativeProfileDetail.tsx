@@ -1,23 +1,61 @@
-import type { JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useT } from '../../../../contexts/LocaleContext'
+import { useModelCatalogStore } from '../../../../stores/modelCatalogStore'
 import { SettingsGroup, SettingsRow } from '../../SettingsGroup'
 import { PillSwitch } from '../../../ui/PillSwitch'
 import { AgentIcon } from './AgentIcon'
 import type { SubAgentProfileEntryWire } from './wire'
 import {
+  inputStyle,
   pageDescriptionStyle,
   pageHeadingStyle,
   pageStyle,
+  primaryButtonStyle,
   secondaryButtonStyle
 } from './styles'
 
 interface NativeProfileDetailProps {
   profile: SubAgentProfileEntryWire
+  model: string
+  savingModel?: boolean
   onBack: () => void
+  onSaveModel: (model: string) => void
 }
 
-export function NativeProfileDetail({ profile, onBack }: NativeProfileDetailProps): JSX.Element {
+export function NativeProfileDetail({
+  profile,
+  model,
+  savingModel = false,
+  onBack,
+  onSaveModel
+}: NativeProfileDetailProps): JSX.Element {
   const t = useT()
+  const [draftModel, setDraftModel] = useState(model)
+  const modelOptions = useModelCatalogStore((s) => s.modelOptions)
+  const modelCatalogStatus = useModelCatalogStore((s) => s.status)
+  const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
+  const loadModels = useModelCatalogStore((s) => s.loadIfNeeded)
+
+  useEffect(() => {
+    setDraftModel(model)
+  }, [model])
+
+  useEffect(() => {
+    void loadModels()
+  }, [loadModels])
+
+  const effectiveModelOptions = useMemo(() => {
+    const normalized = modelOptions.map((item) => item.trim()).filter(Boolean)
+    const current = draftModel.trim()
+    if (!current || normalized.includes(current)) return normalized
+    return [current, ...normalized]
+  }, [draftModel, modelOptions])
+  const modelSelectAvailable =
+    modelCatalogStatus === 'ready' &&
+    !modelListUnsupportedEndpoint &&
+    effectiveModelOptions.length > 0
+  const modelListLoading = modelCatalogStatus === 'loading'
+  const modelChanged = draftModel.trim() !== model.trim()
 
   return (
     <div style={pageStyle()}>
@@ -52,6 +90,51 @@ export function NativeProfileDetail({ profile, onBack }: NativeProfileDetailProp
             />
           }
         />
+        <SettingsRow
+          label={t('settings.subAgents.preset.nativeModelTitle')}
+          description={t('settings.subAgents.preset.nativeModelDescription')}
+          htmlFor="native-subagent-model"
+          orientation="block"
+        >
+          {modelListLoading ? (
+            <div role="status" aria-live="polite" style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {t('settings.subAgents.preset.modelListLoading')}
+            </div>
+          ) : modelSelectAvailable ? (
+            <select
+              id="native-subagent-model"
+              value={draftModel}
+              onChange={(e) => setDraftModel(e.target.value)}
+              style={inputStyle()}
+            >
+              <option value="">{t('settings.subAgents.preset.nativeModelInherit')}</option>
+              {effectiveModelOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="native-subagent-model"
+              type="text"
+              value={draftModel}
+              onChange={(e) => setDraftModel(e.target.value)}
+              placeholder={t('settings.subAgents.preset.nativeModelPlaceholder')}
+              style={inputStyle()}
+            />
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+            <button
+              type="button"
+              disabled={!modelChanged || savingModel}
+              onClick={() => onSaveModel(draftModel)}
+              style={primaryButtonStyle(!modelChanged || savingModel)}
+            >
+              {savingModel ? t('settings.subAgents.saving') : t('settings.subAgents.save')}
+            </button>
+          </div>
+        </SettingsRow>
       </SettingsGroup>
     </div>
   )

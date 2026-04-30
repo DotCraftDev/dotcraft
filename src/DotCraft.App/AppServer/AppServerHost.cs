@@ -280,6 +280,7 @@ public sealed class AppServerHost(
             streamDebugLogger: _services.GetService<SessionStreamDebugLogger>(),
             configSchema: _runtime.ConfigSchema,
             appConfigMonitor: _services.GetRequiredService<IAppConfigMonitor>(),
+            openAIClientProvider: _services.GetRequiredService<OpenAIClientProvider>(),
             backgroundTerminalService: _services.GetService<IBackgroundTerminalService>());
     }
 

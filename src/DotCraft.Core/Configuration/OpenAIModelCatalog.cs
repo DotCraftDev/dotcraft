@@ -1,4 +1,5 @@
 using System.ClientModel;
+using DotCraft.Agents;
 using OpenAI;
 
 namespace DotCraft.Configuration;
@@ -40,7 +41,8 @@ public static class OpenAIModelCatalog
 {
     public static async Task<OpenAIModelCatalogResult> FetchAsync(
         AppConfig config,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        OpenAIClientProvider? openAIClientProvider = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -60,10 +62,7 @@ public static class OpenAIModelCatalog
 
         try
         {
-            var client = new OpenAIClient(
-                new ApiKeyCredential(config.ApiKey),
-                new OpenAIClientOptions { Endpoint = endpoint });
-
+            var client = (openAIClientProvider ?? new OpenAIClientProvider()).GetOpenAIClient(config);
             var modelClient = client.GetOpenAIModelClient();
             var models = await modelClient.GetModelsAsync(cancellationToken);
 

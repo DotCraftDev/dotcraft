@@ -4001,13 +4001,15 @@ Returns all builtin profiles plus workspace-defined custom profiles for the curr
 {
   "defaultName": "native",
   "settings": {
-    "externalCliSessionResumeEnabled": false
+    "externalCliSessionResumeEnabled": false,
+    "model": null
   },
   "profiles": []
 }
 ```
 
 `settings.externalCliSessionResumeEnabled` is the workspace-scoped toggle that controls whether supported external CLI profiles may reuse saved external session ids.
+`settings.model` is the optional workspace-scoped default model for DotCraft-managed SubAgents. `null` or an empty string means the server uses the effective MainAgent model for the current thread.
 
 ### 24.5 `subagent/settings/update`
 
@@ -4017,15 +4019,19 @@ Update workspace-level SubAgent settings.
 
 ```json
 {
-  "externalCliSessionResumeEnabled": true
+  "externalCliSessionResumeEnabled": true,
+  "model": "gpt-4.1"
 }
 ```
 
 **Semantics**:
 
-- updates `SubAgent.EnableExternalCliSessionResume`
-- affects only profiles whose effective definition has `supportsResume=true`
-- does not delete existing saved external session ids
+- clients may send `externalCliSessionResumeEnabled`, `model`, or both; at least one supported field is required
+- `externalCliSessionResumeEnabled` updates `SubAgent.EnableExternalCliSessionResume`
+- `model` updates `SubAgent.Model`; `null`, empty, or whitespace clears the SubAgent model override
+- `SubAgent.Model` only affects DotCraft-managed native SubAgents in v1; external CLI profiles may opt into model selection in a future profile/runtime-specific contract
+- the resume toggle affects only profiles whose effective definition has `supportsResume=true`
+- clearing or changing these settings does not delete existing saved external session ids
 - on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/settings/update"` and `regions: ["subagent"]`
 
 ### 24.6 `subagent/profiles/setEnabled`

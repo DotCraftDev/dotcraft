@@ -67,6 +67,7 @@ export interface SubAgentProfileListResult {
 
 export interface SubAgentSettingsWire {
   externalCliSessionResumeEnabled: boolean
+  model?: string | null
 }
 
 export const DEFAULT_CUSTOM_TIMEOUT_SECONDS = 300

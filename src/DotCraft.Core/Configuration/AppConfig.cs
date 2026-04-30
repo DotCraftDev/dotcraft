@@ -755,6 +755,13 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "Reuse saved external CLI sessions for supported SubAgent profiles in this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
         public bool EnableExternalCliSessionResume { get; set; }
+
+        /// <summary>
+        /// Optional model used by DotCraft-managed native SubAgents.
+        /// Empty means native SubAgents inherit the current thread's effective MainAgent model.
+        /// </summary>
+        [ConfigField(Hint = "Model for native SubAgents. Empty = use the current thread's effective MainAgent model.", Reload = ReloadBehavior.Hot, HasReload = true)]
+        public string Model { get; set; } = string.Empty;
     }
 
     [ConfigSection("WelcomeSuggestions", DisplayName = "Welcome Suggestions", Order = 59)]

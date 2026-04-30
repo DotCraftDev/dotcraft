@@ -55,6 +55,7 @@ public sealed class AppServerRequestHandler(
     SessionStreamDebugLogger? streamDebugLogger = null,
     IReadOnlyList<ConfigSchemaSection>? configSchema = null,
     IAppConfigMonitor? appConfigMonitor = null,
+    OpenAIClientProvider? openAIClientProvider = null,
     IBackgroundTerminalService? backgroundTerminalService = null)
 {
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -514,7 +515,7 @@ public sealed class AppServerRequestHandler(
 
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         var config = AppConfig.LoadWithGlobalFallback(configPath);
-        var result = await OpenAIModelCatalog.FetchAsync(config, ct);
+        var result = await OpenAIModelCatalog.FetchAsync(config, ct, openAIClientProvider);
 
         return new ModelListResult
         {
@@ -690,16 +691,26 @@ public sealed class AppServerRequestHandler(
         _ = ct;
         EnsureSubAgentManagementAvailable();
         var p = GetParams<SubAgentSettingsUpdateParams>(msg);
-        if (!p.ExternalCliSessionResumeEnabled.HasValue)
-            throw AppServerErrors.InvalidParams("'externalCliSessionResumeEnabled' is required.");
+        JsonElement modelEl = default;
+        var hasModel = msg.Params.HasValue
+            && msg.Params.Value.ValueKind == JsonValueKind.Object
+            && TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out modelEl);
+        if (!p.ExternalCliSessionResumeEnabled.HasValue && !hasModel)
+            throw AppServerErrors.InvalidParams("At least one of 'externalCliSessionResumeEnabled' or 'model' is required.");
 
         var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var nextResumeEnabled = p.ExternalCliSessionResumeEnabled ?? state.EnableExternalCliSessionResume;
+        var nextModel = hasModel
+            ? NormalizeOptionalString(ParseNullableString(modelEl, "model")) ?? string.Empty
+            : state.Model;
         SubAgentProfilesPersistence.SaveWorkspaceState(
             workspaceCraftPath!,
             state.DisabledProfiles,
-            p.ExternalCliSessionResumeEnabled.Value,
+            nextResumeEnabled,
+            nextModel,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentSettingsUpdate,
             [ConfigChangeRegions.SubAgent]);
@@ -708,7 +719,8 @@ public sealed class AppServerRequestHandler(
         {
             Settings = new SubAgentSettingsWire
             {
-                ExternalCliSessionResumeEnabled = p.ExternalCliSessionResumeEnabled.Value
+                ExternalCliSessionResumeEnabled = nextResumeEnabled,
+                Model = string.IsNullOrWhiteSpace(nextModel) ? null : nextModel
             }
         });
     }
@@ -744,8 +756,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             disabled,
             state.EnableExternalCliSessionResume,
+            state.Model,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileSetEnabled,
             [ConfigChangeRegions.SubAgent]);
@@ -778,8 +792,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             state.DisabledProfiles,
             state.EnableExternalCliSessionResume,
+            state.Model,
             profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileUpsert,
             [ConfigChangeRegions.SubAgent]);
@@ -814,8 +830,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             disabled,
             state.EnableExternalCliSessionResume,
+            state.Model,
             workspaceProfiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileRemove,
             [ConfigChangeRegions.SubAgent]);
@@ -1699,7 +1717,8 @@ public sealed class AppServerRequestHandler(
             Profiles = profiles,
             Settings = new SubAgentSettingsWire
             {
-                ExternalCliSessionResumeEnabled = state.EnableExternalCliSessionResume
+                ExternalCliSessionResumeEnabled = state.EnableExternalCliSessionResume,
+                Model = string.IsNullOrWhiteSpace(state.Model) ? null : state.Model
             }
         };
     }
@@ -1774,12 +1793,31 @@ public sealed class AppServerRequestHandler(
         appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
         {
             DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles],
-            EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume
+            EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume,
+            Model = mergedConfig.SubAgent.Model
         };
         appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))
             .Select(profile => profile.Clone())
             .ToList();
+    }
+
+    private void RefreshCurrentLlmConfig()
+    {
+        if (appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+            return;
+
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
+        appConfigMonitor.Current.Model = mergedConfig.Model;
+        appConfigMonitor.Current.ApiKey = mergedConfig.ApiKey;
+        appConfigMonitor.Current.EndPoint = mergedConfig.EndPoint;
+    }
+
+    private void InvalidateThreadAgents()
+    {
+        if (sessionService is IThreadAgentRefreshService refreshService)
+            refreshService.InvalidateThreadAgents();
     }
 
     private void RefreshCurrentPermissionsConfig(string? defaultApprovalPolicy)
@@ -1940,6 +1978,11 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WorkspaceApiKey);
         if (saveResult.EndPointChanged)
             changedRegions.Add(ConfigChangeRegions.WorkspaceEndPoint);
+        if (saveResult.ModelChanged || saveResult.ApiKeyChanged || saveResult.EndPointChanged)
+        {
+            RefreshCurrentLlmConfig();
+            InvalidateThreadAgents();
+        }
         if (saveResult.WelcomeSuggestionsChanged)
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (saveResult.SkillsSelfLearningChanged)

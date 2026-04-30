@@ -1423,6 +1423,12 @@ const MESSAGES_EN = {
     'When on, the main agent may delegate tasks to this CLI.',
   'settings.subAgents.preset.nativeLockedHint':
     'Native is the default sub-agent runtime and is always available.',
+  'settings.subAgents.preset.nativeModelTitle': 'Native model',
+  'settings.subAgents.preset.nativeModelDescription':
+    'Leave empty to inherit the current thread model, or choose a dedicated model for native SubAgents.',
+  'settings.subAgents.preset.nativeModelInherit': 'Use current MainAgent model',
+  'settings.subAgents.preset.nativeModelPlaceholder': 'Inherit MainAgent model',
+  'settings.subAgents.preset.modelListLoading': 'Loading models…',
   'settings.subAgents.preset.statusTitle': 'Status',
   'settings.subAgents.preset.binaryResolved': 'Binary found',
   'settings.subAgents.preset.binaryNotResolved': 'Binary not found on PATH',
@@ -2980,6 +2986,12 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.subAgents.preset.enableTitle': '启用该助手',
   'settings.subAgents.preset.enableDescription': '开启后，主 Agent 可把任务委派给此 CLI。',
   'settings.subAgents.preset.nativeLockedHint': 'Native 是默认的子 Agent 运行时，始终可用。',
+  'settings.subAgents.preset.nativeModelTitle': 'Native 模型',
+  'settings.subAgents.preset.nativeModelDescription':
+    '留空则继承当前线程的主 Agent 模型，也可以为原生子 Agent 指定独立模型。',
+  'settings.subAgents.preset.nativeModelInherit': '使用当前主 Agent 模型',
+  'settings.subAgents.preset.nativeModelPlaceholder': '继承主 Agent 模型',
+  'settings.subAgents.preset.modelListLoading': '正在加载模型…',
   'settings.subAgents.preset.statusTitle': '状态',
   'settings.subAgents.preset.binaryResolved': '已找到可执行文件',
   'settings.subAgents.preset.binaryNotResolved': 'PATH 中未找到可执行文件',

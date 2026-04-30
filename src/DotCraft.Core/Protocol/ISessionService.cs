@@ -257,4 +257,9 @@ public interface IThreadAgentRefreshService
     /// in the next turn.
     /// </summary>
     Task RefreshThreadAgentAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Invalidates cached thread agents so they are rebuilt before their next turn.
+    /// </summary>
+    void InvalidateThreadAgents();
 }

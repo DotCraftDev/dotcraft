@@ -1348,6 +1348,13 @@ Approval-related fields are normative:
 
 When a thread is created or its configuration changes, Session Core recreates the effective agent/tool set from that configuration.
 
+Model resolution is thread-aware:
+
+- the MainAgent uses `Thread.Configuration.Model` when set; otherwise it uses workspace `AppConfig.Model`
+- DotCraft-managed native SubAgents use workspace `AppConfig.SubAgent.Model` when set
+- when `AppConfig.SubAgent.Model` is empty, native SubAgents inherit the thread's effective MainAgent model
+- workspace `model`, `apiKey`, `endpoint`, and `subagent` configuration changes invalidate cached thread agents so the next turn uses freshly resolved clients; an already-running turn is not switched mid-flight
+
 ### 16.3 Mode Switching
 
 Mode switching is a thread-level operation:

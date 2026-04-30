@@ -27,8 +27,11 @@ public sealed class CoreToolProvider : IAgentToolProvider
             context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
 
         // Agent tools (subagent spawning)
+        var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
+            context.Config,
+            context.EffectiveMainModel);
         var subAgentManager = new SubAgentManager(
-            context.ChatClient,
+            subAgentChatClient,
             context.WorkspacePath,
             context.Config.SubagentMaxToolCallRounds,
             maxConcurrency: context.Config.SubagentMaxConcurrency,

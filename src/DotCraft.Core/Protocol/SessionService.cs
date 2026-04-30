@@ -17,8 +17,6 @@ using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using OpenAI;
-using System.ClientModel;
 
 namespace DotCraft.Protocol;
 
@@ -70,6 +68,7 @@ public sealed class SessionService(
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
     private static readonly HttpClient QueuedInputHttpClient = new();
     private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
+    private volatile bool _forcePerThreadAgents;
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -1767,6 +1766,13 @@ public sealed class SessionService(
             _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
     }
 
+    /// <inheritdoc />
+    public void InvalidateThreadAgents()
+    {
+        _forcePerThreadAgents = true;
+        _threadAgents.Clear();
+    }
+
     /// <inheritdoc/>
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
@@ -2005,7 +2011,7 @@ public sealed class SessionService(
     private async Task EnsurePerThreadAgentIfMissingAsync(
         string threadId, SessionThread thread, CancellationToken ct)
     {
-        if (thread.Configuration == null && channelRuntimeToolProvider == null)
+        if (!_forcePerThreadAgents && thread.Configuration == null && channelRuntimeToolProvider == null)
             return;
 
         using (await AcquireThreadAgentLockAsync(threadId, ct))
@@ -2404,9 +2410,10 @@ public sealed class SessionService(
             : AgentMode.Agent;
         var mm = GetOrCreateModeManager(threadId, mode);
         var baseCtx = agentFactory.ToolProviderContext;
-        var threadChatClient = ResolveThreadChatClient(baseCtx, config);
+        var effectiveMainModel = baseCtx.OpenAIClientProvider.ResolveMainModel(baseCtx.Config, config.Model);
+        var threadChatClient = ResolveThreadChatClient(baseCtx, effectiveMainModel);
         var externalCliSessionStore = new ThreadExternalCliSessionStore(thread);
-        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient, externalCliSessionStore);
+        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient, effectiveMainModel, externalCliSessionStore);
 
         ToolProviderContext? scopedContext = null;
         if (!string.IsNullOrEmpty(config.WorkspaceOverride))
@@ -2421,6 +2428,8 @@ public sealed class SessionService(
             {
                 Config = baseCtx.Config,
                 ChatClient = threadChatClient,
+                OpenAIClientProvider = baseCtx.OpenAIClientProvider,
+                EffectiveMainModel = effectiveMainModel,
                 WorkspacePath = config.WorkspaceOverride,
                 BotPath = craftPath,
                 MemoryStore = scopedMemory,
@@ -2500,6 +2509,8 @@ public sealed class SessionService(
             {
                 Config = scopedContext.Config,
                 ChatClient = scopedContext.ChatClient,
+                OpenAIClientProvider = scopedContext.OpenAIClientProvider,
+                EffectiveMainModel = scopedContext.EffectiveMainModel,
                 WorkspacePath = scopedContext.WorkspacePath,
                 BotPath = scopedContext.BotPath,
                 MemoryStore = scopedContext.MemoryStore,
@@ -2564,32 +2575,23 @@ public sealed class SessionService(
     private static bool IsExternalChannelTool(IReadOnlySet<string> externalToolNames, string? toolName)
         => !string.IsNullOrWhiteSpace(toolName) && externalToolNames.Contains(toolName);
 
-    private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, ThreadConfiguration config)
-    {
-        if (string.IsNullOrWhiteSpace(config.Model))
-            return baseContext.ChatClient;
-
-        if (string.IsNullOrWhiteSpace(baseContext.Config.ApiKey))
-            return baseContext.ChatClient;
-
-        if (!Uri.TryCreate(baseContext.Config.EndPoint, UriKind.Absolute, out var endpoint))
-            return baseContext.ChatClient;
-
-        var client = new OpenAIClient(
-            new ApiKeyCredential(baseContext.Config.ApiKey),
-            new OpenAIClientOptions { Endpoint = endpoint });
-        return client.GetChatClient(config.Model);
-    }
+    private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, string effectiveMainModel) =>
+        baseContext.OpenAIClientProvider.TryGetChatClient(baseContext.Config, effectiveMainModel, out var chatClient)
+            ? chatClient!
+            : baseContext.ChatClient;
 
     private static ToolProviderContext CloneContextWithChatClient(
         ToolProviderContext source,
         OpenAI.Chat.ChatClient chatClient,
+        string effectiveMainModel,
         IExternalCliSessionStore? externalCliSessionStore = null)
     {
         var cloned = new ToolProviderContext
         {
             Config = source.Config,
             ChatClient = chatClient,
+            OpenAIClientProvider = source.OpenAIClientProvider,
+            EffectiveMainModel = effectiveMainModel,
             WorkspacePath = source.WorkspacePath,
             BotPath = source.BotPath,
             MemoryStore = source.MemoryStore,

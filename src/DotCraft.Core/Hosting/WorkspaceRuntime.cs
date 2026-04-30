@@ -1,4 +1,3 @@
-using System.ClientModel;
 using System.Reflection;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -18,7 +17,6 @@ using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using OpenAI;
 
 namespace DotCraft.Hosting;
 
@@ -170,6 +168,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
             var traceCollector = Services.GetService<TraceCollector>();
             var cronTools = Services.GetService<CronTools>();
             var backgroundTerminalService = Services.GetService<IBackgroundTerminalService>();
+            var openAIClientProvider = Services.GetRequiredService<OpenAIClientProvider>();
+            var mainModel = openAIClientProvider.ResolveMainModel(Config);
 
             ToolProviderCollector.ScanToolIcons(moduleRegistry, Config);
             var toolProviders = ToolProviderCollector.Collect(moduleRegistry, Config);
@@ -195,10 +195,9 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                     toolProviderContext: new ToolProviderContext
                     {
                         Config = Config,
-                        ChatClient = new OpenAIClient(
-                            new ApiKeyCredential(Config.ApiKey),
-                            new OpenAIClientOptions { Endpoint = new Uri(Config.EndPoint) })
-                            .GetChatClient(Config.Model),
+                        ChatClient = openAIClientProvider.GetChatClient(Config, mainModel),
+                        OpenAIClientProvider = openAIClientProvider,
+                        EffectiveMainModel = mainModel,
                         WorkspacePath = Paths.WorkspacePath,
                         BotPath = Paths.CraftPath,
                         MemoryStore = MemoryStore,
@@ -215,7 +214,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                     },
                     traceCollector: traceCollector,
                     planStore: planStore,
-                    onPlanUpdated: plan => PlanUpdated?.Invoke(plan));
+                    onPlanUpdated: plan => PlanUpdated?.Invoke(plan),
+                    openAIClientProvider: openAIClientProvider);
 
                 if (Services.GetService<IChannelRuntimeToolProvider>() is IReservedRuntimeToolNameConfigurator reservedToolNameConfigurator)
                 {

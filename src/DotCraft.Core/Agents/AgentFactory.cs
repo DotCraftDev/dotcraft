@@ -1,4 +1,3 @@
-using System.ClientModel;
 using System.Collections.Concurrent;
 using DotCraft.Abstractions;
 using DotCraft.Commands.Custom;
@@ -14,7 +13,6 @@ using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using OpenAI;
 using OpenAI.Chat;
 
 namespace DotCraft.Agents;
@@ -32,6 +30,7 @@ public sealed class AgentFactory : IAsyncDisposable
     private readonly HashSet<string> _globalEnabledToolNames;
     private readonly ToolProviderContext _toolProviderContext;
     private readonly IReadOnlyList<IAgentToolProvider> _toolProviders;
+    private readonly OpenAIClientProvider _openAIClientProvider;
     private readonly CustomCommandLoader? _customCommandLoader;
     private readonly PlanStore? _planStore;
     private readonly Action<StructuredPlan>? _onPlanUpdated;
@@ -55,7 +54,8 @@ public sealed class AgentFactory : IAsyncDisposable
         PlanStore? planStore = null,
         Action<StructuredPlan>? onPlanUpdated = null,
         Action<string>? onConsolidatorStatus = null,
-        HookRunner? hookRunner = null)
+        HookRunner? hookRunner = null,
+        OpenAIClientProvider? openAIClientProvider = null)
     {
         _config = config;
         _traceCollector = traceCollector;
@@ -64,15 +64,11 @@ public sealed class AgentFactory : IAsyncDisposable
         _onPlanUpdated = onPlanUpdated;
         _hookRunner = hookRunner;
         _globalEnabledToolNames = ResolveGlobalEnabledToolNames(_config);
+        _openAIClientProvider = openAIClientProvider ?? toolProviderContext?.OpenAIClientProvider ?? new OpenAIClientProvider();
 
-        var client = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
-        {
-            Endpoint = new Uri(config.EndPoint)
-        });
-        _chatClient = client.GetChatClient(_config.Model);
-
-        string consolidationModel = string.IsNullOrWhiteSpace(_config.ConsolidationModel) ? _config.Model : _config.ConsolidationModel;
-        var consolidationChatClient = client.GetChatClient(consolidationModel);
+        var mainModel = _openAIClientProvider.ResolveMainModel(config);
+        _chatClient = _openAIClientProvider.GetChatClient(config, mainModel);
+        var consolidationChatClient = _openAIClientProvider.GetConsolidationChatClient(config);
 
         Consolidator = new MemoryConsolidator(consolidationChatClient, memoryStore, onConsolidatorStatus);
 
@@ -85,6 +81,8 @@ public sealed class AgentFactory : IAsyncDisposable
         {
             Config = config,
             ChatClient = _chatClient,
+            OpenAIClientProvider = _openAIClientProvider,
+            EffectiveMainModel = mainModel,
             WorkspacePath = workspacePath,
             BotPath = dotcraftPath,
             MemoryStore = memoryStore,

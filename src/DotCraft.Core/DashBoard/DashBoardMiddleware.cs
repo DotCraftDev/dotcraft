@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.Agents;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Protocol;
@@ -273,7 +274,8 @@ public static class DashBoardMiddleware
         {
             var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
             var config = AppConfig.LoadWithGlobalFallback(workspaceConfigPath);
-            var result = await OpenAIModelCatalog.FetchAsync(config, ctx.RequestAborted);
+            var provider = ctx.RequestServices.GetService<OpenAIClientProvider>();
+            var result = await OpenAIModelCatalog.FetchAsync(config, ctx.RequestAborted, provider);
 
             if (!result.Success)
             {
