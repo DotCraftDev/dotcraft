@@ -1906,13 +1906,9 @@ export function SettingsView({
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
 
         latestCore = await readWorkspaceCoreStrict()
-        const workspaceCoreChanged = hasWorkspaceCoreChanged(latestCore.workspace)
-        if (workspaceCoreChanged && !needsAppServerRestart) {
-          setRestartingAppServer(true)
-        }
-        needsAppServerRestart = needsAppServerRestart || workspaceCoreChanged
         // The proxy refresh path already restarts the Hub-managed AppServer with
-        // the current settings, including the disabled-proxy case.
+        // the current settings, including the disabled-proxy case, so suppress a
+        // second explicit AppServer restart after the proxy restart succeeds.
         needsAppServerRestart = false
       }
 

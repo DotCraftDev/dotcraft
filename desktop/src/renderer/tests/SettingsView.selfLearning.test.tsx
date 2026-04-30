@@ -249,6 +249,7 @@ describe('SettingsView self-learning settings', () => {
         proxy: expect.objectContaining({ enabled: true })
       }))
       expect(proxyRestartManaged).toHaveBeenCalledOnce()
+      expect(appServerRestartManaged).not.toHaveBeenCalled()
     })
   })
 
