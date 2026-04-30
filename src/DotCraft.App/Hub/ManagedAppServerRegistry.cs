@@ -71,6 +71,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
                     dotcraftBin: _dotcraftBin,
                     workspacePath: canonical,
                     environmentVariables: plan.Environment,
+                    createNoWindow: true,
+                    attachWindowsJob: true,
                     ct: cancellationToken);
 
                 await ProbeWebSocketAsync(plan.WebSocketProbeUrl, plan.WebSocketToken, cancellationToken);

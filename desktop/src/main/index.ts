@@ -100,6 +100,7 @@ import {
   registerGuardedProxyManagerStatusHandlers,
   runIfCurrentProxyManager
 } from './proxyManagerStatus'
+import { ensureTrayProcess, runTrayProcess } from './trayManager'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -127,6 +128,7 @@ let finalQuitCleanupRunning = false
 let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
 let hubEventAbortController: AbortController | null = null
+const isTrayMode = process.argv.includes('--tray')
 
 function buildAddTabPopupWindowOptions(): AddTabPopupWindowOptions {
   return {
@@ -1205,10 +1207,24 @@ function registerMenuPopupIpc(): void {
 
 app.whenReady().then(() => {
   isAppQuitting = false
+  if (isTrayMode) {
+    Menu.setApplicationMenu(null)
+    void runTrayProcess().catch((error) => {
+      console.error('[desktop-tray] failed to start tray process', error)
+      app.quit()
+    })
+    return
+  }
+
   installViewerProtocolHandler()
   registerMenuPopupIpc()
   sharedSettings = loadSettings()
   refreshAppMenu()
+  try {
+    ensureTrayProcess()
+  } catch (error) {
+    console.warn('[desktop] failed to ensure tray process', error)
+  }
 
   if (!import.meta.env.DEV) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -1314,6 +1330,10 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  if (isTrayMode) {
+    return
+  }
+
   if (process.platform === 'darwin') {
     void teardownRuntime('window-all-closed', {
       releaseWorkspaceLock: true,
@@ -1329,6 +1349,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  if (isTrayMode) {
+    return
+  }
+
   isAppQuitting = true
   if (mainWindow && !mainWindow.isDestroyed()) {
     viewerBrowserManager.destroyAllTabs(mainWindow)

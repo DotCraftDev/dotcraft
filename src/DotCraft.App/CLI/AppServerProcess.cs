@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using DotCraft.Common;
+using DotCraft.Processes;
 using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.CLI;
@@ -20,6 +21,7 @@ public sealed class AppServerProcess : IAsyncDisposable
     private const int MaxStderrCaptureChars = 16384;
 
     private readonly Process _process;
+    private readonly ManagedChildProcess? _managedChild;
     private readonly int _processId;
     private readonly Task _stderrForwarderTask;
     private readonly StringBuilder _stderrBuffer = new();
@@ -120,9 +122,10 @@ public sealed class AppServerProcess : IAsyncDisposable
 
     private bool _disposed;
 
-    private AppServerProcess(Process process, AppServerWireClient wire)
+    private AppServerProcess(Process process, ManagedChildProcess? managedChild, AppServerWireClient wire)
     {
         _process = process;
+        _managedChild = managedChild;
         _processId = process.Id;
         Wire = wire;
         _stderrForwarderTask = ForwardStderrAsync();
@@ -158,17 +161,20 @@ public sealed class AppServerProcess : IAsyncDisposable
     /// connects via the subprocess's stdio streams.
     /// </param>
     /// <param name="ct">Cancellation token for the startup sequence.</param>
+    /// <param name="createNoWindow">Whether to request hidden console-window creation for the subprocess.</param>
+    /// <param name="attachWindowsJob">Whether to attach the subprocess to a kill-on-close Windows Job Object.</param>
     public static async Task<AppServerProcess> StartAsync(
         string? dotcraftBin = null,
         string? workspacePath = null,
         string? listenUrl = null,
         IReadOnlyDictionary<string, string?>? environmentVariables = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool createNoWindow = false,
+        bool attachWindowsJob = false)
     {
-        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables);
+        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables, createNoWindow);
 
-        var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {DescribeStartInfo(psi)}");
+        var (process, managedChild) = StartProcess(psi, attachWindowsJob);
 
         var wire = new AppServerWireClient(
             process.StandardOutput.BaseStream,
@@ -176,7 +182,7 @@ public sealed class AppServerProcess : IAsyncDisposable
 
         wire.Start();
 
-        var appServer = new AppServerProcess(process, wire);
+        var appServer = new AppServerProcess(process, managedChild, wire);
 
         // Handshake: send initialize → wait for response → send initialized
         try
@@ -213,12 +219,13 @@ public sealed class AppServerProcess : IAsyncDisposable
         string? workspacePath = null,
         string? listenUrl = null,
         IReadOnlyDictionary<string, string?>? environmentVariables = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool createNoWindow = false,
+        bool attachWindowsJob = false)
     {
-        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables);
+        var psi = CreateStartInfo(dotcraftBin, workspacePath, listenUrl, environmentVariables, createNoWindow);
 
-        var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {DescribeStartInfo(psi)}");
+        var (process, managedChild) = StartProcess(psi, attachWindowsJob);
 
         var wire = new AppServerWireClient(
             process.StandardOutput.BaseStream,
@@ -226,7 +233,7 @@ public sealed class AppServerProcess : IAsyncDisposable
 
         wire.Start();
 
-        return new AppServerProcess(process, wire);
+        return new AppServerProcess(process, managedChild, wire);
     }
 
     // -------------------------------------------------------------------------
@@ -276,7 +283,14 @@ public sealed class AppServerProcess : IAsyncDisposable
             // ignored
         }
 
-        _process.Dispose();
+        if (_managedChild is not null)
+        {
+            await _managedChild.DisposeAsync();
+        }
+        else
+        {
+            _process.Dispose();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -300,7 +314,8 @@ public sealed class AppServerProcess : IAsyncDisposable
         string? dotcraftBin,
         string? workspacePath,
         string? listenUrl,
-        IReadOnlyDictionary<string, string?>? environmentVariables)
+        IReadOnlyDictionary<string, string?>? environmentVariables,
+        bool createNoWindow)
     {
         dotcraftBin ??= ResolveCurrentDotCraftBinary();
 
@@ -313,6 +328,7 @@ public sealed class AppServerProcess : IAsyncDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+            CreateNoWindow = createNoWindow,
             StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
@@ -338,6 +354,21 @@ public sealed class AppServerProcess : IAsyncDisposable
         }
 
         return psi;
+    }
+
+    private static (Process Process, ManagedChildProcess? ManagedChild) StartProcess(
+        ProcessStartInfo psi,
+        bool attachWindowsJob)
+    {
+        if (attachWindowsJob && OperatingSystem.IsWindows())
+        {
+            var managedChild = ManagedChildProcess.Start(psi);
+            return (managedChild.Process, managedChild);
+        }
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {DescribeStartInfo(psi)}");
+        return (process, null);
     }
 
     private static string ResolveCurrentDotCraftBinary()

@@ -32,6 +32,21 @@ export interface HubAppServerResponse {
   recentStderr?: string | null
 }
 
+export interface HubStatusResponse {
+  hubVersion: string
+  pid: number
+  startedAt: string
+  statePath: string
+  apiBaseUrl: string
+  capabilities: {
+    appServerManagement: boolean
+    portManagement: boolean
+    events: boolean
+    notifications: boolean
+    tray: boolean
+  }
+}
+
 export interface HubEvent {
   kind: string
   at: string
@@ -122,6 +137,38 @@ export class HubClient {
         body: JSON.stringify({ workspacePath })
       }
     )
+  }
+
+  async stopAppServer(workspacePath: string): Promise<HubAppServerResponse> {
+    const hub = await this.ensureHub()
+    return this.requestJson<HubAppServerResponse>(
+      hub,
+      '/v1/appservers/stop',
+      {
+        method: 'POST',
+        body: JSON.stringify({ workspacePath })
+      }
+    )
+  }
+
+  async listAppServers(): Promise<HubAppServerResponse[]> {
+    const hub = await this.ensureHub()
+    return this.requestJson<HubAppServerResponse[]>(hub, '/v1/appservers', { method: 'GET' })
+  }
+
+  async getStatus(): Promise<HubStatusResponse> {
+    const hub = await this.ensureHub()
+    const response = await fetch(`${hub.apiBaseUrl}/v1/status`)
+    if (!response.ok) {
+      throw await this.toError(response)
+    }
+    return await response.json() as HubStatusResponse
+  }
+
+  async shutdownHub(): Promise<void> {
+    const hub = await this.tryGetLiveHub()
+    if (!hub) return
+    await this.requestJson<{ ok: boolean }>(hub, '/v1/shutdown', { method: 'POST' })
   }
 
   async subscribeEvents(onEvent: (event: HubEvent) => void, signal: AbortSignal): Promise<void> {

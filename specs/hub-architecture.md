@@ -746,6 +746,7 @@ The Hub feature is delivered in three milestones. Each milestone has its own beh
 - [M1: Shell and Local Presence](hub-m1-shell.md)
 - [M2: Protocol and Managed AppServer](hub-m2-protocol-managed-appserver.md)
 - [M3: Client Adoption](hub-m3-client-adoption.md)
+- [M4: Tray Management](hub-m4-tray-management.md)
 
 ### M1: Shell and Local Presence
 
@@ -790,3 +791,18 @@ Work:
 - Hide or remove local port settings from normal local-mode UX.
 
 Outcome: Desktop, TUI, and CLI reuse the same Hub-managed AppServer for the same local workspace while AppServer Protocol behavior remains unchanged after connection.
+
+### M4: Tray Management
+
+Goal: Add a Desktop-owned system tray manager for the headless Hub and Hub-managed AppServers.
+
+Work:
+
+- Add an independent Desktop tray/background process.
+- Keep Hub itself headless and report `tray=false`.
+- Show Hub and managed AppServer status in the tray menu.
+- Open recent or running workspaces from the tray.
+- Route AppServer restart/stop and Hub shutdown actions through Hub Protocol.
+- Ensure Hub-managed AppServers run without visible console windows on Windows.
+
+Outcome: Users can keep local DotCraft runtime running in the background and manage it from the system tray without binding tray lifetime to a workspace window.

@@ -61,7 +61,7 @@ M3 may include ACP or external local adapters if they currently spawn workspace 
 ## 4. Non-Goals
 
 - M3 does not require a full multi-workspace Desktop redesign.
-- M3 does not require a polished tray workspace manager.
+- M3 does not require a polished tray workspace manager; that is covered by [Hub M4](hub-m4-tray-management.md).
 - M3 does not require all frontend copy and layout polish to be final.
 - M3 does not require remote Hub support.
 - M3 does not change AppServer Protocol.
@@ -125,7 +125,7 @@ Desktop settings behavior:
 - Remote connection settings remain available under Remote wording.
 - Connection errors should distinguish Hub startup failure from AppServer startup failure.
 
-Desktop may show Hub status in connection UI, but M3 does not include a complete Hub management UI, Hub quit action, or rich tray workspace manager.
+Desktop may show Hub status in connection UI, but M3 does not include a complete Hub management UI, Hub quit action, or rich tray workspace manager. Tray management is reserved for M4.
 
 Desktop should use Hub event subscription when useful for:
 
