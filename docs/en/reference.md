@@ -38,7 +38,10 @@ Choose a document by goal. First-time users should start with [Getting Started](
 |------|-----------------|
 | Connect JetBrains, Obsidian, Unity, and other editors | [ACP Mode Guide](./acp_guide.md) |
 | Use the Unity editor extension and scene/resource tools | [Unity Integration Guide](./unity_guide.md) |
+| Manage local workspace runtimes and visual entry points with Hub | [Hub Local Management Guide](./hub_guide.md) |
 | Run Wire Protocol service and share a workspace across clients | [AppServer Mode Guide](./appserver_guide.md) |
+| Implement a local Hub client that discovers and manages workspace AppServers | [Hub Protocol](./reference/hub-protocol.md) |
+| Implement an AppServer JSON-RPC client | [AppServer Protocol](./reference/appserver-protocol.md) |
 | Expose an OpenAI-compatible HTTP API | [API Mode Guide](./api_guide.md) |
 | Connect AG-UI / CopilotKit frontends | [AG-UI Mode Guide](./agui_guide.md) |
 
@@ -57,10 +60,12 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Goal | Recommended doc |
 |------|-----------------|
 | See every configuration field | [Full Configuration Reference](./reference/config.md) |
+| Read the Hub local management protocol | [Hub Protocol](./reference/hub-protocol.md) |
+| Read the AppServer protocol developer guide | [AppServer Protocol](./reference/appserver-protocol.md) |
 | See Dashboard API and trace events | [Dashboard API](./reference/dashboard-api.md) |
 | Validate features with complete examples | [Samples Overview](./samples/index.md) |
 | Prepare a workspace template | [Workspace Sample](./samples/workspace.md) |
-| Read AppServer protocol details | [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) |
+| Read the complete AppServer protocol spec | [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) |
 
 ## Troubleshooting
 

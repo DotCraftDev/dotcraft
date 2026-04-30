@@ -38,7 +38,10 @@
 |------|----------|
 | 让 JetBrains、Obsidian、Unity 等编辑器接入 DotCraft | [ACP 模式指南](./acp_guide.md) |
 | 使用 Unity 编辑器扩展和场景资源工具 | [Unity 集成指南](./unity_guide.md) |
+| 使用 Hub 管理本机工作区运行时和可视化入口 | [Hub 本地管理指南](./hub_guide.md) |
 | 运行 Wire Protocol 服务、多客户端共享工作区 | [AppServer 模式指南](./appserver_guide.md) |
+| 实现本地 Hub client，发现和托管工作区 AppServer | [Hub Protocol](./reference/hub-protocol.md) |
+| 实现 AppServer JSON-RPC client | [AppServer Protocol](./reference/appserver-protocol.md) |
 | 暴露 OpenAI-compatible HTTP API | [API 模式指南](./api_guide.md) |
 | 接入 AG-UI / CopilotKit 前端 | [AG-UI 模式指南](./agui_guide.md) |
 
@@ -57,10 +60,12 @@
 | 目标 | 推荐文档 |
 |------|----------|
 | 查看完整配置字段 | [完整配置参考](./reference/config.md) |
+| 查看 Hub 本地管理协议 | [Hub Protocol](./reference/hub-protocol.md) |
+| 查看 AppServer 协议开发指南 | [AppServer Protocol](./reference/appserver-protocol.md) |
 | 查看 Dashboard API 和 Trace 事件 | [Dashboard API](./reference/dashboard-api.md) |
 | 使用完整示例验证功能 | [Samples 总览](./samples/index.md) |
 | 准备工作区模板 | [Workspace Sample](./samples/workspace.md) |
-| 查看 AppServer 协议细节 | [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) |
+| 查看 AppServer 完整协议规格 | [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) |
 
 ## 故障排查
 
