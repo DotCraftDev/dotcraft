@@ -271,7 +271,9 @@ export async function runTrayProcess(): Promise<void> {
     void hubClient.subscribeEvents((event: HubEvent) => {
       showHubNotification(event)
       void refresh()
-    }, controller.signal).catch(() => {
+    }, controller.signal).then(() => {
+      eventAbortController = null
+    }).catch(() => {
       eventAbortController = null
     })
   }
