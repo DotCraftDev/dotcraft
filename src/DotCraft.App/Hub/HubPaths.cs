@@ -10,6 +10,11 @@ public sealed record HubPaths(
     string GlobalConfigPath)
 {
     /// <summary>
+    /// Best-effort persisted registry of Hub-known workspace AppServers.
+    /// </summary>
+    public string AppServersRegistryPath => Path.Combine(HubStatePath, "appservers.json");
+
+    /// <summary>
     /// Resolves Hub paths for the current user.
     /// </summary>
     public static HubPaths ForCurrentUser()

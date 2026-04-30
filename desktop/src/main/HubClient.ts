@@ -188,10 +188,10 @@ export class HubClient {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      let boundary = buffer.indexOf('\n\n')
-      while (boundary !== -1) {
-        const raw = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary + 2)
+      let boundary = findSseBoundary(buffer)
+      while (boundary) {
+        const raw = buffer.slice(0, boundary.index)
+        buffer = buffer.slice(boundary.index + boundary.sequence.length)
         const dataLine = raw.split(/\r?\n/).find((line) => line.startsWith('data:'))
         const data = dataLine?.slice('data:'.length).trim()
         if (data) {
@@ -201,7 +201,7 @@ export class HubClient {
             // Ignore malformed event frames.
           }
         }
-        boundary = buffer.indexOf('\n\n')
+        boundary = findSseBoundary(buffer)
       }
     }
   }
@@ -290,4 +290,13 @@ export class HubClient {
       `Hub request failed with HTTP ${response.status}.`
     )
   }
+}
+
+export function findSseBoundary(buffer: string): { index: number; sequence: '\n\n' | '\r\n\r\n' } | null {
+  const lf = buffer.indexOf('\n\n')
+  const crlf = buffer.indexOf('\r\n\r\n')
+  if (lf === -1 && crlf === -1) return null
+  if (lf === -1) return { index: crlf, sequence: '\r\n\r\n' }
+  if (crlf === -1) return { index: lf, sequence: '\n\n' }
+  return crlf < lf ? { index: crlf, sequence: '\r\n\r\n' } : { index: lf, sequence: '\n\n' }
 }

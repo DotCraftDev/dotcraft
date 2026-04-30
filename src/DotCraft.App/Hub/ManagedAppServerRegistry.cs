@@ -24,15 +24,37 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
     private readonly string _hubApiBaseUrl;
     private readonly string _hubToken;
     private readonly string? _dotcraftBin;
+    private readonly HubAppServerRegistryStore? _store;
+    private readonly ConcurrentDictionary<string, HubAppServerRegistryRecord> _persisted;
+    private readonly CancellationTokenSource _healthCts = new();
+    private Task? _healthTask;
     private bool _disposed;
 
-    public ManagedAppServerRegistry(HubEventBus events, string hubApiBaseUrl, string hubToken, string? dotcraftBin = null)
+    public ManagedAppServerRegistry(
+        HubEventBus events,
+        string hubApiBaseUrl,
+        string hubToken,
+        string? dotcraftBin = null,
+        string? registryPath = null)
     {
         _entries = new ConcurrentDictionary<string, ManagedEntry>(WorkspaceComparer);
         _events = events;
         _hubApiBaseUrl = hubApiBaseUrl;
         _hubToken = hubToken;
         _dotcraftBin = dotcraftBin;
+        _store = string.IsNullOrWhiteSpace(registryPath) ? null : new HubAppServerRegistryStore(registryPath);
+        _persisted = new ConcurrentDictionary<string, HubAppServerRegistryRecord>(
+            _store?.Load() ?? new Dictionary<string, HubAppServerRegistryRecord>(WorkspaceComparer),
+            WorkspaceComparer);
+    }
+
+    public void StartHealthChecks(TimeSpan? interval = null)
+    {
+        ThrowIfDisposed();
+        if (_healthTask is not null)
+            return;
+
+        _healthTask = Task.Run(() => RunHealthLoopAsync(interval ?? TimeSpan.FromSeconds(10), _healthCts.Token));
     }
 
     public async Task<HubAppServerResponse> EnsureAsync(EnsureAppServerRequest request, CancellationToken cancellationToken)
@@ -46,12 +68,28 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
         {
             RefreshExited(entry);
             if (entry.Process is { IsRunning: true } && entry.State == HubAppServerStates.Running)
+            {
+                entry.LastSeenAt = DateTimeOffset.UtcNow;
+                Persist(entry);
                 return entry.ToResponse();
+            }
 
             if (!request.StartIfMissing)
             {
                 entry.State = HubAppServerStates.Stopped;
+                entry.LastSeenAt = DateTimeOffset.UtcNow;
+                Persist(entry);
                 return entry.ToResponse();
+            }
+
+            if (entry.Process is { } staleProcess)
+            {
+                await staleProcess.DisposeAsync();
+                entry.RecentStderr = staleProcess.RecentStderr;
+                entry.ExitCode = staleProcess.ExitCode;
+                entry.Process = null;
+                entry.Pid = null;
+                CleanupWorkspaceLock(craftPath);
             }
 
             ThrowIfExternalLockIsLive(entry, craftPath);
@@ -63,6 +101,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             entry.ExitCode = null;
             entry.Endpoints = plan.ResponseEndpoints;
             entry.ServiceStatus = plan.ServiceStatus;
+            entry.LastSeenAt = DateTimeOffset.UtcNow;
+            Persist(entry);
             _events.Publish("appserver.starting", canonical, new { endpoints = plan.ResponseEndpoints });
 
             try
@@ -85,6 +125,9 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
                 entry.ServerVersion = process.ServerVersion;
                 entry.StartedByHub = true;
                 entry.RecentStderr = process.RecentStderr;
+                entry.LastStartedAt = DateTimeOffset.UtcNow;
+                entry.LastSeenAt = DateTimeOffset.UtcNow;
+                Persist(entry);
                 _events.Publish("appserver.running", canonical, new { pid = process.ProcessId, endpoints = plan.ResponseEndpoints });
                 return entry.ToResponse();
             }
@@ -92,6 +135,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             {
                 entry.State = HubAppServerStates.Exited;
                 entry.LastError = ex.Message;
+                entry.LastExitedAt = DateTimeOffset.UtcNow;
+                Persist(entry);
                 _events.Publish("appserver.exited", canonical, new { error = ex.Message });
                 throw new HubProtocolException(
                     "appServerStartFailed",
@@ -109,11 +154,26 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
     public IReadOnlyList<HubAppServerResponse> List()
     {
         foreach (var entry in _entries.Values)
+        {
             RefreshExited(entry);
+            _persisted[entry.CanonicalWorkspacePath] = entry.ToRegistryRecord();
+        }
 
-        return _entries.Values
-            .OrderBy(e => e.CanonicalWorkspacePath, StringComparer.OrdinalIgnoreCase)
-            .Select(e => e.ToResponse())
+        var liveKeys = _entries.Keys.ToHashSet(WorkspaceComparer);
+        var responses = _persisted
+            .Where(pair => !liveKeys.Contains(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => RefreshPersistedRecord(pair.Value).ToResponse(), WorkspaceComparer);
+
+        foreach (var entry in _entries.Values)
+        {
+            _persisted[entry.CanonicalWorkspacePath] = entry.ToRegistryRecord();
+            responses[entry.CanonicalWorkspacePath] = entry.ToResponse();
+        }
+
+        PersistAll();
+
+        return responses.Values
+            .OrderBy(e => e.CanonicalWorkspacePath, WorkspaceComparer)
             .ToArray();
     }
 
@@ -172,6 +232,7 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             if (entry.Process is { } process)
             {
                 entry.State = HubAppServerStates.Stopping;
+                Persist(entry);
                 await process.DisposeAsync();
                 entry.RecentStderr = process.RecentStderr;
                 entry.ExitCode = process.ExitCode;
@@ -181,6 +242,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             }
 
             entry.State = HubAppServerStates.Stopped;
+            entry.LastExitedAt = DateTimeOffset.UtcNow;
+            Persist(entry);
             _events.Publish("appserver.exited", canonical, new { stopped = true });
             return entry.ToResponse();
         }
@@ -206,6 +269,13 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             return;
 
         _disposed = true;
+        await _healthCts.CancelAsync();
+        if (_healthTask is not null)
+        {
+            try { await _healthTask; }
+            catch (OperationCanceledException) { }
+        }
+
         foreach (var entry in _entries.Values)
         {
             await entry.Mutex.WaitAsync();
@@ -216,6 +286,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
                     await process.DisposeAsync();
                     entry.Process = null;
                     entry.State = HubAppServerStates.Stopped;
+                    entry.LastExitedAt = DateTimeOffset.UtcNow;
+                    Persist(entry);
                     _events.Publish("appserver.exited", entry.CanonicalWorkspacePath, new { hubStopping = true });
                 }
             }
@@ -225,6 +297,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
                 entry.Mutex.Dispose();
             }
         }
+
+        _healthCts.Dispose();
     }
 
     private ServicePlan BuildServicePlan(string canonicalWorkspacePath, string craftPath)
@@ -391,6 +465,8 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
     private void OnProcessCrashed(ManagedEntry entry)
     {
         RefreshExited(entry);
+        entry.LastExitedAt = DateTimeOffset.UtcNow;
+        Persist(entry);
         _events.Publish("appserver.exited", entry.CanonicalWorkspacePath, new
         {
             pid = entry.Pid,
@@ -413,11 +489,158 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             entry.ExitCode = process.ExitCode;
             entry.RecentStderr = process.RecentStderr;
             entry.Pid = process.ProcessId;
+            entry.LastExitedAt ??= DateTimeOffset.UtcNow;
         }
         catch
         {
             entry.State = HubAppServerStates.Exited;
+            entry.LastExitedAt ??= DateTimeOffset.UtcNow;
         }
+    }
+
+    private async Task RunHealthLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(interval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await CheckHealthOnceAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    internal async Task CheckHealthOnceAsync(CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in _entries.Values)
+        {
+            if (entry.Process is null)
+                continue;
+
+            await entry.Mutex.WaitAsync(cancellationToken);
+            try
+            {
+                if (entry.Process is null || entry.State != HubAppServerStates.Running)
+                    continue;
+
+                var unhealthyReason = await GetUnhealthyReasonAsync(entry, cancellationToken);
+                if (unhealthyReason is null)
+                {
+                    entry.LastSeenAt = DateTimeOffset.UtcNow;
+                    Persist(entry);
+                    continue;
+                }
+
+                entry.State = HubAppServerStates.Unhealthy;
+                entry.LastError = unhealthyReason;
+                entry.LastSeenAt = DateTimeOffset.UtcNow;
+                Persist(entry);
+                _events.Publish("appserver.unhealthy", entry.CanonicalWorkspacePath, new
+                {
+                    pid = entry.Pid,
+                    error = unhealthyReason
+                });
+            }
+            finally
+            {
+                entry.Mutex.Release();
+            }
+        }
+    }
+
+    private static async Task<string?> GetUnhealthyReasonAsync(ManagedEntry entry, CancellationToken cancellationToken)
+    {
+        if (entry.Process is not { } process)
+            return null;
+
+        if (!process.IsRunning)
+        {
+            RefreshExited(entry);
+            return "Managed AppServer process exited.";
+        }
+
+        var craftPath = Path.Combine(entry.CanonicalWorkspacePath, ".craft");
+        var lockInfo = AppServerWorkspaceLock.TryRead(AppServerWorkspaceLock.GetLockFilePath(craftPath));
+        if (lockInfo is null)
+            return "Workspace AppServer lock is missing.";
+        if (lockInfo.Pid != process.ProcessId || !lockInfo.ManagedByHub || !lockInfo.IsProcessAlive())
+            return "Workspace AppServer lock no longer matches the managed process.";
+
+        if (!entry.Endpoints.TryGetValue("appServerWebSocket", out var wsUrl) || string.IsNullOrWhiteSpace(wsUrl))
+            return "Managed AppServer WebSocket endpoint is missing.";
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
+            await using var connection = await WebSocketClientConnection.ConnectAsync(new Uri(wsUrl), null, cts.Token);
+            var response = await connection.Wire.InitializeAsync(
+                clientName: "dotcraft-hub-health",
+                clientVersion: AppVersion.Informational,
+                approvalSupport: false,
+                streamingSupport: true);
+            response.Dispose();
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return "Managed AppServer WebSocket health probe failed: " + ex.Message;
+        }
+    }
+
+    private HubAppServerRegistryRecord RefreshPersistedRecord(HubAppServerRegistryRecord record)
+    {
+        if (Directory.Exists(Path.Combine(record.CanonicalWorkspacePath, ".craft")))
+        {
+            var lockPath = AppServerWorkspaceLock.GetLockFilePath(Path.Combine(record.CanonicalWorkspacePath, ".craft"));
+            var info = AppServerWorkspaceLock.TryRead(lockPath);
+            if (info is { } live && live.IsProcessAlive())
+            {
+                var refreshed = record with
+                {
+                    State = HubAppServerStates.Running,
+                    Pid = live.Pid,
+                    Endpoints = live.Endpoints,
+                    ServiceStatus = live.Endpoints.ToDictionary(
+                        pair => pair.Key,
+                        pair => new HubServiceStatus("external", pair.Value),
+                        StringComparer.OrdinalIgnoreCase),
+                    ServerVersion = live.Version,
+                    StartedByHub = false,
+                    LastSeenAt = DateTimeOffset.UtcNow
+                };
+                _persisted[refreshed.CanonicalWorkspacePath] = refreshed;
+                return refreshed;
+            }
+        }
+
+        if (record.State is HubAppServerStates.Running
+            or HubAppServerStates.Unhealthy
+            or HubAppServerStates.Starting)
+        {
+            var refreshed = record with
+            {
+                State = HubAppServerStates.Exited,
+                StartedByHub = false,
+                LastExitedAt = record.LastExitedAt ?? DateTimeOffset.UtcNow
+            };
+            _persisted[refreshed.CanonicalWorkspacePath] = refreshed;
+            return refreshed;
+        }
+
+        return record;
+    }
+
+    private void Persist(ManagedEntry entry)
+    {
+        _persisted[entry.CanonicalWorkspacePath] = entry.ToRegistryRecord();
+        PersistAll();
+    }
+
+    private void PersistAll()
+    {
+        _store?.Save(_persisted.Values);
     }
 
     private static (string WorkspacePath, string CanonicalWorkspacePath, string CraftPath) ResolveWorkspace(string workspacePath)
@@ -522,6 +745,12 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
 
         public string? RecentStderr { get; set; }
 
+        public DateTimeOffset? LastStartedAt { get; set; }
+
+        public DateTimeOffset? LastSeenAt { get; set; }
+
+        public DateTimeOffset? LastExitedAt { get; set; }
+
         public IReadOnlyDictionary<string, string> Endpoints { get; set; } =
             new Dictionary<string, string>();
 
@@ -537,6 +766,23 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
             ServiceStatus,
             ServerVersion,
             StartedByHub,
+            ExitCode,
+            LastError,
+            RecentStderr);
+
+        public HubAppServerRegistryRecord ToRegistryRecord() => new(
+            WorkspacePath,
+            CanonicalWorkspacePath,
+            Path.GetFileName(CanonicalWorkspacePath),
+            State,
+            Pid,
+            Endpoints,
+            ServiceStatus,
+            ServerVersion,
+            StartedByHub,
+            LastStartedAt,
+            LastSeenAt,
+            LastExitedAt,
             ExitCode,
             LastError,
             RecentStderr);

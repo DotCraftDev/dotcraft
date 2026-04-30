@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, shell, Tray, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, nativeImage, Notification, shell, Tray, type MenuItemConstructorOptions } from 'electron'
 import { spawn } from 'child_process'
 import { basename, join } from 'path'
 import { existsSync } from 'fs'
@@ -21,6 +21,13 @@ interface TrayState {
 }
 
 const REFRESH_INTERVAL_MS = 5_000
+
+interface HubNotificationPayload {
+  workspacePath?: string | null
+  title?: string
+  body?: string | null
+  actionUrl?: string | null
+}
 
 function resolveTrayIconPath(): string | null {
   const packaged = join(process.resourcesPath, 'icon.png')
@@ -150,6 +157,13 @@ function buildTrayMenu(
       label: L('tray.openDotCraft'),
       click: () => spawnDesktopWindow()
     },
+    {
+      label: L('tray.newChat'),
+      click: () => {
+        const recent = state.recentWorkspaces[0]
+        spawnDesktopWindow(recent?.path)
+      }
+    },
     buildRecentMenu(state.recentWorkspaces, state.locale),
     { type: 'separator' },
     {
@@ -170,6 +184,43 @@ function buildTrayMenu(
   ]
 
   return Menu.buildFromTemplate(template)
+}
+
+export function parseHubNotificationPayload(event: HubEvent): HubNotificationPayload | null {
+  if (event.kind !== 'notification.requested' || !event.data || typeof event.data !== 'object') {
+    return null
+  }
+
+  const data = event.data as Record<string, unknown>
+  const title = typeof data.title === 'string' ? data.title.trim() : ''
+  if (!title) return null
+
+  return {
+    workspacePath: typeof data.workspacePath === 'string' ? data.workspacePath : event.workspacePath,
+    title,
+    body: typeof data.body === 'string' ? data.body : null,
+    actionUrl: typeof data.actionUrl === 'string' ? data.actionUrl : null
+  }
+}
+
+export function showHubNotification(event: HubEvent): boolean {
+  const payload = parseHubNotificationPayload(event)
+  if (!payload || !Notification.isSupported()) return false
+
+  const notification = new Notification({
+    title: payload.title,
+    body: payload.body ?? undefined
+  })
+
+  notification.on('click', () => {
+    if (payload.actionUrl) {
+      void shell.openExternal(payload.actionUrl)
+      return
+    }
+    spawnDesktopWindow(payload.workspacePath ?? undefined)
+  })
+  notification.show()
+  return true
 }
 
 export async function runTrayProcess(): Promise<void> {
@@ -228,7 +279,8 @@ export async function runTrayProcess(): Promise<void> {
     if (eventAbortController) return
     const controller = new AbortController()
     eventAbortController = controller
-    void hubClient.subscribeEvents((_event: HubEvent) => {
+    void hubClient.subscribeEvents((event: HubEvent) => {
+      showHubNotification(event)
       void refresh()
     }, controller.signal).catch(() => {
       eventAbortController = null

@@ -154,6 +154,7 @@ public sealed class HubHostTests : IDisposable
         Assert.Equal("running", firstRoot.GetProperty("state").GetString());
         Assert.True(firstRoot.GetProperty("startedByHub").GetBoolean());
         Assert.StartsWith("ws://127.0.0.1:", firstRoot.GetProperty("endpoints").GetProperty("appServerWebSocket").GetString());
+        Assert.True(File.Exists(paths.AppServersRegistryPath));
 
         using var second = AuthorizedPost(info, $"{info.ApiBaseUrl}/v1/appservers/ensure", new
         {
@@ -169,6 +170,15 @@ public sealed class HubHostTests : IDisposable
         var stopResponse = await http.SendAsync(stop, cts.Token);
         stopResponse.EnsureSuccessStatusCode();
         await WaitForFileDeletedAsync(Path.Combine(workspace.BotPath, "appserver.lock"), cts.Token);
+
+        using var listRequest = new HttpRequestMessage(HttpMethod.Get, $"{info.ApiBaseUrl}/v1/appservers");
+        listRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", info.Token);
+        var listResponse = await http.SendAsync(listRequest, cts.Token);
+        listResponse.EnsureSuccessStatusCode();
+        using var listDoc = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync(cts.Token));
+        var listed = Assert.Single(listDoc.RootElement.EnumerateArray());
+        Assert.Equal("stopped", listed.GetProperty("state").GetString());
+        Assert.Equal(workspace.WorkspacePath, listed.GetProperty("canonicalWorkspacePath").GetString());
 
         await ShutdownAsync(http, info, cts.Token);
         await runTask.WaitAsync(cts.Token);

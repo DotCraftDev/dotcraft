@@ -1025,9 +1025,38 @@ public sealed class AppServerHost(
                 if (signal == SessionThreadRuntimeSignal.TurnCompleted)
                     _runtime.WelcomeSuggestionService.ScheduleRefresh(_runtime.Paths.WorkspacePath, threadId);
                 BroadcastThreadRuntime(threadId, next.ToWire());
+                RequestHubTurnNotification(threadId, signal);
                 return;
             }
         }
+    }
+
+    private void RequestHubTurnNotification(string threadId, SessionThreadRuntimeSignal signal)
+    {
+        var (kind, title, body, severity) = signal switch
+        {
+            SessionThreadRuntimeSignal.TurnCompleted => (
+                "turnCompleted",
+                "DotCraft task completed",
+                $"Thread {threadId} finished.",
+                "success"),
+            SessionThreadRuntimeSignal.TurnFailed => (
+                "turnFailed",
+                "DotCraft task failed",
+                $"Thread {threadId} failed.",
+                "error"),
+            _ => (null, null, null, null)
+        };
+
+        if (kind is null || title is null || severity is null)
+            return;
+
+        _ = Task.Run(() => HubNotificationClient.RequestAsync(
+            _runtime.Paths.WorkspacePath,
+            kind,
+            title,
+            body,
+            severity));
     }
 
     private void BroadcastThreadRuntime(string threadId, ThreadRuntimeState runtime)

@@ -64,7 +64,13 @@ public sealed class HubHost : IDotCraftHost
         try
         {
             _eventBus = new HubEventBus();
-            _registry = new ManagedAppServerRegistry(_eventBus, apiBaseUrl, token, _dotcraftBin);
+            _registry = new ManagedAppServerRegistry(
+                _eventBus,
+                apiBaseUrl,
+                token,
+                _dotcraftBin,
+                _paths.AppServersRegistryPath);
+            _registry.StartHealthChecks();
             _app = BuildApp(apiBaseUrl, token, startedAt, _registry, _eventBus);
             _app.Urls.Add(apiBaseUrl);
             await _app.StartAsync(cancellationToken);
@@ -195,6 +201,16 @@ public sealed class HubHost : IDotCraftHost
 
             return Protected(() =>
             {
+                if (string.IsNullOrWhiteSpace(body.Title))
+                    throw new HubProtocolException(
+                        "invalidNotification",
+                        "Notification title is required.",
+                        StatusCodes.Status400BadRequest);
+
+                if (string.IsNullOrWhiteSpace(body.Kind))
+                    body.Kind = "notification";
+
+                body.Severity = NormalizeNotificationSeverity(body.Severity);
                 events.Publish("notification.requested", body.WorkspacePath, body);
                 return Results.Json(new { accepted = true }, HubJson.Options);
             });
@@ -272,6 +288,15 @@ public sealed class HubHost : IDotCraftHost
         RandomNumberGenerator.Fill(bytes);
         return Convert.ToBase64String(bytes);
     }
+
+    private static string NormalizeNotificationSeverity(string? severity)
+        => severity?.Trim().ToLowerInvariant() switch
+        {
+            "success" => "success",
+            "warning" => "warning",
+            "error" => "error",
+            _ => "info"
+        };
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

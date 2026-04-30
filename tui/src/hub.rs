@@ -165,10 +165,52 @@ async fn hub_request_raw(
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok())
         .ok_or_else(|| anyhow!("Invalid Hub HTTP status"))?;
+    let is_chunked = head.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("transfer-encoding:")
+            && line.to_ascii_lowercase().contains("chunked")
+    });
+    let body = if is_chunked {
+        decode_chunked_body(body)?
+    } else {
+        body.to_string()
+    };
+
     Ok(HttpResponse {
         status_code,
-        body: body.to_string(),
+        body,
     })
+}
+
+fn decode_chunked_body(body: &str) -> Result<String> {
+    let mut rest = body.as_bytes();
+    let mut decoded = Vec::new();
+    loop {
+        let header_end = rest
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .ok_or_else(|| anyhow!("Invalid chunked Hub response"))?;
+        let size_line = std::str::from_utf8(&rest[..header_end])?;
+        let after_size = &rest[header_end + 2..];
+        let size_hex = size_line
+            .split(';')
+            .next()
+            .unwrap_or(size_line)
+            .trim();
+        let size = usize::from_str_radix(size_hex, 16)?;
+        if size == 0 {
+            return Ok(String::from_utf8(decoded)?);
+        }
+        if after_size.len() < size + 2 {
+            bail!("Invalid chunked Hub response body");
+        }
+        decoded.extend_from_slice(&after_size[..size]);
+        rest = &after_size[size..];
+        if !rest.starts_with(b"\r\n") {
+            bail!("Invalid chunked Hub response delimiter");
+        }
+        rest = &rest[2..];
+    }
 }
 
 fn parse_http_loopback(url: &str) -> Result<(String, u16)> {
@@ -184,4 +226,15 @@ fn parse_http_loopback(url: &str) -> Result<(String, u16)> {
         bail!("Hub URL must be loopback");
     }
     Ok((host.to_string(), port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_chunked_body;
+
+    #[test]
+    fn decodes_chunked_body() {
+        let decoded = decode_chunked_body("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n").unwrap();
+        assert_eq!(decoded, "hello world");
+    }
 }

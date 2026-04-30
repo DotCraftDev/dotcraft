@@ -63,6 +63,7 @@ public sealed class CliHost(
             dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
             backendInfo = new CliBackendInfo
             {
+                Mode = "Remote",
                 ServerVersion = TryGetServerVersion(wsInitResponse),
                 ServerUrl = wsUri.ToString(),
                 ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
@@ -103,6 +104,7 @@ public sealed class CliHost(
             cliSession = new WireCliSession(wire);
             backendInfo = new CliBackendInfo
             {
+                Mode = "Local / Hub-managed",
                 ServerVersion = TryGetServerVersion(wsInitResponse) ?? ensured.ServerVersion,
                 ProcessId = ensured.Pid,
                 ServerUrl = wsUrl,

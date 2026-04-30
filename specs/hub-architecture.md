@@ -741,12 +741,13 @@ These choices should be resolved before implementation begins.
 
 ## 15. Iteration Plan
 
-The Hub feature is delivered in three milestones. Each milestone has its own behavior contract:
+The Hub feature is delivered in milestone specs. Each milestone has its own behavior contract:
 
 - [M1: Shell and Local Presence](hub-m1-shell.md)
 - [M2: Protocol and Managed AppServer](hub-m2-protocol-managed-appserver.md)
 - [M3: Client Adoption](hub-m3-client-adoption.md)
 - [M4: Tray Management](hub-m4-tray-management.md)
+- [M5: Runtime Completion](hub-m5-runtime-completion.md)
 
 ### M1: Shell and Local Presence
 
@@ -806,3 +807,18 @@ Work:
 - Ensure Hub-managed AppServers run without visible console windows on Windows.
 
 Outcome: Users can keep local DotCraft runtime running in the background and manage it from the system tray without binding tray lifetime to a workspace window.
+
+### M5: Runtime Completion
+
+Goal: Make the Hub-managed local runtime durable for long-running background use.
+
+Work:
+
+- Persist known AppServer registry state under `~/.craft/hub/appservers.json`.
+- List both current in-memory managed AppServers and persisted known workspace entries.
+- Add lightweight health checks for AppServers supervised by the current Hub process.
+- Emit `appserver.unhealthy` when a managed AppServer stops responding without automatically restarting it.
+- Keep notification display in Desktop tray while Hub only accepts requests and emits `notification.requested`.
+- Let managed AppServers request basic task completed/failed notifications through Hub.
+
+Outcome: Hub can survive restarts with useful known-workspace metadata, detect unhealthy managed AppServers, and route task notifications to the Desktop-owned tray surface.

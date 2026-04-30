@@ -41,7 +41,11 @@ public sealed class HubNotificationRequest
 
     public string? Body { get; set; }
 
-    public Dictionary<string, string>? Source { get; set; }
+    public string? Severity { get; set; }
+
+    public string? Source { get; set; }
+
+    public string? ActionUrl { get; set; }
 }
 
 public sealed record HubAppServerResponse(

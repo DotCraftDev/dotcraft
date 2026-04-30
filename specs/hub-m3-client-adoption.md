@@ -227,10 +227,10 @@ Clients should preserve existing AppServer reconnection rules after the AppServe
 
 ---
 
-## 13. Open Questions
+## 13. Locked Decisions
 
-1. Should CLI/TUI auto-start Hub by default, or only use an already running Hub in the first adoption release?
-2. Should Desktop always start Hub at app launch, or only when opening the first local workspace?
-3. How visible should legacy direct stdio mode be after Hub becomes default?
-4. Should Desktop expose Hub restart/quit in settings, tray, both, or neither during M3?
-5. Which client should be the first conformance target for Hub adoption: CLI, TUI, or Desktop?
+1. Desktop, TUI, and CLI auto-start Hub by default for local workspaces.
+2. Desktop starts or reuses Hub as part of local workspace startup.
+3. Legacy direct stdio mode is no longer a normal local client option; explicit `dotcraft app-server` remains available for server/debug use.
+4. M3 exposes only current-workspace restart through Hub; broader Hub quit/tray controls are covered by later milestones.
+5. Desktop, TUI, and CLI are all conformance targets for M3 adoption.
