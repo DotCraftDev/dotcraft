@@ -1,17 +1,12 @@
 import { create } from 'zustand'
-import type { ThreadSummary, Thread, ThreadStatus } from '../types/thread'
+import type { ThreadSummary, Thread, ThreadStatus, ThreadRuntimeSnapshot } from '../types/thread'
 import { useViewerTabStore } from './viewerTabStore'
+export type { ThreadRuntimeSnapshot } from '../types/thread'
 
 export interface ParkedApproval {
   bridgeId: string
   turnId: string | null
   rawParams: Record<string, unknown>
-}
-
-export interface ThreadRuntimeSnapshot {
-  running: boolean
-  waitingOnApproval: boolean
-  waitingOnPlanConfirmation: boolean
 }
 
 interface ApplyRuntimeSnapshotOptions {
@@ -79,11 +74,80 @@ const initialState: ThreadStoreState = {
   unreadCompletedThreadIds: new Set<string>()
 }
 
+function filterSetToThreadList(current: Set<string>, ids: Set<string>): Set<string> {
+  return new Set([...current].filter((id) => ids.has(id)))
+}
+
+function filterMapToThreadList<T>(current: Map<string, T>, ids: Set<string>): Map<string, T> {
+  return new Map([...current].filter(([id]) => ids.has(id)))
+}
+
 export const useThreadStore = create<ThreadStore>((set, _get) => ({
   ...initialState,
 
   setThreadList(threads) {
-    set({ threadList: threads })
+    set((state) => {
+      const threadIds = new Set(threads.map((thread) => thread.id))
+      const runtimeSnapshots = filterMapToThreadList(state.runtimeSnapshots, threadIds)
+      const parkedApprovals = filterMapToThreadList(state.parkedApprovals, threadIds)
+      const runningTurnThreadIds = filterSetToThreadList(state.runningTurnThreadIds, threadIds)
+      const pendingApprovalThreadIds = filterSetToThreadList(state.pendingApprovalThreadIds, threadIds)
+      const pendingPlanConfirmationThreadIds = filterSetToThreadList(
+        state.pendingPlanConfirmationThreadIds,
+        threadIds
+      )
+      const unreadCompletedThreadIds = filterSetToThreadList(state.unreadCompletedThreadIds, threadIds)
+
+      for (const thread of threads) {
+        const runtime = thread.runtime
+        if (!runtime) continue
+
+        const snapshot: ThreadRuntimeSnapshot = {
+          running: runtime.running === true,
+          waitingOnApproval: runtime.waitingOnApproval === true,
+          waitingOnPlanConfirmation: runtime.waitingOnPlanConfirmation === true
+        }
+        const previous = runtimeSnapshots.get(thread.id)
+        const isActive = state.activeThreadId === thread.id
+        const isDesktopOrigin = thread.originChannel?.toLowerCase() === 'dotcraft-desktop'
+        runtimeSnapshots.set(thread.id, snapshot)
+
+        if (snapshot.running) {
+          runningTurnThreadIds.add(thread.id)
+          unreadCompletedThreadIds.delete(thread.id)
+        } else {
+          runningTurnThreadIds.delete(thread.id)
+          if (!isActive && previous?.running === true) {
+            unreadCompletedThreadIds.add(thread.id)
+          }
+        }
+
+        if (snapshot.waitingOnApproval && !isActive && isDesktopOrigin) {
+          pendingApprovalThreadIds.add(thread.id)
+        } else {
+          pendingApprovalThreadIds.delete(thread.id)
+          if (!snapshot.waitingOnApproval) {
+            parkedApprovals.delete(thread.id)
+          }
+        }
+
+        if (snapshot.waitingOnPlanConfirmation && !isActive && isDesktopOrigin) {
+          pendingPlanConfirmationThreadIds.add(thread.id)
+        } else {
+          pendingPlanConfirmationThreadIds.delete(thread.id)
+        }
+      }
+
+      return {
+        threadList: threads,
+        runtimeSnapshots,
+        runningTurnThreadIds,
+        parkedApprovals,
+        pendingApprovalThreadIds,
+        pendingPlanConfirmationThreadIds,
+        unreadCompletedThreadIds
+      }
+    })
   },
 
   addThread(thread) {

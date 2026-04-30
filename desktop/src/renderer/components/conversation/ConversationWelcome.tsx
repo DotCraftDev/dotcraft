@@ -137,6 +137,9 @@ export function ConversationWelcome({
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
+  const modelCatalogErrorCode = useModelCatalogStore((s) => s.errorCode)
+  const modelCatalogErrorMessage = useModelCatalogStore((s) => s.errorMessage)
+  const loadModels = useModelCatalogStore((s) => s.loadIfNeeded)
   const { addThread, setActiveThreadId } = useThreadStore()
   const setWelcomeDraft = useUIStore((s) => s.setWelcomeDraft)
   const clearWelcomeDraft = useUIStore((s) => s.clearWelcomeDraft)
@@ -983,9 +986,21 @@ export function ConversationWelcome({
                     modelOptions={modelApiAvailable ? modelOptions : []}
                     loading={modelLoading}
                     unsupported={modelListUnsupportedEndpoint}
+                    errorMessage={
+                      modelCatalogStatus === 'error'
+                        ? (
+                            modelCatalogErrorCode
+                              ? `${modelCatalogErrorCode}: ${modelCatalogErrorMessage ?? ''}`.trim()
+                              : (modelCatalogErrorMessage || t('composer.modelListError'))
+                          )
+                        : null
+                    }
                     disabled={modelApplying || starting}
                     onChange={(nextModel) => {
                       void handleModelChange(nextModel)
+                    }}
+                    onRetry={() => {
+                      void loadModels(true)
                     }}
                     shortcut={ACTION_SHORTCUTS.selectModel}
                     triggerStyle={composerModelPillStyle(

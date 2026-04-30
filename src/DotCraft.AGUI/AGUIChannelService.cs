@@ -1,4 +1,3 @@
-using System.ClientModel;
 using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -245,6 +244,8 @@ public sealed class AguiChannelService(
         var hookRunner = sp.GetService<HookRunner>();
 
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+        var openAIClientProvider = sp.GetRequiredService<OpenAIClientProvider>();
+        var mainModel = openAIClientProvider.ResolveMainModel(config);
 
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
@@ -253,10 +254,9 @@ public sealed class AguiChannelService(
             toolProviderContext: new ToolProviderContext
             {
                 Config = config,
-                ChatClient = new OpenAIClient(
-                    new ApiKeyCredential(config.ApiKey),
-                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
-                    .GetChatClient(config.Model),
+                ChatClient = openAIClientProvider.GetChatClient(config, mainModel),
+                OpenAIClientProvider = openAIClientProvider,
+                EffectiveMainModel = mainModel,
                 WorkspacePath = paths.WorkspacePath,
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
@@ -271,7 +271,8 @@ public sealed class AguiChannelService(
             traceCollector: traceCollector,
             customCommandLoader: sp.GetService<CustomCommandLoader>(),
             onConsolidatorStatus: AnsiConsole.MarkupLine,
-            hookRunner: hookRunner);
+            hookRunner: hookRunner,
+            openAIClientProvider: openAIClientProvider);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)

@@ -55,6 +55,7 @@ public sealed class AppServerRequestHandler(
     SessionStreamDebugLogger? streamDebugLogger = null,
     IReadOnlyList<ConfigSchemaSection>? configSchema = null,
     IAppConfigMonitor? appConfigMonitor = null,
+    OpenAIClientProvider? openAIClientProvider = null,
     IBackgroundTerminalService? backgroundTerminalService = null)
 {
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -512,9 +513,9 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.ModelList);
 
-        var configPath = Path.Combine(workspaceCraftPath, "config.json");
-        var config = AppConfig.LoadWithGlobalFallback(configPath);
-        var result = await OpenAIModelCatalog.FetchAsync(config, ct);
+        var config = appConfigMonitor?.Current
+            ?? AppConfig.LoadWithGlobalFallback(Path.Combine(workspaceCraftPath, "config.json"));
+        var result = await OpenAIModelCatalog.FetchAsync(config, ct, openAIClientProvider);
 
         return new ModelListResult
         {
@@ -526,8 +527,19 @@ public sealed class AppServerRequestHandler(
                 CreatedAt = m.CreatedAt
             })],
             ErrorCode = result.Success ? null : result.ErrorCode.ToString(),
-            ErrorMessage = result.Success ? null : result.ErrorMessage
+            ErrorMessage = result.Success ? null : FormatModelListErrorMessage(result.ErrorMessage, config.EndPoint)
         };
+    }
+
+    private static string? FormatModelListErrorMessage(string? message, string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return message;
+
+        var baseMessage = string.IsNullOrWhiteSpace(message)
+            ? "Model list request failed."
+            : message.Trim();
+        return $"{baseMessage} Endpoint: {endpoint.Trim()}";
     }
 
     private async Task<object?> HandleMcpListAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -690,16 +702,26 @@ public sealed class AppServerRequestHandler(
         _ = ct;
         EnsureSubAgentManagementAvailable();
         var p = GetParams<SubAgentSettingsUpdateParams>(msg);
-        if (!p.ExternalCliSessionResumeEnabled.HasValue)
-            throw AppServerErrors.InvalidParams("'externalCliSessionResumeEnabled' is required.");
+        JsonElement modelEl = default;
+        var hasModel = msg.Params.HasValue
+            && msg.Params.Value.ValueKind == JsonValueKind.Object
+            && TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out modelEl);
+        if (!p.ExternalCliSessionResumeEnabled.HasValue && !hasModel)
+            throw AppServerErrors.InvalidParams("At least one of 'externalCliSessionResumeEnabled' or 'model' is required.");
 
         var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var nextResumeEnabled = p.ExternalCliSessionResumeEnabled ?? state.EnableExternalCliSessionResume;
+        var nextModel = hasModel
+            ? NormalizeOptionalString(ParseNullableString(modelEl, "model")) ?? string.Empty
+            : state.Model;
         SubAgentProfilesPersistence.SaveWorkspaceState(
             workspaceCraftPath!,
             state.DisabledProfiles,
-            p.ExternalCliSessionResumeEnabled.Value,
+            nextResumeEnabled,
+            nextModel,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentSettingsUpdate,
             [ConfigChangeRegions.SubAgent]);
@@ -708,7 +730,8 @@ public sealed class AppServerRequestHandler(
         {
             Settings = new SubAgentSettingsWire
             {
-                ExternalCliSessionResumeEnabled = p.ExternalCliSessionResumeEnabled.Value
+                ExternalCliSessionResumeEnabled = nextResumeEnabled,
+                Model = string.IsNullOrWhiteSpace(nextModel) ? null : nextModel
             }
         });
     }
@@ -744,8 +767,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             disabled,
             state.EnableExternalCliSessionResume,
+            state.Model,
             state.Profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileSetEnabled,
             [ConfigChangeRegions.SubAgent]);
@@ -778,8 +803,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             state.DisabledProfiles,
             state.EnableExternalCliSessionResume,
+            state.Model,
             profiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileUpsert,
             [ConfigChangeRegions.SubAgent]);
@@ -814,8 +841,10 @@ public sealed class AppServerRequestHandler(
             workspaceCraftPath!,
             disabled,
             state.EnableExternalCliSessionResume,
+            state.Model,
             workspaceProfiles);
         RefreshCurrentSubAgentConfig();
+        InvalidateThreadAgents();
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileRemove,
             [ConfigChangeRegions.SubAgent]);
@@ -1095,8 +1124,22 @@ public sealed class AppServerRequestHandler(
         {
             // Build and send the turn/start JSON-RPC response before the notification
             var responsePayload = new { turn = initialTurn };
-            await transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
-            // Signal that the response was sent successfully
+            try
+            {
+                await transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Client disconnected before the response could be delivered; the
+                // turn has already started and must keep draining in the background.
+            }
+            catch (Exception ex) when (AppServerEventDispatcher.IsTransportUnavailableException(ex))
+            {
+                // Client disconnected before the response could be delivered; the
+                // turn has already started and must keep draining in the background.
+            }
+
+            // Signal that the response phase is complete even if the client is gone.
             initialTurnTcs.TrySetResult(initialTurn);
         }
 
@@ -1111,7 +1154,7 @@ public sealed class AppServerRequestHandler(
             content,
             p.Sender,
             messages,
-            ct,
+            CancellationToken.None,
             new SessionInputSnapshot
             {
                 NativeInputParts = materializedInput.NativeInputParts,
@@ -1124,26 +1167,43 @@ public sealed class AppServerRequestHandler(
         // notification delivery path. Creating a second AppServerEventDispatcher here would send
         // every turn event twice on the same transport. Instead, we read only the first TurnStarted
         // event from the turn channel (needed to build the turn/start response), send the response,
-        // and then drain the turn channel silently so the unbounded channel does not accumulate.
+        // and then drain the turn channel in the background so disconnects cannot strand approvals.
         if (connection.HasSubscription(p.ThreadId))
         {
-            await foreach (var evt in events.WithCancellation(ct))
+            var subscribedEnumerator = events.GetAsyncEnumerator(CancellationToken.None);
+            var drainOwnsEnumerator = false;
+            try
             {
-                if (evt.EventType == SessionEventType.TurnStarted && evt.TurnPayload is { } startedTurn)
+                while (await subscribedEnumerator.MoveNextAsync())
                 {
-                    var wireTurn = startedTurn.ToWire(includeItems: false) with { Items = [] };
-                    await transport.WriteMessageAsync(BuildResponse(msg.Id, new { turn = wireTurn }), ct);
-                    break;
+                    var evt = subscribedEnumerator.Current;
+                    if (evt.EventType == SessionEventType.TurnStarted && evt.TurnPayload is { } startedTurn)
+                    {
+                        var wireTurn = startedTurn.ToWire(includeItems: false) with { Items = [] };
+                        try
+                        {
+                            await transport.WriteMessageAsync(BuildResponse(msg.Id, new { turn = wireTurn }), ct);
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            // The response is best-effort after disconnect; keep draining below.
+                        }
+                        catch (Exception ex) when (AppServerEventDispatcher.IsTransportUnavailableException(ex))
+                        {
+                            // The response is best-effort after disconnect; keep draining below.
+                        }
+
+                        _ = DrainSubscribedTurnEventsAsync(subscribedEnumerator, connection, CancellationToken.None);
+                        drainOwnsEnumerator = true;
+                        break;
+                    }
                 }
             }
-
-            // Drain the rest of the turn channel in the background so the unbounded channel does
-            // not hold memory for the duration of the turn. The subscription dispatcher on the
-            // broker side is the authoritative delivery path and handles all further events.
-            _ = Task.Run(async () =>
+            finally
             {
-                await foreach (var _ in events.WithCancellation(ct)) { }
-            }, ct);
+                if (!drainOwnsEnumerator)
+                    await subscribedEnumerator.DisposeAsync();
+            }
 
             return null;
         }
@@ -1153,7 +1213,7 @@ public sealed class AppServerRequestHandler(
             defaultApprovalDecision: _defaultApprovalDecision,
             streamDebugLogger: streamDebugLogger);
 
-        var dispatchTask = dispatcher.RunAsync(ct);
+        var dispatchTask = dispatcher.RunAsync(CancellationToken.None);
 
         // Propagate dispatch failures to the TCS so we don't hang indefinitely
         _ = dispatchTask.ContinueWith(t =>
@@ -1173,6 +1233,104 @@ public sealed class AppServerRequestHandler(
 
         // Return null to signal the host that the response has already been sent inline
         return null;
+    }
+
+    private async Task DrainSubscribedTurnEventsAsync(
+        IAsyncEnumerator<SessionEvent> events,
+        AppServerConnection owningConnection,
+        CancellationToken ct)
+    {
+        try
+        {
+            while (await events.MoveNextAsync())
+            {
+                ct.ThrowIfCancellationRequested();
+                var evt = events.Current;
+                if (evt.EventType == SessionEventType.ApprovalRequested)
+                    await ScheduleDisconnectedApprovalFallbackAsync(evt, owningConnection, ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Host shutdown or explicit drain cancellation.
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync(
+                $"[AppServer] Subscribed turn drain error for thread {ex.Message}");
+        }
+        finally
+        {
+            await events.DisposeAsync();
+        }
+    }
+
+    private Task ScheduleDisconnectedApprovalFallbackAsync(
+        SessionEvent evt,
+        AppServerConnection owningConnection,
+        CancellationToken ct)
+    {
+        var item = evt.ItemPayload;
+        if (item?.Payload is not ApprovalRequestPayload req)
+            return Task.CompletedTask;
+
+        if (owningConnection.IsClosed)
+            return ResolveApprovalWithFallbackAsync(evt, req.RequestId, ct);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await owningConnection.Closed;
+                await ResolveApprovalWithFallbackAsync(evt, req.RequestId, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"[AppServer] Disconnected approval fallback failed: {ex.Message}");
+            }
+        }, CancellationToken.None);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ResolveApprovalWithFallbackAsync(
+        SessionEvent evt,
+        string requestId,
+        CancellationToken ct)
+    {
+        if (evt.TurnId == null)
+            return;
+
+        var decision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
+        try
+        {
+            await sessionService.ResolveApprovalAsync(evt.ThreadId, evt.TurnId, requestId, decision, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Ignore shutdown cancellation.
+        }
+    }
+
+    private async Task<SessionApprovalDecision> ResolveNonInteractiveApprovalDecisionAsync(
+        SessionEvent evt,
+        CancellationToken ct)
+    {
+        try
+        {
+            var thread = await sessionService.GetThreadAsync(evt.ThreadId, ct);
+            return thread.Configuration?.ApprovalPolicy switch
+            {
+                ApprovalPolicy.AutoApprove => SessionApprovalDecision.AcceptOnce,
+                ApprovalPolicy.Interrupt => SessionApprovalDecision.CancelTurn,
+                _ => _defaultApprovalDecision
+            };
+        }
+        catch
+        {
+            return _defaultApprovalDecision;
+        }
     }
 
     private async Task<object?> HandleTurnEnqueueAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -1699,7 +1857,8 @@ public sealed class AppServerRequestHandler(
             Profiles = profiles,
             Settings = new SubAgentSettingsWire
             {
-                ExternalCliSessionResumeEnabled = state.EnableExternalCliSessionResume
+                ExternalCliSessionResumeEnabled = state.EnableExternalCliSessionResume,
+                Model = string.IsNullOrWhiteSpace(state.Model) ? null : state.Model
             }
         };
     }
@@ -1774,12 +1933,32 @@ public sealed class AppServerRequestHandler(
         appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
         {
             DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles],
-            EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume
+            EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume,
+            Model = mergedConfig.SubAgent.Model
         };
         appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))
             .Select(profile => profile.Clone())
             .ToList();
+    }
+
+    private void RefreshCurrentLlmConfig()
+    {
+        if (appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+            return;
+
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
+        appConfigMonitor.Current.Model = mergedConfig.Model;
+        appConfigMonitor.Current.ApiKey = mergedConfig.ApiKey;
+        appConfigMonitor.Current.EndPoint = mergedConfig.EndPoint;
+        RuntimeConfigOverrides.ApplyManagedProxy(appConfigMonitor.Current);
+    }
+
+    private void InvalidateThreadAgents()
+    {
+        if (sessionService is IThreadAgentRefreshService refreshService)
+            refreshService.InvalidateThreadAgents();
     }
 
     private void RefreshCurrentPermissionsConfig(string? defaultApprovalPolicy)
@@ -1940,6 +2119,11 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WorkspaceApiKey);
         if (saveResult.EndPointChanged)
             changedRegions.Add(ConfigChangeRegions.WorkspaceEndPoint);
+        if (saveResult.ModelChanged || saveResult.ApiKeyChanged || saveResult.EndPointChanged)
+        {
+            RefreshCurrentLlmConfig();
+            InvalidateThreadAgents();
+        }
         if (saveResult.WelcomeSuggestionsChanged)
             changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (saveResult.SkillsSelfLearningChanged)

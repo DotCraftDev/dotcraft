@@ -42,6 +42,59 @@ describe('threadStore.setThreadList', () => {
     useThreadStore.getState().setThreadList([makeThreadSummary('new1'), makeThreadSummary('new2')])
     expect(useThreadStore.getState().threadList.map((t) => t.id)).toEqual(['new1', 'new2'])
   })
+
+  it('hydrates running indicators from thread list runtime snapshots', () => {
+    useThreadStore.getState().setThreadList([
+      makeThreadSummary('running', {
+        originChannel: 'dotcraft-desktop',
+        runtime: {
+          running: true,
+          waitingOnApproval: false,
+          waitingOnPlanConfirmation: false
+        }
+      }),
+      makeThreadSummary('idle', {
+        runtime: {
+          running: false,
+          waitingOnApproval: false,
+          waitingOnPlanConfirmation: false
+        }
+      })
+    ])
+
+    expect(useThreadStore.getState().runningTurnThreadIds.has('running')).toBe(true)
+    expect(useThreadStore.getState().runningTurnThreadIds.has('idle')).toBe(false)
+    expect(useThreadStore.getState().runtimeSnapshots.get('running')).toEqual({
+      running: true,
+      waitingOnApproval: false,
+      waitingOnPlanConfirmation: false
+    })
+  })
+
+  it('hydrates pending approval indicators from desktop-origin runtime snapshots', () => {
+    useThreadStore.getState().setThreadList([
+      makeThreadSummary('approval', {
+        originChannel: 'dotcraft-desktop',
+        runtime: {
+          running: true,
+          waitingOnApproval: true,
+          waitingOnPlanConfirmation: false
+        }
+      }),
+      makeThreadSummary('external-approval', {
+        originChannel: 'telegram',
+        runtime: {
+          running: true,
+          waitingOnApproval: true,
+          waitingOnPlanConfirmation: false
+        }
+      })
+    ])
+
+    expect(useThreadStore.getState().runningTurnThreadIds.has('approval')).toBe(true)
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('approval')).toBe(true)
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('external-approval')).toBe(false)
+  })
 })
 
 describe('threadStore.addThread', () => {

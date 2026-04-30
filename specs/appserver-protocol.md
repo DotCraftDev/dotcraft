@@ -563,13 +563,20 @@ List threads matching a given identity.
       "status": "active",
       "originChannel": "vscode",
       "createdAt": "2026-03-16T10:00:00Z",
-      "lastActiveAt": "2026-03-16T10:05:00Z"
+      "lastActiveAt": "2026-03-16T10:05:00Z",
+      "runtime": {
+        "running": true,
+        "waitingOnApproval": false,
+        "waitingOnPlanConfirmation": false
+      }
     }
   ]
 }
 ```
 
 Results are ordered by `lastActiveAt` descending. Cursor pagination is deferred from v1 because the current Core only guarantees deterministic full-list ordering.
+
+Each `ThreadSummary` may include an optional `runtime` snapshot with the same shape as `thread/runtimeChanged`. This snapshot is best-effort process-local state intended to hydrate thread-list activity indicators after reconnect. Clients should apply it as initial list state and continue to consume `thread/runtimeChanged` as the incremental source of truth. Older servers may omit `runtime`, and clients must treat omission as unknown rather than as an idle thread.
 
 ### 4.3.1 `channel/list`
 
@@ -820,7 +827,9 @@ Before starting the agent, the server **must** ensure the in-memory thread is lo
 
 The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
 
-**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
+For persisted server-managed threads, the execution lifecycle of a started turn is owned by the AppServer, not by the single request transport that submitted it. If the client WebSocket disconnects after `turn/start` has begun, the server must continue consuming the turn event stream so the turn can complete or fail normally. The disconnected client may miss notifications and should recover by reconnecting and calling `thread/read` or `thread/subscribe`.
+
+**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. The server must still keep an internal active-turn drain for the submitted turn so connection loss does not stop execution or strand approvals after the passive subscription is cancelled. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
 
 **Direction**: client → server (request)
 
@@ -1857,7 +1866,7 @@ If a client declared `capabilities.approvalSupport = false` during initializatio
 - `approvalPolicy = interrupt` resolves as `cancel`.
 - `approvalPolicy = default` first resolves through the workspace default approval policy. If both the thread policy and workspace default are `default` or unset, the server cannot prompt on a non-interactive client, so it falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
 
-The same non-interactive fallback may also be applied when an approval-capable client disconnects or times out before replying.
+The same non-interactive fallback may also be applied when an approval-capable client disconnects, the approval request cannot be written to the transport, or the client times out before replying.
 
 ---
 
@@ -2055,6 +2064,8 @@ Broadcast summary notifications such as `thread/started`, `thread/renamed`, `thr
 **Rationale**: Without this rule, a connection that both subscribes to a thread and starts a turn on that thread could receive duplicate notifications through multiple delivery paths.
 
 **Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives before the first `turn/started` notification.
+
+**Best-effort delivery**: Notifications are best-effort per connection. A transport write failure must stop further writes to that client, but it must not stop the server from draining an already-started persisted turn's event stream. Passive `thread/subscribe` streams remain tied to the connection and are cancelled when that connection closes; active turn execution continues independently. When `turn/start` uses the subscription path, the server's internal active-turn drain must continue after subscription cancellation and resolve disconnected approvals through the same non-interactive fallback described in [Section 7.4](#74-clients-without-approval-support). Reconnected clients recover state through `thread/read`, `thread/list`, and fresh subscriptions.
 
 ---
 
@@ -4001,13 +4012,15 @@ Returns all builtin profiles plus workspace-defined custom profiles for the curr
 {
   "defaultName": "native",
   "settings": {
-    "externalCliSessionResumeEnabled": false
+    "externalCliSessionResumeEnabled": false,
+    "model": null
   },
   "profiles": []
 }
 ```
 
 `settings.externalCliSessionResumeEnabled` is the workspace-scoped toggle that controls whether supported external CLI profiles may reuse saved external session ids.
+`settings.model` is the optional workspace-scoped default model for DotCraft-managed SubAgents. `null` or an empty string means the server uses the effective MainAgent model for the current thread.
 
 ### 24.5 `subagent/settings/update`
 
@@ -4017,15 +4030,19 @@ Update workspace-level SubAgent settings.
 
 ```json
 {
-  "externalCliSessionResumeEnabled": true
+  "externalCliSessionResumeEnabled": true,
+  "model": "gpt-4.1"
 }
 ```
 
 **Semantics**:
 
-- updates `SubAgent.EnableExternalCliSessionResume`
-- affects only profiles whose effective definition has `supportsResume=true`
-- does not delete existing saved external session ids
+- clients may send `externalCliSessionResumeEnabled`, `model`, or both; at least one supported field is required
+- `externalCliSessionResumeEnabled` updates `SubAgent.EnableExternalCliSessionResume`
+- `model` updates `SubAgent.Model`; `null`, empty, or whitespace clears the SubAgent model override
+- `SubAgent.Model` only affects DotCraft-managed native SubAgents in v1; external CLI profiles may opt into model selection in a future profile/runtime-specific contract
+- the resume toggle affects only profiles whose effective definition has `supportsResume=true`
+- clearing or changing these settings does not delete existing saved external session ids
 - on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/settings/update"` and `regions: ["subagent"]`
 
 ### 24.6 `subagent/profiles/setEnabled`

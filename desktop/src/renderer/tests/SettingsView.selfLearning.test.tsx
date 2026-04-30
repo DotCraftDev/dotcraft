@@ -220,14 +220,14 @@ describe('SettingsView self-learning settings', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
     const modeSelect = await screen.findByRole('combobox', { name: 'Connection mode' }) as HTMLSelectElement
-    fireEvent.change(modeSelect, { target: { value: 'stdioAndWebSocket' } })
+    fireEvent.change(modeSelect, { target: { value: 'remote' } })
 
     expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
 
     await waitFor(() => {
       expect(settingsSet).toHaveBeenCalledWith(expect.objectContaining({
-        connectionMode: 'stdioAndWebSocket'
+        connectionMode: 'remote'
       }))
       expect(appServerRestartManaged).toHaveBeenCalledOnce()
     })
@@ -249,6 +249,35 @@ describe('SettingsView self-learning settings', () => {
         proxy: expect.objectContaining({ enabled: true })
       }))
       expect(proxyRestartManaged).toHaveBeenCalledOnce()
+      expect(appServerRestartManaged).not.toHaveBeenCalled()
+    })
+  })
+
+  it('restarts managed runtime when API proxy is disabled', async () => {
+    settingsGet.mockResolvedValue({
+      locale: 'en',
+      connectionMode: 'stdio',
+      visibleChannels: [],
+      proxy: { enabled: true, port: 8317 }
+    })
+
+    renderView()
+
+    fireEvent.click(await screen.findByText('API Proxy'))
+    await screen.findByText('Enable local API proxy (CLIProxyAPI)')
+    const proxyToggle = screen.getAllByRole('switch')[0]
+    expect(proxyToggle).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(proxyToggle)
+
+    expect(await screen.findByText('Changes require a service restart to take effect')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalledWith(expect.objectContaining({
+        proxy: expect.objectContaining({ enabled: false })
+      }))
+      expect(proxyRestartManaged).toHaveBeenCalledOnce()
+      expect(appServerRestartManaged).not.toHaveBeenCalled()
     })
   })
 

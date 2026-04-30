@@ -31,6 +31,24 @@ public sealed class ToolProviderContext
     public required ChatClient ChatClient { get; init; }
 
     /// <summary>
+    /// Central OpenAI-compatible client provider used to resolve model-specific clients.
+    /// </summary>
+    public OpenAIClientProvider OpenAIClientProvider
+    {
+        get => field ??= new OpenAIClientProvider();
+        init;
+    }
+
+    /// <summary>
+    /// Effective MainAgent model represented by <see cref="ChatClient"/>.
+    /// </summary>
+    public string EffectiveMainModel
+    {
+        get => string.IsNullOrWhiteSpace(field) ? Config.Model : field;
+        init;
+    }
+
+    /// <summary>
     /// The workspace path.
     /// </summary>
     public required string WorkspacePath { get; init; }

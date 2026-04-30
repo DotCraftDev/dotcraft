@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { SubAgentsPanel } from '../components/settings/panels/SubAgentsPanel'
+import { useModelCatalogStore } from '../stores/modelCatalogStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
+const appServerListModels = vi.fn()
 
 const codexBuiltIn = {
   runtime: 'cli-oneshot',
@@ -176,7 +178,12 @@ function renderPanel(refreshTick = 0): void {
 describe('SubAgentsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useModelCatalogStore.getState().reset()
     settingsGet.mockResolvedValue({})
+    appServerListModels.mockResolvedValue({
+      success: true,
+      models: [{ id: 'gpt-subagent' }, { id: 'gpt-main' }]
+    })
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'subagent/profiles/list') {
         return cloneList()
@@ -197,7 +204,7 @@ describe('SubAgentsPanel', () => {
       configurable: true,
       value: {
         settings: { get: settingsGet },
-        appServer: { sendRequest: appServerSendRequest },
+        appServer: { sendRequest: appServerSendRequest, listModels: appServerListModels },
         workspace: { saveImageToTemp: vi.fn() }
       }
     })
@@ -300,6 +307,49 @@ describe('SubAgentsPanel', () => {
     for (const toggle of switches) {
       expect(toggle).toBeDisabled()
     }
+  })
+
+  it('saves the native model from the model dropdown', async () => {
+    renderPanel()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open sub-agent profile native' })
+    )
+
+    const modelSelect = await screen.findByLabelText('Native model')
+    fireEvent.change(modelSelect, { target: { value: 'gpt-subagent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith(
+        'subagent/settings/update',
+        expect.objectContaining({ model: 'gpt-subagent' })
+      )
+    })
+  })
+
+  it('falls back to manual native model entry when model listing is unsupported', async () => {
+    appServerListModels.mockResolvedValue({
+      success: false,
+      errorCode: 'EndpointNotSupported',
+      models: []
+    })
+    renderPanel()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open sub-agent profile native' })
+    )
+
+    const modelInput = await screen.findByPlaceholderText('Inherit MainAgent model')
+    fireEvent.change(modelInput, { target: { value: 'manual-subagent-model' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith(
+        'subagent/settings/update',
+        expect.objectContaining({ model: 'manual-subagent-model' })
+      )
+    })
   })
 
   it('creates a custom agent through the dedicated add flow', async () => {

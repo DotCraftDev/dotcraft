@@ -68,6 +68,7 @@ public static class ServiceRegistration
         });
         services.AddSingleton(config);
         services.AddSingleton<IAppConfigMonitor, AppConfigMonitor>();
+        services.AddSingleton<OpenAIClientProvider>();
         services.AddSingleton(new DotCraftPaths
         {
             WorkspacePath = workspacePath,

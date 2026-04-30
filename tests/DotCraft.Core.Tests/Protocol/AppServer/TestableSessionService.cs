@@ -17,11 +17,14 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
     private readonly Dictionary<string, Queue<SessionEvent[]>> _submitQueue = new();
     private readonly List<(string threadId, string turnId)> _cancelledTurns = new();
     private readonly List<(string threadId, string turnId, string requestId, SessionApprovalDecision decision)> _resolvedApprovals = new();
+    private readonly List<SessionEventType> _yieldedSubmitEventTypes = new();
 
     public IReadOnlyList<(string threadId, string turnId)> CancelledTurns => _cancelledTurns;
     public IReadOnlyList<(string threadId, string turnId, string requestId, SessionApprovalDecision decision)> ResolvedApprovals => _resolvedApprovals;
+    public IReadOnlyList<SessionEventType> YieldedSubmitEventTypes => _yieldedSubmitEventTypes;
     public IReadOnlyList<AIContent> LastSubmittedContent { get; private set; } = [];
     public IReadOnlyList<ChatMessage>? LastSubmittedMessages { get; private set; }
+    public CancellationToken LastSubmitCancellationToken { get; private set; }
     public Func<string, IList<AIContent>, ChatMessage[]?, IEnumerable<SessionEvent>>? SubmitInputHandler { get; set; }
     public IReadOnlyList<string> RefreshedThreadAgents => _refreshedThreadAgents;
     private readonly List<string> _refreshedThreadAgents = new();
@@ -215,6 +218,10 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return Task.CompletedTask;
     }
 
+    public void InvalidateThreadAgents()
+    {
+    }
+
     public async Task UpdateThreadConfigurationAsync(
         string threadId, ThreadConfiguration config, CancellationToken ct = default)
     {
@@ -246,6 +253,7 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
     {
         LastSubmittedContent = content.ToList();
         LastSubmittedMessages = messages?.ToList();
+        LastSubmitCancellationToken = ct;
         if (SubmitInputHandler != null)
             return YieldEvents([.. SubmitInputHandler(threadId, content, messages)], ct);
         if (_submitQueue.TryGetValue(threadId, out var queue) && queue.TryDequeue(out var events))
@@ -385,13 +393,14 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         return loaded;
     }
 
-    private static async IAsyncEnumerable<SessionEvent> YieldEvents(
+    private async IAsyncEnumerable<SessionEvent> YieldEvents(
         SessionEvent[] events,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var e in events)
         {
             ct.ThrowIfCancellationRequested();
+            _yieldedSubmitEventTypes.Add(e.EventType);
             yield return e;
         }
     }

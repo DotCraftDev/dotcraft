@@ -47,6 +47,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
   {
     text: '入口与协议',
     items: [
+      { text: 'Hub', link: '/hub_guide' },
       { text: 'AppServer', link: '/appserver_guide' },
       { text: 'API 模式', link: '/api_guide' },
       { text: 'AG-UI 模式', link: '/agui_guide' },
@@ -85,6 +86,8 @@ const zhSidebar: DefaultTheme.Sidebar = [
     text: '参考',
     items: [
       { text: '文档索引', link: '/reference' },
+      { text: 'Hub Protocol', link: '/reference/hub-protocol' },
+      { text: 'AppServer Protocol', link: '/reference/appserver-protocol' },
       { text: 'Dashboard API', link: '/reference/dashboard-api' },
       { text: 'TypeScript 渠道模块宿主集成', link: '/typescript-channel-module-host-integration' }
     ]
@@ -131,6 +134,7 @@ const enSidebar: DefaultTheme.Sidebar = [
   {
     text: 'Entry Points & Protocols',
     items: [
+      { text: 'Hub', link: '/en/hub_guide' },
       { text: 'AppServer', link: '/en/appserver_guide' },
       { text: 'API Mode', link: '/en/api_guide' },
       { text: 'AG-UI Mode', link: '/en/agui_guide' },
@@ -169,6 +173,8 @@ const enSidebar: DefaultTheme.Sidebar = [
     text: 'Reference',
     items: [
       { text: 'Documentation Index', link: '/en/reference' },
+      { text: 'Hub Protocol', link: '/en/reference/hub-protocol' },
+      { text: 'AppServer Protocol', link: '/en/reference/appserver-protocol' },
       { text: 'Dashboard API', link: '/en/reference/dashboard-api' },
       { text: 'TypeScript Channel Module Host Integration', link: '/en/typescript-channel-module-host-integration' }
     ]

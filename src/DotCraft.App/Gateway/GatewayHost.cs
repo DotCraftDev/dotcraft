@@ -200,6 +200,8 @@ public sealed class GatewayHost : IDotCraftHost
         var toolProviders = ToolProviderCollector.Collect(_moduleRegistry, _config);
 
         var planStore = new PlanStore(_paths.CraftPath);
+        var openAIClientProvider = _sp.GetRequiredService<OpenAIClientProvider>();
+        var mainModel = openAIClientProvider.ResolveMainModel(_config);
 
         _sharedAgentFactory = new AgentFactory(
             _paths.CraftPath, _paths.WorkspacePath, _config,
@@ -208,10 +210,9 @@ public sealed class GatewayHost : IDotCraftHost
             toolProviderContext: new ToolProviderContext
             {
                 Config = _config,
-                ChatClient = new OpenAI.OpenAIClient(
-                    new System.ClientModel.ApiKeyCredential(_config.ApiKey),
-                    new OpenAI.OpenAIClientOptions { Endpoint = new Uri(_config.EndPoint) })
-                    .GetChatClient(_config.Model),
+                ChatClient = openAIClientProvider.GetChatClient(_config, mainModel),
+                OpenAIClientProvider = openAIClientProvider,
+                EffectiveMainModel = mainModel,
                 WorkspacePath = _paths.WorkspacePath,
                 BotPath = _paths.CraftPath,
                 MemoryStore = memoryStore,
@@ -227,7 +228,8 @@ public sealed class GatewayHost : IDotCraftHost
             customCommandLoader: _sp.GetService<CustomCommandLoader>(),
             onConsolidatorStatus: AnsiConsole.MarkupLine,
             planStore: planStore,
-            hookRunner: hookRunner);
+            hookRunner: hookRunner,
+            openAIClientProvider: openAIClientProvider);
 
         if (_sp.GetService<IChannelRuntimeToolProvider>() is IReservedRuntimeToolNameConfigurator reservedToolNameConfigurator)
         {

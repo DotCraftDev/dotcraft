@@ -52,8 +52,11 @@ public sealed class SandboxToolProvider : IAgentToolProvider
         tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
 
         // Agent tools (subagent spawning) — still needed, uses sandbox-aware manager
+        var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
+            context.Config,
+            context.EffectiveMainModel);
         var subAgentManager = new SubAgentManager(
-            context.ChatClient,
+            subAgentChatClient,
             context.WorkspacePath,
             context.Config.SubagentMaxToolCallRounds,
             maxConcurrency: context.Config.SubagentMaxConcurrency,

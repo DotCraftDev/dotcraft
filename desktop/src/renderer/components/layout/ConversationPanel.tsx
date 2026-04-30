@@ -44,6 +44,9 @@ export function ConversationPanel({
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
+  const modelCatalogErrorCode = useModelCatalogStore((s) => s.errorCode)
+  const modelCatalogErrorMessage = useModelCatalogStore((s) => s.errorMessage)
+  const loadModels = useModelCatalogStore((s) => s.loadIfNeeded)
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
 
@@ -309,8 +312,17 @@ export function ConversationPanel({
           modelLoading={modelLoading}
           modelDisabled={modelApplying || !modelApiAvailable}
           modelListUnsupportedEndpoint={modelListUnsupportedEndpoint}
+          modelCatalogError={modelCatalogStatus === 'error'}
+          modelCatalogErrorMessage={
+            modelCatalogStatus === 'error' && modelCatalogErrorCode
+              ? `${modelCatalogErrorCode}: ${modelCatalogErrorMessage ?? ''}`.trim()
+              : modelCatalogErrorMessage
+          }
           onModelChange={(m) => {
             void handleModelChange(m)
+          }}
+          onModelCatalogRetry={() => {
+            void loadModels(true)
           }}
         />
       )}

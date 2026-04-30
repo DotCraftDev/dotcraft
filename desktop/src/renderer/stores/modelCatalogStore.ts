@@ -8,8 +8,10 @@ const MODEL_LIST_ERROR_ENDPOINT_NOT_SUPPORTED = 'EndpointNotSupported'
 interface ModelCatalogState {
   status: ModelCatalogStatus
   modelOptions: string[]
-  /** True after a successful RPC where the server reported listing is not supported by the API. */
+  /** True when the server reports that the upstream API does not support model listing. */
   modelListUnsupportedEndpoint: boolean
+  errorCode: string | null
+  errorMessage: string | null
 }
 
 interface ModelCatalogActions {
@@ -24,7 +26,9 @@ let inFlightLoad: Promise<void> | null = null
 const initialState: ModelCatalogState = {
   status: 'idle',
   modelOptions: [],
-  modelListUnsupportedEndpoint: false
+  modelListUnsupportedEndpoint: false,
+  errorCode: null,
+  errorMessage: null
 }
 
 function parseModelOptions(payload: unknown): string[] {
@@ -52,6 +56,21 @@ function parseModelListUnsupportedEndpoint(payload: unknown): boolean {
   return typed.success === false && errorCode === MODEL_LIST_ERROR_ENDPOINT_NOT_SUPPORTED
 }
 
+function parseModelListError(payload: unknown): { code: string | null; message: string | null } {
+  const typed = payload as {
+    success?: boolean
+    errorCode?: string
+    ErrorCode?: string
+    errorMessage?: string
+    ErrorMessage?: string
+  }
+  if (typed.success !== false) return { code: null, message: null }
+  return {
+    code: typed.errorCode ?? typed.ErrorCode ?? null,
+    message: typed.errorMessage ?? typed.ErrorMessage ?? null
+  }
+}
+
 export const useModelCatalogStore = create<ModelCatalogStore>((set, get) => ({
   ...initialState,
 
@@ -70,19 +89,33 @@ export const useModelCatalogStore = create<ModelCatalogStore>((set, get) => ({
     inFlightLoad = (async () => {
       try {
         const result = await window.api.appServer.listModels()
+        const error = parseModelListError(result)
+        if (error.code || error.message) {
+          set({
+            modelOptions: [],
+            status: 'error',
+            modelListUnsupportedEndpoint: parseModelListUnsupportedEndpoint(result),
+            errorCode: error.code,
+            errorMessage: error.message
+          })
+          return
+        }
+
         const options = parseModelOptions(result)
-        const unsupported = parseModelListUnsupportedEndpoint(result)
         set({
           modelOptions: options,
           status: 'ready',
-          modelListUnsupportedEndpoint: unsupported
+          modelListUnsupportedEndpoint: false,
+          errorCode: null,
+          errorMessage: null
         })
-      } catch {
-        // Silent fallback by design.
+      } catch (err) {
         set({
           modelOptions: [],
           status: 'error',
-          modelListUnsupportedEndpoint: false
+          modelListUnsupportedEndpoint: false,
+          errorCode: null,
+          errorMessage: err instanceof Error ? err.message : String(err)
         })
       } finally {
         inFlightLoad = null

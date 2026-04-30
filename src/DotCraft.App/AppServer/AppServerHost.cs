@@ -8,6 +8,7 @@ using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Localization;
 using DotCraft.Logging;
 using DotCraft.Hosting;
 using DotCraft.Lsp;
@@ -74,47 +75,147 @@ public sealed class AppServerHost(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var moduleRegistry = _runtime.Services.GetRequiredService<ModuleRegistry>();
-        await _runtime.StartAsync(moduleRegistry, cancellationToken);
-        SubscribeRuntimeEvents();
-
         var appServerConfig = _runtime.Config.GetSection<AppServerConfig>("AppServer");
+        if (!AppServerWorkspaceLock.TryAcquire(_runtime.Paths, out var workspaceLock, out var existingLock))
+        {
+            var owner = existingLock is null
+                ? "another live process"
+                : $"pid {existingLock.Pid}";
+            throw new InvalidOperationException(
+                $"DotCraft AppServer workspace lock is already held by {owner}: {AppServerWorkspaceLock.GetLockFilePath(_runtime.Paths.CraftPath)}");
+        }
+
+        if (workspaceLock is null)
+            throw new InvalidOperationException("AppServer workspace lock acquisition returned no lock file.");
+
+        if (existingLock is not null && !existingLock.IsProcessAlive())
+            AnsiConsole.MarkupLine("[grey][[AppServer]][/] Recovered stale appserver.lock");
+
+        workspaceLock.Publish(CreateLockInfo(appServerConfig));
+
+        var moduleRegistry = _runtime.Services.GetRequiredService<ModuleRegistry>();
 
         try
         {
-            switch (appServerConfig.Mode)
+            await _runtime.StartAsync(moduleRegistry, cancellationToken);
+            SubscribeRuntimeEvents();
+
+            try
             {
-                case AppServerMode.WebSocket:
-                    // -------------------------------------------------------------------
-                    // Pure WebSocket mode: no stdio transport; the WebSocket server is
-                    // the main loop. Stdout remains available for normal console output.
-                    // -------------------------------------------------------------------
-                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, cancellationToken);
-                    break;
+                switch (appServerConfig.Mode)
+                {
+                    case AppServerMode.WebSocket:
+                        // -------------------------------------------------------------------
+                        // Pure WebSocket mode: no stdio transport; the WebSocket server is
+                        // the main loop. Stdout remains available for normal console output.
+                        // -------------------------------------------------------------------
+                        await RunWebSocketOnlyAsync(appServerConfig.WebSocket, cancellationToken);
+                        break;
 
-                case AppServerMode.StdioAndWebSocket:
-                    // -------------------------------------------------------------------
-                    // Dual mode: stdio main loop + WebSocket listener running in parallel.
-                    // -------------------------------------------------------------------
-                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, cancellationToken);
-                    break;
+                    case AppServerMode.StdioAndWebSocket:
+                        // -------------------------------------------------------------------
+                        // Dual mode: stdio main loop + WebSocket listener running in parallel.
+                        // -------------------------------------------------------------------
+                        await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, cancellationToken);
+                        break;
 
-                default:
-                    // -------------------------------------------------------------------
-                    // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
-                    // -------------------------------------------------------------------
-                    await RunStdioOnlyAsync(cancellationToken);
-                    break;
+                    default:
+                        // -------------------------------------------------------------------
+                        // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
+                        // -------------------------------------------------------------------
+                        await RunStdioOnlyAsync(cancellationToken);
+                        break;
+                }
+            }
+            finally
+            {
+                UnsubscribeRuntimeEvents();
+                await _runtime.StopAsync(CancellationToken.None);
             }
         }
         finally
         {
-            UnsubscribeRuntimeEvents();
-            await _runtime.StopAsync(CancellationToken.None);
+            workspaceLock.DeleteAfterDispose();
         }
 
         AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
     }
+
+    private AppServerLockInfo CreateLockInfo(AppServerConfig appServerConfig)
+        => new(
+            Pid: Environment.ProcessId,
+            WorkspacePath: _runtime.Paths.WorkspacePath,
+            ManagedByHub: ManagedAppServerEnvironment.IsManaged,
+            HubApiBaseUrl: Environment.GetEnvironmentVariable(ManagedAppServerEnvironment.HubApiBaseUrl),
+            StartedAt: DateTimeOffset.UtcNow,
+            Version: AppVersion.Informational,
+            Endpoints: BuildEndpointDictionary(appServerConfig));
+
+    private IReadOnlyDictionary<string, string> BuildEndpointDictionary(AppServerConfig appServerConfig)
+    {
+        var endpoints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (appServerConfig.Mode is AppServerMode.WebSocket or AppServerMode.StdioAndWebSocket)
+        {
+            endpoints["appServerWebSocket"] =
+                BuildWebSocketEndpoint(appServerConfig.WebSocket.Host, appServerConfig.WebSocket.Port, appServerConfig.WebSocket.Token);
+        }
+
+        if (_runtime.Config.DashBoard.Enabled && _runtime.Config.Tracing.Enabled)
+        {
+            endpoints["dashboard"] =
+                $"http://{_runtime.Config.DashBoard.Host}:{_runtime.Config.DashBoard.Port}/dashboard";
+        }
+
+        AddModuleEndpoint(endpoints, "Api", "api", path: null);
+        AddModuleEndpoint(endpoints, "AgUi", "agui", pathProperty: "Path", defaultPath: "/ag-ui");
+        return endpoints;
+    }
+
+    private void AddModuleEndpoint(
+        Dictionary<string, string> endpoints,
+        string sectionKey,
+        string endpointKey,
+        string? path = null,
+        string? pathProperty = null,
+        string? defaultPath = null)
+    {
+        var sectionType = ManagedAppServerEnvironment.FindConfigSectionType(sectionKey);
+        if (sectionType is null)
+            return;
+
+        var getSection = typeof(AppConfig)
+            .GetMethod(nameof(AppConfig.GetSection))!
+            .MakeGenericMethod(sectionType);
+        var section = getSection.Invoke(_runtime.Config, [sectionKey]);
+        if (section is null)
+            return;
+
+        var enabledProp = sectionType.GetProperty("Enabled");
+        if (enabledProp?.GetValue(section) is not true)
+            return;
+
+        var host = sectionType.GetProperty("Host")?.GetValue(section) as string ?? "127.0.0.1";
+        var port = sectionType.GetProperty("Port")?.GetValue(section) as int? ?? 0;
+        if (port <= 0)
+            return;
+
+        var endpointPath = path;
+        if (endpointPath is null && pathProperty is not null)
+            endpointPath = sectionType.GetProperty(pathProperty)?.GetValue(section) as string;
+        endpointPath ??= defaultPath;
+        endpoints[endpointKey] = endpointPath is null
+            ? $"http://{host}:{port}"
+            : $"http://{host}:{port}{NormalizeEndpointPath(endpointPath)}";
+    }
+
+    private static string BuildWebSocketEndpoint(string host, int port, string? token)
+    {
+        var url = $"ws://{host}:{port}/ws";
+        return string.IsNullOrEmpty(token) ? url : $"{url}?token={Uri.EscapeDataString(token)}";
+    }
+
+    private static string NormalizeEndpointPath(string path)
+        => path.StartsWith('/') ? path : "/" + path;
 
     private void SubscribeRuntimeEvents()
     {
@@ -179,6 +280,7 @@ public sealed class AppServerHost(
             streamDebugLogger: _services.GetService<SessionStreamDebugLogger>(),
             configSchema: _runtime.ConfigSchema,
             appConfigMonitor: _services.GetRequiredService<IAppConfigMonitor>(),
+            openAIClientProvider: _services.GetRequiredService<OpenAIClientProvider>(),
             backgroundTerminalService: _services.GetService<IBackgroundTerminalService>());
     }
 
@@ -500,7 +602,9 @@ public sealed class AppServerHost(
             }, ct);
         }
 
-        // Clean up active subscriptions when the client disconnects
+        // Clean up connection-scoped capabilities when the client disconnects.
+        // Active persisted turns are drained independently by the request handler.
+        connection.MarkClosed();
         connection.CancelAllSubscriptions();
         wireAcpProxy?.UnbindTransport(transport);
         wireNodeReplProxy?.UnbindTransport(transport);
@@ -925,9 +1029,59 @@ public sealed class AppServerHost(
                 if (signal == SessionThreadRuntimeSignal.TurnCompleted)
                     _runtime.WelcomeSuggestionService.ScheduleRefresh(_runtime.Paths.WorkspacePath, threadId);
                 BroadcastThreadRuntime(threadId, next.ToWire());
+                RequestHubTurnNotification(threadId, signal);
                 return;
             }
         }
+    }
+
+    private void RequestHubTurnNotification(string threadId, SessionThreadRuntimeSignal signal)
+    {
+        var (kind, titleKey, bodyKey, severity) = signal switch
+        {
+            SessionThreadRuntimeSignal.TurnCompleted => (
+                "turnCompleted",
+                "hub.notification.turn_completed.title",
+                "hub.notification.turn_completed.body",
+                "success"),
+            SessionThreadRuntimeSignal.TurnFailed => (
+                "turnFailed",
+                "hub.notification.turn_failed.title",
+                "hub.notification.turn_failed.body",
+                "error"),
+            _ => (null, null, null, null)
+        };
+
+        if (kind is null || titleKey is null || bodyKey is null || severity is null)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            var lang = LanguageService.Current;
+            var displayName = await ResolveThreadDisplayNameForNotificationAsync(threadId);
+            await HubNotificationClient.RequestAsync(
+                _runtime.Paths.WorkspacePath,
+                kind,
+                lang.T(titleKey),
+                lang.T(bodyKey, displayName),
+                severity);
+        });
+    }
+
+    private async Task<string> ResolveThreadDisplayNameForNotificationAsync(string threadId)
+    {
+        try
+        {
+            var thread = await _runtime.SessionService.GetThreadAsync(threadId);
+            if (!string.IsNullOrWhiteSpace(thread.DisplayName))
+                return thread.DisplayName.Trim();
+        }
+        catch
+        {
+            // Notifications are best-effort; falling back keeps turn completion isolated.
+        }
+
+        return LanguageService.Current.T("hub.notification.thread.default");
     }
 
     private void BroadcastThreadRuntime(string threadId, ThreadRuntimeState runtime)

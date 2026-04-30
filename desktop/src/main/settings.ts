@@ -10,7 +10,7 @@ export interface RecentWorkspace {
 }
 
 export type UiTheme = 'dark' | 'light'
-export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+export type ConnectionMode = 'local' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
 export type LastOpenEditorId =
   | 'explorer'
@@ -62,6 +62,7 @@ export interface AppSettings {
   binarySource?: BinarySource
   appServerBinaryPath?: string
   connectionMode?: ConnectionMode
+  /** Legacy local AppServer port settings retained only for reading older settings files. */
   webSocket?: WebSocketConnectionSettings
   remote?: RemoteConnectionSettings
   /** UI theme; omitted or invalid values are treated as dark by the renderer */
@@ -215,6 +216,7 @@ export function loadSettings(): AppSettings {
     if (existsSync(filePath)) {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
       raw.binarySource = normalizeBinarySource(raw)
+      raw.connectionMode = normalizeConnectionMode(raw)
       raw.modulesDirectory = normalizeModulesDirectory(raw)
       raw.lastOpenEditorId = normalizeLastOpenEditorId(raw)
       raw.proxy = normalizeProxySettings(raw)
@@ -233,12 +235,17 @@ export function loadSettings(): AppSettings {
   return { locale: systemLocale }
 }
 
+function normalizeConnectionMode(settings: AppSettings): ConnectionMode | undefined {
+  return settings.connectionMode === 'remote' ? 'remote' : 'local'
+}
+
 export function saveSettings(settings: AppSettings): void {
   const filePath = getSettingsPath()
   try {
     const dir = join(filePath, '..')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     settings.binarySource = normalizeBinarySource(settings)
+    settings.connectionMode = normalizeConnectionMode(settings)
     settings.modulesDirectory = normalizeModulesDirectory(settings)
     settings.lastOpenEditorId = normalizeLastOpenEditorId(settings)
     settings.proxy = normalizeProxySettings(settings)

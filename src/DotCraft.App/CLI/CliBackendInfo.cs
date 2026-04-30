@@ -9,6 +9,11 @@ namespace DotCraft.CLI;
 public sealed record CliBackendInfo
 {
     /// <summary>
+    /// User-facing backend mode: local Hub-managed AppServer or direct remote WebSocket.
+    /// </summary>
+    public string Mode { get; init; } = "Local / Hub-managed";
+
+    /// <summary>
     /// Server version reported by the AppServer during the <c>initialize</c> handshake.
     /// Null when the version cannot be determined.
     /// </summary>

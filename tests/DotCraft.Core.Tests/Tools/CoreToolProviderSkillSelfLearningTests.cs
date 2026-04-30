@@ -1,11 +1,10 @@
 using DotCraft.Abstractions;
+using DotCraft.Agents;
 using DotCraft.Configuration;
 using DotCraft.Memory;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
-using OpenAI;
-using System.ClientModel;
 
 namespace DotCraft.Tests.Tools;
 
@@ -59,13 +58,14 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
             }
         };
         var skillsLoader = new SkillsLoader(_tempRoot);
+        var openAIClientProvider = new OpenAIClientProvider();
+        var mainModel = openAIClientProvider.ResolveMainModel(config);
         var context = new ToolProviderContext
         {
             Config = config,
-            ChatClient = new OpenAIClient(
-                    new ApiKeyCredential(config.ApiKey),
-                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
-                .GetChatClient(config.Model),
+            ChatClient = openAIClientProvider.GetChatClient(config, mainModel),
+            OpenAIClientProvider = openAIClientProvider,
+            EffectiveMainModel = mainModel,
             WorkspacePath = _tempRoot,
             BotPath = _tempRoot,
             MemoryStore = new MemoryStore(_tempRoot),

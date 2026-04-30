@@ -9,7 +9,9 @@ interface ModelPickerProps {
   disabled?: boolean
   loading?: boolean
   unsupported?: boolean
+  errorMessage?: string | null
   onChange?: (model: string) => void
+  onRetry?: () => void
   shortcut?: ShortcutSpec
   triggerStyle: CSSProperties
 }
@@ -20,7 +22,9 @@ export function ModelPicker({
   disabled = false,
   loading = false,
   unsupported = false,
+  errorMessage = null,
   onChange,
+  onRetry,
   shortcut,
   triggerStyle
 }: ModelPickerProps): JSX.Element {
@@ -37,7 +41,8 @@ export function ModelPicker({
     return [modelName, ...withDefault]
   }, [modelName, modelOptions])
 
-  const interactive = !disabled && !loading && !unsupported && options.length > 0
+  const hasError = Boolean(errorMessage)
+  const interactive = !disabled && !loading && (!unsupported || hasError) && options.length > 0
   const selectedIndex = Math.max(0, options.findIndex((option) => option === modelName))
 
   useEffect(() => {
@@ -119,7 +124,7 @@ export function ModelPicker({
   const tooltipLabel = t('composer.selectModelTitle')
   const disabledReason = loading
     ? t('composer.modelListLoading')
-    : unsupported
+    : unsupported && !hasError
       ? t('composer.modelListUnsupportedTitle')
       : undefined
 
@@ -207,6 +212,45 @@ export function ModelPicker({
             padding: '6px'
           }}
         >
+          {errorMessage && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                padding: '8px 10px',
+                marginBottom: '4px',
+                borderRadius: '10px',
+                background: 'rgba(220, 38, 38, 0.08)',
+                color: 'var(--error)',
+                fontSize: '12px',
+                lineHeight: 1.4
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{t('composer.modelListError')}</div>
+              <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>{errorMessage}</div>
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onRetry()
+                  }}
+                  style={{
+                    marginTop: '6px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600
+                  }}
+                >
+                  {t('composer.modelListRetry')}
+                </button>
+              )}
+            </div>
+          )}
           {options.map((option, index) => {
             const selected = option === modelName
             const highlighted = index === highlight

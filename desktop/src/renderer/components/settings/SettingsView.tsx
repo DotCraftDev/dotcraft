@@ -191,7 +191,7 @@ export async function readWorkspaceCoreStrictFromApi(
   return normalizeWorkspaceCoreResult(await getCore())
 }
 
-type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+type ConnectionMode = 'local' | 'remote'
 type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'browserUse' | 'usage' | 'channels' | 'archivedThreads' | 'mcp' | 'subAgents'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
 type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
@@ -534,8 +534,8 @@ export function SettingsView({
   const [binaryPath, setBinaryPath] = useState('')
   const [resolvedBinaryPath, setResolvedBinaryPath] = useState<string | null>(null)
   const [resolvingBinary, setResolvingBinary] = useState(false)
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
-  const [, setSavedConnectionMode] = useState<ConnectionMode>('stdio')
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('local')
+  const [, setSavedConnectionMode] = useState<ConnectionMode>('local')
   const [wsHost, setWsHost] = useState(DEFAULT_WS_HOST)
   const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
   const [remoteUrl, setRemoteUrl] = useState('')
@@ -897,7 +897,7 @@ export function SettingsView({
     window.api.settings
       .get()
       .then(async (s) => {
-        const loadedMode = (s.connectionMode ?? 'stdio') as ConnectionMode
+        const loadedMode = s.connectionMode === 'remote' ? 'remote' : 'local'
         setBinarySource((s.binarySource ?? (s.appServerBinaryPath ? 'custom' : 'bundled')) as BinarySource)
         setBinaryPath(s.appServerBinaryPath ?? '')
         setConnectionMode(loadedMode)
@@ -1872,11 +1872,12 @@ export function SettingsView({
   async function handleApplyAndRestartAll(): Promise<void> {
     let needsAppServerRestart = connectionDirty || llmDirty || selfLearningRestartPending
     let appServerRestartAttempted = false
+    let proxyRestartAttempted = false
     let proxyApplied = false
     let proxyEnabledAfterApply = proxyEnabled
     let latestCore: WorkspaceCoreConfigResult | null = null
     setSaving(true)
-    setRestartingAppServer(needsAppServerRestart)
+    setRestartingAppServer(needsAppServerRestart || proxyDirty)
     setRestartingProxy(proxyDirty)
     setApplyingLlm(llmDirty)
     try {
@@ -1897,19 +1898,18 @@ export function SettingsView({
         proxyApplied = true
         proxyEnabledAfterApply = proxyEnabled
         await persistProxySettings()
-        if (proxyEnabledAfterApply) {
-          await window.api.proxy.restartManaged()
-        }
+        proxyRestartAttempted = true
+        setExpectedRestart(true)
+        await window.api.proxy.restartManaged()
         const status = await window.api.proxy.getStatus()
         setProxyStatusText(status.status)
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
 
         latestCore = await readWorkspaceCoreStrict()
-        const workspaceCoreChanged = hasWorkspaceCoreChanged(latestCore.workspace)
-        if (workspaceCoreChanged && !needsAppServerRestart) {
-          setRestartingAppServer(true)
-        }
-        needsAppServerRestart = needsAppServerRestart || workspaceCoreChanged
+        // The proxy refresh path already restarts the Hub-managed AppServer with
+        // the current settings, including the disabled-proxy case, so suppress a
+        // second explicit AppServer restart after the proxy restart succeeds.
+        needsAppServerRestart = false
       }
 
       if (needsAppServerRestart) {
@@ -1926,11 +1926,15 @@ export function SettingsView({
         if (latestCore) {
           applyWorkspaceCoreBaseline(latestCore, false)
         }
+        setSelfLearningRestartPending(false)
         addToast(proxyEnabledAfterApply ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
       }
       usePendingRestartStore.getState().clear()
     } catch (err) {
       if (appServerRestartAttempted) {
+        setExpectedRestart(false)
+      }
+      if (proxyRestartAttempted) {
         setExpectedRestart(false)
       }
       addToast(
@@ -2388,38 +2392,10 @@ export function SettingsView({
                       }}
                       style={{ ...inputStyle(), cursor: 'pointer' }}
                     >
-                      <option value="stdio">{t('settings.connectionMode.stdio')}</option>
-                      <option value="websocket">{t('settings.connectionMode.websocket')}</option>
-                      <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
+                      <option value="local">{t('settings.connectionMode.local')}</option>
                       <option value="remote">{t('settings.connectionMode.remote')}</option>
                     </select>
                   </SettingsRow>
-
-                  {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
-                    <SettingsRow orientation="block" label={t('settings.wsHost')} htmlFor="settings-ws-host">
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '8px' }}>
-                        <input
-                          id="settings-ws-host"
-                          type="text"
-                          value={wsHost}
-                          onChange={(e) => setWsHost(e.target.value)}
-                          placeholder={DEFAULT_WS_HOST}
-                          style={inputStyle(true)}
-                        />
-                        <input
-                          id="settings-ws-port"
-                          type="number"
-                          value={wsPort}
-                          onChange={(e) => setWsPort(e.target.value)}
-                          placeholder={String(DEFAULT_WS_PORT)}
-                          min={1}
-                          max={65535}
-                          style={inputStyle(true)}
-                          aria-label={t('settings.wsPort')}
-                        />
-                      </div>
-                    </SettingsRow>
-                  )}
 
                   {connectionMode === 'remote' && (
                     <SettingsRow

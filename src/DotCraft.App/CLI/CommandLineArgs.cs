@@ -14,6 +14,7 @@ namespace DotCraft.CLI;
 /// <item><c>dotcraft app-server</c> — AppServer in stdio mode (backward-compatible)</item>
 /// <item><c>dotcraft app-server --listen ws://host:port</c> — AppServer in pure WebSocket mode</item>
 /// <item><c>dotcraft app-server --listen ws+stdio://host:port</c> — AppServer in stdio + WebSocket mode</item>
+/// <item><c>dotcraft hub</c> — workspace-independent local Hub process</item>
 /// <item><c>dotcraft -acp</c> / <c>dotcraft acp</c> — ACP bridge (stdio to IDE; AppServer subprocess or <c>--remote</c>)</item>
 /// </list>
 ///
@@ -43,7 +44,10 @@ public sealed record CommandLineArgs
         Acp,
 
         /// <summary>One-shot non-interactive workspace setup.</summary>
-        Setup
+        Setup,
+
+        /// <summary>Workspace-independent local Hub process.</summary>
+        Hub
     }
 
     /// <summary>Top-level execution mode.</summary>
@@ -124,6 +128,12 @@ public sealed record CommandLineArgs
             if (arg.Equals("gateway", StringComparison.OrdinalIgnoreCase))
             {
                 mode = RunMode.Gateway;
+                continue;
+            }
+
+            if (arg.Equals("hub", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = RunMode.Hub;
                 continue;
             }
 
@@ -321,6 +331,9 @@ public sealed record CommandLineArgs
                 break;
 
             case RunMode.Setup:
+                break;
+
+            case RunMode.Hub:
                 break;
         }
     }

@@ -48,7 +48,10 @@ interface InputComposerProps {
   modelDisabled?: boolean
   /** When true, model/list reported that the upstream API does not support listing; show a read-only label. */
   modelListUnsupportedEndpoint?: boolean
+  modelCatalogError?: boolean
+  modelCatalogErrorMessage?: string | null
   onModelChange?: (model: string) => void
+  onModelCatalogRetry?: () => void
 }
 
 /**
@@ -63,7 +66,10 @@ export function InputComposer({
   modelLoading = false,
   modelDisabled = false,
   modelListUnsupportedEndpoint = false,
-  onModelChange
+  modelCatalogError = false,
+  modelCatalogErrorMessage = null,
+  onModelChange,
+  onModelCatalogRetry
 }: InputComposerProps): JSX.Element {
   const t = useT()
   const [images, setImages] = useState<ImageAttachment[]>([])
@@ -572,8 +578,10 @@ export function InputComposer({
               modelOptions={modelOptions}
               loading={modelLoading}
               unsupported={modelListUnsupportedEndpoint}
+              errorMessage={modelCatalogError ? (modelCatalogErrorMessage || t('composer.modelListError')) : null}
               disabled={modelDisabled}
               onChange={onModelChange}
+              onRetry={onModelCatalogRetry}
               shortcut={ACTION_SHORTCUTS.selectModel}
               triggerStyle={composerModelPillStyle(
                 modelDisabled || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',

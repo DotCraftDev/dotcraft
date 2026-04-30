@@ -9,15 +9,15 @@ namespace DotCraft.CLI;
 public sealed class CliConfig
 {
     /// <summary>
-    /// Optional explicit path to the <c>dotcraft</c> executable used as the AppServer subprocess.
+    /// Optional explicit path to the <c>dotcraft</c> executable used to auto-start the local Hub.
     /// When null, defaults to the current process's executable path (<c>Environment.ProcessPath</c>).
     /// </summary>
     public string? AppServerBin { get; set; }
 
     /// <summary>
-    /// When set, the CLI connects to an already-running AppServer via WebSocket instead of
-    /// spawning a subprocess. Format: <c>ws://127.0.0.1:9100/ws</c>.
-    /// Takes precedence over the subprocess mode.
+    /// When set, the CLI connects directly to a remote AppServer via WebSocket instead of
+    /// using the Hub-managed local workspace. Format: <c>ws://127.0.0.1:9100/ws</c>.
+    /// Takes precedence over local Hub mode.
     /// </summary>
     public string? AppServerUrl { get; set; }
 

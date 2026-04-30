@@ -22,7 +22,7 @@ import type {
 } from '../shared/skillMarket'
 
 export type UnsubscribeFn = () => void
-export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+export type ConnectionMode = 'local' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
 export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
 export type BrowserUseApprovalMode = 'alwaysAsk' | 'askUnknown' | 'neverAsk'

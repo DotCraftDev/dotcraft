@@ -371,7 +371,7 @@ public static class StatusPanel
 
         var detail = string.Join(" · ", new[] { location, ver }.Where(s => s != null));
         var detailPart = detail.Length > 0 ? $"  [grey]{detail.Escape()}[/]" : string.Empty;
-        AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/]{detailPart}");
+        AnsiConsole.MarkupLine($"[green]●[/] [bold]{backendInfo.Mode.Escape()}[/]{detailPart}");
     }
 
     private static string Escape(this string text)

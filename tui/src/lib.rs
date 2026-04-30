@@ -1,5 +1,6 @@
 pub mod app;
 pub mod clipboard;
+pub mod hub;
 pub mod i18n;
 pub mod terminal;
 pub mod theme;
@@ -46,7 +47,7 @@ use crate::{
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 enum ConnectionMode {
-    Stdio,
+    LocalHub(String),
     WebSocket(String),
 }
 
@@ -147,7 +148,7 @@ pub async fn run(
     let connection_mode = if remote.is_some() {
         ConnectionMode::WebSocket(remote.clone().unwrap())
     } else {
-        ConnectionMode::Stdio
+        ConnectionMode::LocalHub(server_bin.clone().unwrap_or_else(|| "dotcraft".to_string()))
     };
 
     let transport = match &connection_mode {
@@ -163,10 +164,21 @@ pub async fn run(
                  Rebuild with: cargo build --features websocket"
             )
         }
-        ConnectionMode::Stdio => {
-            let bin = server_bin.as_deref().unwrap_or("dotcraft");
-            tracing::info!("Spawning AppServer: {bin} app-server");
-            Transport::spawn(bin).await?
+        ConnectionMode::LocalHub(bin) => {
+            tracing::info!("Ensuring local AppServer through Hub: {bin} hub");
+            let ws_url = hub::ensure_appserver(&resolved_workspace, bin).await?;
+            tracing::info!("Connecting to Hub-managed AppServer: {ws_url}");
+            #[cfg(feature = "websocket")]
+            {
+                Transport::connect_ws(&ws_url).await?
+            }
+            #[cfg(not(feature = "websocket"))]
+            {
+                anyhow::bail!(
+                    "Local Hub mode requires the 'websocket' feature. \
+                     Rebuild with: cargo build --features websocket"
+                )
+            }
         }
     };
 
@@ -293,7 +305,7 @@ async fn run_event_loop(
                             }
                         }
 
-                        // Stdio mode or websocket feature disabled: fatal disconnect.
+                        // Local Hub mode or websocket feature disabled: fatal disconnect.
                         state.history.push(HistoryEntry::Error {
                             message: format!("Connection error: {e}"),
                         });

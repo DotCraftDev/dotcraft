@@ -9,6 +9,12 @@ export type ThreadStatus = 'active' | 'paused' | 'archived'
 
 export type ApprovalPolicyWire = 'default' | 'autoApprove' | 'interrupt'
 
+export interface ThreadRuntimeSnapshot {
+  running: boolean
+  waitingOnApproval: boolean
+  waitingOnPlanConfirmation: boolean
+}
+
 export interface ThreadSummary {
   id: string
   displayName: string | null
@@ -16,6 +22,8 @@ export interface ThreadSummary {
   originChannel: string
   createdAt: string      // ISO 8601 UTC
   lastActiveAt: string   // ISO 8601 UTC
+  /** Best-effort current runtime snapshot from thread/list. Omitted by older hosts. */
+  runtime?: ThreadRuntimeSnapshot
 }
 
 /**

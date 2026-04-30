@@ -1,7 +1,9 @@
 using System.Text;
 using DotCraft.CLI;
+using DotCraft.AppServer;
 using DotCraft.Diagnostics;
 using DotCraft.Configuration;
+using DotCraft.Hub;
 using DotCraft.Hosting;
 using DotCraft.Localization;
 using DotCraft.Modules;
@@ -18,7 +20,7 @@ Console.OutputEncoding = Encoding.UTF8;
 var cliArgs = CommandLineArgs.Parse(args);
 var isRemoteCli = cliArgs.Mode == CommandLineArgs.RunMode.Cli
                && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway or CommandLineArgs.RunMode.Hub
               || isRemoteCli;
 
 // -------------------------------------------------------------------------
@@ -31,7 +33,22 @@ if (cliArgs.ReservesStdout)
 }
 
 // -------------------------------------------------------------------------
-// 3. Workspace discovery & initialization
+// 3. Hub mode: global, workspace-independent local coordinator shell.
+// -------------------------------------------------------------------------
+if (cliArgs.Mode == CommandLineArgs.RunMode.Hub)
+{
+    var hubPaths = HubPaths.ForCurrentUser();
+    var globalConfig = AppConfig.Load(hubPaths.GlobalConfigPath);
+    cliArgs.ApplyTo(globalConfig);
+
+    var hubConfig = globalConfig.GetSection<HubConfig>("Hub");
+    await using var hubHost = new HubHost(hubConfig, hubPaths);
+    await hubHost.RunAsync();
+    return;
+}
+
+// -------------------------------------------------------------------------
+// 4. Workspace discovery & initialization
 // -------------------------------------------------------------------------
 var workspacePath = Directory.GetCurrentDirectory();
 var botPath = Path.GetFullPath(".craft");
@@ -176,6 +193,10 @@ var config = AppConfig.LoadWithGlobalFallback(configPath);
 
 // CLI arguments take precedence over config.json values.
 cliArgs.ApplyTo(config);
+if (cliArgs.Mode == CommandLineArgs.RunMode.AppServer)
+{
+    ManagedAppServerEnvironment.ApplyTo(config);
+}
 
 // -------------------------------------------------------------------------
 // 5. Language & debug mode

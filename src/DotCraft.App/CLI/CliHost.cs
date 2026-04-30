@@ -5,6 +5,7 @@ using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Hooks;
+using DotCraft.Hub;
 using DotCraft.Hosting;
 using DotCraft.Mcp;
 using DotCraft.Modules;
@@ -24,7 +25,6 @@ public sealed class CliHost(
     McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
-    private AppServerProcess? _appServerProcess;
     private WebSocketClientConnection? _wsConnection;
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -63,6 +63,7 @@ public sealed class CliHost(
             dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
             backendInfo = new CliBackendInfo
             {
+                Mode = "Remote",
                 ServerVersion = TryGetServerVersion(wsInitResponse),
                 ServerUrl = wsUri.ToString(),
                 ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
@@ -72,30 +73,46 @@ public sealed class CliHost(
         else
         {
             // -------------------------------------------------------------------
-            // Subprocess mode (default): spawn dotcraft app-server as a subprocess
+            // Local mode (default): ask Hub for the workspace AppServer, then connect via WebSocket.
             // -------------------------------------------------------------------
-            AnsiConsole.MarkupLine("[grey][[CLI]][/] Starting AppServer subprocess...");
+            AnsiConsole.MarkupLine("[grey][[CLI]][/] Ensuring local AppServer through Hub...");
 
-            var dotcraftBin = cliConfig.AppServerBin;
-            _appServerProcess = await AppServerProcess.StartAsync(
-                dotcraftBin: dotcraftBin,
-                workspacePath: paths.WorkspacePath,
-                ct: cancellationToken);
+            var hub = new HubClient(cliConfig.AppServerBin);
+            var ensured = await hub.EnsureAppServerAsync(
+                paths.WorkspacePath,
+                "dotcraft-cli",
+                cancellationToken);
 
-            _appServerProcess.OnCrashed += () =>
-                AnsiConsole.MarkupLine("[red][[CLI]][/] AppServer subprocess exited unexpectedly.");
+            if (!ensured.Endpoints.TryGetValue("appServerWebSocket", out var wsUrl)
+                || string.IsNullOrWhiteSpace(wsUrl))
+            {
+                throw new HubClientException("endpointUnavailable", "Hub did not return an AppServer WebSocket endpoint.");
+            }
 
-            wire = _appServerProcess.Wire;
+            _wsConnection = await WebSocketClientConnection.ConnectAsync(
+                new Uri(wsUrl),
+                token: null,
+                cancellationToken);
+
+            var wsInitResponse = await _wsConnection.Wire.InitializeAsync(
+                clientName: "dotcraft-cli",
+                clientVersion: AppVersion.Informational,
+                approvalSupport: true,
+                streamingSupport: true);
+
+            wire = _wsConnection.Wire;
             cliSession = new WireCliSession(wire);
             backendInfo = new CliBackendInfo
             {
-                ServerVersion = _appServerProcess.ServerVersion,
-                ProcessId = _appServerProcess.ProcessId,
-                ModelCatalogManagement = _appServerProcess.ModelCatalogManagement,
-                WorkspaceConfigManagement = _appServerProcess.WorkspaceConfigManagement
+                Mode = "Local / Hub-managed",
+                ServerVersion = TryGetServerVersion(wsInitResponse) ?? ensured.ServerVersion,
+                ProcessId = ensured.Pid,
+                ServerUrl = wsUrl,
+                ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
+                WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(wsInitResponse)
             };
 
-            dashBoardUrl = _appServerProcess.DashboardUrl;
+            dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
         }
 
         var cronService = sp.GetService<CronService>();
@@ -127,9 +144,6 @@ public sealed class CliHost(
 
     public async ValueTask DisposeAsync()
     {
-        if (_appServerProcess != null)
-            await _appServerProcess.DisposeAsync();
-
         if (_wsConnection != null)
             await _wsConnection.DisposeAsync();
     }

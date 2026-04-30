@@ -1,3 +1,5 @@
+using System.IO;
+using System.Net.WebSockets;
 using System.Text.Json;
 using DotCraft.Logging;
 
@@ -19,6 +21,7 @@ public sealed class AppServerEventDispatcher
     private readonly IAppServerTransport _transport;
     private readonly ISessionService _sessionService;
     private readonly SessionStreamDebugLogger? _streamDebugLogger;
+    private bool _transportUnavailable;
 
     /// <summary>
     /// Fallback decision to apply when the server cannot derive a non-interactive
@@ -95,10 +98,10 @@ public sealed class AppServerEventDispatcher
                 // Give the turn/start handler a chance to send its response first,
                 // guaranteeing the response arrives before the notification.
                 if (_onTurnStarted != null && evt.TurnPayload is { } turn)
-                    await _onTurnStarted(turn.ToWire(includeItems: false) with { Items = [] });
+                    await InvokeOnTurnStartedAsync(turn.ToWire(includeItems: false) with { Items = [] }, ct);
 
                 // Only send the turn/started notification when client is ready
-                if (_connection.IsClientReady && _connection.ShouldSendNotification(method))
+                if (CanSendToClient(method))
                     await SendNotificationAsync(method, BuildParams(evt), ct);
                 break;
 
@@ -111,6 +114,7 @@ public sealed class AppServerEventDispatcher
                 // Fix 4: Suppress delta notifications when client declared streamingSupport = false.
                 // Also skip empty deltas — the LLM emits empty string chunks at stream boundaries.
                 if (_connection.IsClientReady
+                    && !_transportUnavailable
                     && _connection.SupportsStreaming
                     && !IsEmptyDelta(evt)
                     && _connection.ShouldSendNotification(method))
@@ -119,12 +123,12 @@ public sealed class AppServerEventDispatcher
 
             case SessionEventType.TurnCompleted:
                 LogTurnCompletedSnapshot(evt);
-                if (_connection.IsClientReady && _connection.ShouldSendNotification(method))
+                if (CanSendToClient(method))
                     await SendNotificationAsync(method, BuildParams(evt), ct);
                 break;
 
             default:
-                if (_connection.IsClientReady && _connection.ShouldSendNotification(method))
+                if (CanSendToClient(method))
                     await SendNotificationAsync(method, BuildParams(evt), ct);
                 break;
         }
@@ -282,10 +286,9 @@ public sealed class AppServerEventDispatcher
         if (item?.Payload is not ApprovalRequestPayload req)
             return;
 
-        if (!_connection.SupportsApproval)
+        if (!_connection.SupportsApproval || _transportUnavailable)
         {
-            var fallbackDecision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
-            await TryResolveApprovalAsync(evt, req.RequestId, fallbackDecision, ct);
+            await ResolveApprovalWithFallbackAsync(evt, req.RequestId, ct);
             return;
         }
 
@@ -315,13 +318,27 @@ public sealed class AppServerEventDispatcher
         {
             // Timeout or disconnect: apply the same non-interactive fallback used when
             // the client cannot participate in approvals.
-            var fallbackDecision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
-            await TryResolveApprovalAsync(evt, req.RequestId, fallbackDecision, ct);
+            await ResolveApprovalWithFallbackAsync(evt, req.RequestId, ct);
+            return;
+        }
+        catch (Exception ex) when (IsTransportUnavailableException(ex))
+        {
+            MarkTransportUnavailable();
+            await ResolveApprovalWithFallbackAsync(evt, req.RequestId, ct);
             return;
         }
 
         var decision = ParseApprovalDecision(response);
         await TryResolveApprovalAsync(evt, req.RequestId, decision, ct);
+    }
+
+    private async Task ResolveApprovalWithFallbackAsync(
+        SessionEvent evt,
+        string requestId,
+        CancellationToken ct)
+    {
+        var fallbackDecision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
+        await TryResolveApprovalAsync(evt, requestId, fallbackDecision, ct);
     }
 
     private async Task TryResolveApprovalAsync(
@@ -483,14 +500,58 @@ public sealed class AppServerEventDispatcher
             });
     }
 
-    private Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
+    private bool CanSendToClient(string method) =>
+        !_transportUnavailable
+        && _connection.IsClientReady
+        && _connection.ShouldSendNotification(method);
+
+    private async Task InvokeOnTurnStartedAsync(SessionWireTurn turn, CancellationToken ct)
     {
+        try
+        {
+            await _onTurnStarted!(turn);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            MarkTransportUnavailable();
+        }
+        catch (Exception ex) when (IsTransportUnavailableException(ex))
+        {
+            MarkTransportUnavailable();
+        }
+    }
+
+    private async Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
+    {
+        if (_transportUnavailable)
+            return;
+
         var notification = new
         {
             jsonrpc = "2.0",
             method,
             @params
         };
-        return _transport.WriteMessageAsync(notification, ct);
+
+        try
+        {
+            await _transport.WriteMessageAsync(notification, ct);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            MarkTransportUnavailable();
+        }
+        catch (Exception ex) when (IsTransportUnavailableException(ex))
+        {
+            MarkTransportUnavailable();
+        }
     }
+
+    private void MarkTransportUnavailable() => _transportUnavailable = true;
+
+    internal static bool IsTransportUnavailableException(Exception ex) =>
+        ex is IOException
+            or WebSocketException
+            or ObjectDisposedException
+            or InvalidOperationException;
 }
