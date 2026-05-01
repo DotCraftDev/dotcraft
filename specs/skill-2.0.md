@@ -6,6 +6,7 @@
 | **Status** | Draft |
 | **Date** | 2026-04-27 |
 | **Parent Specs** | [Session Core](session-core.md), [AppServer Protocol](appserver-protocol.md) |
+| **Child Specs** | [SkVM-Style Skill Variants](skvm-style-skill-variants.md) |
 
 Purpose: Define **Skill 2.0**, an experimental extension of DotCraft's self-learning skill system. Skill 2.0 makes skills safer to evolve, easier to adapt to the current runtime environment, and more useful in complex tasks through paper-backed skill planning and skill-variant management.
 
@@ -49,7 +50,7 @@ SkVM is a storage and adaptation reference: it treats skills as code and model/h
 | **Skill Variant** | A generated, environment-specific derivative of a source skill. Variants may adapt wording, tool assumptions, verification steps, OS notes, model behavior, or known failure fixes. |
 | **Skill Proposal** | A pending change suggested by DotCraft from observed experience. Proposals are reviewable and do not silently replace source skills. |
 | **Skill Run Record** | A durable record derived from Thread and Trace data: task summary, selected skills, model, tools, environment, success/failure signal, verifier result, user correction, token/time cost, and repair notes. |
-| **Procedure Plan** | A GraSP-inspired task plan containing selected skill nodes, ordering, dependencies, verification points, and fallback behavior. In early milestones this is advisory, not a mandatory executor. |
+| **Procedure Plan** | A GraSP-inspired task plan containing selected skill nodes, ordering, dependencies, verification points, and fallback behavior. In early designs this is advisory, not a mandatory executor. |
 
 ## 4. User Experience
 
@@ -111,56 +112,15 @@ Required behavior:
 - Inject compact advisory plans into agent context for complex tasks.
 - Preserve mandatory fallback to the existing DotCraft agent loop.
 
-Verified graph execution is reserved for a later automation-focused milestone. It should not be required for normal interactive tasks until reliability is proven.
+Verified graph execution is reserved for a later automation-focused design. It should not be required for normal interactive tasks until reliability is proven.
 
-## 6. Recommended Route
+## 6. Detailed Design Split
 
-### M1: Experience Foundation
+This umbrella spec records the Skill 2.0 direction and shared vocabulary. Detailed designs live in focused child specs:
 
-Define Skill Run Record semantics using existing Thread JSONL and Trace SQLite data.
+- [SkVM-Style Skill Variants](skvm-style-skill-variants.md): source and variant isolation, proposal storage, run records, resolver behavior, and variant-aware self-learning.
 
-Expected outcome:
-
-- DotCraft can explain which skills were used, in what environment, and whether they appeared to help.
-- No user-visible behavior change is required except diagnostics.
-
-### M2: Safe Variants and Proposals
-
-Add source skill, variant, and proposal concepts.
-
-Expected outcome:
-
-- Self-learning optimizations are saved as proposals or variants first.
-- Source skills are not silently rewritten.
-- Users can review pending improvements in Skills UI.
-
-### M3: Advisory Skill Planner
-
-Add task routing and GraSP-style procedure plans.
-
-Expected outcome:
-
-- Complex tasks receive compact skill plans.
-- The agent uses historical success/failure experience when selecting skills.
-- Current ReAct/tool-loop behavior remains the fallback.
-
-### M4: Automation-Grade Graph Execution
-
-Enable verified node execution, local repair, and run-to-run improvement for scheduled or repeated workflows.
-
-Expected outcome:
-
-- Automations can benefit from stronger verification and local repair.
-- Interactive tasks remain lightweight unless the user explicitly opts into advanced planning.
-
-### M5: Productized Skill 2.0
-
-Surface success statistics, variant provenance, proposal review, and stable protocol APIs.
-
-Expected outcome:
-
-- Desktop and AppServer clients can present Skill 2.0 as a coherent product surface.
-- New protocol methods are added only after the internal model stabilizes.
+Implementation sequencing is intentionally omitted from this umbrella spec. Concrete slices should be planned only after the relevant child specs are accepted and the current skill, session, trace, AppServer, and UI infrastructure are re-evaluated.
 
 ## 7. Compatibility and Protocol Notes
 
@@ -177,4 +137,3 @@ Expected outcome:
 - Variant/proposal safety is more important than immediate automation.
 - GraSP and SkVM are complementary: SkVM improves individual skill reliability; GraSP improves multi-skill orchestration.
 - DotCraft should prioritize user trust: source skills are stable, learned changes are explainable, and fallback behavior is always available.
-
