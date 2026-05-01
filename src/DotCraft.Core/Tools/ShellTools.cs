@@ -86,9 +86,13 @@ public sealed class ShellTools
             ? Path.GetFullPath(workingDir)
             : _workingDirectory;
 
+        var commandExecution = CommandExecutionTracker.Begin(command, cwd, source: "host");
         var guardError = await GuardCommandAsync(command, cwd);
         if (guardError != null)
+        {
+            commandExecution?.Complete(guardError, status: "failed", exitCode: null);
             return guardError;
+        }
 
         if (_backgroundTerminals != null)
             return await ExecWithBackgroundTerminalServiceAsync(
@@ -98,12 +102,11 @@ public sealed class ShellTools
                 yieldTimeMs,
                 maxOutputChars,
                 interactive,
-                shell);
+                shell,
+                commandExecution);
 
-        CommandExecutionTracker? commandExecution = null;
         try
         {
-            commandExecution = CommandExecutionTracker.Begin(command, cwd, source: "host");
             var isWindows = OperatingSystem.IsWindows();
 
             var psi = new ProcessStartInfo
@@ -266,12 +269,12 @@ public sealed class ShellTools
         int? yieldTimeMs,
         int? maxOutputChars,
         bool interactive,
-        string? shell)
+        string? shell,
+        CommandExecutionTracker? commandExecution)
     {
-        CommandExecutionTracker? commandExecution = null;
         try
         {
-            commandExecution = CommandExecutionTracker.Begin(command, cwd, source: "host");
+            commandExecution ??= CommandExecutionTracker.Begin(command, cwd, source: "host");
             var runtime = CommandExecutionRuntimeScope.Current;
             var snapshot = await _backgroundTerminals!.StartAsync(new BackgroundTerminalStartRequest
             {
