@@ -43,8 +43,8 @@ describe('trayManager icon resolution', () => {
 
     const path = resolveTrayIconPath('win32')
 
-    expect(path).toContain('tray-icon.ico')
-    expect(existsSync).toHaveBeenCalledWith(expect.stringContaining('tray-icon.ico'))
+    expect(path).toContain('icon.ico')
+    expect(existsSync).toHaveBeenCalledWith(expect.stringContaining('icon.ico'))
   })
 
   it('falls back to the shared PNG when the Windows tray icon is missing', async () => {
