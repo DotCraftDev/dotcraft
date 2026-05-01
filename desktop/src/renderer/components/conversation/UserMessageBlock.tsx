@@ -385,7 +385,14 @@ export function UserMessageBlock({
             }}
           >
             {sentTime && (
-              <span title={sentTime.title} style={{ padding: '0 2px' }}>
+              <span
+                title={sentTime.title}
+                style={{
+                  padding: '0 2px',
+                  opacity: actionsVisible ? 1 : 0,
+                  transition: 'opacity 120ms ease'
+                }}
+              >
                 {sentTime.label}
               </span>
             )}
