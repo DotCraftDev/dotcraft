@@ -54,7 +54,8 @@ public sealed class AgentFactory : IAsyncDisposable
         Action<StructuredPlan>? onPlanUpdated = null,
         Action<string>? onConsolidatorStatus = null,
         HookRunner? hookRunner = null,
-        OpenAIClientProvider? openAIClientProvider = null)
+        OpenAIClientProvider? openAIClientProvider = null,
+        IMemoryConsolidator? memoryConsolidator = null)
     {
         _config = config;
         _traceCollector = traceCollector;
@@ -67,9 +68,11 @@ public sealed class AgentFactory : IAsyncDisposable
 
         var mainModel = _openAIClientProvider.ResolveMainModel(config);
         _chatClient = _openAIClientProvider.GetChatClient(config, mainModel);
-        var consolidationChatClient = _openAIClientProvider.GetConsolidationChatClient(config);
-
-        Consolidator = new MemoryConsolidator(consolidationChatClient, memoryStore, onConsolidatorStatus);
+        Consolidator = memoryConsolidator
+            ?? new MemoryConsolidator(
+                _openAIClientProvider.GetConsolidationChatClient(config),
+                memoryStore,
+                onConsolidatorStatus);
 
         CompactionPipeline = new CompactionPipeline(
             config.Compaction,
@@ -121,7 +124,7 @@ public sealed class AgentFactory : IAsyncDisposable
     /// Session Core drives consolidation independently from context
     /// compaction, using completed thread history as input.
     /// </summary>
-    public MemoryConsolidator? Consolidator { get; }
+    public IMemoryConsolidator? Consolidator { get; }
 
     /// <summary>
     /// Gets or creates a token tracker for the specified session.

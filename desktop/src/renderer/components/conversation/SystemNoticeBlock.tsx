@@ -1,3 +1,5 @@
+import { Archive, ChevronsDown } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import type { ConversationItem } from '../../types/conversation'
 
@@ -6,19 +8,30 @@ interface SystemNoticeBlockProps {
 }
 
 /**
- * Inline divider rendered inside the conversation timeline at points where
- * the context was compacted (backend emits a `systemNotice` SessionItem with
- * kind === "compacted"). Stays visible after thread reloads because the item
+ * Inline divider rendered inside the conversation timeline for persisted
+ * maintenance milestones. Stays visible after thread reloads because the item
  * is persisted alongside normal turn items.
  *
  * Unknown notice kinds render nothing — the wire protocol reserves kind as a
- * string so future additions (memoryConsolidated, etc.) can light up their
- * own renderers without touching this component.
+ * string so future additions can light up their own renderers without touching
+ * the rest of the conversation pipeline.
  */
 export function SystemNoticeBlock({ item }: SystemNoticeBlockProps): JSX.Element | null {
   const t = useT()
   const notice = item.systemNotice
-  if (!notice || notice.kind !== 'compacted') return null
+  if (!notice) return null
+
+  if (notice.kind === 'memoryConsolidated') {
+    return (
+      <NoticeDivider
+        ariaLabel={t('systemNotice.memoryConsolidated.title')}
+        icon={<Archive size={12} aria-hidden />}
+        title={t('systemNotice.memoryConsolidated.updated')}
+      />
+    )
+  }
+
+  if (notice.kind !== 'compacted') return null
 
   const title =
     notice.trigger === 'reactive'
@@ -42,9 +55,27 @@ export function SystemNoticeBlock({ item }: SystemNoticeBlockProps): JSX.Element
       : null
 
   return (
+    <NoticeDivider
+      ariaLabel={t('systemNotice.compacted.title')}
+      icon={<ChevronsDown size={12} aria-hidden />}
+      title={title}
+      detail={detail}
+    />
+  )
+}
+
+interface NoticeDividerProps {
+  ariaLabel: string
+  icon: ReactNode
+  title: string
+  detail?: string | null
+}
+
+function NoticeDivider({ ariaLabel, icon, title, detail }: NoticeDividerProps): JSX.Element {
+  return (
     <div
       role="separator"
-      aria-label={t('systemNotice.compacted.title')}
+      aria-label={ariaLabel}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -74,7 +105,7 @@ export function SystemNoticeBlock({ item }: SystemNoticeBlockProps): JSX.Element
           background: 'var(--bg-subtle, rgba(127,127,127,0.08))'
         }}
       >
-        <CompactIcon />
+        {icon}
         <span style={{ fontWeight: 600 }}>{title}</span>
         {detail && (
           <span style={{ color: 'var(--text-dimmed, #9a9a9a)' }}>· {detail}</span>
@@ -89,33 +120,6 @@ export function SystemNoticeBlock({ item }: SystemNoticeBlockProps): JSX.Element
         }}
       />
     </div>
-  )
-}
-
-function CompactIcon(): JSX.Element {
-  return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden
-      style={{ flexShrink: 0 }}
-    >
-      <path
-        d="M3 5 L8 10 L13 5"
-        stroke="currentColor"
-        strokeWidth={1.6}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M3 11 L13 11"
-        stroke="currentColor"
-        strokeWidth={1.6}
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }
 

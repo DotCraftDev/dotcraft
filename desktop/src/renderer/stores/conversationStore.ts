@@ -375,6 +375,7 @@ const SYSTEM_LABELS: Record<string, string | null> = {
   compactFailed: null,
   compactSkipped: null,
   consolidated: null,
+  consolidationSkipped: null,
   consolidationFailed: null
 }
 

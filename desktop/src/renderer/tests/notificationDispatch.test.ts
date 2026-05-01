@@ -830,6 +830,15 @@ describe('notification dispatch payload format', () => {
     expect(s().systemLabel).toBeNull()
   })
 
+  it('dispatches consolidationSkipped and clears systemLabel', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({ method: 'system/event', params: { kind: 'consolidating' } })
+    expect(s().systemLabel).toBe('systemStatus.consolidating')
+
+    dispatch({ method: 'system/event', params: { kind: 'consolidationSkipped' } })
+    expect(s().systemLabel).toBeNull()
+  })
+
   it('ignores system/event from non-active threads', () => {
     s().setContextUsage({
       tokens: 195_000,

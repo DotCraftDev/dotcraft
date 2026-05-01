@@ -803,6 +803,8 @@ const MESSAGES_EN = {
   'systemNotice.compacted.auto': 'Auto-compacted',
   'systemNotice.compacted.reactive': 'Recovered from context overflow',
   'systemNotice.compacted.detail': 'Freed {{freed}} tokens · {{percent}}% remaining',
+  'systemNotice.memoryConsolidated.title': 'Long-term memory updated',
+  'systemNotice.memoryConsolidated.updated': 'Long-term memory updated',
   'threadEntry.turnRunning': 'Turn running',
   'threadEntry.archiveTitle': 'Archive conversation?',
   'threadEntry.archiveMessage':
@@ -2382,6 +2384,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'systemNotice.compacted.auto': '自动压缩完成',
   'systemNotice.compacted.reactive': '已在溢出后恢复',
   'systemNotice.compacted.detail': '释放 {{freed}} tokens · 剩余 {{percent}}%',
+  'systemNotice.memoryConsolidated.title': '长期记忆已整理',
+  'systemNotice.memoryConsolidated.updated': '长期记忆已整理',
   'threadEntry.turnRunning': '回合运行中',
   'threadEntry.archiveTitle': '归档会话？',
   'threadEntry.archiveMessage': '此会话将移至归档并从列表中移除。',

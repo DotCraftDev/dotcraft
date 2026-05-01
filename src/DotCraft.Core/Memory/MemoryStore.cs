@@ -1,4 +1,5 @@
 using System.Text;
+using System.Collections.Concurrent;
 
 namespace DotCraft.Memory;
 
@@ -8,11 +9,15 @@ namespace DotCraft.Memory;
 /// </summary>
 public sealed class MemoryStore
 {
+    private static readonly ConcurrentDictionary<string, object> StoreLocks = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly string _memoryDir;
     
     private readonly string _longTermFile;
 
     private readonly string _historyFile;
+
+    private readonly object _syncRoot;
 
     public MemoryStore(string workspaceRoot)
     {
@@ -20,6 +25,7 @@ public sealed class MemoryStore
         Directory.CreateDirectory(_memoryDir);
         _longTermFile = Path.Combine(_memoryDir, "MEMORY.md");
         _historyFile = Path.Combine(_memoryDir, "HISTORY.md");
+        _syncRoot = StoreLocks.GetOrAdd(Path.GetFullPath(_memoryDir), static _ => new object());
     }
 
     /// <summary>
@@ -37,29 +43,70 @@ public sealed class MemoryStore
     /// </summary>
     public string ReadLongTerm()
     {
-        return File.Exists(_longTermFile) ? File.ReadAllText(_longTermFile, Encoding.UTF8) : string.Empty;
+        lock (_syncRoot)
+        {
+            return File.Exists(_longTermFile) ? File.ReadAllText(_longTermFile, Encoding.UTF8) : string.Empty;
+        }
     }
 
     /// <summary>
     /// Write to long-term memory (MEMORY.md).
     /// </summary>
-    public void WriteLongTerm(string content)
+    public bool WriteLongTerm(string content)
     {
-        File.WriteAllText(_longTermFile, content, Encoding.UTF8);
+        lock (_syncRoot)
+        {
+            WriteLongTermAtomic(content);
+            return true;
+        }
     }
 
     /// <summary>
     /// Append a timestamped entry to HISTORY.md (grep-searchable event log).
     /// Each entry is a paragraph followed by a blank line.
     /// </summary>
-    public void AppendHistory(string entry)
+    public bool AppendHistory(string entry)
     {
         if (string.IsNullOrWhiteSpace(entry))
-            return;
+            return false;
 
-        using var writer = new StreamWriter(_historyFile, append: true, Encoding.UTF8);
-        writer.Write(entry.TrimEnd());
-        writer.Write("\n\n");
+        lock (_syncRoot)
+        {
+            AppendHistoryCore(entry);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Saves a consolidation result under the memory-store lock.
+    /// </summary>
+    public MemoryStoreConsolidationWriteResult SaveConsolidation(string? historyEntry, string? memoryUpdate)
+    {
+        lock (_syncRoot)
+        {
+            var historyWritten = false;
+            var memoryWritten = false;
+
+            if (!string.IsNullOrWhiteSpace(historyEntry))
+            {
+                AppendHistoryCore(historyEntry);
+                historyWritten = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(memoryUpdate))
+            {
+                var current = File.Exists(_longTermFile)
+                    ? File.ReadAllText(_longTermFile, Encoding.UTF8)
+                    : string.Empty;
+                if (!string.Equals(memoryUpdate, current, StringComparison.Ordinal))
+                {
+                    WriteLongTermAtomic(memoryUpdate);
+                    memoryWritten = true;
+                }
+            }
+
+            return new MemoryStoreConsolidationWriteResult(memoryWritten, historyWritten);
+        }
     }
 
     /// <summary>
@@ -67,7 +114,10 @@ public sealed class MemoryStore
     /// </summary>
     public string ReadHistory()
     {
-        return File.Exists(_historyFile) ? File.ReadAllText(_historyFile, Encoding.UTF8) : string.Empty;
+        lock (_syncRoot)
+        {
+            return File.Exists(_historyFile) ? File.ReadAllText(_historyFile, Encoding.UTF8) : string.Empty;
+        }
     }
 
     /// <summary>
@@ -78,4 +128,45 @@ public sealed class MemoryStore
         var longTerm = ReadLongTerm();
         return !string.IsNullOrWhiteSpace(longTerm) ? "## Long-term Memory\n" + longTerm : string.Empty;
     }
+
+    private void AppendHistoryCore(string entry)
+    {
+        using var writer = new StreamWriter(_historyFile, append: true, Encoding.UTF8);
+        writer.Write(entry.TrimEnd());
+        writer.Write("\n\n");
+    }
+
+    private void WriteLongTermAtomic(string content)
+    {
+        Directory.CreateDirectory(_memoryDir);
+        var tempFile = Path.Combine(_memoryDir, $".MEMORY.{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(tempFile, content, Encoding.UTF8);
+        try
+        {
+            if (File.Exists(_longTermFile))
+            {
+                File.Replace(tempFile, _longTermFile, null);
+            }
+            else
+            {
+                File.Move(tempFile, _longTermFile);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+}
+
+/// <summary>
+/// Describes which memory files changed during a consolidation write.
+/// </summary>
+public readonly record struct MemoryStoreConsolidationWriteResult(bool MemoryWritten, bool HistoryWritten)
+{
+    /// <summary>
+    /// True when either MEMORY.md or HISTORY.md was changed.
+    /// </summary>
+    public bool AnyWritten => MemoryWritten || HistoryWritten;
 }

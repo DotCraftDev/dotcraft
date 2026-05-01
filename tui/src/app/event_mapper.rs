@@ -630,12 +630,14 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         message: message.clone(),
                     });
                 }
-                "compacted" | "compactSkipped" | "consolidated" | "consolidationFailed" => {
+                "compacted" | "compactSkipped" | "consolidated" | "consolidationSkipped" | "consolidationFailed" => {
                     state.system_status = None;
-                    if let Some(msg) = message {
-                        state
-                            .history
-                            .push(HistoryEntry::SystemInfo { message: msg });
+                    if kind != "consolidationSkipped" {
+                        if let Some(msg) = message {
+                            state
+                                .history
+                                .push(HistoryEntry::SystemInfo { message: msg });
+                        }
                     }
                 }
                 _ => {}
