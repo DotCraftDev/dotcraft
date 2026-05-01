@@ -10,12 +10,13 @@ namespace DotCraft.Hub;
 public sealed class HubLockFile : IDisposable
 {
     private readonly string _lockFilePath;
-    private readonly FileStream _stream;
+    private readonly CrossProcessFileLock _fileLock;
+    private bool _disposed;
 
-    private HubLockFile(string lockFilePath, FileStream stream)
+    private HubLockFile(string lockFilePath, CrossProcessFileLock fileLock)
     {
         _lockFilePath = lockFilePath;
-        _stream = stream;
+        _fileLock = fileLock;
     }
 
     /// <summary>
@@ -25,29 +26,24 @@ public sealed class HubLockFile : IDisposable
     {
         Directory.CreateDirectory(paths.HubStatePath);
         existingInfo = TryRead(paths.LockFilePath);
+        if (existingInfo is not null && existingInfo.IsProcessAlive())
+        {
+            lockFile = null;
+            return false;
+        }
 
-        try
-        {
-            var stream = new FileStream(
-                paths.LockFilePath,
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.Read);
-            lockFile = new HubLockFile(paths.LockFilePath, stream);
-            return true;
-        }
-        catch (IOException)
+        if (existingInfo is not null)
+            DeleteGuardFile(paths.LockFilePath);
+
+        if (!CrossProcessFileLock.TryAcquire(paths.LockFilePath, out var fileLock))
         {
             existingInfo ??= TryRead(paths.LockFilePath);
             lockFile = null;
             return false;
         }
-        catch (UnauthorizedAccessException)
-        {
-            existingInfo ??= TryRead(paths.LockFilePath);
-            lockFile = null;
-            return false;
-        }
+
+        lockFile = new HubLockFile(paths.LockFilePath, fileLock!);
+        return true;
     }
 
     /// <summary>
@@ -57,10 +53,13 @@ public sealed class HubLockFile : IDisposable
     {
         var json = JsonSerializer.Serialize(info, HubJson.Options);
         var bytes = Encoding.UTF8.GetBytes(json + Environment.NewLine);
-        _stream.SetLength(0);
-        _stream.Position = 0;
-        _stream.Write(bytes);
-        _stream.Flush(flushToDisk: true);
+        using var stream = new FileStream(
+            _lockFilePath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.ReadWrite);
+        stream.Write(bytes);
+        stream.Flush(flushToDisk: true);
     }
 
     /// <summary>
@@ -77,12 +76,25 @@ public sealed class HubLockFile : IDisposable
         {
             // Best-effort cleanup only.
         }
+
+        try
+        {
+            File.Delete(_fileLock.GuardPath);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        _stream.Dispose();
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _fileLock.Dispose();
     }
 
     /// <summary>
@@ -110,6 +122,18 @@ public sealed class HubLockFile : IDisposable
         catch
         {
             return null;
+        }
+    }
+
+    private static void DeleteGuardFile(string lockFilePath)
+    {
+        try
+        {
+            File.Delete(lockFilePath + ".guard");
+        }
+        catch
+        {
+            // Best-effort stale guard cleanup only.
         }
     }
 }

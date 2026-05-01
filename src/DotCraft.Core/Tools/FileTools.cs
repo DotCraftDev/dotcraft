@@ -174,12 +174,12 @@ public sealed class FileTools(
             if (validateResult != null)
                 return validateResult;
 
-            var directory = Path.GetDirectoryName(fullPath);
-            if (!string.IsNullOrEmpty(directory))
-                Directory.CreateDirectory(directory);
-
             using (await PathAsyncMutex.AcquireAsync(fullPath))
             {
+                var directory = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(directory))
+                    Directory.CreateDirectory(directory);
+
                 var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
                 if (File.Exists(fullPath))
                 {
@@ -191,7 +191,7 @@ public sealed class FileTools(
                     content = NormalizeToLf(content);
                 }
 
-                await File.WriteAllTextAsync(fullPath, content, encoding);
+                await WriteAllTextEnsuringDirectoryAsync(fullPath, content, encoding);
             }
 
             await NotifyLspFileChangedAsync(fullPath, content);
@@ -579,6 +579,22 @@ public sealed class FileTools(
         var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
         var suffix = matchKind != null ? $" ({matchKind})" : "";
         return ($"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}", newContent);
+    }
+
+    private static async Task WriteAllTextEnsuringDirectoryAsync(string fullPath, string content, Encoding encoding)
+    {
+        try
+        {
+            await File.WriteAllTextAsync(fullPath, content, encoding);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            await File.WriteAllTextAsync(fullPath, content, encoding);
+        }
     }
 
     private static async Task<T> WithSharingViolationRetryAsync<T>(Func<Task<T>> operation)

@@ -22,7 +22,7 @@ public sealed class HubHost : IDotCraftHost
     private HubLockFile? _lockFile;
     private HubEventBus? _eventBus;
     private ManagedAppServerRegistry? _registry;
-    private bool _disposed;
+    private int _cleanupStarted;
 
     /// <summary>
     /// Creates a new Hub host.
@@ -97,23 +97,7 @@ public sealed class HubHost : IDotCraftHost
         }
         finally
         {
-            _eventBus?.Publish("hub.stopping", data: new { pid = Environment.ProcessId });
-            if (_app is not null)
-            {
-                await _app.StopAsync(CancellationToken.None);
-                await _app.DisposeAsync();
-                _app = null;
-            }
-
-            if (_registry is not null)
-            {
-                await _registry.DisposeAsync();
-                _registry = null;
-            }
-
-            _lockFile?.DeleteAfterDispose();
-            _lockFile = null;
-            AnsiConsole.MarkupLine("[grey][[Hub]][/] Hub stopped");
+            await CleanupAsync();
         }
     }
 
@@ -301,11 +285,24 @@ public sealed class HubHost : IDotCraftHost
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        await CleanupAsync();
+    }
+
+    private async Task CleanupAsync()
+    {
+        if (Interlocked.Exchange(ref _cleanupStarted, 1) != 0)
             return;
 
-        _disposed = true;
-        _shutdownCts.Cancel();
+        try
+        {
+            _shutdownCts.Cancel();
+        }
+        catch
+        {
+            // Best-effort shutdown only.
+        }
+
+        _eventBus?.Publish("hub.stopping", data: new { pid = Environment.ProcessId });
         if (_app is not null)
         {
             await _app.StopAsync(CancellationToken.None);
@@ -322,6 +319,7 @@ public sealed class HubHost : IDotCraftHost
         _lockFile?.DeleteAfterDispose();
         _lockFile = null;
         _shutdownCts.Dispose();
+        AnsiConsole.MarkupLine("[grey][[Hub]][/] Hub stopped");
     }
 }
 
