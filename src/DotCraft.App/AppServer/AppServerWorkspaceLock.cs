@@ -99,28 +99,27 @@ public sealed class AppServerWorkspaceLock : IDisposable
     public static string GetLockFilePath(string craftPath) => Path.Combine(craftPath, "appserver.lock");
 
     /// <summary>
+    /// Best-effort cleanup for stale AppServer lock metadata and guard files.
+    /// </summary>
+    internal static void CleanupStaleFiles(string craftPath)
+    {
+        var lockPath = GetLockFilePath(craftPath);
+        var info = TryRead(lockPath);
+        if (info is not null && info.IsProcessAlive())
+            return;
+
+        DeleteLockFile(lockPath);
+        DeleteGuardFile(lockPath);
+    }
+
+    /// <summary>
     /// Attempts to delete the lock file after releasing the stream.
     /// </summary>
     public void DeleteAfterDispose()
     {
         Dispose();
-        try
-        {
-            File.Delete(_lockFilePath);
-        }
-        catch
-        {
-            // Best-effort cleanup only.
-        }
-
-        try
-        {
-            File.Delete(_fileLock.GuardPath);
-        }
-        catch
-        {
-            // Best-effort cleanup only.
-        }
+        DeleteLockFile(_lockFilePath);
+        DeleteGuardFile(_lockFilePath);
     }
 
     /// <inheritdoc />
@@ -131,6 +130,18 @@ public sealed class AppServerWorkspaceLock : IDisposable
 
         _disposed = true;
         _fileLock.Dispose();
+    }
+
+    private static void DeleteLockFile(string lockFilePath)
+    {
+        try
+        {
+            File.Delete(lockFilePath);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 
     private static void DeleteGuardFile(string lockFilePath)

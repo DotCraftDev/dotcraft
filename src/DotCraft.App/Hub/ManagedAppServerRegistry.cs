@@ -772,19 +772,7 @@ public sealed class ManagedAppServerRegistry : IAsyncDisposable
 
     private static void CleanupWorkspaceLock(string craftPath)
     {
-        var lockPath = AppServerWorkspaceLock.GetLockFilePath(craftPath);
-        var info = AppServerWorkspaceLock.TryRead(lockPath);
-        if (info is not null && info.IsProcessAlive())
-            return;
-
-        try
-        {
-            File.Delete(lockPath);
-        }
-        catch
-        {
-            // Child process cleanup is authoritative; this is a best-effort stale lock cleanup.
-        }
+        AppServerWorkspaceLock.CleanupStaleFiles(craftPath);
     }
 
     private static async Task ProbeWebSocketAsync(string wsUrl, string token, CancellationToken cancellationToken)
