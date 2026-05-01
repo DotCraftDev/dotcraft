@@ -5,6 +5,16 @@ import {
   formatCronCollapsedLabel
 } from './cronToolDisplay'
 import {
+  SKILL_MANAGE_TOOL_NAME,
+  formatSkillManageLabel,
+  formatSkillManageRunningLabel
+} from './skillManageToolDisplay'
+import {
+  SKILL_VIEW_TOOL_NAME,
+  formatSkillViewLabel,
+  formatSkillViewRunningLabel
+} from './skillViewToolDisplay'
+import {
   formatInvocationDisplay,
   invocationNeedsCallingPrefix,
   isWebToolName
@@ -39,7 +49,9 @@ export const BUILTIN_TOOLS = new Set<string>([
   'CommitSuggest',
   'CreatePlan',
   'UpdateTodos',
-  'TodoWrite'
+  'TodoWrite',
+  'SkillManage',
+  'SkillView'
 ])
 
 export function isBuiltinTool(toolName: string): boolean {
@@ -289,6 +301,14 @@ export function formatCollapsedToolLabel(
     return formatCronCollapsedLabel(args, locale)
   }
 
+  if (toolName === SKILL_MANAGE_TOOL_NAME) {
+    return formatSkillManageLabel(args, undefined, locale)
+  }
+
+  if (toolName === SKILL_VIEW_TOOL_NAME) {
+    return formatSkillViewLabel(args, locale)
+  }
+
   if (isWebToolName(toolName)) {
     const inv = formatInvocationDisplay(toolName, args, locale)
     if (inv) return inv
@@ -535,6 +555,25 @@ export function getStreamingToolDisplay(
     case 'UpdateTodos': {
       return { label: translate(locale, 'toolCall.streaming.updatingTodos') }
     }
+    case 'SkillManage': {
+      return {
+        label: formatSkillManageRunningLabel(
+          {
+            action: extractPartialJsonStringValue(rawArgs, 'action'),
+            name: extractPartialJsonStringValue(rawArgs, 'name')
+          },
+          locale
+        )
+      }
+    }
+    case 'SkillView': {
+      return {
+        label: formatSkillViewRunningLabel(
+          { name: extractPartialJsonStringValue(rawArgs, 'name') },
+          locale
+        )
+      }
+    }
     default: {
       return {
         label: translate(locale, 'toolCall.streaming.genericBuiltin', { toolName })
@@ -560,6 +599,14 @@ export function formatExpandedInvocation(
 
   if (isWebToolName(toolName) && !invocationNeedsCallingPrefix(toolName, args)) {
     return formatInvocationDisplay(toolName, args, locale)
+  }
+
+  if (toolName === SKILL_MANAGE_TOOL_NAME) {
+    return formatSkillManageLabel(args, undefined, locale)
+  }
+
+  if (toolName === SKILL_VIEW_TOOL_NAME) {
+    return formatSkillViewLabel(args, locale)
   }
 
   return formatGenericInvocation(toolName, args)

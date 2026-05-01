@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
+import { useSkillsStore } from '../stores/skillsStore'
+import { useUIStore } from '../stores/uiStore'
 import { useViewerTabStore } from '../stores/viewerTabStore'
 import type { ConversationItem } from '../types/conversation'
 import type { FileDiff } from '../types/toolCall'
 
-function renderWithLocale(node: JSX.Element): void {
-  render(<LocaleProvider>{node}</LocaleProvider>)
+function renderWithLocale(node: JSX.Element): ReturnType<typeof render> {
+  return render(<LocaleProvider>{node}</LocaleProvider>)
 }
 
 function expectRunningGradientText(text: string | RegExp): HTMLElement {
@@ -22,6 +24,15 @@ const collapseAnimationMs = 200
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
+    useSkillsStore.setState({
+      skills: [],
+      loading: false,
+      error: null,
+      selectedSkillName: null,
+      skillContent: null,
+      contentLoading: false
+    })
+    useUIStore.setState({ activeMainView: 'conversation' })
     useViewerTabStore.setState({
       byThread: new Map(),
       currentThreadId: null,
@@ -32,6 +43,9 @@ describe('ToolCallCard shell rendering', () => {
       value: {
         settings: {
           get: async () => ({ locale: 'en' })
+        },
+        appServer: {
+          sendRequest: vi.fn(async () => ({}))
         }
       }
     })
@@ -446,6 +460,280 @@ describe('ToolCallCard shell rendering', () => {
     fireEvent.click(row)
 
     expect(screen.queryByText('200 · 12,345 chars · readability · truncated')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
+  it('renders successful SkillManage create as a skill card and opens skill detail', async () => {
+    const iconDataUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+    const item: ConversationItem = {
+      id: 'skill-create-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-create-call-1',
+      arguments: {
+        action: 'create',
+        name: 'demo-skill',
+        content: '---\nname: demo-skill\ndescription: Demo\n---\n# Demo\n'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Skill 'demo-skill' created.",
+        path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'demo-skill',
+              description: 'Demo',
+              source: 'workspace',
+              available: true,
+              enabled: true,
+              hasVariant: false,
+              path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md',
+              iconSmallDataUrl: iconDataUrl
+            }
+          ]
+        }
+      }
+      if (method === 'skills/view') {
+        return { content: '# Demo' }
+      }
+      return {}
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: { get: async () => ({ locale: 'en' }) },
+        appServer: { sendRequest }
+      }
+    })
+    useSkillsStore.setState({
+      skills: [
+        {
+          name: 'demo-skill',
+          description: 'Demo',
+          source: 'workspace',
+          available: true,
+          enabled: true,
+          path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md',
+          iconSmallDataUrl: iconDataUrl
+        }
+      ]
+    })
+
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Skill')).toBeInTheDocument()
+    expect(screen.getByText('Created')).toBeInTheDocument()
+    expect(screen.getByText('demo-skill')).toBeInTheDocument()
+    expect(container.querySelector('img')).toHaveAttribute('src', iconDataUrl)
+    expect(screen.getByTestId('inline-diff-view')).toBeInTheDocument()
+    expect(screen.queryByText(/"success"/)).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'View in Skills' }))
+    })
+
+    expect(useUIStore.getState().activeMainView).toBe('skills')
+    expect(useSkillsStore.getState().selectedSkillName).toBe('demo-skill')
+    expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    expect(sendRequest).toHaveBeenCalledWith('skills/view', { name: 'demo-skill' })
+  })
+
+  it('renders successful SkillManage patch as a skill card with an embedded diff', () => {
+    const item: ConversationItem = {
+      id: 'skill-patch-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-patch-call-1',
+      arguments: {
+        action: 'patch',
+        name: 'demo-skill',
+        oldString: 'Follow these steps.',
+        newString: 'Follow these updated steps.'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Patched skill 'demo-skill'. The original skill was not modified.",
+        replacementCount: 1
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    useSkillsStore.setState({
+      skills: [
+        {
+          name: 'demo-skill',
+          description: 'Demo',
+          source: 'workspace',
+          available: true,
+          enabled: true,
+          path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+        }
+      ]
+    })
+
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Variant updated')).toBeInTheDocument()
+    expect(screen.getByText('Variant')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    const filename = screen.getByText('SKILL.md')
+    expect(filename).toHaveAttribute('title', 'demo-skill/SKILL.md')
+    expect(screen.getByText('Follow these steps.')).toBeInTheDocument()
+    expect(screen.getByText('Follow these updated steps.')).toBeInTheDocument()
+    expect(screen.queryByText(/"replacementCount"/)).toBeNull()
+  })
+
+  it('renders successful SkillManage delete as a non-expandable title row', () => {
+    const item: ConversationItem = {
+      id: 'skill-delete-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-delete-call-1',
+      arguments: {
+        action: 'delete',
+        name: 'old-skill'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Skill 'old-skill' deleted."
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const row = screen.getByRole('button', { name: /Deleted skill old-skill/ })
+
+    expect(screen.queryByText('▼')).toBeNull()
+    fireEvent.click(row)
+
+    expect(screen.queryByText(/Skill 'old-skill' deleted/)).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
+  it('renders failed SkillManage results without exposing raw JSON output', () => {
+    const item: ConversationItem = {
+      id: 'skill-fail-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-fail-call-1',
+      arguments: {
+        action: 'patch',
+        name: 'demo-skill',
+        oldString: 'missing',
+        newString: 'updated'
+      },
+      result: JSON.stringify({
+        success: false,
+        message: 'The requested text was not found.',
+        error: 'The requested text was not found.'
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Failed: Patched skill demo-skill/)).toBeInTheDocument()
+    expect(screen.getByText(/The requested text was not found/)).toBeInTheDocument()
+    expect(screen.queryByText(/"success"/)).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
+  it('renders successful SkillView as a non-expandable skill card and opens skill detail', async () => {
+    const iconDataUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+    const item: ConversationItem = {
+      id: 'skill-view-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillView',
+      toolCallId: 'skill-view-call-1',
+      arguments: { name: 'browser-use' },
+      result: '---\nname: browser-use\ndescription: Browser workflow\n---\n# Browser workflow\nLoaded instructions',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'browser-use',
+              description: 'Browser workflow',
+              source: 'workspace',
+              available: true,
+              enabled: true,
+              hasVariant: true,
+              path: 'F:\\dotcraft\\.craft\\skills\\browser-use\\SKILL.md',
+              iconSmallDataUrl: iconDataUrl
+            }
+          ]
+        }
+      }
+      if (method === 'skills/view') {
+        return { content: '# Browser workflow' }
+      }
+      return {}
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: { get: async () => ({ locale: 'en' }) },
+        appServer: { sendRequest }
+      }
+    })
+
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Skill')).toBeInTheDocument()
+    expect(screen.getByText('Loaded')).toBeInTheDocument()
+    expect(screen.getByText('browser-use')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Variant')).toBeInTheDocument())
+    await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', iconDataUrl))
+    expect(screen.getByText('Skill instructions loaded.')).toBeInTheDocument()
+    expect(screen.queryByText('Browser workflow')).toBeNull()
+    expect(screen.queryByText('Loaded instructions')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'View in Skills' }))
+    })
+
+    expect(useUIStore.getState().activeMainView).toBe('skills')
+    expect(useSkillsStore.getState().selectedSkillName).toBe('browser-use')
+    expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    expect(sendRequest).toHaveBeenCalledWith('skills/view', { name: 'browser-use' })
+  })
+
+  it('renders SkillView not found as a non-expandable failed row', () => {
+    const item: ConversationItem = {
+      id: 'skill-view-not-found-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillView',
+      toolCallId: 'skill-view-not-found-call-1',
+      arguments: { name: 'missing-skill' },
+      result: "Skill 'missing-skill' not found.",
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Failed: Loaded skill missing-skill/)).toBeInTheDocument()
+    expect(screen.getByText(/Skill 'missing-skill' not found/)).toBeInTheDocument()
+    expect(screen.queryByText('▼')).toBeNull()
     expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
   })
 

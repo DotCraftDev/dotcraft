@@ -122,6 +122,8 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.HeartbeatTrigger,
         AppServerMethods.SkillsList,
         AppServerMethods.SkillsRead,
+        AppServerMethods.SkillsView,
+        AppServerMethods.SkillsRestoreOriginal,
         AppServerMethods.SkillsSetEnabled,
         AppServerMethods.CommandList,
         AppServerMethods.CommandExecute,
@@ -231,6 +233,8 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
                 AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
                 AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
+                AppServerMethods.SkillsView => HandleSkillsViewAsync(msg, ct),
+                AppServerMethods.SkillsRestoreOriginal => HandleSkillsRestoreOriginalAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
                 AppServerMethods.CommandList => HandleCommandListAsync(msg, ct),
                 AppServerMethods.CommandExecute => HandleCommandExecuteAsync(msg, ct),
@@ -291,6 +295,7 @@ public sealed class AppServerRequestHandler(
             CronManagement = cronService != null,
             HeartbeatManagement = heartbeatService != null,
             SkillsManagement = skillsLoader != null,
+            SkillVariants = skillsLoader != null && IsSkillVariantModeEnabled(),
             CommandManagement = true,
             Automations = automationsHandler != null,
             ChannelStatus = channelStatusProvider != null,
@@ -1070,7 +1075,11 @@ public sealed class AppServerRequestHandler(
         if (p.Input.Count == 0)
             throw AppServerErrors.InvalidParams("'input' must contain at least one part.");
 
-        var inputMaterialization = new InputMaterializationService(_commandRegistry, skillsLoader);
+        var inputMaterialization = new InputMaterializationService(
+            _commandRegistry,
+            skillsLoader,
+            IsSkillVariantModeEnabled(),
+            BuildSkillVariantTarget());
         var normalizedInput = InputMaterializationService.NormalizeInputParts(p.Input);
         ValidateTurnStartInput(normalizedInput);
 
@@ -2261,6 +2270,49 @@ public sealed class AppServerRequestHandler(
         });
     }
 
+    private Task<object?> HandleSkillsViewAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsView);
+        var p = GetParams<SkillsViewParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var target = BuildSkillVariantTarget();
+        var effective = skillsLoader.LoadEffectiveSkill(
+            p.Name,
+            IsSkillVariantModeEnabled(),
+            target);
+        if (effective == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        return Task.FromResult<object?>(new SkillsViewResult
+        {
+            Name = p.Name,
+            Content = effective.Content
+        });
+    }
+
+    private Task<object?> HandleSkillsRestoreOriginalAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsRestoreOriginal);
+        var p = GetParams<SkillsRestoreOriginalParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        if (skillsLoader.ResolveSkillInfo(p.Name) == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        var restored = IsSkillVariantModeEnabled()
+            && skillsLoader.RestoreOriginalSkill(p.Name, BuildSkillVariantTarget());
+        return Task.FromResult<object?>(new SkillsRestoreOriginalResult
+        {
+            Name = p.Name,
+            Restored = restored
+        });
+    }
+
     private Task<object?> HandleSkillsSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         if (skillsLoader == null || string.IsNullOrEmpty(workspaceCraftPath))
@@ -2409,11 +2461,43 @@ public sealed class AppServerRequestHandler(
             UnavailableReason = s.UnavailableReason,
             Enabled = s.Enabled,
             Path = s.Path,
+            HasVariant = HasCurrentSkillVariant(s),
             IconSmallDataUrl = interfaceInfo?.IconSmallDataUrl,
             IconLargeDataUrl = interfaceInfo?.IconLargeDataUrl,
             DefaultPrompt = interfaceInfo?.DefaultPrompt,
             Metadata = metadata
         };
+    }
+
+    private bool HasCurrentSkillVariant(SkillsLoader.SkillInfo source)
+    {
+        if (skillsLoader == null || !IsSkillVariantModeEnabled())
+            return false;
+
+        var effectivePath = skillsLoader.ResolveEffectiveSkillFile(source, true, BuildSkillVariantTarget());
+        return effectivePath != null
+               && !string.Equals(effectivePath, source.Path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsSkillVariantModeEnabled()
+    {
+        var config = appConfigMonitor?.Current ?? new AppConfig();
+        return string.Equals(
+            config.Skills.SelfLearning.VariantMode,
+            "enabled",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private SkillVariantTarget BuildSkillVariantTarget()
+    {
+        var config = appConfigMonitor?.Current ?? new AppConfig();
+        var model = openAIClientProvider?.ResolveMainModel(config) ?? config.Model;
+        return SkillVariantStore.CreateTarget(
+            model,
+            _hostWorkspacePath ?? workspaceCraftPath ?? string.Empty,
+            config.Tools.Sandbox.Enabled,
+            config.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
     }
 
     private bool IsServiceAvailableForRegistration(CommandRegistration registration)
@@ -2465,7 +2549,11 @@ public sealed class AppServerRequestHandler(
         if (input.Count == 0)
             throw AppServerErrors.InvalidParams("'input' must contain at least one part.");
 
-        var inputMaterialization = new InputMaterializationService(_commandRegistry, skillsLoader);
+        var inputMaterialization = new InputMaterializationService(
+            _commandRegistry,
+            skillsLoader,
+            IsSkillVariantModeEnabled(),
+            BuildSkillVariantTarget());
         var normalizedInput = InputMaterializationService.NormalizeInputParts(input);
         ValidateTurnStartInput(normalizedInput);
         var materializedInput = inputMaterialization.MaterializeNormalized(normalizedInput);

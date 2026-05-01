@@ -9,7 +9,9 @@ namespace DotCraft.Protocol.AppServer;
 /// </summary>
 internal sealed class InputMaterializationService(
     CommandRegistry commandRegistry,
-    SkillsLoader? skillsLoader)
+    SkillsLoader? skillsLoader,
+    bool skillVariantModeEnabled = false,
+    SkillVariantTarget? skillVariantTarget = null)
 {
     public SessionInputMaterializationResult Materialize(IReadOnlyList<SessionWireInputPart> input)
     {
@@ -124,7 +126,7 @@ internal sealed class InputMaterializationService(
             {
                 var name = NormalizeCommandOrSkillName(part.Name);
                 var loaded = !string.IsNullOrWhiteSpace(name)
-                    ? skillsLoader?.LoadSkillsForContext([name])
+                    ? skillsLoader?.LoadSkillsForContext([name], skillVariantModeEnabled, skillVariantTarget)
                     : null;
                 yield return new SessionWireInputPart
                 {

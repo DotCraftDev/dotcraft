@@ -1,3 +1,4 @@
+using DotCraft.AppServer;
 using DotCraft.Hub;
 
 namespace DotCraft.Tests.Hub;
@@ -138,6 +139,29 @@ public sealed class ManagedAppServerRegistryTests : IDisposable
         Assert.Contains("endpoint changed", endpointReason);
         Assert.Contains("API key changed", keyReason);
         Assert.Contains("disabled", disabledReason);
+    }
+
+    [Fact]
+    public void CleanupStaleFiles_RemovesGuardLeftByKilledManagedAppServer()
+    {
+        var craftPath = Path.Combine(_tempDir, ".craft");
+        Directory.CreateDirectory(craftPath);
+        var lockPath = AppServerWorkspaceLock.GetLockFilePath(craftPath);
+        var json = System.Text.Json.JsonSerializer.Serialize(new AppServerLockInfo(
+            Pid: 999999,
+            WorkspacePath: _tempDir,
+            ManagedByHub: true,
+            HubApiBaseUrl: "http://127.0.0.1:43000",
+            StartedAt: DateTimeOffset.UtcNow,
+            Version: "test",
+            Endpoints: new Dictionary<string, string>()), HubJson.Options);
+        File.WriteAllText(lockPath, json);
+        File.WriteAllText(lockPath + ".guard", string.Empty);
+
+        AppServerWorkspaceLock.CleanupStaleFiles(craftPath);
+
+        Assert.False(File.Exists(lockPath));
+        Assert.False(File.Exists(lockPath + ".guard"));
     }
 
     private string Touch(string fileName)

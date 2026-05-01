@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -332,6 +332,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "cronManagement": true,
     "heartbeatManagement": true,
     "skillsManagement": true,
+    "skillVariants": true,
     "commandManagement": true,
     "modelCatalogManagement": true,
     "workspaceConfigManagement": true,
@@ -360,6 +361,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
+| `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
@@ -3042,6 +3044,7 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
   "unavailableReason": null,
   "enabled": true,
   "path": "/home/user/project/skills/browser/SKILL.md",
+  "hasVariant": true,
   "iconSmallDataUrl": "data:image/svg+xml;base64,...",
   "iconLargeDataUrl": "data:image/png;base64,...",
   "defaultPrompt": "Use $browser-use to inspect a local browser target.",
@@ -3062,7 +3065,8 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 | `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
 | `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
 | `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
-| `path` | string | Absolute filesystem path to the `SKILL.md` file. |
+| `path` | string | Absolute filesystem path to the source `SKILL.md` file. |
+| `hasVariant` | boolean? | Present and `true` when the current runtime resolves this skill through a current workspace variant. Omitted or `false` means the effective skill currently falls back to source. |
 | `iconSmallDataUrl` | string? | Optional small icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
 | `iconLargeDataUrl` | string? | Optional large icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
 | `defaultPrompt` | string? | Optional default starter prompt from `agents/openai.yaml` `interface.default_prompt`. |
@@ -3106,6 +3110,7 @@ List all installed skills across all sources.
       "unavailableReason": null,
       "enabled": true,
       "path": "/home/user/project/skills/browser/SKILL.md",
+      "hasVariant": true,
       "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
     },
     {
@@ -3159,6 +3164,7 @@ List all installed skills across all sources.
         "unavailableReason": null,
         "enabled": true,
         "path": "/home/user/project/skills/browser/SKILL.md",
+        "hasVariant": true,
         "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
       }
     ]
@@ -3218,7 +3224,63 @@ Read the full content of a skill's `SKILL.md` file.
 } }
 ```
 
-### 18.5 `skills/setEnabled`
+### 18.5 `skills/view`
+
+Read the effective skill body after source/variant resolution.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to view. |
+
+**Result**:
+
+```json
+{
+  "name": "browser",
+  "content": "# Browser Automation\n\nYou have access to browser automation tools..."
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `content` | string | Effective `SKILL.md` body with YAML frontmatter stripped. |
+
+**Behavior**: Resolves the current workspace adaptation when one exists and falls back to the source skill otherwise. The result intentionally omits variant ids, source paths, fingerprints, and metadata.
+
+### 18.6 `skills/restoreOriginal`
+
+Restore the original source skill for the current workspace target.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to restore. |
+
+**Result**:
+
+```json
+{
+  "name": "browser",
+  "restored": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `restored` | boolean | `true` when a current adaptation was restored; `false` when the skill was already using its source body. |
+
+**Behavior**: Marks the current workspace adaptation as restored so future effective views fall back to the source skill. It does not modify the source skill.
+
+### 18.7 `skills/setEnabled`
 
 Enable or disable a skill. Disabled skills remain on disk but are excluded from agent context.
 
@@ -3279,20 +3341,22 @@ When disabling, the skill is marked unavailable for future agent context resolut
       "unavailableReason": null,
       "enabled": false,
       "path": "/home/user/project/skills/browser/SKILL.md",
+      "hasVariant": true,
       "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
     }
 } }
 ```
 
-### 18.6 Error Codes
+### 18.8 Error Codes
 
 | Code | Constant | When |
 |------|----------|------|
 | `-32040` | `SkillNotFound` | The requested skill name does not exist in any source (workspace, user, or builtin). |
 
-### 18.7 Capability Advertisement
+### 18.9 Capability Advertisement
 
 Clients must check `capabilities.skillsManagement` before calling any `skills/*` method.
+Clients should additionally check `capabilities.skillVariants` before offering variant-dependent UX such as restoring the original skill. `skills/view` may still be available as a source-only effective view when this capability is absent or false.
 
 ---
 

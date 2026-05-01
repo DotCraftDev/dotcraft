@@ -130,6 +130,7 @@ The response returns server info and capabilities:
       "threadSubscriptions": true,
       "approvalFlow": true,
       "skillsManagement": true,
+      "skillVariants": true,
       "modelCatalogManagement": true,
       "mcpManagement": true
     }
@@ -352,7 +353,7 @@ The table below covers common method families. The complete method list is in th
 | Turn | `turn/start`, `turn/enqueue`, `turn/interrupt` | User input, queues, and cancellation. |
 | Cron | `cron/list`, `cron/remove`, `cron/enable` | Scheduled task management. |
 | Heartbeat | `heartbeat/trigger` | Manual heartbeat trigger. |
-| Skills | `skills/list`, `skills/read`, `skills/setEnabled` | Skill discovery and enablement. |
+| Skills | `skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled` | Skill discovery, effective view, restore original, and enablement. |
 | Commands | `command/list`, `command/execute` | Custom command discovery and execution. |
 | Models | `model/list` | Model catalog. |
 | MCP | `mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/status/list`, `mcp/test` | MCP configuration and status. |
@@ -361,6 +362,8 @@ The table below covers common method families. The complete method list is in th
 | Workspace config | `workspace/config/update` | Workspace configuration updates. |
 
 Clients should use `capabilities` from the `initialize` response before showing feature-specific UI.
+
+Skill entries returned by `skills/list` may include `hasVariant: true`, which means the current runtime resolves that skill through a workspace adaptation. `skills/read` still reads the source `SKILL.md`; use `skills/view` when a client needs the effective content.
 
 ## Minimal Node Client
 

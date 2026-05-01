@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronLeft, Download, Ellipsis, ExternalLink, Plus, Search, Settings } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, Download, Ellipsis, ExternalLink, Plus, Search, Settings, Sparkles } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useSkillsStore, type SkillEntry } from '../../stores/skillsStore'
 import { useSkillMarketStore, type SkillMarketProviderFilter } from '../../stores/skillMarketStore'
-import type { MarketSkillDetail, MarketSkillSummary } from '../../../shared/skillMarket'
+import { useConnectionStore, type ServerCapabilities } from '../../stores/connectionStore'
+import { useThreadStore } from '../../stores/threadStore'
+import type { MarketDotCraftInstallPreparation, MarketSkillDetail, MarketSkillSummary } from '../../../shared/skillMarket'
 import { SkillAvatar } from './SkillAvatar'
 import { SkillDetailDialog } from './SkillDetailDialog'
+import { VariantBadge } from './VariantBadge'
 import { PillSwitch } from '../ui/PillSwitch'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
@@ -14,6 +17,7 @@ import { addToast } from '../../stores/toastStore'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { useUIStore } from '../../stores/uiStore'
+import type { ThreadSummary } from '../../types/thread'
 
 type ViewMode = 'browse' | 'manage'
 type SourceFilter = 'all' | 'system' | 'personal' | 'market'
@@ -41,18 +45,24 @@ export function SkillsView(): JSX.Element {
     selectedSkill: selectedMarketSkill,
     detailLoading,
     installSlug,
+    dotCraftInstallSlug,
     setQuery: setMarketQuery,
     search,
     selectSkill: selectMarketSkill,
     clearSelection: clearMarketSelection,
-    installSelected
+    installSelected,
+    prepareDotCraftInstall
   } = useSkillMarketStore()
+  const connectionStatus = useConnectionStore((s) => s.status)
+  const capabilities = useConnectionStore((s) => s.capabilities)
+  const { addThread, setActiveThreadId } = useThreadStore()
 
   const [mode, setMode] = useState<ViewMode>('browse')
   const [query, setQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const [savedSkillName, setSavedSkillName] = useState<string | null>(null)
+  const [selfLearningEnabled, setSelfLearningEnabled] = useState(true)
 
   useEffect(() => {
     void fetchSkills()
@@ -77,6 +87,26 @@ export function SkillsView(): JSX.Element {
     const timer = window.setTimeout(() => setSavedSkillName(null), 1500)
     return () => window.clearTimeout(timer)
   }, [savedSkillName])
+
+  useEffect(() => {
+    let disposed = false
+    window.api.workspaceConfig
+      .getCore()
+      .then((core) => {
+        if (disposed) return
+        setSelfLearningEnabled(
+          core.workspace.skillsSelfLearningEnabled ??
+          core.userDefaults.skillsSelfLearningEnabled ??
+          true
+        )
+      })
+      .catch(() => {
+        if (!disposed) setSelfLearningEnabled(true)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   const filteredSkills = useMemo(() => filterLocalSkills(skills, query, sourceFilter), [skills, query, sourceFilter])
   const manageSkills = useMemo(() => filterLocalSkills(skills, query, 'all'), [skills, query])
@@ -136,6 +166,54 @@ export function SkillsView(): JSX.Element {
       addToast(t('skillMarket.installFailed', { error: msg }), 'error')
     }
   }
+
+  async function handleDotCraftInstallMarketSkill(skill: MarketSkillDetail): Promise<void> {
+    const disabledReason = dotCraftInstallDisabledReason(connectionStatus, capabilities, selfLearningEnabled, t)
+    if (disabledReason) {
+      addToast(disabledReason, 'warning')
+      return
+    }
+
+    try {
+      const preparation = await prepareDotCraftInstall()
+      await startDotCraftInstallThread(skill, preparation, t, addThread, setActiveThreadId)
+      clearMarketSelection()
+      addToast(t('skillMarket.dotCraftInstallStarted', { name: skill.name }), 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('skillMarket.dotCraftInstallFailed', { error: msg }), 'error')
+    }
+  }
+
+  async function handleRestoreOriginalSkill(skill: SkillEntry): Promise<void> {
+    if (connectionStatus !== 'connected' || capabilities?.skillVariants !== true) {
+      addToast(t('skillDetail.restoreOriginalUnavailable'), 'warning')
+      return
+    }
+
+    try {
+      const result = await window.api.appServer.sendRequest('skills/restoreOriginal', {
+        name: skill.name
+      }) as { restored?: boolean }
+      if (result.restored) {
+        addToast(t('skillDetail.restoreOriginalSuccess'), 'success')
+        await fetchSkills()
+        await selectSkill(skill.name)
+      } else {
+        addToast(t('skillDetail.restoreOriginalNoop'), 'info')
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('skillDetail.restoreOriginalFailed', { error: msg }), 'error')
+    }
+  }
+
+  const dotCraftDisabledReason = dotCraftInstallDisabledReason(
+    connectionStatus,
+    capabilities,
+    selfLearningEnabled,
+    t
+  )
 
   if (mode === 'manage') {
     return (
@@ -279,6 +357,7 @@ export function SkillsView(): JSX.Element {
             }
           }}
           onTryInChat={() => handleTrySkillInChat(selected)}
+          onRestoreOriginal={() => void handleRestoreOriginalSkill(selected)}
         />
       )}
 
@@ -287,8 +366,11 @@ export function SkillsView(): JSX.Element {
           skill={selectedMarketSkill}
           loading={detailLoading}
           installing={installSlug === selectedMarketSkill.slug}
+          dotCraftInstalling={dotCraftInstallSlug === selectedMarketSkill.slug}
+          dotCraftDisabledReason={dotCraftDisabledReason}
           onClose={clearMarketSelection}
           onInstall={() => void handleInstallMarketSkill(selectedMarketSkill)}
+          onDotCraftInstall={() => void handleDotCraftInstallMarketSkill(selectedMarketSkill)}
         />
       )}
     </div>
@@ -408,7 +490,10 @@ function SkillsManageView({
               iconDataUrl={skill.iconSmallDataUrl}
             />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={rowTitle}>{skillTitle(skill)}</div>
+              <div style={rowTitleLine}>
+                <div style={rowTitle}>{skillTitle(skill)}</div>
+                {skill.hasVariant ? <VariantBadge compact /> : null}
+              </div>
               <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
             </div>
             <span style={manageSource}>{sourceLabel(skill, t)}</span>
@@ -436,7 +521,10 @@ function LocalSkillItem({ skill, onOpen }: { skill: SkillEntry; onOpen: () => vo
         iconDataUrl={skill.iconSmallDataUrl}
       />
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={rowTitle}>{skillTitle(skill)}</div>
+        <div style={rowTitleLine}>
+          <div style={rowTitle}>{skillTitle(skill)}</div>
+          {skill.hasVariant ? <VariantBadge compact /> : null}
+        </div>
         <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
       </div>
       <span title={skill.enabled ? t('skillCard.on') : t('skillCard.disabledBadge')} style={statusIcon}>
@@ -466,18 +554,92 @@ function MarketSkillItem({ skill, onOpen }: { skill: MarketSkillSummary; onOpen:
   )
 }
 
+type TranslateFn = (key: string, vars?: Record<string, string | number>) => string
+
+function dotCraftInstallDisabledReason(
+  connectionStatus: string,
+  capabilities: ServerCapabilities | null,
+  selfLearningEnabled: boolean,
+  t: TranslateFn
+): string | null {
+  if (connectionStatus !== 'connected') return t('skillMarket.dotCraftInstallUnavailableDisconnected')
+  if (capabilities?.skillsManagement !== true) return t('skillMarket.dotCraftInstallUnavailableSkills')
+  if (capabilities?.skillVariants !== true) return t('skillMarket.dotCraftInstallUnavailableVariants')
+  if (selfLearningEnabled === false) return t('skillMarket.dotCraftInstallUnavailableSelfLearning')
+  return null
+}
+
+function buildDotCraftInstallPrompt(
+  skill: MarketSkillDetail,
+  preparation: MarketDotCraftInstallPreparation,
+  t: TranslateFn
+): string {
+  return t('skillMarket.dotCraftInstallPrompt', {
+    name: skill.name,
+    skillName: preparation.skillName,
+    provider: providerLabel(preparation.provider),
+    slug: preparation.slug,
+    version: preparation.version || t('skillMarket.versionUnknown'),
+    candidateDir: preparation.candidateDir,
+    metadataPath: preparation.metadataPath,
+    workspacePath: preparation.workspacePath,
+    sourceUrl: preparation.sourceUrl || skill.sourceUrl || ''
+  })
+}
+
+async function startDotCraftInstallThread(
+  skill: MarketSkillDetail,
+  preparation: MarketDotCraftInstallPreparation,
+  t: TranslateFn,
+  addThread: (thread: ThreadSummary) => void,
+  setActiveThreadId: (id: string | null) => void
+): Promise<void> {
+  const prompt = buildDotCraftInstallPrompt(skill, preparation, t)
+  const visibleText = `$skill-installer\n\n${prompt}`
+  const result = await window.api.appServer.sendRequest('thread/start', {
+    identity: {
+      channelName: 'dotcraft-desktop',
+      userId: 'local',
+      channelContext: `workspace:${preparation.workspacePath}`,
+      workspacePath: preparation.workspacePath
+    },
+    historyMode: 'server'
+  }) as { thread: ThreadSummary }
+
+  useUIStore.getState().setPendingWelcomeTurn({
+    threadId: result.thread.id,
+    text: visibleText,
+    inputParts: [
+      { type: 'skillRef', name: 'skill-installer' },
+      { type: 'text', text: `\n\n${prompt}` }
+    ],
+    mode: 'agent',
+    approvalPolicy: 'default',
+    model: ''
+  })
+  addThread(result.thread)
+  setActiveThreadId(result.thread.id)
+  useUIStore.getState().setActiveMainView('conversation')
+}
+
 function MarketSkillDetailDialog({
   skill,
   loading,
   installing,
+  dotCraftInstalling,
+  dotCraftDisabledReason,
   onClose,
-  onInstall
+  onInstall,
+  onDotCraftInstall
 }: {
   skill: MarketSkillDetail
   loading: boolean
   installing: boolean
+  dotCraftInstalling: boolean
+  dotCraftDisabledReason: string | null
   onClose: () => void
   onInstall: () => void
+  onDotCraftInstall: () => void
 }): JSX.Element {
   const t = useT()
 
@@ -494,6 +656,12 @@ function MarketSkillDetailDialog({
     : skill.installed
       ? t('skillMarket.reinstall')
       : t('skillMarket.install')
+  const dotCraftInstallLabel = skill.updateAvailable
+    ? t('skillMarket.updateWithDotCraft')
+    : skill.installed
+      ? t('skillMarket.checkWithDotCraft')
+      : t('skillMarket.installWithDotCraft')
+  const dotCraftButtonDisabled = Boolean(dotCraftDisabledReason) || dotCraftInstalling || loading || installing
 
   return (
     <div role="presentation" style={modalScrim} onClick={onClose}>
@@ -534,10 +702,25 @@ function MarketSkillDetailDialog({
             <ExternalLink size={14} aria-hidden />
             {t('skillMarket.openSource')}
           </button>
-          <button type="button" onClick={onInstall} disabled={installing || loading} style={installing || loading ? disabledPrimaryBtn : primaryBtn}>
+          <button type="button" onClick={onInstall} disabled={installing || loading} style={installing || loading ? disabledSecondaryBtn : secondaryBtn}>
             <Download size={14} aria-hidden />
             {installing ? t('skillMarket.installing') : installLabel}
           </button>
+          <ActionTooltip
+            label={dotCraftInstallLabel}
+            disabledReason={dotCraftDisabledReason ?? undefined}
+            placement="top"
+          >
+            <button
+              type="button"
+              onClick={onDotCraftInstall}
+              disabled={dotCraftButtonDisabled}
+              style={dotCraftButtonDisabled ? disabledPrimaryBtn : primaryBtn}
+            >
+              <Sparkles size={14} aria-hidden />
+              {dotCraftInstalling ? t('skillMarket.dotCraftInstallPreparing') : dotCraftInstallLabel}
+            </button>
+          </ActionTooltip>
         </footer>
       </div>
     </div>
@@ -749,6 +932,13 @@ const rowTitle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap'
+}
+
+const rowTitleLine: React.CSSProperties = {
+  minWidth: 0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px'
 }
 
 const rowDesc: React.CSSProperties = {

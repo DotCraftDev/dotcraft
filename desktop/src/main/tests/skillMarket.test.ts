@@ -8,6 +8,7 @@ import {
   getSkillMarketDetail,
   installSkillFromMarket,
   normalizeArchive,
+  prepareDotCraftSkillInstall,
   searchSkillMarket
 } from '../skillMarket'
 
@@ -149,6 +150,44 @@ describe('skillMarket', () => {
     )
     expect(detail.readme).toContain('# Git Helper')
     expect(detail.description).toBe('Git workflow help')
+    expect(detail.version).toBe('1.0.0')
+  })
+
+  it('normalizes nested SkillHub detail metadata', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-skill-market-'))
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('/file?')) {
+        return new Response('# Self Improvement', {
+          status: 200,
+          headers: { 'content-type': 'text/markdown' }
+        })
+      }
+      return jsonResponse({
+        latestVersion: { version: '3.0.18' },
+        skill: {
+          slug: 'self-improving-agent',
+          displayName: 'self-improving-agent',
+          summary: 'Captures learnings',
+          stats: {
+            downloads: 550683,
+            stars: 2985
+          },
+          tags: {
+            latest: '3.0.18'
+          }
+        }
+      })
+    }) as typeof fetch
+
+    const detail = await getSkillMarketDetail(
+      tempRoot,
+      { provider: 'skillhub', slug: 'self-improving-agent' },
+      fetcher
+    )
+
+    expect(detail.version).toBe('3.0.18')
+    expect(detail.downloads).toBe(550683)
+    expect(detail.rating).toBe(2985)
   })
 
   it('keeps detail metadata when preview file loading fails', async () => {
@@ -233,5 +272,36 @@ describe('skillMarket', () => {
 
     expect(result.overwritten).toBe(true)
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf-8')).resolves.toBe('# New')
+  })
+
+  it('prepares a DotCraft install candidate without writing installed skills', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-skill-market-'))
+    const fetcher = vi.fn(async () =>
+      zipResponse({
+        'demo-skill/SKILL.md': '---\nname: demo-skill\n---\n# Demo',
+        'demo-skill/README.md': '# Demo readme'
+      })
+    ) as typeof fetch
+
+    const result = await prepareDotCraftSkillInstall(
+      tempRoot,
+      { provider: 'skillhub', slug: 'demo-skill', version: '1.0.0' },
+      fetcher
+    )
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        skillName: 'demo-skill',
+        provider: 'skillhub',
+        slug: 'demo-skill',
+        version: '1.0.0',
+        workspacePath: tempRoot
+      })
+    )
+    expect(result.candidateDir).toContain(join('.craft', 'skill-install-staging'))
+    expect(existsSync(join(result.candidateDir, 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(result.candidateDir, 'README.md'))).toBe(true)
+    expect(existsSync(result.metadataPath)).toBe(true)
+    expect(existsSync(join(tempRoot, '.craft', 'skills', 'demo-skill', 'SKILL.md'))).toBe(false)
   })
 })

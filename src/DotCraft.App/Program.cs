@@ -20,7 +20,7 @@ Console.OutputEncoding = Encoding.UTF8;
 var cliArgs = CommandLineArgs.Parse(args);
 var isRemoteCli = cliArgs.Mode == CommandLineArgs.RunMode.Cli
                && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway or CommandLineArgs.RunMode.Hub
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway or CommandLineArgs.RunMode.Hub or CommandLineArgs.RunMode.Skill
               || isRemoteCli;
 
 // -------------------------------------------------------------------------
@@ -53,6 +53,13 @@ if (cliArgs.Mode == CommandLineArgs.RunMode.Hub)
 var workspacePath = Directory.GetCurrentDirectory();
 var botPath = Path.GetFullPath(".craft");
 var workspaceJustInitialized = false;
+
+if (cliArgs.Mode == CommandLineArgs.RunMode.Skill)
+{
+    var result = await SkillCliRunner.RunAsync(botPath, cliArgs, Console.Out, Console.Error);
+    Environment.Exit(result);
+    return;
+}
 
 if (cliArgs.Mode == CommandLineArgs.RunMode.Setup)
 {

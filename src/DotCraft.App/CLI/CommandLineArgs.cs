@@ -47,7 +47,10 @@ public sealed record CommandLineArgs
         Setup,
 
         /// <summary>Workspace-independent local Hub process.</summary>
-        Hub
+        Hub,
+
+        /// <summary>Non-interactive skill verification and installation commands.</summary>
+        Skill
     }
 
     /// <summary>Top-level execution mode.</summary>
@@ -87,6 +90,18 @@ public sealed record CommandLineArgs
 
     public bool PreferExistingUserConfig { get; init; }
 
+    public string? SkillCommand { get; init; }
+
+    public string? SkillCandidatePath { get; init; }
+
+    public string? SkillName { get; init; }
+
+    public string? SkillSource { get; init; }
+
+    public bool SkillOverwrite { get; init; }
+
+    public bool SkillJson { get; init; }
+
     /// <summary>
     /// Whether this execution mode reserves stdout for a wire protocol (stdio-based JSON-RPC).
     /// When <c>true</c>, all console diagnostics must be redirected to stderr.
@@ -113,6 +128,12 @@ public sealed record CommandLineArgs
         string? setupProfile = null;
         var saveUserConfig = false;
         var preferExistingUserConfig = false;
+        string? skillCommand = null;
+        string? skillCandidatePath = null;
+        string? skillName = null;
+        string? skillSource = null;
+        var skillOverwrite = false;
+        var skillJson = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -134,6 +155,14 @@ public sealed record CommandLineArgs
             if (arg.Equals("hub", StringComparison.OrdinalIgnoreCase))
             {
                 mode = RunMode.Hub;
+                continue;
+            }
+
+            if (arg.Equals("skill", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = RunMode.Skill;
+                if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                    skillCommand = args[++i];
                 continue;
             }
 
@@ -214,6 +243,36 @@ public sealed record CommandLineArgs
                 continue;
             }
 
+            if (arg.Equals("--candidate", StringComparison.OrdinalIgnoreCase))
+            {
+                skillCandidatePath = ConsumeNext(args, ref i, "--candidate");
+                continue;
+            }
+
+            if (arg.Equals("--name", StringComparison.OrdinalIgnoreCase))
+            {
+                skillName = ConsumeNext(args, ref i, "--name");
+                continue;
+            }
+
+            if (arg.Equals("--source", StringComparison.OrdinalIgnoreCase))
+            {
+                skillSource = ConsumeNext(args, ref i, "--source");
+                continue;
+            }
+
+            if (arg.Equals("--overwrite", StringComparison.OrdinalIgnoreCase))
+            {
+                skillOverwrite = true;
+                continue;
+            }
+
+            if (arg.Equals("--json", StringComparison.OrdinalIgnoreCase))
+            {
+                skillJson = true;
+                continue;
+            }
+
             // Support --listen=<url> / --remote=<url> / --token=<value> forms
             if (TryParseKeyValue(arg, "--listen", out var listenValue))
             {
@@ -263,6 +322,24 @@ public sealed record CommandLineArgs
                 continue;
             }
 
+            if (TryParseKeyValue(arg, "--candidate", out var candidateValue))
+            {
+                skillCandidatePath = candidateValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--name", out var nameValue))
+            {
+                skillName = nameValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--source", out var sourceValue))
+            {
+                skillSource = sourceValue;
+                continue;
+            }
+
             // Unknown arguments are silently ignored (forward-compatible).
         }
 
@@ -289,6 +366,12 @@ public sealed record CommandLineArgs
             SetupProfile = setupProfile,
             SaveUserConfig = saveUserConfig,
             PreferExistingUserConfig = preferExistingUserConfig,
+            SkillCommand = skillCommand,
+            SkillCandidatePath = skillCandidatePath,
+            SkillName = skillName,
+            SkillSource = skillSource,
+            SkillOverwrite = skillOverwrite,
+            SkillJson = skillJson,
             ReservesStdout = reservesStdout
         };
     }
@@ -334,6 +417,7 @@ public sealed record CommandLineArgs
                 break;
 
             case RunMode.Hub:
+            case RunMode.Skill:
                 break;
         }
     }

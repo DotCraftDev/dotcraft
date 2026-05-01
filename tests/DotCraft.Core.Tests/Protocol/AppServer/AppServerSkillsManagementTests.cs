@@ -70,6 +70,99 @@ public sealed class AppServerSkillsManagementTests : IDisposable
         Assert.False(plainSkill.TryGetProperty("displayName", out _));
     }
 
+    [Fact]
+    public async Task SkillsView_ReturnsEffectiveVariantBody_WhileSkillsReadReturnsSourceRawContent()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var target = SkillVariantStore.CreateTarget(
+            harness.Monitor.Current.Model,
+            harness.Identity.WorkspacePath,
+            sandboxEnabled: false,
+            harness.Monitor.Current.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
+        var applier = new VariantSkillMutationApplier(new WorkspaceFileSkillMutationApplier(loader), loader, target);
+        await applier.PatchAsync(new SkillPatchRequest("demo-skill", "Source body.", "Variant body.", null, false));
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsView, new { name = "demo-skill" }));
+        using var viewResponse = harness.Transport.TryReadSent()!;
+        var viewContent = viewResponse.RootElement.GetProperty("result").GetProperty("content").GetString();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsRead, new { name = "demo-skill" }));
+        using var readResponse = harness.Transport.TryReadSent()!;
+        var readContent = readResponse.RootElement.GetProperty("result").GetProperty("content").GetString();
+
+        Assert.Contains("Variant body.", viewContent);
+        Assert.DoesNotContain("name: demo-skill", viewContent);
+        Assert.Contains("Source body.", readContent);
+        Assert.Contains("name: demo-skill", readContent);
+    }
+
+    [Fact]
+    public async Task SkillsList_ReportsHasVariantForCurrentVariantOnly()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var target = SkillVariantStore.CreateTarget(
+            harness.Monitor.Current.Model,
+            harness.Identity.WorkspacePath,
+            sandboxEnabled: false,
+            harness.Monitor.Current.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
+        var applier = new VariantSkillMutationApplier(new WorkspaceFileSkillMutationApplier(loader), loader, target);
+        await applier.PatchAsync(new SkillPatchRequest("demo-skill", "Source body.", "Variant body.", null, false));
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsList, new { includeUnavailable = true }));
+        using var listResponse = harness.Transport.TryReadSent()!;
+        var skill = listResponse.RootElement.GetProperty("result").GetProperty("skills")[0];
+        Assert.True(skill.GetProperty("hasVariant").GetBoolean());
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsRestoreOriginal, new { name = "demo-skill" }));
+        using var restoreResponse = harness.Transport.TryReadSent()!;
+        Assert.True(restoreResponse.RootElement.GetProperty("result").GetProperty("restored").GetBoolean());
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsList, new { includeUnavailable = true }));
+        using var restoredListResponse = harness.Transport.TryReadSent()!;
+        var restoredSkill = restoredListResponse.RootElement.GetProperty("result").GetProperty("skills")[0];
+        Assert.False(restoredSkill.TryGetProperty("hasVariant", out var hasVariant)
+                     && hasVariant.GetBoolean());
+    }
+
+    [Fact]
+    public async Task SkillsRestoreOriginal_MakesSkillsViewFallBackToSource()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var target = SkillVariantStore.CreateTarget(
+            harness.Monitor.Current.Model,
+            harness.Identity.WorkspacePath,
+            sandboxEnabled: false,
+            harness.Monitor.Current.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
+        var applier = new VariantSkillMutationApplier(new WorkspaceFileSkillMutationApplier(loader), loader, target);
+        await applier.PatchAsync(new SkillPatchRequest("demo-skill", "Source body.", "Variant body.", null, false));
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsRestoreOriginal, new { name = "demo-skill" }));
+        using var restoreResponse = harness.Transport.TryReadSent()!;
+        Assert.True(restoreResponse.RootElement.GetProperty("result").GetProperty("restored").GetBoolean());
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsView, new { name = "demo-skill" }));
+        using var viewResponse = harness.Transport.TryReadSent()!;
+        var viewContent = viewResponse.RootElement.GetProperty("result").GetProperty("content").GetString();
+
+        Assert.Contains("Source body.", viewContent);
+        Assert.DoesNotContain("Variant body.", viewContent);
+    }
+
     public void Dispose()
     {
         try
@@ -81,5 +174,23 @@ public sealed class AppServerSkillsManagementTests : IDisposable
         {
             // Best-effort cleanup for temp test directories.
         }
+    }
+
+    private static void WriteSkill(SkillsLoader loader, string name, string body)
+    {
+        var skillDir = Path.Combine(loader.WorkspaceSkillsPath, name);
+        Directory.CreateDirectory(skillDir);
+        File.WriteAllText(
+            Path.Combine(skillDir, "SKILL.md"),
+            $"""
+            ---
+            name: {name}
+            description: Test skill
+            ---
+
+            # {name}
+
+            {body}
+            """);
     }
 }

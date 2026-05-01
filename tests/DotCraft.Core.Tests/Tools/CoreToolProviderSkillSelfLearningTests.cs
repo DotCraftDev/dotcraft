@@ -18,10 +18,11 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
         var tools = CreateTools(new AppConfig.SelfLearningConfig { Enabled = false });
 
         Assert.DoesNotContain(tools, tool => string.Equals(tool.Name, "SkillManage", StringComparison.Ordinal));
+        Assert.Contains(tools, tool => string.Equals(tool.Name, "SkillView", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void CreateTools_SelfLearningEnabled_ExposesSingleSkillManageTool()
+    public void CreateTools_SelfLearningEnabled_ExposesSkillViewAndSkillManageTools()
     {
         var tools = CreateTools(new AppConfig.SelfLearningConfig { Enabled = true });
         var skillTools = tools
@@ -29,7 +30,7 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
             .Select(tool => tool.Name)
             .ToArray();
 
-        Assert.Equal(["SkillManage"], skillTools);
+        Assert.Equal(["SkillView", "SkillManage"], skillTools);
     }
 
     public void Dispose()

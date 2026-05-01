@@ -20,7 +20,7 @@ public sealed class SkillsLoaderTests : IDisposable
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "skill-authoring"], skills);
+        Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "skill-authoring", "skill-installer"], skills);
         Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "browser-use", "agents", "openai.yaml")));
     }
 

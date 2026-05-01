@@ -103,12 +103,27 @@ public sealed class CoreToolProvider : IAgentToolProvider
         tools.Add(AIFunctionFactory.Create(webTools.WebSearch));
         tools.Add(AIFunctionFactory.Create(webTools.WebFetch));
 
-        // Skill self-learning tools are opt-in and hidden from the model unless enabled.
+        var target = SkillVariantStore.CreateTarget(
+            context.EffectiveMainModel,
+            context.WorkspacePath,
+            context.Config.Tools.Sandbox.Enabled,
+            context.Config.Permissions.DefaultApprovalPolicy.ToString(),
+            tools.Select(t => t.Name).ToArray());
         var selfLearning = context.Config.Skills.SelfLearning;
+        var variantModeEnabled = string.Equals(selfLearning.VariantMode, "enabled", StringComparison.OrdinalIgnoreCase);
+
+        // Effective skill loading is always available; SkillManage remains opt-in.
+        var skillViewTool = new SkillViewTool(context.SkillsLoader, variantModeEnabled, target);
+        tools.Add(AIFunctionFactory.Create(skillViewTool.SkillView));
+
+        // Skill self-learning mutation tools are opt-in and hidden from the model unless enabled.
         if (selfLearning.Enabled)
         {
+            var mutationApplier = variantModeEnabled
+                ? new VariantSkillMutationApplier(context.SkillMutationApplier, context.SkillsLoader, target)
+                : context.SkillMutationApplier;
             var skillManageTool = new SkillManageTool(
-                context.SkillMutationApplier,
+                mutationApplier,
                 selfLearning,
                 context.ApprovalService);
             tools.Add(AIFunctionFactory.Create(skillManageTool.SkillManage));

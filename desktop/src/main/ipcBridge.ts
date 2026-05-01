@@ -57,11 +57,13 @@ import { detectEditors, launchEditor, type EditorId } from './externalEditors'
 import {
   getSkillMarketDetail,
   installSkillFromMarket,
+  prepareDotCraftSkillInstall,
   searchSkillMarket
 } from './skillMarket'
 import type {
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketSearchRequest
 } from '../shared/skillMarket'
 
@@ -865,6 +867,10 @@ export function registerIpcHandlers(
 
   handleSafe('skill-market:install', async (_event, request: SkillMarketInstallRequest) => {
     return installSkillFromMarket(workspacePath, request)
+  })
+
+  handleSafe('skill-market:prepare-dotcraft-install', async (_event, request: SkillMarketPrepareDotCraftInstallRequest) => {
+    return prepareDotCraftSkillInstall(workspacePath, request)
   })
 
   // Renderer -> Main: open allowed URL in OS default handler

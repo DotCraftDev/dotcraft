@@ -1,4 +1,6 @@
+using DotCraft.Configuration;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Skills;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 
@@ -41,6 +43,64 @@ public sealed class AppServerHandshakeTests : IDisposable
         Assert.True(caps.GetProperty("approvalFlow").GetBoolean());
         Assert.True(caps.GetProperty("modeSwitch").GetBoolean());
         Assert.True(caps.GetProperty("configOverride").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Initialize_AdvertisesSkillVariants_WhenVariantModeEnabled()
+    {
+        var craftPath = Path.Combine(Path.GetTempPath(), "dotcraft-appserver-variant-caps", Guid.NewGuid().ToString("N"), ".craft");
+        try
+        {
+            Directory.CreateDirectory(craftPath);
+            using var harness = new AppServerTestHarness(
+                workspaceCraftPath: craftPath,
+                skillsLoader: new SkillsLoader(craftPath));
+
+            var initDoc = await harness.InitializeAsync();
+            var caps = initDoc.RootElement
+                .GetProperty("result")
+                .GetProperty("capabilities");
+
+            Assert.True(caps.GetProperty("skillsManagement").GetBoolean());
+            Assert.True(caps.GetProperty("skillVariants").GetBoolean());
+        }
+        finally
+        {
+            var root = Directory.GetParent(craftPath)?.FullName;
+            if (root != null && Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Initialize_DoesNotAdvertiseSkillVariants_WhenVariantModeDisabled()
+    {
+        var craftPath = Path.Combine(Path.GetTempPath(), "dotcraft-appserver-variant-caps", Guid.NewGuid().ToString("N"), ".craft");
+        try
+        {
+            Directory.CreateDirectory(craftPath);
+            var config = new AppConfig();
+            config.Skills.SelfLearning.VariantMode = "disabled";
+            using var harness = new AppServerTestHarness(
+                workspaceCraftPath: craftPath,
+                appConfigMonitor: new AppConfigMonitor(config),
+                skillsLoader: new SkillsLoader(craftPath));
+
+            var initDoc = await harness.InitializeAsync();
+            var caps = initDoc.RootElement
+                .GetProperty("result")
+                .GetProperty("capabilities");
+
+            Assert.True(caps.GetProperty("skillsManagement").GetBoolean());
+            Assert.False(caps.TryGetProperty("skillVariants", out var skillVariants)
+                && skillVariants.GetBoolean());
+        }
+        finally
+        {
+            var root = Directory.GetParent(craftPath)?.FullName;
+            if (root != null && Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

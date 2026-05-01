@@ -20,7 +20,9 @@ public sealed class PromptBuilder(
     bool sandboxEnabled = false,
     IReadOnlyList<string>? deferredMcpServerNames = null,
     string? subAgentProfilesSection = null,
-    Func<IReadOnlyList<string>>? toolNamesProvider = null)
+    Func<IReadOnlyList<string>>? toolNamesProvider = null,
+    bool skillVariantModeEnabled = false,
+    SkillVariantTarget? skillVariantTarget = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -77,20 +79,29 @@ public sealed class PromptBuilder(
         var alwaysSkills = skillsLoader.GetAlwaysSkills(availableToolNames);
         if (alwaysSkills.Count > 0)
         {
-            var alwaysContent = skillsLoader.LoadSkillsForContext(alwaysSkills);
+            var alwaysContent = skillsLoader.LoadSkillsForContext(
+                alwaysSkills,
+                skillVariantModeEnabled,
+                skillVariantTarget);
             if (!string.IsNullOrWhiteSpace(alwaysContent))
                 parts.Add($"# Active Skills\n\n{alwaysContent}");
         }
 
         // 2. Available skills: show summary (agent uses ReadFile to load full content)
-        var skillsSummary = skillsLoader.BuildSkillsSummary(availableToolNames);
+        var skillsSummary = skillsLoader.BuildSkillsSummary(
+            availableToolNames,
+            skillVariantModeEnabled,
+            skillVariantTarget);
         if (!string.IsNullOrWhiteSpace(skillsSummary))
         {
+            var skillLoadInstruction = IsToolAvailable(availableToolNames, "SkillView")
+                ? "Before replying, scan the available skills below. If a skill is relevant or even partially relevant to the task, you MUST load it with the SkillView tool and follow its instructions. Use ReadFile only when SkillView is unavailable or when you need to inspect a specific physical supporting file referenced by the loaded skill."
+                : "Before replying, scan the available skills below. If a skill is relevant or even partially relevant to the task, you MUST read its SKILL.md file using the ReadFile tool and follow its instructions.";
             parts.Add(
 $"""
 # Skills (mandatory)
 
-Before replying, scan the available skills below. If a skill is relevant or even partially relevant to the task, you MUST read its SKILL.md file using the ReadFile tool and follow its instructions.
+{skillLoadInstruction}
 
 Err on the side of loading skills. Skills encode project workflows, pitfalls, user preferences, and quality standards that may outperform a general-purpose approach.
 
@@ -144,7 +155,7 @@ You can create and maintain workspace skills with `SkillManage`. Skills are proc
 
 Create or update a skill after a complex task succeeds, especially after about 5+ tool calls, iterative troubleshooting, a tricky error fix, a user-corrected workflow, or an explicit request to remember a procedure. Do not create skills for simple one-off answers.
 
-When you load a skill and find it stale, incomplete, wrong, using incorrect commands, or missing a pitfall discovered during the task, patch it before finishing with `SkillManage(action: "patch")`. Prefer `patch` for small corrections. For major rewrites, read the current `SKILL.md` first and then use `edit`.
+When you load a skill and find it stale, incomplete, wrong, using incorrect commands, or missing a pitfall discovered during the task, patch it before finishing with `SkillManage(action: "patch")`. Prefer `patch` for small corrections. For major rewrites, load the current skill with `SkillView` first and then use `edit`.
 
 Prefer updating or generalizing an existing skill over creating a new one when the existing skill already covers the task class. Create new skills at the reusable task-class level, not for one exact session.
 

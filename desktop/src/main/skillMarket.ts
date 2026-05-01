@@ -3,10 +3,12 @@ import * as path from 'path'
 import { unzipSync } from 'fflate'
 import type {
   MarketInstallResult,
+  MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   MarketSkillSummary,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketProviderId,
   SkillMarketSearchRequest,
   SkillMarketSearchResult
@@ -29,6 +31,14 @@ interface InstallMarker {
   slug: string
   version?: string
   installedAt: string
+  sourceUrl?: string
+}
+
+interface DotCraftInstallMarker {
+  provider: SkillMarketProviderId
+  slug: string
+  version?: string
+  preparedAt: string
   sourceUrl?: string
 }
 
@@ -94,6 +104,8 @@ const MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
 const MAX_SINGLE_FILE_BYTES = 20 * 1024 * 1024
 const MAX_FILE_COUNT = 1000
 const INSTALL_MARKER = '.dotcraft-market.json'
+const DOTCRAFT_INSTALL_MARKER = '.dotcraft-dotcraft-install.json'
+const DOTCRAFT_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const SKILL_DIR_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 export async function searchSkillMarket(
@@ -198,6 +210,62 @@ export async function installSkillFromMarket(
     targetDir,
     version,
     overwritten: existing
+  }
+}
+
+export async function prepareDotCraftSkillInstall(
+  workspacePath: string,
+  request: SkillMarketPrepareDotCraftInstallRequest,
+  fetcher: FetchLike = fetch
+): Promise<MarketDotCraftInstallPreparation> {
+  if (!workspacePath) throw new Error('No workspace open')
+  const provider = providerFor(request.provider)
+  const slug = normalizeSlug(request.slug)
+  const targetName = normalizeSkillDirName(slug)
+  const stagingRoot = path.join(workspacePath, '.craft', 'skill-install-staging')
+  await cleanupOldDotCraftStaging(stagingRoot)
+
+  const downloadUrl = provider.downloadUrl(slug, request.version)
+  const archive = await fetchBinary(downloadUrl, fetcher, provider.label)
+  const entries = normalizeArchive(archive)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const stagingDir = path.join(stagingRoot, `${provider.id}.${targetName}.${timestamp}`)
+  const candidateDir = path.join(stagingDir, 'source')
+  const metadataPath = path.join(stagingDir, DOTCRAFT_INSTALL_MARKER)
+
+  try {
+    await fs.rm(stagingDir, { recursive: true, force: true })
+    await fs.mkdir(candidateDir, { recursive: true })
+    for (const entry of entries) {
+      const targetPath = path.join(candidateDir, entry.relativePath)
+      assertWithin(candidateDir, targetPath)
+      await fs.mkdir(path.dirname(targetPath), { recursive: true })
+      await fs.writeFile(targetPath, entry.data)
+    }
+    const sourceUrl = provider.sourceUrl(slug)
+    const marker: DotCraftInstallMarker = {
+      provider: provider.id,
+      slug,
+      version: request.version,
+      preparedAt: new Date().toISOString(),
+      sourceUrl
+    }
+    await fs.writeFile(metadataPath, `${JSON.stringify(marker, null, 2)}\n`, 'utf-8')
+
+    return {
+      skillName: targetName,
+      provider: provider.id,
+      slug,
+      version: request.version,
+      sourceUrl,
+      workspacePath,
+      stagingDir,
+      candidateDir,
+      metadataPath
+    }
+  } catch (error) {
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+    throw error
   }
 }
 
@@ -362,15 +430,25 @@ function normalizeSummary(provider: ProviderDefinition, item: unknown): MarketSk
   const slug = firstString(item.slug, item.name, item.id, item.packageName)
   if (!slug) return null
   const name = firstString(item.displayName, item.title, item.name, item.slug) ?? slug
+  const latestVersion = isRecord(item.latestVersion) ? item.latestVersion : {}
+  const stats = isRecord(item.stats) ? item.stats : {}
+  const tagRecord = isRecord(item.tags) ? item.tags : {}
   return {
     provider: provider.id,
     slug,
     name,
     description: firstString(item.description, item.summary, item.shortDescription),
-    version: firstString(item.version, item.latestVersion, item.currentVersion),
+    version: firstString(
+      item.version,
+      item.latestVersion,
+      item.currentVersion,
+      latestVersion.version,
+      latestVersion.name,
+      tagRecord.latest
+    ),
     author: normalizeAuthor(item.author, item.owner, item.publisher, item.user),
-    downloads: firstNumber(item.downloads, item.downloadCount, item.installCount, item.pulls),
-    rating: firstNumber(item.rating, item.stars, item.score),
+    downloads: firstNumber(item.downloads, item.downloadCount, item.installCount, item.pulls, stats.downloads),
+    rating: firstNumber(item.rating, item.stars, item.score, stats.stars),
     tags: normalizeTags(item.tags, item.categories),
     sourceUrl: firstString(item.url, item.sourceUrl) ?? provider.sourceUrl(slug)
   }
@@ -378,6 +456,8 @@ function normalizeSummary(provider: ProviderDefinition, item: unknown): MarketSk
 
 function normalizeDetail(provider: ProviderDefinition, raw: unknown, fallbackSlug: string): MarketSkillDetail {
   const item = isRecord(raw) && isRecord(raw.skill) ? raw.skill : raw
+  const record = isRecord(raw) ? raw : {}
+  const itemRecord = isRecord(item) ? item : {}
   const summary =
     normalizeSummary(provider, item) ??
     ({
@@ -386,10 +466,18 @@ function normalizeDetail(provider: ProviderDefinition, raw: unknown, fallbackSlu
       name: fallbackSlug,
       sourceUrl: provider.sourceUrl(fallbackSlug)
     } satisfies MarketSkillSummary)
-  const record = isRecord(raw) ? raw : {}
-  const itemRecord = isRecord(item) ? item : {}
+  const latestVersion = isRecord(record.latestVersion) ? record.latestVersion : {}
+  const stats = isRecord(itemRecord.stats) ? itemRecord.stats : {}
+  const tagRecord = isRecord(itemRecord.tags) ? itemRecord.tags : {}
   return {
     ...summary,
+    version:
+      summary.version ??
+      firstString(record.version, record.latestVersion, latestVersion.version, latestVersion.name, tagRecord.latest),
+    downloads:
+      summary.downloads ??
+      firstNumber(record.downloads, record.downloadCount, record.installCount, record.pulls, stats.downloads),
+    rating: summary.rating ?? firstNumber(record.rating, record.stars, record.score, stats.stars),
     readme: firstString(
       record.readme,
       record.content,
@@ -487,6 +575,30 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function cleanupOldDotCraftStaging(stagingRoot: string): Promise<void> {
+  const now = Date.now()
+  let entries: Array<import('fs').Dirent>
+  try {
+    entries = await fs.readdir(stagingRoot, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const fullPath = path.join(stagingRoot, entry.name)
+      try {
+        const stats = await fs.stat(fullPath)
+        if (now - stats.mtimeMs > DOTCRAFT_STAGING_TTL_MS) {
+          await fs.rm(fullPath, { recursive: true, force: true })
+        }
+      } catch {
+        // Best-effort cleanup must never block a DotCraft install preparation.
+      }
+    }))
 }
 
 function normalizeAuthor(...values: unknown[]): string | undefined {

@@ -15,6 +15,8 @@ public sealed class SkillsLoader(string workspaceRoot)
 
     private HashSet<string> _disabledSkills = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly SkillVariantStore _variantStore = new(workspaceRoot);
+
     /// <summary>
     /// Gets the workspace skills path.
     /// </summary>
@@ -24,6 +26,11 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// Gets the user skills path.
     /// </summary>
     public string UserSkillsPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
+
+    /// <summary>
+    /// Gets the workspace-local variant store.
+    /// </summary>
+    public SkillVariantStore VariantStore => _variantStore;
 
     /// <summary>
     /// Replaces the set of disabled skill names (workspace UI / config). Disabled skills stay on disk but are omitted from agent context.
@@ -154,6 +161,64 @@ public sealed class SkillsLoader(string workspaceRoot)
     }
 
     /// <summary>
+    /// Loads the effective source-or-variant skill body.
+    /// </summary>
+    public EffectiveSkill? LoadEffectiveSkill(
+        string name,
+        bool variantModeEnabled,
+        SkillVariantTarget? target,
+        bool stripFrontmatter = true)
+    {
+        var source = ResolveSkillInfo(name);
+        if (source == null)
+            return null;
+
+        var effectivePath = ResolveEffectiveSkillFile(source, variantModeEnabled, target);
+        if (effectivePath == null)
+            return null;
+
+        var content = File.ReadAllText(effectivePath, Encoding.UTF8);
+        if (stripFrontmatter)
+            content = StripFrontmatter(content);
+
+        return new EffectiveSkill(
+            source.Name,
+            content,
+            effectivePath,
+            string.Equals(effectivePath, source.Path, StringComparison.OrdinalIgnoreCase) ? "source" : "variant");
+    }
+
+    /// <summary>
+    /// Resolves the effective physical <c>SKILL.md</c> path for source or current variant.
+    /// </summary>
+    public string? ResolveEffectiveSkillFile(SkillsLoader.SkillInfo source, bool variantModeEnabled, SkillVariantTarget? target)
+    {
+        if (!variantModeEnabled || target == null)
+            return source.Path;
+
+        var fingerprint = SkillVariantStore.ComputeSourceFingerprint(source.Path);
+        var variant = _variantStore.FindCurrentVariant(source, fingerprint, target);
+        if (variant == null)
+            return source.Path;
+
+        var variantSkillFile = Path.Combine(_variantStore.GetVariantSkillDir(variant), "SKILL.md");
+        return File.Exists(variantSkillFile) ? variantSkillFile : source.Path;
+    }
+
+    /// <summary>
+    /// Restores the original source skill for the given target.
+    /// </summary>
+    public bool RestoreOriginalSkill(string name, SkillVariantTarget target)
+    {
+        var source = ResolveSkillInfo(name);
+        if (source == null)
+            return false;
+
+        var fingerprint = SkillVariantStore.ComputeSourceFingerprint(source.Path);
+        return _variantStore.RestoreOriginal(source, fingerprint, target);
+    }
+
+    /// <summary>
     /// Reads optional Codex-compatible display metadata from <c>agents/openai.yaml</c>.
     /// Missing or invalid interface metadata is treated as absent.
     /// </summary>
@@ -205,18 +270,28 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// </summary>
     public string LoadSkillsForContext(IEnumerable<string> skillNames)
     {
+        return LoadSkillsForContext(skillNames, variantModeEnabled: false, target: null);
+    }
+
+    /// <summary>
+    /// Load specific effective skills for inclusion in agent context.
+    /// </summary>
+    public string LoadSkillsForContext(
+        IEnumerable<string> skillNames,
+        bool variantModeEnabled,
+        SkillVariantTarget? target)
+    {
         var parts = new List<string>();
 
         foreach (var name in skillNames)
         {
             if (_disabledSkills.Contains(name))
                 continue;
-            var content = LoadSkill(name);
-            if (content == null)
+            var effective = LoadEffectiveSkill(name, variantModeEnabled, target);
+            if (effective == null)
                 continue;
 
-            content = StripFrontmatter(content);
-            parts.Add($"### Skill: {name}\n\n{content}");
+            parts.Add($"### Skill: {name}\n\n{effective.Content}");
         }
 
         return parts.Count > 0 ? string.Join("\n\n---\n\n", parts) : string.Empty;
@@ -349,6 +424,17 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// </summary>
     public string BuildSkillsSummary(IReadOnlyCollection<string>? availableToolNames = null)
     {
+        return BuildSkillsSummary(availableToolNames, variantModeEnabled: false, target: null);
+    }
+
+    /// <summary>
+    /// Build a summary of all skills with effective locations when variants are enabled.
+    /// </summary>
+    public string BuildSkillsSummary(
+        IReadOnlyCollection<string>? availableToolNames,
+        bool variantModeEnabled,
+        SkillVariantTarget? target)
+    {
         var allSkills = ListSkills(filterUnavailable: false);
         if (allSkills.Count == 0)
             return string.Empty;
@@ -385,7 +471,7 @@ public sealed class SkillsLoader(string workspaceRoot)
                 $"  <skill available=\"{available.ToString().ToLower()}\" always=\"{alwaysLoad.ToString().ToLower()}\">");
             sb.AppendLine($"    <name>{EscapeXml(skill.Name)}</name>");
             sb.AppendLine($"    <description>{EscapeXml(description)}</description>");
-            sb.AppendLine($"    <location>{skill.Path}</location>");
+            sb.AppendLine($"    <location>{EscapeXml(ResolveEffectiveSkillFile(skill, variantModeEnabled, target) ?? skill.Path)}</location>");
 
             // Show missing requirements for unavailable skills
             if (!available && unavailableReason != null)
@@ -475,6 +561,13 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         return null;
     }
+
+    /// <summary>
+    /// Resolves a source skill descriptor by name.
+    /// </summary>
+    public SkillInfo? ResolveSkillInfo(string name) =>
+        ListSkills(filterUnavailable: false)
+            .FirstOrDefault(skill => string.Equals(skill.Name, name, StringComparison.OrdinalIgnoreCase));
 
     private static Dictionary<string, string> ParseOpenAiInterfaceManifest(string content)
     {
@@ -581,7 +674,7 @@ public sealed class SkillsLoader(string workspaceRoot)
         return metadata?.GetValueOrDefault("description", name) ?? name;
     }
 
-    private static string StripFrontmatter(string content)
+    public static string StripFrontmatter(string content)
     {
         if (!content.StartsWith("---"))
             return content;

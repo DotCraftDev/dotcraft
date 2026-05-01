@@ -27,13 +27,20 @@ interface HubNotificationPayload {
   actionUrl?: string | null
 }
 
-function resolveTrayIconPath(): string | null {
-  const packaged = typeof process.resourcesPath === 'string'
-    ? join(process.resourcesPath, 'icon.png')
-    : null
-  const dev = join(__dirname, '../../resources/icon.png')
-  const path = app.isPackaged ? packaged : dev
-  return path && existsSync(path) ? path : null
+export function resolveTrayIconPath(platform: NodeJS.Platform = process.platform): string | null {
+  const basePath = app.isPackaged && typeof process.resourcesPath === 'string'
+    ? process.resourcesPath
+    : join(__dirname, '../../resources')
+  const candidates = platform === 'win32'
+    ? ['icon.ico', 'icon.png']
+    : ['icon.png']
+
+  for (const candidate of candidates) {
+    const path = join(basePath, candidate)
+    if (existsSync(path)) return path
+  }
+
+  return null
 }
 
 function createTrayIcon(): Electron.NativeImage {

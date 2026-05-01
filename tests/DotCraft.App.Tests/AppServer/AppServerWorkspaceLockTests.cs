@@ -70,6 +70,45 @@ public sealed class AppServerWorkspaceLockTests : IDisposable
         second!.DeleteAfterDispose();
     }
 
+    [Fact]
+    public void CleanupStaleFiles_RemovesStaleLockAndGuard()
+    {
+        var lockPath = AppServerWorkspaceLock.GetLockFilePath(BotPath);
+        WriteLock(lockPath, pid: 999999);
+        File.WriteAllText(lockPath + ".guard", string.Empty);
+
+        AppServerWorkspaceLock.CleanupStaleFiles(BotPath);
+
+        Assert.False(File.Exists(lockPath));
+        Assert.False(File.Exists(lockPath + ".guard"));
+    }
+
+    [Fact]
+    public void CleanupStaleFiles_PreservesLiveLockAndGuard()
+    {
+        var lockPath = AppServerWorkspaceLock.GetLockFilePath(BotPath);
+        WriteLock(lockPath, pid: Environment.ProcessId);
+        File.WriteAllText(lockPath + ".guard", string.Empty);
+
+        AppServerWorkspaceLock.CleanupStaleFiles(BotPath);
+
+        Assert.True(File.Exists(lockPath));
+        Assert.True(File.Exists(lockPath + ".guard"));
+    }
+
+    private void WriteLock(string lockPath, int pid)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new AppServerLockInfo(
+            Pid: pid,
+            WorkspacePath: _workspacePath,
+            ManagedByHub: true,
+            HubApiBaseUrl: "http://127.0.0.1:43000",
+            StartedAt: DateTimeOffset.UtcNow,
+            Version: "test",
+            Endpoints: new Dictionary<string, string>()), DotCraft.Hub.HubJson.Options);
+        File.WriteAllText(lockPath, json);
+    }
+
     private DotCraftPaths Paths() => new()
     {
         WorkspacePath = _workspacePath,

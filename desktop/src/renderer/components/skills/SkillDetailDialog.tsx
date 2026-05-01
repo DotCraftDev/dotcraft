@@ -8,6 +8,7 @@ import { ActionTooltip } from '../ui/ActionTooltip'
 import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
 import { PillSwitch } from '../ui/PillSwitch'
 import { SkillAvatar } from './SkillAvatar'
+import { VariantBadge } from './VariantBadge'
 
 interface SkillDetailDialogProps {
   skill: SkillEntry
@@ -16,6 +17,7 @@ interface SkillDetailDialogProps {
   onClose: () => void
   onToggleEnabled: (enabled: boolean) => void
   onTryInChat: () => void
+  onRestoreOriginal?: () => void
   showToggle?: boolean
 }
 
@@ -26,6 +28,7 @@ export function SkillDetailDialog({
   onClose,
   onToggleEnabled,
   onTryInChat,
+  onRestoreOriginal,
   showToggle = true,
 }: SkillDetailDialogProps) {
   const t = useT()
@@ -67,9 +70,12 @@ export function SkillDetailDialog({
             size={44}
           />
           <div style={headerCopy}>
-            <h2 id="skill-detail-title" style={title}>
-              {displayName}
-            </h2>
+            <div style={titleRow}>
+              <h2 id="skill-detail-title" style={title}>
+                {displayName}
+              </h2>
+              {skill.hasVariant ? <VariantBadge /> : null}
+            </div>
             <p style={description}>{shortDescription}</p>
           </div>
           <div style={headerActions}>
@@ -122,6 +128,12 @@ export function SkillDetailDialog({
                 label: t('skillDetail.openFolder'),
                 onClick: () => {
                   void window.api.shell.openPath(skillDir)
+                },
+              },
+              {
+                label: t('skillDetail.restoreOriginal'),
+                onClick: () => {
+                  onRestoreOriginal?.()
                 },
               },
             ]}
@@ -189,12 +201,22 @@ const headerCopy: React.CSSProperties = {
   paddingTop: 2,
 }
 
+const titleRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minWidth: 0,
+}
+
 const title: React.CSSProperties = {
   margin: 0,
   fontSize: 21,
   lineHeight: 1.25,
   fontWeight: 700,
   color: 'var(--text-primary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 }
 
 const description: React.CSSProperties = {

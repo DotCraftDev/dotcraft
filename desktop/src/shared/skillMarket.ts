@@ -19,6 +19,12 @@ export interface SkillMarketInstallRequest {
   overwrite?: boolean
 }
 
+export interface SkillMarketPrepareDotCraftInstallRequest {
+  provider: SkillMarketProviderId
+  slug: string
+  version?: string
+}
+
 export interface MarketSkillSummary {
   provider: SkillMarketProviderId
   slug: string
@@ -45,6 +51,18 @@ export interface MarketInstallResult {
   targetDir: string
   version?: string
   overwritten: boolean
+}
+
+export interface MarketDotCraftInstallPreparation {
+  skillName: string
+  provider: SkillMarketProviderId
+  slug: string
+  version?: string
+  sourceUrl?: string
+  workspacePath: string
+  stagingDir: string
+  candidateDir: string
+  metadataPath: string
 }
 
 export interface SkillMarketSearchResult {

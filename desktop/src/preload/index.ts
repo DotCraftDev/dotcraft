@@ -14,9 +14,11 @@ import type {
 } from '../shared/viewer/types'
 import type {
   MarketInstallResult,
+  MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketSearchRequest,
   SkillMarketSearchResult
 } from '../shared/skillMarket'
@@ -469,6 +471,11 @@ const api = {
     },
     install(request: SkillMarketInstallRequest): Promise<MarketInstallResult> {
       return ipcRenderer.invoke('skill-market:install', request)
+    },
+    prepareDotCraftInstall(
+      request: SkillMarketPrepareDotCraftInstallRequest
+    ): Promise<MarketDotCraftInstallPreparation> {
+      return ipcRenderer.invoke('skill-market:prepare-dotcraft-install', request)
     }
   },
 

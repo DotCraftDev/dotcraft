@@ -150,14 +150,14 @@ public sealed class PromptBuilderTests : IDisposable
         Directory.CreateDirectory(_tempRoot);
         WriteOnDemandSkillRequiringSkillManage();
         var builder = CreatePromptBuilder(
-            toolNamesProvider: () => ["SkillManage"]);
+            toolNamesProvider: () => ["SkillView", "SkillManage"]);
 
         var prompt = builder.BuildSystemPrompt();
 
         Assert.DoesNotContain("### Skill: skill-authoring", prompt);
         Assert.Contains("# Skills (mandatory)", prompt);
         Assert.Contains("relevant or even partially relevant", prompt);
-        Assert.Contains("MUST read its SKILL.md file using the ReadFile tool", prompt);
+        Assert.Contains("MUST load it with the SkillView tool", prompt);
         Assert.Contains("Only proceed without loading a skill if genuinely none", prompt);
         Assert.Contains("<name>skill-authoring</name>", prompt);
         Assert.Contains("<skill available=\"true\" always=\"false\">", prompt);

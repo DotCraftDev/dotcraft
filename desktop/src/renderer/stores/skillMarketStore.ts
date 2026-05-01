@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   MarketInstallResult,
+  MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   MarketSkillSummary,
   SkillMarketProviderId
@@ -17,6 +18,7 @@ interface SkillMarketState {
   selectedSkill: MarketSkillDetail | null
   detailLoading: boolean
   installSlug: string | null
+  dotCraftInstallSlug: string | null
 
   setQuery(query: string): void
   setProvider(provider: SkillMarketProviderFilter): void
@@ -24,6 +26,7 @@ interface SkillMarketState {
   selectSkill(skill: MarketSkillSummary): Promise<void>
   clearSelection(): void
   installSelected(overwrite?: boolean): Promise<MarketInstallResult>
+  prepareDotCraftInstall(): Promise<MarketDotCraftInstallPreparation>
 }
 
 export const useSkillMarketStore = create<SkillMarketState>((set, get) => ({
@@ -35,6 +38,7 @@ export const useSkillMarketStore = create<SkillMarketState>((set, get) => ({
   selectedSkill: null,
   detailLoading: false,
   installSlug: null,
+  dotCraftInstallSlug: null,
 
   setQuery(query) {
     set({ query })
@@ -72,7 +76,16 @@ export const useSkillMarketStore = create<SkillMarketState>((set, get) => ({
         provider: skill.provider,
         slug: skill.slug
       })
-      set({ selectedSkill: detail, detailLoading: false })
+      set((state) => {
+        const selected = state.selectedSkill
+        if (!selected || selected.provider !== skill.provider || selected.slug !== skill.slug) {
+          return state
+        }
+        return {
+          selectedSkill: { ...selected, ...detail },
+          detailLoading: false
+        }
+      })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ error: msg, detailLoading: false })
@@ -108,6 +121,24 @@ export const useSkillMarketStore = create<SkillMarketState>((set, get) => ({
       return result
     } catch (e: unknown) {
       set({ installSlug: null })
+      throw e
+    }
+  },
+
+  async prepareDotCraftInstall() {
+    const selected = get().selectedSkill
+    if (!selected) throw new Error('No selected skill')
+    set({ dotCraftInstallSlug: selected.slug, error: null })
+    try {
+      const result = await window.api.skillMarket.prepareDotCraftInstall({
+        provider: selected.provider,
+        slug: selected.slug,
+        version: selected.version
+      })
+      set({ dotCraftInstallSlug: null })
+      return result
+    } catch (e: unknown) {
+      set({ dotCraftInstallSlug: null })
       throw e
     }
   }

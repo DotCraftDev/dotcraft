@@ -65,4 +65,27 @@ public sealed class CommandLineArgsTests
         Assert.True(args.PreferExistingUserConfig);
         Assert.False(args.ReservesStdout);
     }
+
+    [Fact]
+    public void Parse_SkillSubcommand_ParsesSkillFlags()
+    {
+        var args = CommandLineArgs.Parse([
+            "skill",
+            "install",
+            "--candidate", "tmp/demo",
+            "--name", "demo-skill",
+            "--source", "local",
+            "--overwrite",
+            "--json"
+        ]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Skill, args.Mode);
+        Assert.Equal("install", args.SkillCommand);
+        Assert.Equal("tmp/demo", args.SkillCandidatePath);
+        Assert.Equal("demo-skill", args.SkillName);
+        Assert.Equal("local", args.SkillSource);
+        Assert.True(args.SkillOverwrite);
+        Assert.True(args.SkillJson);
+        Assert.False(args.ReservesStdout);
+    }
 }

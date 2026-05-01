@@ -19,6 +19,7 @@ export interface ServerCapabilities {
   cronManagement?: boolean
   heartbeatManagement?: boolean
   skillsManagement?: boolean
+  skillVariants?: boolean
   commandManagement?: boolean
   modelCatalogManagement?: boolean
   workspaceConfigManagement?: boolean
