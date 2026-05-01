@@ -12,7 +12,6 @@ using DotCraft.Heartbeat;
 using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
-using DotCraft.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.AI;

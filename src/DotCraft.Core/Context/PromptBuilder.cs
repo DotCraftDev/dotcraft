@@ -1,6 +1,5 @@
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
-using DotCraft.Localization;
 using DotCraft.Memory;
 using DotCraft.Skills;
 
@@ -89,9 +88,13 @@ public sealed class PromptBuilder(
         {
             parts.Add(
 $"""
-# Skills
+# Skills (mandatory)
 
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the ReadFile tool.
+Before replying, scan the available skills below. If a skill is relevant or even partially relevant to the task, you MUST read its SKILL.md file using the ReadFile tool and follow its instructions.
+
+Err on the side of loading skills. Skills encode project workflows, pitfalls, user preferences, and quality standards that may outperform a general-purpose approach.
+
+Only proceed without loading a skill if genuinely none of the listed skills are relevant to the task.
 
 {skillsSummary}
 """
@@ -139,9 +142,11 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 
 You can create and maintain workspace skills with `SkillManage`. Skills are procedural memory: reusable, narrow instructions for task types that are likely to recur.
 
-Consider creating or updating a skill after a complex task succeeds, a tricky error is fixed, a user correction reveals a stable workflow, or the user asks you to remember a procedure. Do not create skills for simple one-off answers.
+Create or update a skill after a complex task succeeds, especially after about 5+ tool calls, iterative troubleshooting, a tricky error fix, a user-corrected workflow, or an explicit request to remember a procedure. Do not create skills for simple one-off answers.
 
-When you use a skill and find it stale, incomplete, wrong, or missing a pitfall, patch it with `SkillManage(action: "patch")`. Prefer `patch` for small corrections. For major rewrites, read the current `SKILL.md` first and then use `edit`.
+When you load a skill and find it stale, incomplete, wrong, using incorrect commands, or missing a pitfall discovered during the task, patch it before finishing with `SkillManage(action: "patch")`. Prefer `patch` for small corrections. For major rewrites, read the current `SKILL.md` first and then use `edit`.
+
+Prefer updating or generalizing an existing skill over creating a new one when the existing skill already covers the task class. Create new skills at the reusable task-class level, not for one exact session.
 
 Newly created or updated skills may not affect the current prompt immediately; they are available after the next turn or session refresh.
 """;

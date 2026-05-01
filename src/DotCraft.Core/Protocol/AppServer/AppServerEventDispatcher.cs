@@ -1,4 +1,3 @@
-using System.IO;
 using System.Net.WebSockets;
 using System.Text.Json;
 using DotCraft.Logging;

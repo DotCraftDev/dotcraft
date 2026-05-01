@@ -5,7 +5,6 @@ using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Context.Compaction;
 using DotCraft.Tracing;
-using DotCraft.Hosting;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Security;

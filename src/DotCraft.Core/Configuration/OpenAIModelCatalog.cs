@@ -1,6 +1,5 @@
 using System.ClientModel;
 using DotCraft.Agents;
-using OpenAI;
 
 namespace DotCraft.Configuration;
 

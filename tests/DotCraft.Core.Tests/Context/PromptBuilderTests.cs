@@ -124,6 +124,10 @@ public sealed class PromptBuilderTests : IDisposable
 
         Assert.Contains("## Skill Self-Learning", prompt);
         Assert.Contains("Skills are procedural memory", prompt);
+        Assert.Contains("about 5+ tool calls", prompt);
+        Assert.Contains("patch it before finishing", prompt);
+        Assert.Contains("Prefer updating or generalizing an existing skill", prompt);
+        Assert.Contains("reusable task-class level", prompt);
         Assert.Contains("SkillManage(action: \"patch\")", prompt);
         Assert.DoesNotContain("Confirm with the user", prompt);
     }
@@ -151,6 +155,10 @@ public sealed class PromptBuilderTests : IDisposable
         var prompt = builder.BuildSystemPrompt();
 
         Assert.DoesNotContain("### Skill: skill-authoring", prompt);
+        Assert.Contains("# Skills (mandatory)", prompt);
+        Assert.Contains("relevant or even partially relevant", prompt);
+        Assert.Contains("MUST read its SKILL.md file using the ReadFile tool", prompt);
+        Assert.Contains("Only proceed without loading a skill if genuinely none", prompt);
         Assert.Contains("<name>skill-authoring</name>", prompt);
         Assert.Contains("<skill available=\"true\" always=\"false\">", prompt);
     }
