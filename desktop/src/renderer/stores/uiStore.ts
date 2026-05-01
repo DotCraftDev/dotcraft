@@ -15,6 +15,7 @@ const DETAIL_MIN_WIDTH = 300
 const PENDING_WELCOME_TIMEOUT_MS = 30_000
 
 export type SystemDetailTab = 'changes' | 'plan'
+export type ChangesDiffMode = 'inline' | 'split'
 
 /** @deprecated Use `ActiveDetailTab` instead. Kept for backwards compatibility. */
 export type DetailPanelTab = SystemDetailTab
@@ -73,6 +74,8 @@ export interface UIState {
   quickOpenVisible: boolean
   /** Currently selected file path in the Changes tab */
   selectedChangedFile: string | null
+  /** Per-thread display mode for the Changes diff stream. */
+  changesDiffModeByThread: Record<string, ChangesDiffMode>
   /**
    * Tracks the turn ID for which the detail panel was auto-shown.
    * Prevents re-triggering after the user manually hides the panel.
@@ -135,6 +138,8 @@ interface UIStore extends UIState {
   /** Show or hide the Quick-Open dialog. */
   setQuickOpenVisible(visible: boolean): void
   selectChangedFile(filePath: string | null): void
+  getChangesDiffMode(threadId: string | null): ChangesDiffMode
+  setChangesDiffMode(threadId: string | null, mode: ChangesDiffMode): void
   /** Open detail panel, switch to Changes tab, select the given file */
   showChangesForFile(filePath: string): void
   /** Mark auto-show as triggered for a given turn (prevents re-trigger) */
@@ -226,6 +231,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   lastActiveSystemTab: 'changes',
   quickOpenVisible: false,
   selectedChangedFile: null,
+  changesDiffModeByThread: {},
   autoShowTriggeredForTurn: null,
   autoShowPlanForItem: null,
   autoShowReasons: new Set<string>(),
@@ -374,6 +380,21 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   selectChangedFile(filePath) {
     set({ selectedChangedFile: filePath })
+  },
+
+  getChangesDiffMode(threadId) {
+    if (!threadId) return 'inline'
+    return get().changesDiffModeByThread[threadId] ?? 'inline'
+  },
+
+  setChangesDiffMode(threadId, mode) {
+    if (!threadId) return
+    set((state) => ({
+      changesDiffModeByThread: {
+        ...state.changesDiffModeByThread,
+        [threadId]: mode
+      }
+    }))
   },
 
   showChangesForFile(filePath) {
