@@ -53,11 +53,23 @@ public sealed class SessionServiceMemoryConsolidationTests : IDisposable
     [Fact]
     public async Task SubmitInputAsync_WhenConsolidationSucceeds_EmitsConsolidatedAndPersistentNotice()
     {
-        var consolidator = new FakeMemoryConsolidator(MemoryConsolidationResult.Succeeded(memoryWritten: true, historyWritten: true));
+        var startSawPersistedTurn = false;
+        var threadStore = new ThreadStore(_tempDir);
+        string? completedThreadId = null;
+        var consolidator = new FakeMemoryConsolidator(
+            MemoryConsolidationResult.Succeeded(memoryWritten: true, historyWritten: true),
+            async () =>
+            {
+                var persisted = completedThreadId == null
+                    ? null
+                    : await threadStore.LoadThreadAsync(completedThreadId);
+                startSawPersistedTurn = persisted?.Turns.SingleOrDefault()?.Status == TurnStatus.Completed;
+            });
         var chatClient = new StaticChatClient("ok");
         await using var agentFactory = CreateAgentFactory(chatClient, consolidator);
         var svc = CreateService(agentFactory, chatClient);
         var thread = await svc.CreateThreadAsync(MakeIdentity());
+        completedThreadId = thread.Id;
 
         var subscription = CollectThreadEventsAsync(
             svc,
@@ -70,6 +82,7 @@ public sealed class SessionServiceMemoryConsolidationTests : IDisposable
 
         Assert.Contains(threadEvents, e => IsSystemEvent(e, "consolidated"));
         Assert.Contains(threadEvents, IsMemoryNotice);
+        Assert.True(startSawPersistedTurn);
 
         var reloaded = await svc.GetThreadAsync(thread.Id);
         var notice = Assert.Single(reloaded.Turns.Single().Items, item => item.Type == ItemType.SystemNotice);
@@ -175,12 +188,18 @@ public sealed class SessionServiceMemoryConsolidationTests : IDisposable
         evt.EventType == SessionEventType.ItemCompleted
         && evt.Payload is SessionItem { Payload: SystemNoticePayload { Kind: "memoryConsolidated" } };
 
-    private sealed class FakeMemoryConsolidator(MemoryConsolidationResult result) : IMemoryConsolidator
+    private sealed class FakeMemoryConsolidator(
+        MemoryConsolidationResult result,
+        Func<Task>? onStart = null) : IMemoryConsolidator
     {
-        public Task<MemoryConsolidationResult> ConsolidateAsync(
+        public async Task<MemoryConsolidationResult> ConsolidateAsync(
             IReadOnlyList<ChatMessage> messagesToArchive,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(result);
+            CancellationToken cancellationToken = default)
+        {
+            if (onStart != null)
+                await onStart();
+            return result;
+        }
     }
 
     private sealed class StaticChatClient(string responseText) : IChatClient

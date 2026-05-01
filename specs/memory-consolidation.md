@@ -86,7 +86,7 @@ Unlike context compaction, consolidation does not need a circuit breaker in the 
 
 Memory consolidation emits transient `system/event` notifications so clients can display and dismiss maintenance status without blocking the active Turn:
 
-- `consolidating` is emitted through the active turn-scoped event channel after the successful Turn is marked complete and before the background consolidation task is scheduled. It carries the completed Turn's `turnId`.
+- `consolidating` is emitted through the active turn-scoped event channel after the successful Turn is marked complete and the baseline thread/session persistence attempt has finished, immediately before the background consolidation task is scheduled. It carries the completed Turn's `turnId`.
 - `consolidated` is emitted through the thread event broker after the background task successfully writes `MEMORY.md` or `HISTORY.md`. Because the turn-scoped event channel may already be closed, this event is thread-scoped and carries `turnId = null`.
 - `consolidationSkipped` is emitted through the thread event broker when the background task completes without writing durable memory, such as when the model does not call `save_memory` or returns no valid changes. Clients should dismiss any active consolidation status without showing a success marker.
 - `consolidationFailed` is emitted through the thread event broker if the background task fails. Clients should dismiss any active consolidation status and may surface the event `message`.

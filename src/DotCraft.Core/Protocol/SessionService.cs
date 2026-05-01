@@ -1382,12 +1382,6 @@ public sealed class SessionService(
                 thread.LastActiveAt = DateTimeOffset.UtcNow;
                 RecordTurnTokenUsage(thread, turn);
                 eventChannel.EmitTurnCompleted(turn);
-                TryScheduleMemoryConsolidation(threadId, thread, turn, session, eventChannel, NextItemSeq);
-                ThreadRuntimeSignalForBroadcast?.Invoke(
-                    threadId,
-                    EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
-                        ? SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation
-                        : SessionThreadRuntimeSignal.TurnCompleted);
 
                 try
                 {
@@ -1398,6 +1392,13 @@ public sealed class SessionService(
                 {
                     logger?.LogError(ex, "Failed to persist thread state after turn completion for thread {ThreadId}", threadId);
                 }
+
+                TryScheduleMemoryConsolidation(threadId, thread, turn, session, eventChannel, NextItemSeq);
+                ThreadRuntimeSignalForBroadcast?.Invoke(
+                    threadId,
+                    EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
+                        ? SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation
+                        : SessionThreadRuntimeSignal.TurnCompleted);
 
                 await TryStartNextQueuedTurnAsync(threadId, CancellationToken.None);
             }
