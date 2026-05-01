@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
+import { useSkillsStore } from '../stores/skillsStore'
+import { useUIStore } from '../stores/uiStore'
 import { useViewerTabStore } from '../stores/viewerTabStore'
 import type { ConversationItem } from '../types/conversation'
 import type { FileDiff } from '../types/toolCall'
@@ -22,6 +24,15 @@ const collapseAnimationMs = 200
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
+    useSkillsStore.setState({
+      skills: [],
+      loading: false,
+      error: null,
+      selectedSkillName: null,
+      skillContent: null,
+      contentLoading: false
+    })
+    useUIStore.setState({ activeMainView: 'conversation' })
     useViewerTabStore.setState({
       byThread: new Map(),
       currentThreadId: null,
@@ -446,6 +457,163 @@ describe('ToolCallCard shell rendering', () => {
     fireEvent.click(row)
 
     expect(screen.queryByText('200 · 12,345 chars · readability · truncated')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
+  it('renders successful SkillManage create as a skill card and opens skill detail', async () => {
+    const item: ConversationItem = {
+      id: 'skill-create-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-create-call-1',
+      arguments: {
+        action: 'create',
+        name: 'demo-skill',
+        content: '---\nname: demo-skill\ndescription: Demo\n---\n# Demo\n'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Skill 'demo-skill' created.",
+        path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'demo-skill',
+              description: 'Demo',
+              source: 'workspace',
+              available: true,
+              enabled: true,
+              path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+            }
+          ]
+        }
+      }
+      if (method === 'skills/read') {
+        return { content: '# Demo' }
+      }
+      return {}
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: { get: async () => ({ locale: 'en' }) },
+        appServer: { sendRequest }
+      }
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Skill')).toBeInTheDocument()
+    expect(screen.getByText('Created')).toBeInTheDocument()
+    expect(screen.getByText('demo-skill')).toBeInTheDocument()
+    expect(screen.getByTestId('inline-diff-view')).toBeInTheDocument()
+    expect(screen.queryByText(/"success"/)).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'View in Skills' }))
+    })
+
+    expect(useUIStore.getState().activeMainView).toBe('skills')
+    expect(useSkillsStore.getState().selectedSkillName).toBe('demo-skill')
+    expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    expect(sendRequest).toHaveBeenCalledWith('skills/read', { name: 'demo-skill' })
+  })
+
+  it('renders successful SkillManage patch as a skill card with an embedded diff', () => {
+    const item: ConversationItem = {
+      id: 'skill-patch-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-patch-call-1',
+      arguments: {
+        action: 'patch',
+        name: 'demo-skill',
+        oldString: 'Follow these steps.',
+        newString: 'Follow these updated steps.'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Patched skill 'demo-skill'. The original skill was not modified.",
+        replacementCount: 1
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Variant updated')).toBeInTheDocument()
+    const filename = screen.getByText('SKILL.md')
+    expect(filename).toHaveAttribute('title', 'demo-skill/SKILL.md')
+    expect(screen.getByText('Follow these steps.')).toBeInTheDocument()
+    expect(screen.getByText('Follow these updated steps.')).toBeInTheDocument()
+    expect(screen.queryByText(/"replacementCount"/)).toBeNull()
+  })
+
+  it('renders successful SkillManage delete as a non-expandable title row', () => {
+    const item: ConversationItem = {
+      id: 'skill-delete-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-delete-call-1',
+      arguments: {
+        action: 'delete',
+        name: 'old-skill'
+      },
+      result: JSON.stringify({
+        success: true,
+        message: "Skill 'old-skill' deleted."
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const row = screen.getByRole('button', { name: /Deleted skill old-skill/ })
+
+    expect(screen.queryByText('▼')).toBeNull()
+    fireEvent.click(row)
+
+    expect(screen.queryByText(/Skill 'old-skill' deleted/)).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
+  it('renders failed SkillManage results without exposing raw JSON output', () => {
+    const item: ConversationItem = {
+      id: 'skill-fail-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillManage',
+      toolCallId: 'skill-fail-call-1',
+      arguments: {
+        action: 'patch',
+        name: 'demo-skill',
+        oldString: 'missing',
+        newString: 'updated'
+      },
+      result: JSON.stringify({
+        success: false,
+        message: 'The requested text was not found.',
+        error: 'The requested text was not found.'
+      }),
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Failed: Patched skill demo-skill/)).toBeInTheDocument()
+    expect(screen.getByText(/The requested text was not found/)).toBeInTheDocument()
+    expect(screen.queryByText(/"success"/)).toBeNull()
     expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
   })
 
