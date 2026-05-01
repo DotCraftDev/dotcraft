@@ -295,7 +295,7 @@ public sealed class AppServerRequestHandler(
             CronManagement = cronService != null,
             HeartbeatManagement = heartbeatService != null,
             SkillsManagement = skillsLoader != null,
-            SkillVariants = skillsLoader != null,
+            SkillVariants = skillsLoader != null && IsSkillVariantModeEnabled(),
             CommandManagement = true,
             Automations = automationsHandler != null,
             ChannelStatus = channelStatusProvider != null,

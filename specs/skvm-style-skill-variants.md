@@ -584,7 +584,7 @@ Allowed `VariantMode` values:
 - `passive`: record run evidence but do not create variants automatically.
 - `enabled`: create and inject current variants by policy.
 
-Initial implementation MAY hard-code conservative defaults before exposing all settings.
+Initial implementation supports `enabled` and `disabled`; `passive` is reserved for the future run-record-only evidence layer. Desktop should not expose `VariantMode` as a normal personalization setting while variants remain an internal safety layer behind skill self-learning.
 
 ## 19. AppServer Extension Surface
 
@@ -597,6 +597,8 @@ Candidate methods:
 | `skills/view` | Read the effective skill content after source/variant resolution. |
 | `skills/restoreOriginal` | Restore the source skill by removing or disabling the current adaptation. |
 | `skills/runs/list` | List compact run records for a skill, mainly for diagnostics. |
+
+`capabilities.skillVariants` means the current runtime has variant mode enabled, not merely that the server binary knows about `skills/view` or `skills/restoreOriginal`. Clients should use it to decide whether to show variant-dependent user actions such as restoring the original skill. `skills/view` may still return the source body as a compatibility effective view when variant mode is disabled.
 
 The existing `skills/list` may later include optional fields:
 

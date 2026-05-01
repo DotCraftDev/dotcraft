@@ -361,7 +361,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
-| `capabilities.skillVariants` | boolean | Server supports effective skill view and restore methods (`skills/view`, `skills/restoreOriginal`). |
+| `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
@@ -3351,7 +3351,7 @@ When disabling, the skill is marked unavailable for future agent context resolut
 ### 18.9 Capability Advertisement
 
 Clients must check `capabilities.skillsManagement` before calling any `skills/*` method.
-Clients should additionally check `capabilities.skillVariants` before calling `skills/view` or `skills/restoreOriginal`.
+Clients should additionally check `capabilities.skillVariants` before offering variant-dependent UX such as restoring the original skill. `skills/view` may still be available as a source-only effective view when this capability is absent or false.
 
 ---
 

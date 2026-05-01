@@ -496,7 +496,7 @@ public sealed class AppServerServerCapabilities
     public bool SkillsManagement { get; set; }
 
     /// <summary>
-    /// Server supports effective skill views and restoring source skills from workspace adaptations.
+    /// Server has skill variants enabled for effective skill views and restoring source skills from workspace adaptations.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SkillVariants { get; set; }

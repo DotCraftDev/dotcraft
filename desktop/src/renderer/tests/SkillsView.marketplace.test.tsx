@@ -8,6 +8,7 @@ import { useSkillMarketStore } from '../stores/skillMarketStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useToastStore } from '../stores/toastStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
@@ -70,6 +71,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
       welcomeDraft: null,
       pendingWelcomeTurn: null
     })
+    useToastStore.setState({ toasts: [] })
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'skills/list') {
@@ -109,6 +111,9 @@ describe('SkillsView marketplace browse and manage modes', () => {
             path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
           }
         }
+      }
+      if (method === 'skills/restoreOriginal') {
+        return { restored: true }
       }
       if (method === 'thread/start') {
         return {
@@ -251,8 +256,13 @@ describe('SkillsView marketplace browse and manage modes', () => {
 
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: 'More actions' })).toBeInTheDocument()
+    const moreButton = within(dialog).getByRole('button', { name: 'More actions' })
+    expect(moreButton).toBeInTheDocument()
     expect(screen.getByTestId('skill-detail-scroll-body')).toBeInTheDocument()
+
+    fireEvent.click(moreButton)
+    expect(await screen.findByRole('menuitem', { name: 'Open folder' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: 'Restore original skill' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('switch', { name: 'Toggle Memory skill' }))
 
@@ -261,6 +271,60 @@ describe('SkillsView marketplace browse and manage modes', () => {
         name: 'memory',
         enabled: false
       })
+    })
+  })
+
+  it('restores the original skill from the detail menu', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByText('Memory'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Restore original skill' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/restoreOriginal', {
+        name: 'memory'
+      })
+    })
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/read', {
+        name: 'memory'
+      })
+    })
+    expect(useToastStore.getState().toasts.some((toast) => toast.message === 'Restored original skill')).toBe(true)
+  })
+
+  it('shows a restore noop toast when the skill has no workspace adaptation', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'skills/restoreOriginal') return { restored: false }
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'memory',
+              displayName: 'Memory',
+              shortDescription: 'Remember project facts',
+              description: 'Remember project facts',
+              source: 'builtin',
+              available: true,
+              enabled: true,
+              path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+            }
+          ]
+        }
+      }
+      return { content: '---\nname: memory\n---\n# Memory' }
+    })
+    renderView()
+
+    fireEvent.click(await screen.findByText('Memory'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Restore original skill' }))
+
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts.some((toast) => toast.message === 'This skill is already using its original source')).toBe(true)
     })
   })
 

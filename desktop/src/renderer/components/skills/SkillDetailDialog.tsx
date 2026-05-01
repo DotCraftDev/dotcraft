@@ -16,6 +16,7 @@ interface SkillDetailDialogProps {
   onClose: () => void
   onToggleEnabled: (enabled: boolean) => void
   onTryInChat: () => void
+  onRestoreOriginal?: () => void
   showToggle?: boolean
 }
 
@@ -26,6 +27,7 @@ export function SkillDetailDialog({
   onClose,
   onToggleEnabled,
   onTryInChat,
+  onRestoreOriginal,
   showToggle = true,
 }: SkillDetailDialogProps) {
   const t = useT()
@@ -122,6 +124,12 @@ export function SkillDetailDialog({
                 label: t('skillDetail.openFolder'),
                 onClick: () => {
                   void window.api.shell.openPath(skillDir)
+                },
+              },
+              {
+                label: t('skillDetail.restoreOriginal'),
+                onClick: () => {
+                  onRestoreOriginal?.()
                 },
               },
             ]}

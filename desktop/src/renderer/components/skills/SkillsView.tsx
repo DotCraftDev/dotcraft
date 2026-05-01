@@ -184,6 +184,29 @@ export function SkillsView(): JSX.Element {
     }
   }
 
+  async function handleRestoreOriginalSkill(skill: SkillEntry): Promise<void> {
+    if (connectionStatus !== 'connected' || capabilities?.skillVariants !== true) {
+      addToast(t('skillDetail.restoreOriginalUnavailable'), 'warning')
+      return
+    }
+
+    try {
+      const result = await window.api.appServer.sendRequest('skills/restoreOriginal', {
+        name: skill.name
+      }) as { restored?: boolean }
+      if (result.restored) {
+        addToast(t('skillDetail.restoreOriginalSuccess'), 'success')
+        await fetchSkills()
+        await selectSkill(skill.name)
+      } else {
+        addToast(t('skillDetail.restoreOriginalNoop'), 'info')
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('skillDetail.restoreOriginalFailed', { error: msg }), 'error')
+    }
+  }
+
   const dotCraftDisabledReason = dotCraftInstallDisabledReason(
     connectionStatus,
     capabilities,
@@ -333,6 +356,7 @@ export function SkillsView(): JSX.Element {
             }
           }}
           onTryInChat={() => handleTrySkillInChat(selected)}
+          onRestoreOriginal={() => void handleRestoreOriginalSkill(selected)}
         />
       )}
 

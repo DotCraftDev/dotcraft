@@ -729,7 +729,7 @@ public sealed class AppConfig
         /// <summary>
         /// Controls whether self-learning updates are routed to workspace-local skill variants.
         /// </summary>
-        [ConfigField(Hint = "Skill self-learning write mode: enabled or disabled", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
+        [ConfigField(Hint = "Skill variant write mode: enabled or disabled. Future modes may add passive evidence collection.", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
         public string VariantMode { get; set; } = "enabled";
 
         /// <summary>
