@@ -1261,6 +1261,66 @@ describe('externalChannelToolCall items', () => {
   })
 })
 
+describe('pluginFunctionCall items', () => {
+  it('stores and completes pluginFunctionCall items without a toolResult companion', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'plugin-tool-1',
+        type: 'pluginFunctionCall',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        payload: {
+          pluginId: 'node-repl',
+          namespace: 'node_repl',
+          callId: 'plugin-call-1',
+          functionName: 'NodeReplJs',
+          arguments: { code: 'console.log(1)' }
+        }
+      }
+    })
+
+    let item = s().turns[0].items.find((i) => i.id === 'plugin-tool-1')
+    expect(item?.type).toBe('pluginFunctionCall')
+    expect(item?.toolName).toBe('NodeReplJs')
+    expect(item?.toolCallId).toBe('plugin-call-1')
+    expect(item?.pluginId).toBe('node-repl')
+    expect(item?.pluginNamespace).toBe('node_repl')
+
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'plugin-tool-1',
+        type: 'pluginFunctionCall',
+        completedAt: '2025-01-01T00:00:01.000Z',
+        payload: {
+          pluginId: 'node-repl',
+          namespace: 'node_repl',
+          callId: 'plugin-call-1',
+          functionName: 'NodeReplJs',
+          arguments: { code: 'console.log(1)' },
+          contentItems: [
+            { type: 'text', text: '1' },
+            { type: 'image', mediaType: 'image/png', dataBase64: 'abc123' }
+          ],
+          success: true
+        }
+      }
+    })
+
+    item = s().turns[0].items.find((i) => i.id === 'plugin-tool-1')
+    expect(item?.status).toBe('completed')
+    expect(item?.result).toBe('1')
+    expect(item?.success).toBe(true)
+    expect(item?.contentItems?.[1]).toEqual({
+      type: 'image',
+      mediaType: 'image/png',
+      dataBase64: 'abc123'
+    })
+    expect(s().turns[0].items.some((i) => i.type === 'toolResult')).toBe(false)
+  })
+})
+
 describe('itemDiffs per tool call', () => {
   it('setTurns stores per-item incremental diffs and cumulative changedFiles', () => {
     const turn: ConversationTurn = {

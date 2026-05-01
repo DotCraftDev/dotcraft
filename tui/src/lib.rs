@@ -433,14 +433,8 @@ async fn handle_terminal_event(
                         return Ok(false);
                     }
                     if let Some(cmd) = commands::parse(&text) {
-                        let quit = handle_slash_command(
-                            wire,
-                            state,
-                            strings,
-                            deferred_tx,
-                            cmd,
-                        )
-                        .await?;
+                        let quit =
+                            handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
                         if quit {
                             return Ok(true);
                         }
@@ -546,7 +540,9 @@ async fn spawn_model_catalog_load(
     wire: &mut WireClient,
     deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
 ) -> Result<()> {
-    let (_, rx) = wire.send_request("model/list", serde_json::json!({})).await?;
+    let (_, rx) = wire
+        .send_request("model/list", serde_json::json!({}))
+        .await?;
     let tx = deferred_tx.clone();
     tokio::spawn(async move {
         let result = rx
@@ -1085,6 +1081,55 @@ fn parse_model_catalog(result: &serde_json::Value) -> (Vec<String>, Option<Strin
     (models, None)
 }
 
+fn stringify_history_args(value: &serde_json::Value) -> String {
+    if let Some(s) = value.as_str() {
+        s.to_string()
+    } else {
+        serde_json::to_string_pretty(value).unwrap_or_default()
+    }
+}
+
+fn plugin_function_history_result(payload: &serde_json::Value) -> Option<String> {
+    if let Some(items) = payload.get("contentItems").and_then(|v| v.as_array()) {
+        let mut parts = Vec::new();
+        for item in items {
+            match item.get("type").and_then(|v| v.as_str()).unwrap_or("text") {
+                "text" => {
+                    if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                        if !text.is_empty() {
+                            parts.push(text.to_string());
+                        }
+                    }
+                }
+                "image" => {
+                    let media_type = item
+                        .get("mediaType")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("image");
+                    parts.push(format!("[image: {media_type}]"));
+                }
+                _ => {}
+            }
+        }
+        if !parts.is_empty() {
+            return Some(parts.join("\n"));
+        }
+    }
+
+    if let Some(structured) = payload.get("structuredResult") {
+        if !structured.is_null() {
+            return Some(
+                serde_json::to_string_pretty(structured).unwrap_or_else(|_| structured.to_string()),
+            );
+        }
+    }
+
+    payload
+        .get("errorMessage")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
 /// Parse a `thread/read` response (with `includeTurns: true`) and rebuild
 /// `state.history` from the persisted items.
 fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
@@ -1139,7 +1184,7 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         });
                     }
                 }
-                "toolCall" => {
+                "toolCall" | "externalChannelToolCall" => {
                     let call_id = payload
                         .get("callId")
                         .and_then(|v| v.as_str())
@@ -1152,13 +1197,7 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         .to_string();
                     let args = payload
                         .get("arguments")
-                        .map(|v| {
-                            if let Some(s) = v.as_str() {
-                                s.to_string()
-                            } else {
-                                serde_json::to_string_pretty(v).unwrap_or_default()
-                            }
-                        })
+                        .map(stringify_history_args)
                         .unwrap_or_default();
                     let success = payload
                         .get("success")
@@ -1169,6 +1208,34 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         name,
                         args,
                         result: None,
+                        success,
+                        duration: None,
+                    });
+                }
+                "pluginFunctionCall" => {
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = payload
+                        .get("functionName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let args = payload
+                        .get("arguments")
+                        .map(stringify_history_args)
+                        .unwrap_or_default();
+                    let success = payload
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    state.history.push(HistoryEntry::ToolCall {
+                        call_id,
+                        name,
+                        args,
+                        result: plugin_function_history_result(&payload),
                         success,
                         duration: None,
                     });
@@ -1280,7 +1347,10 @@ async fn handle_local_slash_command(
         }
         LocalSlashCommand::Model { model_name } => {
             if !wire.capabilities.model_catalog_management.unwrap_or(false)
-                || !wire.capabilities.workspace_config_management.unwrap_or(false)
+                || !wire
+                    .capabilities
+                    .workspace_config_management
+                    .unwrap_or(false)
             {
                 state.history.push(HistoryEntry::Error {
                     message: strings.feature_unavailable.to_string(),
@@ -1677,7 +1747,10 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
                 }
             }
             Some(OverlayKind::Help) => {
-                frame.render_widget(HelpOverlay::new(theme, strings, &state.command_catalog), area);
+                frame.render_widget(
+                    HelpOverlay::new(theme, strings, &state.command_catalog),
+                    area,
+                );
             }
             None => {}
         }

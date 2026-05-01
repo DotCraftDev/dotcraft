@@ -21,6 +21,48 @@ function expectRunningGradientText(text: string | RegExp): HTMLElement {
 
 const collapseAnimationMs = 200
 
+describe('ToolCallCard plugin function rendering', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        },
+        appServer: {
+          sendRequest: vi.fn(async () => ({}))
+        }
+      }
+    })
+  })
+
+  it('renders plugin text and image content when expanded', () => {
+    const item: ConversationItem = {
+      id: 'plugin-tool-1',
+      type: 'pluginFunctionCall',
+      status: 'completed',
+      toolName: 'NodeReplJs',
+      toolCallId: 'plugin-call-1',
+      arguments: { code: 'render()' },
+      result: 'rendered',
+      success: true,
+      contentItems: [
+        { type: 'text', text: 'rendered' },
+        { type: 'image', mediaType: 'image/png', dataBase64: 'abc123' }
+      ],
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByText((content) => content.includes('rendered'))).toBeInTheDocument()
+    const image = screen.getByRole('img', { name: 'Plugin output 1' })
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,abc123')
+  })
+})
+
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()

@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { translate, type AppLocale } from '../../../shared/locales'
-import type { ConversationItem } from '../../types/conversation'
+import type { ConversationItem, PluginFunctionContentItem } from '../../types/conversation'
 import { useLocale } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import {
@@ -358,16 +358,17 @@ export const ToolCallCard = memo(function ToolCallCard({
             }}
           >
             {isShellTool ? (
-              <ExpandedContent
-                itemId={item.id}
-                toolName={toolName}
-                args={args}
-                result={shellOutput}
-                success={!shellFailed}
-                fileDiff={undefined}
-                locale={locale}
-                planTodos={planTodos}
-              />
+            <ExpandedContent
+              itemId={item.id}
+              toolName={toolName}
+              args={args}
+              result={shellOutput}
+              success={!shellFailed}
+              fileDiff={undefined}
+              contentItems={item.contentItems}
+              locale={locale}
+              planTodos={planTodos}
+            />
             ) : isStreamingFileTool ? (
               streamingFileDiff ? (
                 <InlineDiffView
@@ -480,6 +481,7 @@ export const ToolCallCard = memo(function ToolCallCard({
               result={isShellTool ? shellOutput : item.result}
               success={success}
               fileDiff={fileDiff ? { diff: fileDiff } : undefined}
+              contentItems={item.contentItems}
               locale={locale}
               planTodos={planTodos}
             />
@@ -497,6 +499,7 @@ interface ExpandedContentProps {
   result: string | undefined
   success: boolean
   fileDiff: { diff: FileDiff } | undefined
+  contentItems?: PluginFunctionContentItem[]
   locale: AppLocale
   planTodos?: Array<{ id: string; content: string }>
 }
@@ -508,6 +511,7 @@ function ExpandedContent({
   result,
   success,
   fileDiff,
+  contentItems,
   locale,
   planTodos
 }: ExpandedContentProps): JSX.Element {
@@ -620,6 +624,7 @@ function ExpandedContent({
 
   const resultText = result ?? ''
   const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
+  const imageItems = contentItems?.filter((item) => item.type === 'image' && item.dataBase64) ?? []
 
   return (
     <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5' }}>
@@ -636,6 +641,40 @@ function ExpandedContent({
           colorWhenNoSgr={success ? 'var(--text-secondary)' : 'var(--error)'}
         />
       )}
+      {imageItems.length > 0 && <PluginFunctionImages items={imageItems} />}
+    </div>
+  )
+}
+
+function PluginFunctionImages({ items }: { items: PluginFunctionContentItem[] }): JSX.Element {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: '8px',
+        marginTop: '8px'
+      }}
+    >
+      {items.map((item, index) => {
+        const mediaType = item.mediaType?.trim() || 'image/png'
+        const src = `data:${mediaType};base64,${item.dataBase64}`
+        return (
+          <img
+            key={`${mediaType}-${index}`}
+            src={src}
+            alt={`Plugin output ${index + 1}`}
+            style={{
+              display: 'block',
+              maxWidth: '100%',
+              maxHeight: '320px',
+              objectFit: 'contain',
+              border: '1px solid var(--border-default)',
+              borderRadius: '4px',
+              background: 'var(--bg-primary)'
+            }}
+          />
+        )
+      })}
     </div>
   )
 }

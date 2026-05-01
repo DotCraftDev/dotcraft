@@ -1,5 +1,6 @@
 import { memo, useState } from 'react'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
+import { isToolLikeItemType } from '../../types/conversation'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallCard } from './ToolCallCard'
 import { AgentMessage } from './AgentMessage'
@@ -106,11 +107,11 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     while (i < itemsToRender.length) {
       const item = itemsToRender[i]
 
-      if (item.type === 'toolCall' || item.type === 'externalChannelToolCall') {
+      if (isToolLikeItemType(item.type)) {
         const toolRun: ConversationItem[] = [item]
         while (
           i + 1 < itemsToRender.length
-          && (itemsToRender[i + 1].type === 'toolCall' || itemsToRender[i + 1].type === 'externalChannelToolCall')
+          && isToolLikeItemType(itemsToRender[i + 1].type)
         ) {
           i++
           toolRun.push(itemsToRender[i])
@@ -378,7 +379,7 @@ function findLastAgentMessageIndex(items: ConversationItem[]): number {
 function findLastCreatePlanIndexBefore(items: ConversationItem[], beforeIndex: number): number {
   for (let i = beforeIndex - 1; i >= 0; i--) {
     const item = items[i]
-    const isToolCall = item.type === 'toolCall' || item.type === 'externalChannelToolCall'
+    const isToolCall = isToolLikeItemType(item.type)
     if (
       isToolCall
       && item.toolName === 'CreatePlan'
