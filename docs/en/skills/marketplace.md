@@ -40,8 +40,13 @@ The source filter can switch between `All / System / Personal / Marketplace`. Th
 
 1. Click a marketplace skill in the search results.
 2. Read the README, description, and source link in the detail view.
-3. Click install, update, or reinstall.
-4. Refresh the local skill list after installation.
+3. Click **Install with DotCraft**, or update or reinstall when needed.
+4. DotCraft starts an Agent install flow that checks the current workspace, local environment, and available tools, then adapts the skill when it finds a concrete environment difference.
+5. Refresh the local skill list after installation.
+
+<video controls src="https://github.com/DotHarness/resources/raw/master/dotcraft/skill_variant.mp4" style="width: 100%; border-radius: 8px;"></video>
+
+<p class="caption">Install a marketplace skill with DotCraft Desktop and create a variant tuned for the local environment.</p>
 
 Marketplace skills are installed into the current workspace:
 
@@ -56,6 +61,12 @@ DotCraft writes an install marker inside the skill directory:
 ```
 
 The marker records the provider, version, and update state. If a skill with the same name already exists, Desktop asks for confirmation before replacing or updating it.
+
+## Skill Variants
+
+When you install a marketplace skill with **Install with DotCraft**, the Agent keeps the original skill and can generate an optimized version for the current workspace and runtime environment.
+
+The optimized version is saved as a Variant instead of overwriting the original skill. When an Agent uses the skill later, DotCraft resolves the current effective variant first. You can restore the original version from the Skills page at any time.
 
 ## Manage Enabled State
 

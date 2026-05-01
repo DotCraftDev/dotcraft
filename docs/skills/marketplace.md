@@ -40,8 +40,13 @@ DotCraft 会在 Skills 页面展示三类本地技能：
 
 1. 在搜索结果中点击一个市场技能。
 2. 在详情页阅读 README、描述和来源链接。
-3. 点击安装、更新或重新安装。
-4. 安装完成后刷新本地技能列表。
+3. 点击 **Install with DotCraft**，或在需要时点击更新、重新安装。
+4. DotCraft 会启动一个 Agent 安装流程，检查当前工作区、系统环境和可用工具，并在发现具体环境差异时优化技能。
+5. 安装完成后刷新本地技能列表。
+
+<video controls src="https://github.com/DotHarness/resources/raw/master/dotcraft/skill_variant.mp4" style="width: 100%; border-radius: 8px;"></video>
+
+<p class="caption">Desktop 中通过 DotCraft 安装市场技能，并生成适合本地环境的变体。</p>
 
 市场技能会安装到当前工作区：
 
@@ -56,6 +61,12 @@ DotCraft 会在技能目录内写入安装记录：
 ```
 
 这份记录用于识别来源、版本和更新状态。若工作区已经存在同名技能，Desktop 会要求确认后再覆盖或更新。
+
+## Skill Variant 变体
+
+通过 **Install with DotCraft** 安装市场技能时，Agent 会先保留原始技能，再根据当前工作区和运行环境生成优化版本。
+
+优化版本会保存为 Variant（变体），不会直接覆盖原始技能。后续 Agent 使用技能时，DotCraft 会优先使用当前有效的变体；如果你想回到市场安装时的原始内容，可以随时在 Skills 页面中恢复原版本。
 
 ## 管理启用状态
 
