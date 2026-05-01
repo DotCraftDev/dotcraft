@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
@@ -9,8 +9,8 @@ import { useViewerTabStore } from '../stores/viewerTabStore'
 import type { ConversationItem } from '../types/conversation'
 import type { FileDiff } from '../types/toolCall'
 
-function renderWithLocale(node: JSX.Element): void {
-  render(<LocaleProvider>{node}</LocaleProvider>)
+function renderWithLocale(node: JSX.Element): ReturnType<typeof render> {
+  return render(<LocaleProvider>{node}</LocaleProvider>)
 }
 
 function expectRunningGradientText(text: string | RegExp): HTMLElement {
@@ -43,6 +43,9 @@ describe('ToolCallCard shell rendering', () => {
       value: {
         settings: {
           get: async () => ({ locale: 'en' })
+        },
+        appServer: {
+          sendRequest: vi.fn(async () => ({}))
         }
       }
     })
@@ -461,6 +464,7 @@ describe('ToolCallCard shell rendering', () => {
   })
 
   it('renders successful SkillManage create as a skill card and opens skill detail', async () => {
+    const iconDataUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"></svg>'
     const item: ConversationItem = {
       id: 'skill-create-1',
       type: 'toolCall',
@@ -490,7 +494,8 @@ describe('ToolCallCard shell rendering', () => {
               source: 'workspace',
               available: true,
               enabled: true,
-              path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+              path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md',
+              iconSmallDataUrl: iconDataUrl
             }
           ]
         }
@@ -507,12 +512,26 @@ describe('ToolCallCard shell rendering', () => {
         appServer: { sendRequest }
       }
     })
+    useSkillsStore.setState({
+      skills: [
+        {
+          name: 'demo-skill',
+          description: 'Demo',
+          source: 'workspace',
+          available: true,
+          enabled: true,
+          path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md',
+          iconSmallDataUrl: iconDataUrl
+        }
+      ]
+    })
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Skill')).toBeInTheDocument()
     expect(screen.getByText('Created')).toBeInTheDocument()
     expect(screen.getByText('demo-skill')).toBeInTheDocument()
+    expect(container.querySelector('img')).toHaveAttribute('src', iconDataUrl)
     expect(screen.getByTestId('inline-diff-view')).toBeInTheDocument()
     expect(screen.queryByText(/"success"/)).toBeNull()
 
@@ -547,10 +566,23 @@ describe('ToolCallCard shell rendering', () => {
       success: true,
       createdAt: new Date().toISOString()
     }
+    useSkillsStore.setState({
+      skills: [
+        {
+          name: 'demo-skill',
+          description: 'Demo',
+          source: 'workspace',
+          available: true,
+          enabled: true,
+          path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md'
+        }
+      ]
+    })
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Variant updated')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
     const filename = screen.getByText('SKILL.md')
     expect(filename).toHaveAttribute('title', 'demo-skill/SKILL.md')
     expect(screen.getByText('Follow these steps.')).toBeInTheDocument()
@@ -618,6 +650,7 @@ describe('ToolCallCard shell rendering', () => {
   })
 
   it('renders successful SkillView as a non-expandable skill card and opens skill detail', async () => {
+    const iconDataUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"></svg>'
     const item: ConversationItem = {
       id: 'skill-view-1',
       type: 'toolCall',
@@ -639,7 +672,8 @@ describe('ToolCallCard shell rendering', () => {
               source: 'workspace',
               available: true,
               enabled: true,
-              path: 'F:\\dotcraft\\.craft\\skills\\browser-use\\SKILL.md'
+              path: 'F:\\dotcraft\\.craft\\skills\\browser-use\\SKILL.md',
+              iconSmallDataUrl: iconDataUrl
             }
           ]
         }
@@ -657,11 +691,12 @@ describe('ToolCallCard shell rendering', () => {
       }
     })
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Skill')).toBeInTheDocument()
     expect(screen.getByText('Loaded')).toBeInTheDocument()
     expect(screen.getByText('browser-use')).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', iconDataUrl))
     expect(screen.getByText('Skill instructions loaded.')).toBeInTheDocument()
     expect(screen.queryByText('Browser workflow')).toBeNull()
     expect(screen.queryByText('Loaded instructions')).toBeNull()

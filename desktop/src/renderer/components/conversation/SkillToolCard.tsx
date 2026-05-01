@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import { useSkillsStore } from '../../stores/skillsStore'
@@ -23,6 +24,21 @@ export function SkillToolCard({
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const fetchSkills = useSkillsStore((s) => s.fetchSkills)
   const selectSkill = useSkillsStore((s) => s.selectSkill)
+  const skills = useSkillsStore((s) => s.skills)
+  const skillsLoading = useSkillsStore((s) => s.loading)
+  const normalizedSkillName = skillName.trim().toLocaleLowerCase()
+  const attemptedFetchForSkillRef = useRef<string | null>(null)
+  const skillEntry = useMemo(
+    () => skills.find((skill) => skill.name.trim().toLocaleLowerCase() === normalizedSkillName),
+    [normalizedSkillName, skills]
+  )
+
+  useEffect(() => {
+    if (skillEntry || skillsLoading) return
+    if (attemptedFetchForSkillRef.current === normalizedSkillName) return
+    attemptedFetchForSkillRef.current = normalizedSkillName
+    void fetchSkills()
+  }, [fetchSkills, normalizedSkillName, skillEntry, skillsLoading])
 
   async function openSkill(): Promise<void> {
     setActiveMainView('skills')
@@ -33,7 +49,12 @@ export function SkillToolCard({
   return (
     <div style={card}>
       <div style={header}>
-        <SkillAvatar name={skillName} displayName={skillName} size={34} />
+        <SkillAvatar
+          name={skillName}
+          displayName={skillEntry?.displayName ?? skillName}
+          size={34}
+          iconDataUrl={skillEntry?.iconSmallDataUrl ?? skillEntry?.iconLargeDataUrl}
+        />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={eyebrowRow}>
             <span style={eyebrow}>{translate(locale, 'skillTool.card.title')}</span>
