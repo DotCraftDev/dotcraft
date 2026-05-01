@@ -150,6 +150,44 @@ describe('skillMarket', () => {
     )
     expect(detail.readme).toContain('# Git Helper')
     expect(detail.description).toBe('Git workflow help')
+    expect(detail.version).toBe('1.0.0')
+  })
+
+  it('normalizes nested SkillHub detail metadata', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-skill-market-'))
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('/file?')) {
+        return new Response('# Self Improvement', {
+          status: 200,
+          headers: { 'content-type': 'text/markdown' }
+        })
+      }
+      return jsonResponse({
+        latestVersion: { version: '3.0.18' },
+        skill: {
+          slug: 'self-improving-agent',
+          displayName: 'self-improving-agent',
+          summary: 'Captures learnings',
+          stats: {
+            downloads: 550683,
+            stars: 2985
+          },
+          tags: {
+            latest: '3.0.18'
+          }
+        }
+      })
+    }) as typeof fetch
+
+    const detail = await getSkillMarketDetail(
+      tempRoot,
+      { provider: 'skillhub', slug: 'self-improving-agent' },
+      fetcher
+    )
+
+    expect(detail.version).toBe('3.0.18')
+    expect(detail.downloads).toBe(550683)
+    expect(detail.rating).toBe(2985)
   })
 
   it('keeps detail metadata when preview file loading fails', async () => {

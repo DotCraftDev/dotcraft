@@ -132,6 +132,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
           name: 'Git Helper',
           description: 'Git workflow help',
           version: '1.0.0',
+          downloads: 34,
           installed: false
         }
       ]
@@ -327,6 +328,30 @@ describe('SkillsView marketplace browse and manage modes', () => {
       })
     })
     expect(appServerSendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+  })
+
+  it('keeps marketplace summary metadata after detail loads without those fields', async () => {
+    skillMarketDetail.mockResolvedValueOnce({
+      provider: 'clawhub',
+      slug: 'git-helper',
+      name: 'Git Helper',
+      description: 'Git workflow help',
+      readme: '# Git Helper\n\nUse git safely.',
+      installed: false
+    })
+
+    renderView()
+    fireEvent.change(await screen.findByPlaceholderText('Search skills or install from Marketplace'), {
+      target: { value: 'git' }
+    })
+    fireEvent.click(await screen.findByText('Git Helper'))
+
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => {
+      expect(within(dialog).getByText('1.0.0')).toBeInTheDocument()
+      expect(within(dialog).getByText('34')).toBeInTheDocument()
+    })
+    expect(within(dialog).queryByText('Version unknown')).not.toBeInTheDocument()
   })
 
   it('starts a DotCraft install thread from marketplace detail', async () => {

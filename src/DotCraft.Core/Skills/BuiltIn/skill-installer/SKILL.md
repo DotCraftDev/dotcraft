@@ -44,6 +44,38 @@ Examples of useful checks:
 - If it references scripts or assets, confirm those files exist in the installed skill.
 - If it assumes paths, package managers, shells, or config files, check those in the workspace.
 
-Only write a workspace adaptation when you find a concrete mismatch. If `SkillManage` is available, use it to patch the effective skill so future runs remember the workspace-specific fix. If `SkillManage` is unavailable, report the mismatch and the suggested adaptation instead of editing the source skill.
+Only write a workspace adaptation when you find a concrete mismatch. If `SkillManage` is available, use it to patch the effective skill so future runs remember the workspace-specific fix.
+
+Use `SkillManage` with complete action-specific arguments. Do not call it with placeholder or null values. If a `SkillManage` call fails because a required argument is missing, retry with the required argument populated.
+
+Examples:
+
+```text
+SkillManage(
+  action: "patch",
+  name: "<installed-skill-name>",
+  oldString: "## Existing Section\nOriginal text that appears exactly once.",
+  newString: "## Existing Section\nOriginal text plus the workspace-specific adaptation."
+)
+```
+
+```text
+SkillManage(
+  action: "edit",
+  name: "<installed-skill-name>",
+  content: "<the complete updated SKILL.md content>"
+)
+```
+
+```text
+SkillManage(
+  action: "write_file",
+  name: "<installed-skill-name>",
+  filePath: "scripts/check-environment.ps1",
+  fileContent: "<complete helper script content>"
+)
+```
+
+Never use `EditFile`, `WriteFile`, or shell redirection to modify files under `.craft/skills/<installed-skill-name>/` for workspace adaptation. Those files are the installed source skill. Adaptations must go through `SkillManage`. If `SkillManage` is unavailable or keeps failing, report the mismatch and the suggested adaptation instead of editing the source skill.
 
 Do not invent compatibility rules that the skill does not imply. Do not rewrite a freshly installed skill just to summarize the installation.

@@ -430,15 +430,25 @@ function normalizeSummary(provider: ProviderDefinition, item: unknown): MarketSk
   const slug = firstString(item.slug, item.name, item.id, item.packageName)
   if (!slug) return null
   const name = firstString(item.displayName, item.title, item.name, item.slug) ?? slug
+  const latestVersion = isRecord(item.latestVersion) ? item.latestVersion : {}
+  const stats = isRecord(item.stats) ? item.stats : {}
+  const tagRecord = isRecord(item.tags) ? item.tags : {}
   return {
     provider: provider.id,
     slug,
     name,
     description: firstString(item.description, item.summary, item.shortDescription),
-    version: firstString(item.version, item.latestVersion, item.currentVersion),
+    version: firstString(
+      item.version,
+      item.latestVersion,
+      item.currentVersion,
+      latestVersion.version,
+      latestVersion.name,
+      tagRecord.latest
+    ),
     author: normalizeAuthor(item.author, item.owner, item.publisher, item.user),
-    downloads: firstNumber(item.downloads, item.downloadCount, item.installCount, item.pulls),
-    rating: firstNumber(item.rating, item.stars, item.score),
+    downloads: firstNumber(item.downloads, item.downloadCount, item.installCount, item.pulls, stats.downloads),
+    rating: firstNumber(item.rating, item.stars, item.score, stats.stars),
     tags: normalizeTags(item.tags, item.categories),
     sourceUrl: firstString(item.url, item.sourceUrl) ?? provider.sourceUrl(slug)
   }
@@ -446,6 +456,8 @@ function normalizeSummary(provider: ProviderDefinition, item: unknown): MarketSk
 
 function normalizeDetail(provider: ProviderDefinition, raw: unknown, fallbackSlug: string): MarketSkillDetail {
   const item = isRecord(raw) && isRecord(raw.skill) ? raw.skill : raw
+  const record = isRecord(raw) ? raw : {}
+  const itemRecord = isRecord(item) ? item : {}
   const summary =
     normalizeSummary(provider, item) ??
     ({
@@ -454,10 +466,18 @@ function normalizeDetail(provider: ProviderDefinition, raw: unknown, fallbackSlu
       name: fallbackSlug,
       sourceUrl: provider.sourceUrl(fallbackSlug)
     } satisfies MarketSkillSummary)
-  const record = isRecord(raw) ? raw : {}
-  const itemRecord = isRecord(item) ? item : {}
+  const latestVersion = isRecord(record.latestVersion) ? record.latestVersion : {}
+  const stats = isRecord(itemRecord.stats) ? itemRecord.stats : {}
+  const tagRecord = isRecord(itemRecord.tags) ? itemRecord.tags : {}
   return {
     ...summary,
+    version:
+      summary.version ??
+      firstString(record.version, record.latestVersion, latestVersion.version, latestVersion.name, tagRecord.latest),
+    downloads:
+      summary.downloads ??
+      firstNumber(record.downloads, record.downloadCount, record.installCount, record.pulls, stats.downloads),
+    rating: summary.rating ?? firstNumber(record.rating, record.stars, record.score, stats.stars),
     readme: firstString(
       record.readme,
       record.content,

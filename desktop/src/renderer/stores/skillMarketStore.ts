@@ -76,7 +76,16 @@ export const useSkillMarketStore = create<SkillMarketState>((set, get) => ({
         provider: skill.provider,
         slug: skill.slug
       })
-      set({ selectedSkill: detail, detailLoading: false })
+      set((state) => {
+        const selected = state.selectedSkill
+        if (!selected || selected.provider !== skill.provider || selected.slug !== skill.slug) {
+          return state
+        }
+        return {
+          selectedSkill: { ...selected, ...detail },
+          detailLoading: false
+        }
+      })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ error: msg, detailLoading: false })
