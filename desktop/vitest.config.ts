@@ -23,6 +23,7 @@ export default defineConfig({
         test: {
           name: 'browser',
           environment: 'jsdom',
+          pool: 'threads',
           include: ['src/renderer/tests/*.test.tsx'],
           globals: true,
           setupFiles: ['src/renderer/tests/setup.ts']
