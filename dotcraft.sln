@@ -13,7 +13,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.Unity", "src\DotCr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.GitHubTracker", "src\DotCraft.GitHubTracker\DotCraft.GitHubTracker.csproj", "{F1A2B3C4-D5E6-4F78-9ABC-DEF012345678}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.AGUI", "src\DotCraft.AGUI\DotCraft.AGUI.csproj", "{70A765C4-4AD7-4E0D-843F-E48D90E7D286}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.Agui", "src\DotCraft.Agui\DotCraft.Agui.csproj", "{70A765C4-4AD7-4E0D-843F-E48D90E7D286}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.Api", "src\DotCraft.Api\DotCraft.Api.csproj", "{86A61B75-9A3A-4D1B-B36E-683E179022CE}"
 EndProject

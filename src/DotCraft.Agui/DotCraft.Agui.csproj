@@ -5,6 +5,7 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+        <AssemblyName>DotCraft.Agui</AssemblyName>
         <RootNamespace>DotCraft.Agui</RootNamespace>
     </PropertyGroup>
 
