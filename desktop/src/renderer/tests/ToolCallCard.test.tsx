@@ -183,6 +183,48 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.queryByText('Waiting for content...')).toBeNull()
   })
 
+  it('keeps running EditFile tool labels as Edited even when the streaming diff looks new', () => {
+    const item: ConversationItem = {
+      id: 'tool-edit-streaming',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'EditFile',
+      toolCallId: 'edit-streaming-1',
+      createdAt: new Date().toISOString()
+    }
+    const streamingDiff: FileDiff = {
+      filePath: 'README.md',
+      turnId: 'turn-1',
+      turnIds: ['turn-1'],
+      additions: 2,
+      deletions: 0,
+      diffHunks: [
+        {
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 2,
+          lines: [
+            { type: 'add', content: 'new line one' },
+            { type: 'add', content: 'new line two' }
+          ]
+        }
+      ],
+      status: 'written',
+      isNewFile: true,
+      originalContent: '',
+      currentContent: 'new line one\nnew line two'
+    }
+    useConversationStore.setState({
+      streamingItemDiffs: new Map([[item.id, streamingDiff]])
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Edited README\.md \+2/)).toBeInTheDocument()
+    expect(screen.queryByText(/Created README\.md/)).toBeNull()
+  })
+
   it('renders completed file diffs embedded with compact filename and stats', () => {
     const item: ConversationItem = {
       id: 'tool-edit-completed',

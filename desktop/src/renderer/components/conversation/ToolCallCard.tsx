@@ -113,13 +113,14 @@ function formatDiffStats(diff: FileDiff | undefined): string {
 }
 
 function formatFileToolLabel(
+  toolName: string,
   diff: FileDiff | undefined,
   fallbackLabel: string,
   locale: AppLocale
 ): string {
   if (!diff) return fallbackLabel
   const filename = getFilename(diff.filePath)
-  const action = diff.isNewFile
+  const action = toolName !== 'EditFile' && diff.isNewFile
     ? translate(locale, 'toolCall.created', { filename })
     : translate(locale, 'toolCall.edited', { filename })
   const stats = formatDiffStats(diff)
@@ -203,7 +204,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     planTodos
   )
   const runningLabel = FILE_WRITE_TOOLS.has(toolName)
-    ? formatFileToolLabel(streamingFileDiff, runningBaseLabel, locale)
+    ? formatFileToolLabel(toolName, streamingFileDiff, runningBaseLabel, locale)
     : runningBaseLabel
 
   function toggleExpand(): void {
@@ -405,7 +406,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       ? formatSkillViewLabel(args, locale)
       : formatCollapsedToolLabel(toolName, args, locale, { planTodos })
   const label = FILE_WRITE_TOOLS.has(toolName)
-    ? formatFileToolLabel(fileDiff, fallbackLabel, locale)
+    ? formatFileToolLabel(toolName, fileDiff, fallbackLabel, locale)
     : fallbackLabel
   const failedPreview = stripAnsi(
     isSkillManageTool

@@ -142,20 +142,99 @@ describe('ChangesTab diff stream', () => {
       expect(window.api.shell.launchEditor).toHaveBeenCalledWith('explorer', 'F:\\work\\src')
     })
   })
+
+  it('renders Revert All with a single icon-only glyph source', async () => {
+    cs().upsertChangedFile(makeDiff({ filePath: 'src/a.ts' }))
+
+    render(<Harness />)
+
+    const button = await screen.findByRole('button', { name: /^Revert All$/ })
+    expect(button).toHaveTextContent('Revert All')
+    expect(button).not.toHaveTextContent('↺')
+  })
 })
 
 describe('DiffViewer split mode', () => {
   it('renders paired remove/add rows and unchanged dividers', () => {
     render(
       <LocaleProvider>
-        <DiffViewer diff={makeDiff()} workspacePath="F:\\work" mode="split" />
+        <DiffViewer diff={makeDiff({ filePath: 'notes.txt' })} workspacePath="F:\\work" mode="split" />
       </LocaleProvider>
     )
 
     expect(screen.getByTestId('split-diff-body')).toBeInTheDocument()
-    expect(screen.getByText('2 unchanged lines')).toBeInTheDocument()
+    expect(screen.getAllByText('2 unchanged lines')).toHaveLength(2)
     expect(screen.getByText('old line')).toBeInTheDocument()
     expect(screen.getByText('new line')).toBeInTheDocument()
     expect(screen.getAllByText('shared line')).toHaveLength(2)
+  })
+
+  it('keeps long split diff lines inside independent synchronized panes', () => {
+    const longLine = '<td width="25%" align="center"><b>很长很长的 Markdown 表格内容 with English text and symbols that should not bleed into the other pane</b></td>'
+    render(
+      <LocaleProvider>
+        <DiffViewer
+          diff={makeDiff({
+            filePath: 'README.md',
+            diffHunks: [
+              {
+                oldStart: 5,
+                oldLines: 2,
+                newStart: 5,
+                newLines: 2,
+                lines: [
+                  { type: 'remove', content: longLine },
+                  { type: 'add', content: `${longLine} updated` }
+                ]
+              }
+            ]
+          })}
+          workspacePath="F:\\work"
+          mode="split"
+        />
+      </LocaleProvider>
+    )
+
+    const leftPane = screen.getByTestId('split-left-pane')
+    const rightPane = screen.getByTestId('split-right-pane')
+
+    expect(leftPane).toHaveStyle({ overflowX: 'auto' })
+    expect(rightPane).toHaveStyle({ overflowX: 'auto' })
+
+    leftPane.scrollLeft = 88
+    fireEvent.scroll(leftPane)
+    expect(rightPane.scrollLeft).toBe(88)
+
+    rightPane.scrollLeft = 33
+    fireEvent.scroll(rightPane)
+    expect(leftPane.scrollLeft).toBe(33)
+  })
+
+  it('renders plaintext safely without injecting HTML', () => {
+    render(
+      <LocaleProvider>
+        <DiffViewer
+          diff={makeDiff({
+            filePath: 'notes.txt',
+            diffHunks: [
+              {
+                oldStart: 1,
+                oldLines: 1,
+                newStart: 1,
+                newLines: 1,
+                lines: [
+                  { type: 'add', content: '<img src=x onerror=alert(1)> plain text' }
+                ]
+              }
+            ]
+          })}
+          workspacePath="F:\\work"
+          mode="split"
+        />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('<img src=x onerror=alert(1)> plain text')).toBeInTheDocument()
+    expect(document.querySelector('img')).toBeNull()
   })
 })

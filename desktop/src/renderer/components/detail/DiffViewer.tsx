@@ -1,6 +1,33 @@
-import type { CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties } from 'react'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import csharp from 'highlight.js/lib/languages/csharp'
+import css from 'highlight.js/lib/languages/css'
+import go from 'highlight.js/lib/languages/go'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdown from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
 import { useT } from '../../contexts/LocaleContext'
 import type { DiffLine, FileDiff } from '../../types/toolCall'
+import { detectLanguage } from './viewers/languageDetect'
+
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('csharp', csharp)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('shell', bash)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('xml', xml)
 
 export type DiffDisplayMode = 'inline' | 'split'
 
@@ -21,8 +48,13 @@ interface SplitRow {
   right: NumberedLine
 }
 
+type SplitRenderRow =
+  | { kind: 'divider'; count: number }
+  | { kind: 'line'; left: NumberedLine; right: NumberedLine }
+
 export function DiffViewer({ diff, workspacePath, mode = 'inline' }: DiffViewerProps): JSX.Element {
   const relativePath = toRelativePath(diff.filePath, workspacePath)
+  const language = detectLanguage(diff.filePath)
 
   return (
     <div
@@ -36,13 +68,21 @@ export function DiffViewer({ diff, workspacePath, mode = 'inline' }: DiffViewerP
       }}
     >
       {mode === 'split'
-        ? <SplitDiffBody diff={diff} relativePath={relativePath} />
-        : <UnifiedDiffBody diff={diff} relativePath={relativePath} />}
+        ? <SplitDiffBody diff={diff} relativePath={relativePath} language={language} />
+        : <UnifiedDiffBody diff={diff} relativePath={relativePath} language={language} />}
     </div>
   )
 }
 
-export function UnifiedDiffBody({ diff, relativePath }: { diff: FileDiff; relativePath?: string }): JSX.Element {
+export function UnifiedDiffBody({
+  diff,
+  relativePath,
+  language = 'plaintext'
+}: {
+  diff: FileDiff
+  relativePath?: string
+  language?: string
+}): JSX.Element {
   if (diff.diffHunks.length === 0) {
     return <EmptyDiffMessage />
   }
@@ -89,7 +129,7 @@ export function UnifiedDiffBody({ diff, relativePath }: { diff: FileDiff; relati
                       color: line.type === 'remove' ? 'var(--text-secondary)' : 'var(--text-primary)'
                     }}
                   >
-                    {line.content}
+                    <HighlightedLine content={line.content} language={language} />
                   </span>
                 </div>
               )
@@ -101,67 +141,111 @@ export function UnifiedDiffBody({ diff, relativePath }: { diff: FileDiff; relati
   )
 }
 
-export function SplitDiffBody({ diff, relativePath }: { diff: FileDiff; relativePath?: string }): JSX.Element {
+export function SplitDiffBody({
+  diff,
+  relativePath,
+  language = 'plaintext'
+}: {
+  diff: FileDiff
+  relativePath?: string
+  language?: string
+}): JSX.Element {
+  const leftPaneRef = useRef<HTMLDivElement>(null)
+  const rightPaneRef = useRef<HTMLDivElement>(null)
+  const rows = useMemo(() => buildSplitRenderRows(diff), [diff])
+
   if (diff.diffHunks.length === 0) {
     return <EmptyDiffMessage />
   }
 
-  let previousOldEnd = 1
-  let previousNewEnd = 1
+  function syncScroll(source: 'left' | 'right'): void {
+    const sourcePane = source === 'left' ? leftPaneRef.current : rightPaneRef.current
+    const targetPane = source === 'left' ? rightPaneRef.current : leftPaneRef.current
+    if (!sourcePane || !targetPane) return
+    if (targetPane.scrollLeft === sourcePane.scrollLeft) return
+    targetPane.scrollLeft = sourcePane.scrollLeft
+  }
 
   return (
     <div
       data-testid="split-diff-body"
       style={{
-        overflowX: 'auto'
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+        minWidth: 0,
+        overflow: 'hidden'
       }}
     >
-      <div style={{ minWidth: '720px' }}>
-        {diff.diffHunks.map((hunk, hunkIdx) => {
-          const unchanged = unchangedBeforeHunk(hunk.oldStart, hunk.newStart, previousOldEnd, previousNewEnd)
-          previousOldEnd = hunk.oldStart + hunk.oldLines
-          previousNewEnd = hunk.newStart + hunk.newLines
-          return (
-            <div key={hunkIdx}>
-              {unchanged > 0 && <UnchangedDivider count={unchanged} />}
-              {buildSplitRows(hunk.lines, hunk.oldStart, hunk.newStart).map((row, rowIdx) => (
-                <div
-                  key={rowIdx}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(340px, 1fr) minmax(340px, 1fr)',
-                    minWidth: '720px'
-                  }}
-                >
-                  <SplitCell side="left" line={row.left} title={relativePath} />
-                  <SplitCell side="right" line={row.right} title={relativePath} />
-                </div>
-              ))}
-            </div>
-          )
-        })}
+      <div
+        ref={leftPaneRef}
+        data-testid="split-left-pane"
+        onScroll={() => syncScroll('left')}
+        style={{
+          ...splitPaneStyle,
+          borderRight: '1px solid var(--border-default)'
+        }}
+      >
+        <SplitPaneRows rows={rows} side="left" title={relativePath} language={language} />
+      </div>
+      <div
+        ref={rightPaneRef}
+        data-testid="split-right-pane"
+        onScroll={() => syncScroll('right')}
+        style={splitPaneStyle}
+      >
+        <SplitPaneRows rows={rows} side="right" title={relativePath} language={language} />
       </div>
     </div>
   )
 }
 
-function SplitCell({
+function SplitPaneRows({
+  rows,
   side,
-  line,
-  title
+  title,
+  language
 }: {
+  rows: SplitRenderRow[]
   side: 'left' | 'right'
+  title?: string
+  language: string
+}): JSX.Element {
+  return (
+    <div style={{ minWidth: 'max-content' }}>
+      {rows.map((row, index) => {
+        if (row.kind === 'divider') {
+          return <UnchangedDivider key={`divider-${index}`} count={row.count} />
+        }
+        return (
+          <SplitCell
+            key={`line-${index}`}
+            line={side === 'left' ? row.left : row.right}
+            title={title}
+            language={language}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function SplitCell({
+  line,
+  title,
+  language
+}: {
   line: NumberedLine
   title?: string
+  language: string
 }): JSX.Element {
   const isBlank = line.type === 'blank'
   return (
     <div
       style={{
         display: 'flex',
-        minWidth: 0,
+        width: 'max-content',
+        minWidth: '100%',
         background: isBlank ? 'var(--bg-primary)' : diffLineBackground(line.type),
-        borderRight: side === 'left' ? '1px solid var(--border-default)' : undefined,
         whiteSpace: 'pre'
       }}
     >
@@ -175,10 +259,28 @@ function SplitCell({
           color: isBlank ? 'transparent' : line.type === 'remove' ? 'var(--text-secondary)' : 'var(--text-primary)'
         }}
       >
-        {isBlank ? ' ' : line.content}
+        {isBlank ? ' ' : <HighlightedLine content={line.content} language={language} />}
       </span>
     </div>
   )
+}
+
+function buildSplitRenderRows(diff: FileDiff): SplitRenderRow[] {
+  const rows: SplitRenderRow[] = []
+  let previousOldEnd = 1
+  let previousNewEnd = 1
+
+  for (const hunk of diff.diffHunks) {
+    const unchanged = unchangedBeforeHunk(hunk.oldStart, hunk.newStart, previousOldEnd, previousNewEnd)
+    previousOldEnd = hunk.oldStart + hunk.oldLines
+    previousNewEnd = hunk.newStart + hunk.newLines
+    if (unchanged > 0) rows.push({ kind: 'divider', count: unchanged })
+    for (const row of buildSplitRows(hunk.lines, hunk.oldStart, hunk.newStart)) {
+      rows.push({ kind: 'line', ...row })
+    }
+  }
+
+  return rows
 }
 
 function buildSplitRows(lines: DiffLine[], oldStart: number, newStart: number): SplitRow[] {
@@ -235,6 +337,31 @@ function buildSplitRows(lines: DiffLine[], oldStart: number, newStart: number): 
   }
 
   return rows
+}
+
+function HighlightedLine({ content, language }: { content: string; language: string }): JSX.Element {
+  const html = highlightLine(content, language)
+  if (html === null) return <>{content}</>
+  return (
+    <span
+      data-testid="highlighted-diff-line"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
+
+function highlightLine(content: string, language: string): string | null {
+  if (language === 'plaintext') return null
+  if (!hljs.getLanguage(language)) return null
+  try {
+    const result = hljs.highlight(content, {
+      language,
+      ignoreIllegals: true
+    })
+    return result.value
+  } catch {
+    return null
+  }
 }
 
 function blankLine(): NumberedLine {
@@ -304,6 +431,13 @@ const lineNumberStyle: CSSProperties = {
   color: 'var(--text-dimmed)',
   userSelect: 'none',
   fontSize: '11px'
+}
+
+const splitPaneStyle: CSSProperties = {
+  minWidth: 0,
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  scrollbarWidth: 'thin'
 }
 
 function toRelativePath(filePath: string, workspacePath: string): string {
