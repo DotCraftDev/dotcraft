@@ -42,7 +42,7 @@ export const twoApprovalFileSendFixture: TranscriptFixture = {
     },
     {
       method: "item/started",
-      params: { threadId: "thread-fixture-1", item: { id: "ext-tool", type: "externalChannelToolCall" } },
+      params: { threadId: "thread-fixture-1", item: { id: "ext-tool", type: "pluginFunctionCall" } },
     },
     {
       method: "item/completed",

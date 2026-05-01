@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DotCraft.Plugins;
 
 namespace DotCraft.Protocol;
 
@@ -305,6 +306,32 @@ public sealed record ExternalChannelToolCallPayload
     public JsonObject? Arguments { get; init; }
 
     public string? Result { get; init; }
+
+    public bool Success { get; init; }
+
+    public string? ErrorCode { get; init; }
+
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>
+/// Payload for PluginFunctionCall items.
+/// </summary>
+public sealed record PluginFunctionCallPayload
+{
+    public string PluginId { get; init; } = string.Empty;
+
+    public string? Namespace { get; init; }
+
+    public string FunctionName { get; init; } = string.Empty;
+
+    public string CallId { get; init; } = string.Empty;
+
+    public JsonObject? Arguments { get; init; }
+
+    public IReadOnlyList<PluginFunctionContentItem>? ContentItems { get; init; }
+
+    public JsonNode? StructuredResult { get; init; }
 
     public bool Success { get; init; }
 

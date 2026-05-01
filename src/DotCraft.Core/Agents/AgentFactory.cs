@@ -7,6 +7,7 @@ using DotCraft.Context.Compaction;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
+using DotCraft.Plugins;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -184,6 +185,8 @@ public sealed class AgentFactory : IAsyncDisposable
                 .ToList();
         }
 
+        tools = DropConflictingPluginFunctions(tools);
+
         // Wrap tools with hook interceptors
         tools = ApplyHooks(tools);
 
@@ -210,6 +213,8 @@ public sealed class AgentFactory : IAsyncDisposable
                 .Where(t => _globalEnabledToolNames.Contains(t.Name))
                 .ToList();
         }
+
+        tools = DropConflictingPluginFunctions(tools);
 
         tools = ApplyHooks(tools);
 
@@ -519,6 +524,37 @@ public sealed class AgentFactory : IAsyncDisposable
         return config.EnabledTools.Count == 0
             ? []
             : new HashSet<string>(config.EnabledTools, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<AITool> DropConflictingPluginFunctions(List<AITool> tools)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<AITool>(tools.Count);
+        foreach (var tool in tools)
+        {
+            if (string.IsNullOrWhiteSpace(tool.Name))
+            {
+                result.Add(tool);
+                continue;
+            }
+
+            if (seen.Add(tool.Name))
+            {
+                result.Add(tool);
+                continue;
+            }
+
+            if (tool is IPluginFunctionTool { PluginFunctionDescriptor: { } descriptor })
+            {
+                Console.Error.WriteLine(
+                    $"[PluginFunction] Skipped duplicate function '{descriptor.Name}' from plugin '{descriptor.PluginId}'.");
+                continue;
+            }
+
+            result.Add(tool);
+        }
+
+        return result;
     }
 
     /// <summary>

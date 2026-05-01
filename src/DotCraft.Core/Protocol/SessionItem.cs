@@ -60,6 +60,10 @@ public sealed class SessionItem
         Payload as ExternalChannelToolCallPayload;
 
     [JsonIgnore]
+    public PluginFunctionCallPayload? AsPluginFunctionCall =>
+        Payload as PluginFunctionCallPayload;
+
+    [JsonIgnore]
     public ToolResultPayload? AsToolResult =>
         Payload as ToolResultPayload;
 

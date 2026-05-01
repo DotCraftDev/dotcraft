@@ -1,11 +1,12 @@
+using DotCraft.Protocol;
 using DotCraft.Security;
 
-namespace DotCraft.Protocol;
+namespace DotCraft.Plugins;
 
 /// <summary>
-/// Captures the active turn context required by runtime external channel tool wrappers.
+/// Captures active turn context required by plugin function wrappers.
 /// </summary>
-public sealed class ExternalChannelToolExecutionContext
+public sealed class PluginFunctionExecutionContext
 {
     public required string ThreadId { get; init; }
 
@@ -36,13 +37,16 @@ public sealed class ExternalChannelToolExecutionContext
     public required Action<SessionItem> EmitItemCompleted { get; init; }
 }
 
-public static class ExternalChannelToolExecutionScope
+/// <summary>
+/// Async-local holder for the active plugin function execution context.
+/// </summary>
+public static class PluginFunctionExecutionScope
 {
-    private static readonly AsyncLocal<ExternalChannelToolExecutionContext?> CurrentContext = new();
+    private static readonly AsyncLocal<PluginFunctionExecutionContext?> CurrentContext = new();
 
-    public static ExternalChannelToolExecutionContext? Current => CurrentContext.Value;
+    public static PluginFunctionExecutionContext? Current => CurrentContext.Value;
 
-    public static IDisposable Set(ExternalChannelToolExecutionContext context)
+    public static IDisposable Set(PluginFunctionExecutionContext context)
     {
         CurrentContext.Value = context;
         return new ScopeHandle();

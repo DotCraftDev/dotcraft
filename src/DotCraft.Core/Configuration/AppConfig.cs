@@ -98,6 +98,9 @@ public sealed class AppConfig
     public ToolsConfig Tools { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public PluginsConfig Plugins { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     public SecurityConfig Security { get; set; } = new();
 
     [ConfigField(Ignore = true)]
@@ -649,6 +652,33 @@ public sealed class AppConfig
         /// Global tool result size limits and spill-to-disk preview settings.
         /// </summary>
         public ToolResultLimitsConfig ResultLimits { get; set; } = new();
+    }
+
+    [ConfigSection("Plugins", DisplayName = "Plugins", Order = 26)]
+    public sealed class PluginsConfig
+    {
+        /// <summary>
+        /// Plugin ids explicitly enabled for this workspace.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of plugin ids. Built-in ids include node-repl and external-channel.")]
+        public List<string> EnabledPlugins { get; set; } = [];
+
+        /// <summary>
+        /// Plugin ids explicitly disabled for this workspace.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of plugin ids. Disabled entries override enabled/default entries.")]
+        public List<string> DisabledPlugins { get; set; } = [];
+
+        public bool IsPluginEnabled(string pluginId, bool defaultEnabled)
+        {
+            if (DisabledPlugins.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+                return false;
+
+            if (EnabledPlugins.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+                return true;
+
+            return defaultEnabled;
+        }
     }
 
     [ConfigSection("Tools.ResultLimits", DisplayName = "Tools > Result limits", Order = 24)]

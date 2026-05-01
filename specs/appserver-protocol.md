@@ -1304,7 +1304,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
-| `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. For adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` → `item/completed` for `externalChannelToolCall` and does not emit companion `toolCall`/`toolResult` items. |
+| `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` → `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Legacy `externalChannelToolCall` items may still appear in persisted history but are not emitted by current runtime execution. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1369,7 +1369,7 @@ Streamed arguments delta for a `toolCall` item. Concatenate `delta` values in or
 Server coverage:
 
 - Argument deltas are emitted for non-external tools by default, including built-in, module-contributed, and MCP tools. Individual tools can opt out via a server-side annotation, in which case clients only observe `item/started` followed by `item/completed` with no deltas.
-- Adapter-declared external channel tools do not emit `item/toolCall/argumentsDelta` because they are projected as `externalChannelToolCall` items instead of `toolCall` items.
+- Plugin-backed tools do not emit `item/toolCall/argumentsDelta` because they are projected as `pluginFunctionCall` items instead of `toolCall` items.
 - Clients MUST NOT assume a specific built-in set has streaming enabled. Render UX based on the presence of `argumentsDelta` events for a given `toolCall` item.
 - Clients are expected to render tool-specific UX only for tools they recognise; for unknown tool names (for example MCP tools), render a generic "generating parameters" placeholder without displaying the raw JSON to the user.
 
@@ -2279,7 +2279,7 @@ Behavior rules:
 - When a tool descriptor declares `approval`, the server may gate execution before sending `ext/channel/toolCall`.
 - `approval` metadata identifies approval targets for server interception only; it does not define an adapter-local approval policy.
 - Any gating decision for adapter-declared tools must be resolved from the same server-owned thread/workspace policy surfaces used by built-in tools.
-- For adapter-declared tools, item lifecycle projection is `externalChannelToolCall` only (`item/started` → `item/completed`). The server does not emit companion `toolCall`, `toolResult`, or `item/toolCall/argumentsDelta` events for the same invocation.
+- For adapter-declared tools, item lifecycle projection is `pluginFunctionCall` only (`item/started` → `item/completed`). The server does not emit companion `toolCall`, `toolResult`, or `item/toolCall/argumentsDelta` events for the same invocation.
 
 ### 11.3 ACP Tool Proxy
 

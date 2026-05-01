@@ -589,6 +589,7 @@ public static class SessionWireMapper
             ApprovalResponsePayload => "approvalResponse",
             ErrorPayload => "error",
             ToolCallPayload => "toolCall",
+            PluginFunctionCallPayload => "pluginFunctionCall",
             ExternalChannelToolCallPayload => "externalChannelToolCall",
             ToolResultPayload => "toolResult",
             UserMessagePayload => "userMessage",

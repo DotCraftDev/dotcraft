@@ -5,6 +5,7 @@ using DotCraft.ExternalChannel;
 using DotCraft.GitHubTracker;
 using DotCraft.Hosting;
 using DotCraft.Modules;
+using DotCraft.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -29,7 +30,8 @@ public sealed partial class GatewayModule : ModuleBase
 
         // Register ExternalChannelRegistry as a singleton (all external hosts + WebSocket routing)
         services.TryAddSingleton<ExternalChannelRegistry>();
-        services.TryAddSingleton<IChannelRuntimeToolProvider, ExternalChannelToolProvider>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IThreadPluginFunctionProvider, ExternalChannelToolProvider>());
+        services.TryAddSingleton<IChannelRuntimeToolProvider, ThreadPluginFunctionToolProvider>();
     }
 
     /// <inheritdoc />
