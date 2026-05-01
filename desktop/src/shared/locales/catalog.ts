@@ -663,14 +663,12 @@ const MESSAGES_EN = {
   'skillMarket.dotCraftInstallUnavailableVariants': 'This AppServer does not support workspace skill adjustments.',
   'skillMarket.dotCraftInstallUnavailableSelfLearning': 'Enable self-learning and restart AppServer before using DotCraft install.',
   'skillMarket.dotCraftInstallPrompt':
-    'Install and check the marketplace skill "{{name}}" for this workspace.\n\n' +
-    'Candidate directory: {{candidateDir}}\n' +
-    'Metadata: {{metadataPath}}\n' +
+    'Install and check "{{name}}" for this workspace.\n\n' +
+    'Candidate: {{candidateDir}}\n' +
+    'Local skill name: {{skillName}}\n' +
     'Workspace: {{workspacePath}}\n' +
-    'Market: {{provider}} / {{slug}}\n' +
-    'Version: {{version}}\n' +
     'Source: {{sourceUrl}}\n\n' +
-    'Use the skill-installer workflow. First verify the candidate skill, then install it into the current workspace. After installation, read the effective skill with SkillView and check whether the local environment conflicts with the skill instructions. If you find a concrete environment mismatch, use SkillManage to save the workspace-specific adjustment. Finish with a concise summary covering installation status, environment issues, adjustments made, and anything I still need to do.',
+    'Use the skill-installer workflow with the candidate directory above. Verify and install it as the local name above, using --name when needed. Preserve the candidate bundle instead of rewriting it. After installation, use SkillView to review it, use SkillManage only for concrete workspace-specific adaptations, and finish with installation status, environment issues, adaptations, and next actions.',
   'skillMarket.openSource': 'Open source',
   'skillMarket.noReadme': 'No marketplace preview is available for this skill.',
   'skillMarket.overwriteTitle': 'Replace installed skill?',
@@ -2266,14 +2264,12 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'skillMarket.dotCraftInstallUnavailableVariants': '当前 AppServer 不支持工作区技能调整。',
   'skillMarket.dotCraftInstallUnavailableSelfLearning': '启用自我学习并重启 AppServer 后才能使用 DotCraft 安装。',
   'skillMarket.dotCraftInstallPrompt':
-    '请为当前工作区安装并检查市场技能“{{name}}”。\n\n' +
+    '请为当前工作区安装并检查“{{name}}”。\n\n' +
     '候选目录：{{candidateDir}}\n' +
-    '元数据：{{metadataPath}}\n' +
+    '本地技能名：{{skillName}}\n' +
     '工作区：{{workspacePath}}\n' +
-    '市场：{{provider}} / {{slug}}\n' +
-    '版本：{{version}}\n' +
     '来源：{{sourceUrl}}\n\n' +
-    '请使用 skill-installer 工作流。先验证候选 skill，再把它安装到当前工作区。安装后使用 SkillView 读取 effective skill，并检查本机环境是否和 skill 说明冲突。如果发现明确的环境差异，请使用 SkillManage 保存工作区专属调整。最后用简短摘要说明：安装状态、环境问题、已经完成的调整，以及我还需要做什么。',
+    '请使用 skill-installer 工作流处理上面的候选目录。用上面的本地技能名验证并安装，必要时传入 --name。保留候选 bundle，不要重写它。安装后用 SkillView 检查；只有发现明确的工作区差异时才用 SkillManage 写入适配。最后说明安装状态、环境问题、已做适配和后续动作。',
   'skillMarket.openSource': '打开来源',
   'skillMarket.noReadme': '此技能暂无市场预览。',
   'skillMarket.overwriteTitle': '替换已安装技能？',

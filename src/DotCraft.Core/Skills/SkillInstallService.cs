@@ -1,12 +1,13 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DotCraft.Skills;
 
 /// <summary>
 /// Verifies candidate skill bundles and publishes them into the workspace skill source root.
 /// </summary>
-public sealed class SkillInstallService(SkillsLoader skillsLoader)
+public sealed partial class SkillInstallService(SkillsLoader skillsLoader)
 {
     private const int MaxFileCount = 1000;
     private const long MaxTotalBytes = 100L * 1024 * 1024;
@@ -44,19 +45,21 @@ public sealed class SkillInstallService(SkillsLoader skillsLoader)
         }
 
         var content = await File.ReadAllTextAsync(skillFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-        var skillName = string.IsNullOrWhiteSpace(request.ExpectedName)
-            ? ExtractFrontmatterField(content, "name")
-            : request.ExpectedName.Trim();
+        var hasExpectedName = !string.IsNullOrWhiteSpace(request.ExpectedName);
+        var skillName = hasExpectedName
+            ? request.ExpectedName!.Trim()
+            : ExtractFrontmatterField(content, "name");
 
         if (string.IsNullOrWhiteSpace(skillName))
             errors.Add("Frontmatter must include a 'name' field, or --name must be provided.");
-        else if (SkillFrontmatter.ValidateName(skillName) is { } nameError)
+        else if (ValidateInstallSkillName(skillName) is { } nameError)
             errors.Add(nameError);
 
         if (!string.IsNullOrWhiteSpace(skillName)
-            && SkillFrontmatter.ValidateContent(
+            && ValidateInstallContent(
                 content,
                 skillName,
+                requireNameMatch: !hasExpectedName,
                 request.MaxSkillContentChars) is { } contentError)
         {
             errors.Add(contentError);
@@ -196,8 +199,12 @@ public sealed class SkillInstallService(SkillsLoader skillsLoader)
                 continue;
             }
 
-            if (!IsAllowedSkillPath(relative, parts))
-                errors.Add($"Unsupported skill file path: {relative}");
+            if (!string.Equals(relative, InstallMarkerFileName, StringComparison.OrdinalIgnoreCase)
+                && parts.Any(part => part.StartsWith(".", StringComparison.Ordinal)))
+            {
+                errors.Add($"Hidden or control skill file path is not allowed: {relative}");
+                continue;
+            }
 
             var length = new FileInfo(file).Length;
             if (length > SkillFrontmatter.DefaultMaxSupportingFileBytes && !string.Equals(relative, "SKILL.md", StringComparison.OrdinalIgnoreCase))
@@ -207,25 +214,6 @@ public sealed class SkillInstallService(SkillsLoader skillsLoader)
 
         if (totalBytes > MaxTotalBytes)
             errors.Add($"Skill bundle is too large ({totalBytes:N0} bytes; limit: {MaxTotalBytes:N0}).");
-    }
-
-    private static bool IsAllowedSkillPath(string relative, string[] parts)
-    {
-        if (string.Equals(relative, "SKILL.md", StringComparison.Ordinal))
-            return true;
-        if (string.Equals(relative, InstallMarkerFileName, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (parts[0].StartsWith(".", StringComparison.Ordinal))
-            return false;
-        if (parts[0].Equals("scripts", StringComparison.OrdinalIgnoreCase)
-            || parts[0].Equals("assets", StringComparison.OrdinalIgnoreCase))
-        {
-            return parts.Length >= 2;
-        }
-
-        return parts.Length == 2
-               && parts[0].Equals("agents", StringComparison.OrdinalIgnoreCase)
-               && parts[1].Equals("openai.yaml", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void CopyValidatedBundle(string sourceDir, string targetDir)
@@ -276,6 +264,89 @@ public sealed class SkillInstallService(SkillsLoader skillsLoader)
 
         return null;
     }
+
+    private static string? ValidateInstallSkillName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Skill name is required.";
+
+        if (name.Length > SkillFrontmatter.MaxNameLength)
+            return $"Skill name exceeds {SkillFrontmatter.MaxNameLength} characters.";
+
+        if (!IsAsciiLetterOrDigit(name[0]) || name.Any(ch => !IsAsciiLetterOrDigit(ch) && ch is not '.' and not '_' and not '-'))
+            return $"Invalid skill name '{name}'. Use letters, numbers, hyphens, dots, and underscores. Must start with a letter or digit.";
+
+        return null;
+    }
+
+    private static string? ValidateInstallContent(
+        string content,
+        string localSkillName,
+        bool requireNameMatch,
+        int maxSkillContentChars)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return "SKILL.md content cannot be empty.";
+
+        var maxChars = maxSkillContentChars > 0 ? maxSkillContentChars : SkillFrontmatter.DefaultMaxSkillContentChars;
+        if (content.Length > maxChars)
+            return $"SKILL.md content is {content.Length:N0} characters (limit: {maxChars:N0}).";
+
+        if (!content.StartsWith("---", StringComparison.Ordinal))
+            return "SKILL.md must start with YAML frontmatter (---).";
+
+        var match = FrontmatterRegex().Match(content);
+        if (!match.Success)
+            return "SKILL.md frontmatter is not closed. Ensure there is a closing '---' line.";
+
+        var metadata = ParseFrontmatter(match.Groups["yaml"].Value);
+        if (!metadata.TryGetValue("name", out var name) || string.IsNullOrWhiteSpace(name))
+            return "Frontmatter must include a 'name' field.";
+
+        if (requireNameMatch && !string.Equals(name, localSkillName, StringComparison.OrdinalIgnoreCase))
+            return $"Frontmatter name '{name}' must match requested skill name '{localSkillName}'.";
+
+        if (!metadata.TryGetValue("description", out var description) || string.IsNullOrWhiteSpace(description))
+            return "Frontmatter must include a 'description' field.";
+
+        if (description.Length > SkillFrontmatter.MaxDescriptionLength)
+            return $"Description exceeds {SkillFrontmatter.MaxDescriptionLength} characters.";
+
+        var body = content[match.Length..].Trim();
+        if (string.IsNullOrWhiteSpace(body))
+            return "SKILL.md must include instructions after the frontmatter.";
+
+        return null;
+    }
+
+    private static Dictionary<string, string> ParseFrontmatter(string yaml)
+    {
+        var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in yaml.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+                continue;
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim().Trim('"', '\'');
+            metadata[key] = value;
+        }
+
+        return metadata;
+    }
+
+    private static bool IsAsciiLetterOrDigit(char value) =>
+        value is >= 'A' and <= 'Z'
+            or >= 'a' and <= 'z'
+            or >= '0' and <= '9';
+
+    [GeneratedRegex("^---\\r?\\n(?<yaml>.*?)\\r?\\n---\\r?\\n", RegexOptions.Singleline | RegexOptions.CultureInvariant)]
+    private static partial Regex FrontmatterRegex();
 
     private sealed class SkillInstallMarker
     {

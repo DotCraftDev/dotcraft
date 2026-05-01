@@ -393,11 +393,11 @@ Manual installation remains valid: users may still place a skill folder under `.
 DotCraft should also provide a built-in skill for agent-assisted installation, similar in spirit to Codex's `skill-installer` skill:
 
 - Prepare a candidate skill directory from a local path, archive, GitHub repository path/URL, or marketplace-provided download.
-- Let the agent inspect and, when necessary, repair the candidate directory before it becomes a source skill.
+- Let DotCraft inspect the candidate directory before it becomes a source skill, but preserve the imported bundle by default.
 - Verify the candidate directory through the DotCraft CLI before publishing it.
 - Install the verified candidate directory into the workspace source skill root.
 - Refuse to overwrite an existing source skill unless the user explicitly asks.
-- Validate frontmatter and supporting-file constraints before publishing.
+- Validate frontmatter and bundle safety before publishing.
 - Compute the source fingerprint.
 - Let the installing agent review the skill against the current workspace and write a variant only when it discovers a concrete environment or workflow conflict.
 - Save the result as the current variant when compilation succeeds, or fall back to source when it does not.
@@ -409,7 +409,13 @@ Recommended built-in skill name:
 skill-installer
 ```
 
-The installer is an agent workflow skill, not the only install path. It should use ordinary file and shell tools plus `dotcraft skill verify` / `dotcraft skill install`, rather than a dedicated high-level `SkillInstall` agent tool. It exists so imported or downloaded skills can be reviewed by an agent in the current workspace and, when needed, produce an initial learned variant without making the user manage that process.
+The installer is an agent workflow skill, not the only install path. It should use ordinary file and shell tools plus `dotcraft skill verify` / `dotcraft skill install`, rather than a dedicated high-level `SkillInstall` agent tool. It exists so imported or downloaded skills can be reviewed by DotCraft in the current workspace and, when needed, produce an initial learned variant without making the user manage that process.
+
+The install verifier must be permissive about normal skill bundle layout. `SKILL.md` must be at the candidate root, but ordinary relative files such as root markdown/json files, `docs/*`, `references/*`, `scripts/*`, `assets/*`, and `agents/openai.yaml` should be preserved instead of forced into a DotCraft-specific folder shape. The verifier should keep safety checks: no path traversal, no escaped files, no hidden control files or directories except the DotCraft install marker, and file count/size limits.
+
+The CLI `--name <local-name>` value is the canonical local install name when present. The frontmatter `name` must exist, but it does not have to exactly match the local install name; this allows marketplace slugs such as `git` to install skills whose display/frontmatter name is `Git`. Local install names are filesystem/tool-reference-safe strings made from letters, digits, `.`, `_`, and `-`, starting with a letter or digit.
+
+Desktop-assisted installs should start a concise DotCraft conversation with only the skill display name, candidate directory, local install name, source, and workspace. The prompt should rely on the built-in `skill-installer` workflow, explicitly ask DotCraft to install from the candidate directory rather than rewrite it, and ask for a final summary of installation status, environment issues, workspace adaptations, and user actions.
 
 ## 14. Run Records
 

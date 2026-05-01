@@ -34,23 +34,68 @@ public sealed class SkillInstallServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task VerifyAsync_RejectsUnsupportedTopLevelPath()
+    public async Task VerifyAsync_AllowsOrdinaryBundleFiles()
     {
         var candidate = WriteCandidate("demo-skill");
         Directory.CreateDirectory(Path.Combine(candidate, "docs"));
+        Directory.CreateDirectory(Path.Combine(candidate, "references"));
+        File.WriteAllText(Path.Combine(candidate, "advanced.md"), "Advanced notes");
+        File.WriteAllText(Path.Combine(candidate, "_meta.json"), "{}");
         File.WriteAllText(Path.Combine(candidate, "docs", "guide.md"), "Guide");
+        File.WriteAllText(Path.Combine(candidate, "references", "commands.md"), "Commands");
+        var service = CreateService();
+
+        var result = await service.VerifyAsync(new SkillInstallVerifyRequest(candidate));
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_AllowsUppercaseFrontmatterName()
+    {
+        var candidate = WriteCandidate("Git");
+        var service = CreateService();
+
+        var result = await service.VerifyAsync(new SkillInstallVerifyRequest(candidate));
+
+        Assert.True(result.IsValid);
+        Assert.Equal("Git", result.SkillName);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_WithExpectedName_UsesLocalNameWithoutRequiringFrontmatterMatch()
+    {
+        var candidate = WriteCandidate("Git");
+        var service = CreateService();
+
+        var result = await service.VerifyAsync(new SkillInstallVerifyRequest(candidate, ExpectedName: "git"));
+
+        Assert.True(result.IsValid);
+        Assert.Equal("git", result.SkillName);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_RejectsHiddenControlFiles()
+    {
+        var candidate = WriteCandidate("demo-skill");
+        File.WriteAllText(Path.Combine(candidate, ".env"), "SECRET=1");
         var service = CreateService();
 
         var result = await service.VerifyAsync(new SkillInstallVerifyRequest(candidate));
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Contains("docs/guide.md", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains(".env", StringComparison.Ordinal));
     }
 
     [Fact]
     public async Task InstallAsync_WithValidCandidate_PublishesWorkspaceSkillAndMarker()
     {
         var candidate = WriteCandidate("demo-skill");
+        Directory.CreateDirectory(Path.Combine(candidate, "docs"));
+        File.WriteAllText(Path.Combine(candidate, "commands.md"), "Commands");
+        File.WriteAllText(Path.Combine(candidate, "docs", "guide.md"), "Guide");
         var loader = CreateLoader();
         var service = new SkillInstallService(loader);
 
@@ -61,6 +106,8 @@ public sealed class SkillInstallServiceTests : IDisposable
         Assert.False(result.Overwritten);
         Assert.StartsWith("sha256:", result.SourceFingerprint);
         Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill", "SKILL.md")));
+        Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill", "commands.md")));
+        Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill", "docs", "guide.md")));
         Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill", ".dotcraft-skill.json")));
     }
 

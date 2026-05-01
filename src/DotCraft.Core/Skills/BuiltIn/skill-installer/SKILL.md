@@ -16,19 +16,25 @@ Use this workflow when the user wants to install, import, test, or adapt a DotCr
    - If the skill is inside a repository, clone or copy the repository, then point at the subdirectory containing `SKILL.md`.
 2. Ensure the candidate directory is a DotCraft skill bundle.
    - `SKILL.md` must be at the candidate root.
-   - The frontmatter `name` must be the intended skill name.
-   - Supporting files should stay under `scripts/`, `assets/`, or `agents/openai.yaml`.
+   - The frontmatter `name` must exist. If the user or market flow provides a local install name, use that as the CLI `--name` value; it does not have to match the frontmatter display name exactly.
+   - Preserve supporting files where they are. Ordinary relative files such as root markdown/json files, `docs/`, `references/`, `scripts/`, `assets/`, and `agents/openai.yaml` can remain in the bundle when verification accepts them.
 3. Run verification:
 
 ```powershell
-dotcraft skill verify --candidate "<candidate-dir>" --json
+dotcraft skill verify --candidate "<candidate-dir>" --name "<local-skill-name>" --json
 ```
 
-4. If verification fails, fix the candidate directory and run verification again.
+Omit `--name` only when the frontmatter name is already the desired local install name.
+
+4. If verification fails, decide whether the failure can be solved by command arguments before editing files.
+   - If the problem is a display/local-name mismatch such as `name: Git` but the local install name should be `git`, retry with `--name "git"`.
+   - Do not move or rewrite files only because they are root markdown/json files, `docs/`, or `references/`.
+   - Only make minimal candidate edits for real structural or safety problems: missing `SKILL.md`, missing required frontmatter, unsafe paths, path traversal, hidden control files, oversized files, or genuinely broken references that the skill itself requires.
+   - Never use `WriteFile` to regenerate a new `SKILL.md` just to make the skill look more like a DotCraft-native skill. Preserve the imported instructions.
 5. Install after verification succeeds:
 
 ```powershell
-dotcraft skill install --candidate "<candidate-dir>" --source "<where this came from>" --json
+dotcraft skill install --candidate "<candidate-dir>" --name "<local-skill-name>" --source "<where this came from>" --json
 ```
 
 Use `--overwrite` only when the user explicitly wants to replace the current workspace source skill.

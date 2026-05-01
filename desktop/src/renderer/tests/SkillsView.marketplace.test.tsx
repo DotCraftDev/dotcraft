@@ -386,12 +386,20 @@ describe('SkillsView marketplace browse and manage modes', () => {
         { type: 'skillRef', name: 'skill-installer' },
         expect.objectContaining({
           type: 'text',
-          text: expect.stringContaining('Candidate directory: E:\\Git\\dotcraft\\.craft\\skill-install-staging')
+          text: expect.stringContaining('Candidate: E:\\Git\\dotcraft\\.craft\\skill-install-staging')
         })
       ],
       mode: 'agent',
       approvalPolicy: 'default'
     })
+    expect(useUIStore.getState().pendingWelcomeTurn?.inputParts[1]).toEqual(expect.objectContaining({
+      type: 'text',
+      text: expect.stringContaining('Local skill name: git-helper')
+    }))
+    expect(useUIStore.getState().pendingWelcomeTurn?.inputParts[1]).toEqual(expect.objectContaining({
+      type: 'text',
+      text: expect.stringContaining('Preserve the candidate bundle instead of rewriting it.')
+    }))
   })
 
   it('disables DotCraft install when self-learning is disabled', async () => {
