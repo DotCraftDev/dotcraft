@@ -10,6 +10,11 @@ import {
   formatSkillManageRunningLabel
 } from './skillManageToolDisplay'
 import {
+  SKILL_VIEW_TOOL_NAME,
+  formatSkillViewLabel,
+  formatSkillViewRunningLabel
+} from './skillViewToolDisplay'
+import {
   formatInvocationDisplay,
   invocationNeedsCallingPrefix,
   isWebToolName
@@ -45,7 +50,8 @@ export const BUILTIN_TOOLS = new Set<string>([
   'CreatePlan',
   'UpdateTodos',
   'TodoWrite',
-  'SkillManage'
+  'SkillManage',
+  'SkillView'
 ])
 
 export function isBuiltinTool(toolName: string): boolean {
@@ -297,6 +303,10 @@ export function formatCollapsedToolLabel(
 
   if (toolName === SKILL_MANAGE_TOOL_NAME) {
     return formatSkillManageLabel(args, undefined, locale)
+  }
+
+  if (toolName === SKILL_VIEW_TOOL_NAME) {
+    return formatSkillViewLabel(args, locale)
   }
 
   if (isWebToolName(toolName)) {
@@ -556,6 +566,14 @@ export function getStreamingToolDisplay(
         )
       }
     }
+    case 'SkillView': {
+      return {
+        label: formatSkillViewRunningLabel(
+          { name: extractPartialJsonStringValue(rawArgs, 'name') },
+          locale
+        )
+      }
+    }
     default: {
       return {
         label: translate(locale, 'toolCall.streaming.genericBuiltin', { toolName })
@@ -585,6 +603,10 @@ export function formatExpandedInvocation(
 
   if (toolName === SKILL_MANAGE_TOOL_NAME) {
     return formatSkillManageLabel(args, undefined, locale)
+  }
+
+  if (toolName === SKILL_VIEW_TOOL_NAME) {
+    return formatSkillViewLabel(args, locale)
   }
 
   return formatGenericInvocation(toolName, args)

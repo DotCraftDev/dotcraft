@@ -617,6 +617,87 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
   })
 
+  it('renders successful SkillView as a non-expandable skill card and opens skill detail', async () => {
+    const item: ConversationItem = {
+      id: 'skill-view-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillView',
+      toolCallId: 'skill-view-call-1',
+      arguments: { name: 'browser-use' },
+      result: '---\nname: browser-use\ndescription: Browser workflow\n---\n# Browser workflow\nLoaded instructions',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'browser-use',
+              description: 'Browser workflow',
+              source: 'workspace',
+              available: true,
+              enabled: true,
+              path: 'F:\\dotcraft\\.craft\\skills\\browser-use\\SKILL.md'
+            }
+          ]
+        }
+      }
+      if (method === 'skills/read') {
+        return { content: '# Browser workflow' }
+      }
+      return {}
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: { get: async () => ({ locale: 'en' }) },
+        appServer: { sendRequest }
+      }
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Skill')).toBeInTheDocument()
+    expect(screen.getByText('Loaded')).toBeInTheDocument()
+    expect(screen.getByText('browser-use')).toBeInTheDocument()
+    expect(screen.getByText('Skill instructions loaded.')).toBeInTheDocument()
+    expect(screen.queryByText('Browser workflow')).toBeNull()
+    expect(screen.queryByText('Loaded instructions')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'View in Skills' }))
+    })
+
+    expect(useUIStore.getState().activeMainView).toBe('skills')
+    expect(useSkillsStore.getState().selectedSkillName).toBe('browser-use')
+    expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    expect(sendRequest).toHaveBeenCalledWith('skills/read', { name: 'browser-use' })
+  })
+
+  it('renders SkillView not found as a non-expandable failed row', () => {
+    const item: ConversationItem = {
+      id: 'skill-view-not-found-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SkillView',
+      toolCallId: 'skill-view-not-found-call-1',
+      arguments: { name: 'missing-skill' },
+      result: "Skill 'missing-skill' not found.",
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Failed: Loaded skill missing-skill/)).toBeInTheDocument()
+    expect(screen.getByText(/Skill 'missing-skill' not found/)).toBeInTheDocument()
+    expect(screen.queryByText('▼')).toBeNull()
+    expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
+  })
+
   it('keeps content mounted during manual collapse animation before removing it', () => {
     vi.useFakeTimers()
     const completedItem: ConversationItem = {

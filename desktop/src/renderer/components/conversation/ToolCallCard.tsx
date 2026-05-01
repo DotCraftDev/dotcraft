@@ -32,6 +32,7 @@ import { PlanToolOutput } from './PlanToolOutput'
 import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
 import { CronCreatedCard } from './CronCreatedCard'
 import { SkillManageCard } from './SkillManageCard'
+import { SkillViewCard } from './SkillViewCard'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { CollapsibleContent } from './CollapsibleContent'
 import { AnsiPre } from './AnsiPre'
@@ -47,6 +48,12 @@ import {
   getSkillManageDisplay,
   shouldRenderSkillManageCard
 } from '../../utils/skillManageToolDisplay'
+import {
+  SKILL_VIEW_TOOL_NAME,
+  formatSkillViewLabel,
+  formatSkillViewRunningLabel,
+  getSkillViewDisplay
+} from '../../utils/skillViewToolDisplay'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -83,6 +90,9 @@ function formatRunningToolLabel(
   }
   if (toolName === SKILL_MANAGE_TOOL_NAME && args) {
     return formatSkillManageRunningLabel(args, locale)
+  }
+  if (toolName === SKILL_VIEW_TOOL_NAME && args) {
+    return formatSkillViewRunningLabel(args, locale)
   }
   if (isWebToolName(toolName) && args && !invocationNeedsCallingPrefix(toolName, args)) {
     return formatInvocationDisplay(toolName, args, locale) ?? streamingLabel
@@ -133,10 +143,11 @@ export const ToolCallCard = memo(function ToolCallCard({
   const args = item.arguments
   const isWebFetchTool = toolName === 'WebFetch'
   const isSkillManageTool = toolName === SKILL_MANAGE_TOOL_NAME
+  const isSkillViewTool = toolName === SKILL_VIEW_TOOL_NAME
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
   const autoExpandEligible = isShellTool || isStreamingFileTool
-  const canExpandWhileRunning = !isWebFetchTool && !isSkillManageTool
+  const canExpandWhileRunning = !isWebFetchTool && !isSkillManageTool && !isSkillViewTool
   const streamingDisplay = getStreamingToolDisplay(
     toolName,
     item.argumentsPreview ?? null,
@@ -149,9 +160,11 @@ export const ToolCallCard = memo(function ToolCallCard({
     || item.executionStatus === 'cancelled'
     || (item.exitCode != null && item.exitCode !== 0)
   const skillManageDisplay = isSkillManageTool ? getSkillManageDisplay(args, item.result) : null
+  const skillViewDisplay = isSkillViewTool ? getSkillViewDisplay(args, item.result) : null
   const success = item.success !== false
     && !shellFailed
     && (!isSkillManageTool || skillManageDisplay?.result?.success !== false)
+    && (!isSkillViewTool || skillViewDisplay?.loaded !== false)
 
   useEffect(() => {
     if (expanded) {
@@ -181,7 +194,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
   const streamingFileDiff = FILE_WRITE_TOOLS.has(toolName) ? streamingItemDiffs.get(item.id) : undefined
   const skillManageDiff = isSkillManageTool ? buildSkillManageDiff(args, item.result, turnId) : null
-  const canExpandCompleted = !isWebFetchTool && !isSkillManageTool
+  const canExpandCompleted = !isWebFetchTool && !isSkillManageTool && !isSkillViewTool
   const runningBaseLabel = formatRunningToolLabel(
     toolName,
     args,
@@ -274,6 +287,15 @@ export const ToolCallCard = memo(function ToolCallCard({
     && shouldRenderSkillManageCard(args, item.result)
   ) {
     return <SkillManageCard item={item} locale={locale} diff={skillManageDiff} />
+  }
+
+  if (
+    isSkillViewTool
+    && !isRunning
+    && success
+    && skillViewDisplay?.loaded
+  ) {
+    return <SkillViewCard item={item} locale={locale} />
   }
 
   if (isRunning) {
@@ -378,12 +400,18 @@ export const ToolCallCard = memo(function ToolCallCard({
 
   const fallbackLabel = isSkillManageTool
     ? formatSkillManageLabel(args, item.result, locale)
-    : formatCollapsedToolLabel(toolName, args, locale, { planTodos })
+    : isSkillViewTool
+      ? formatSkillViewLabel(args, locale)
+      : formatCollapsedToolLabel(toolName, args, locale, { planTodos })
   const label = FILE_WRITE_TOOLS.has(toolName)
     ? formatFileToolLabel(fileDiff, fallbackLabel, locale)
     : fallbackLabel
   const failedPreview = stripAnsi(
-    isSkillManageTool ? (skillManageDisplay?.message ?? '') : (item.result ?? shellOutput)
+    isSkillManageTool
+      ? (skillManageDisplay?.message ?? '')
+      : isSkillViewTool
+        ? (skillViewDisplay?.message ?? '')
+        : (item.result ?? shellOutput)
   )
   const hasFlushWebSearchTable =
     toolName === 'WebSearch'
