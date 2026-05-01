@@ -22,7 +22,7 @@ In scope:
 - Select the best compatible variant for the current model, harness, tool profile, OS, workspace, and source fingerprint.
 - Provide one user-facing recovery action: restore the original source skill.
 - Provide an effective skill view API/tool so agents and clients read the resolved source-or-variant skill instead of treating `ReadFile` as the skill abstraction.
-- Define a skill installation flow that can compile imported skills into variants at install time.
+- Define a skill installation flow where an agent can review imported skills in the current workspace and write learned adjustments into variants.
 - Define future AppServer surfaces without requiring an immediate protocol break.
 
 Out of scope:
@@ -76,7 +76,7 @@ This baseline is useful, but it makes source skills the mutable self-learning ta
 4. Variants can accumulate long-term procedural memory without making source skill review noisy.
 5. Existing `SKILL.md` files and existing skill discovery remain valid.
 6. Skill reading must go through an effective skill view when variant mode is enabled.
-7. Skill installation should preserve manual filesystem workflows while adding an agent-assisted path that compiles imported skills.
+7. Skill installation should preserve manual filesystem workflows while adding an agent-assisted path that reviews imported skills and records workspace-specific adjustments in variants.
 8. The first implementation can be internal and prompt-facing before the AppServer protocol grows a stable public surface.
 
 ## 5. Terminology
@@ -392,14 +392,14 @@ Manual installation remains valid: users may still place a skill folder under `.
 
 DotCraft should also provide a built-in skill for agent-assisted installation, similar in spirit to Codex's `skill-installer` skill:
 
-- List installable skills from configured catalogs.
-- Install a named curated skill.
-- Install from a GitHub repository path or URL.
-- Install from a local path when the user supplies one.
+- Prepare a candidate skill directory from a local path, archive, GitHub repository path/URL, or marketplace-provided download.
+- Let the agent inspect and, when necessary, repair the candidate directory before it becomes a source skill.
+- Verify the candidate directory through the DotCraft CLI before publishing it.
+- Install the verified candidate directory into the workspace source skill root.
 - Refuse to overwrite an existing source skill unless the user explicitly asks.
-- After copying the source skill, validate frontmatter and supporting-file constraints.
+- Validate frontmatter and supporting-file constraints before publishing.
 - Compute the source fingerprint.
-- Run the initial compile/adaptation flow for the current target signature.
+- Let the installing agent review the skill against the current workspace and write a variant only when it discovers a concrete environment or workflow conflict.
 - Save the result as the current variant when compilation succeeds, or fall back to source when it does not.
 - Tell the user only that the skill was installed and is ready, plus any restart/session-refresh requirement.
 
@@ -409,7 +409,7 @@ Recommended built-in skill name:
 skill-installer
 ```
 
-The installer is an agent workflow skill, not the only install path. It exists so imported or downloaded skills naturally pass through validation and initial variant compilation without making the user manage that process.
+The installer is an agent workflow skill, not the only install path. It should use ordinary file and shell tools plus `dotcraft skill verify` / `dotcraft skill install`, rather than a dedicated high-level `SkillInstall` agent tool. It exists so imported or downloaded skills can be reviewed by an agent in the current workspace and, when needed, produce an initial learned variant without making the user manage that process.
 
 ## 14. Run Records
 
@@ -499,10 +499,10 @@ DotCraft may generate variants through several paths:
 | Path | Trigger | Output |
 |------|---------|--------|
 | Lazy fork | Agent calls `SkillManage` on a source skill without a current variant. | Current variant with one mutation applied. |
-| AOT adaptation | Resolver or installer sees a source skill likely incompatible with the current target. | Current variant or source fallback. |
+| Agent review adaptation | The installer or later usage reveals a source skill conflict with the current workspace. | Current variant or source fallback. |
 | JIT optimization | Post-run evidence indicates stale instructions, recurring failure, or user correction. | Updated current variant. |
 | Manual customization | User asks to customize a skill for this workspace/model. | Current variant. |
-| Import hardening | User imports a downloaded skill through the installer. | Source skill plus initial current variant when compilation succeeds. |
+| Import hardening | User imports a downloaded skill through the installer. | Source skill plus agent-authored current variant when review finds a concrete conflict. |
 
 Generation requirements:
 
@@ -563,7 +563,7 @@ Recommended future config:
     "SelfLearning": {
       "Enabled": true,
       "VariantMode": "enabled",
-      "AutoCompileOnInstall": true,
+      "AutoReviewOnInstall": true,
       "AutoCreateVariants": true,
       "MaxVariantsPerSkill": 20,
       "MaxRunRecordsPerSkill": 500
@@ -590,7 +590,6 @@ Candidate methods:
 |--------|---------|
 | `skills/view` | Read the effective skill content after source/variant resolution. |
 | `skills/restoreOriginal` | Restore the source skill by removing or disabling the current adaptation. |
-| `skills/install` | Install a skill from a catalog, GitHub URL/path, or local path and optionally compile it. |
 | `skills/runs/list` | List compact run records for a skill, mainly for diagnostics. |
 
 The existing `skills/list` may later include optional fields:

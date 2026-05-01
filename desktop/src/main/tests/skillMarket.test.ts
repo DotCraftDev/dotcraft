@@ -8,6 +8,7 @@ import {
   getSkillMarketDetail,
   installSkillFromMarket,
   normalizeArchive,
+  prepareDotCraftSkillInstall,
   searchSkillMarket
 } from '../skillMarket'
 
@@ -233,5 +234,36 @@ describe('skillMarket', () => {
 
     expect(result.overwritten).toBe(true)
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf-8')).resolves.toBe('# New')
+  })
+
+  it('prepares a DotCraft install candidate without writing installed skills', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-skill-market-'))
+    const fetcher = vi.fn(async () =>
+      zipResponse({
+        'demo-skill/SKILL.md': '---\nname: demo-skill\n---\n# Demo',
+        'demo-skill/README.md': '# Demo readme'
+      })
+    ) as typeof fetch
+
+    const result = await prepareDotCraftSkillInstall(
+      tempRoot,
+      { provider: 'skillhub', slug: 'demo-skill', version: '1.0.0' },
+      fetcher
+    )
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        skillName: 'demo-skill',
+        provider: 'skillhub',
+        slug: 'demo-skill',
+        version: '1.0.0',
+        workspacePath: tempRoot
+      })
+    )
+    expect(result.candidateDir).toContain(join('.craft', 'skill-install-staging'))
+    expect(existsSync(join(result.candidateDir, 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(result.candidateDir, 'README.md'))).toBe(true)
+    expect(existsSync(result.metadataPath)).toBe(true)
+    expect(existsSync(join(tempRoot, '.craft', 'skills', 'demo-skill', 'SKILL.md'))).toBe(false)
   })
 })

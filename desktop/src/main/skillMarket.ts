@@ -3,10 +3,12 @@ import * as path from 'path'
 import { unzipSync } from 'fflate'
 import type {
   MarketInstallResult,
+  MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   MarketSkillSummary,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketProviderId,
   SkillMarketSearchRequest,
   SkillMarketSearchResult
@@ -29,6 +31,14 @@ interface InstallMarker {
   slug: string
   version?: string
   installedAt: string
+  sourceUrl?: string
+}
+
+interface DotCraftInstallMarker {
+  provider: SkillMarketProviderId
+  slug: string
+  version?: string
+  preparedAt: string
   sourceUrl?: string
 }
 
@@ -94,6 +104,8 @@ const MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
 const MAX_SINGLE_FILE_BYTES = 20 * 1024 * 1024
 const MAX_FILE_COUNT = 1000
 const INSTALL_MARKER = '.dotcraft-market.json'
+const DOTCRAFT_INSTALL_MARKER = '.dotcraft-dotcraft-install.json'
+const DOTCRAFT_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const SKILL_DIR_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 export async function searchSkillMarket(
@@ -198,6 +210,62 @@ export async function installSkillFromMarket(
     targetDir,
     version,
     overwritten: existing
+  }
+}
+
+export async function prepareDotCraftSkillInstall(
+  workspacePath: string,
+  request: SkillMarketPrepareDotCraftInstallRequest,
+  fetcher: FetchLike = fetch
+): Promise<MarketDotCraftInstallPreparation> {
+  if (!workspacePath) throw new Error('No workspace open')
+  const provider = providerFor(request.provider)
+  const slug = normalizeSlug(request.slug)
+  const targetName = normalizeSkillDirName(slug)
+  const stagingRoot = path.join(workspacePath, '.craft', 'skill-install-staging')
+  await cleanupOldDotCraftStaging(stagingRoot)
+
+  const downloadUrl = provider.downloadUrl(slug, request.version)
+  const archive = await fetchBinary(downloadUrl, fetcher, provider.label)
+  const entries = normalizeArchive(archive)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const stagingDir = path.join(stagingRoot, `${provider.id}.${targetName}.${timestamp}`)
+  const candidateDir = path.join(stagingDir, 'source')
+  const metadataPath = path.join(stagingDir, DOTCRAFT_INSTALL_MARKER)
+
+  try {
+    await fs.rm(stagingDir, { recursive: true, force: true })
+    await fs.mkdir(candidateDir, { recursive: true })
+    for (const entry of entries) {
+      const targetPath = path.join(candidateDir, entry.relativePath)
+      assertWithin(candidateDir, targetPath)
+      await fs.mkdir(path.dirname(targetPath), { recursive: true })
+      await fs.writeFile(targetPath, entry.data)
+    }
+    const sourceUrl = provider.sourceUrl(slug)
+    const marker: DotCraftInstallMarker = {
+      provider: provider.id,
+      slug,
+      version: request.version,
+      preparedAt: new Date().toISOString(),
+      sourceUrl
+    }
+    await fs.writeFile(metadataPath, `${JSON.stringify(marker, null, 2)}\n`, 'utf-8')
+
+    return {
+      skillName: targetName,
+      provider: provider.id,
+      slug,
+      version: request.version,
+      sourceUrl,
+      workspacePath,
+      stagingDir,
+      candidateDir,
+      metadataPath
+    }
+  } catch (error) {
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+    throw error
   }
 }
 
@@ -487,6 +555,30 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function cleanupOldDotCraftStaging(stagingRoot: string): Promise<void> {
+  const now = Date.now()
+  let entries: Array<import('fs').Dirent>
+  try {
+    entries = await fs.readdir(stagingRoot, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const fullPath = path.join(stagingRoot, entry.name)
+      try {
+        const stats = await fs.stat(fullPath)
+        if (now - stats.mtimeMs > DOTCRAFT_STAGING_TTL_MS) {
+          await fs.rm(fullPath, { recursive: true, force: true })
+        }
+      } catch {
+        // Best-effort cleanup must never block a DotCraft install preparation.
+      }
+    }))
 }
 
 function normalizeAuthor(...values: unknown[]): string | undefined {

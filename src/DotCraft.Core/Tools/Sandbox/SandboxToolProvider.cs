@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
+using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools.Sandbox;
@@ -86,6 +87,29 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             context.Config.Tools.Web.SearchProvider);
         tools.Add(AIFunctionFactory.Create(webTools.WebSearch));
         tools.Add(AIFunctionFactory.Create(webTools.WebFetch));
+
+        var target = SkillVariantStore.CreateTarget(
+            context.EffectiveMainModel,
+            context.WorkspacePath,
+            sandboxEnabled: true,
+            context.Config.Permissions.DefaultApprovalPolicy.ToString(),
+            tools.Select(t => t.Name).ToArray());
+        var selfLearning = context.Config.Skills.SelfLearning;
+        var variantModeEnabled = string.Equals(selfLearning.VariantMode, "enabled", StringComparison.OrdinalIgnoreCase);
+        var skillViewTool = new SkillViewTool(context.SkillsLoader, variantModeEnabled, target);
+        tools.Add(AIFunctionFactory.Create(skillViewTool.SkillView));
+
+        if (selfLearning.Enabled)
+        {
+            var mutationApplier = variantModeEnabled
+                ? new VariantSkillMutationApplier(context.SkillMutationApplier, context.SkillsLoader, target)
+                : context.SkillMutationApplier;
+            var skillManageTool = new SkillManageTool(
+                mutationApplier,
+                selfLearning,
+                context.ApprovalService);
+            tools.Add(AIFunctionFactory.Create(skillManageTool.SkillManage));
+        }
 
         return tools;
     }

@@ -366,6 +366,17 @@ public sealed class AgentFactory : IAsyncDisposable
                     .ToArray();
             }
 
+            var skillVariantModeEnabled = string.Equals(
+                ctx.Config.Skills.SelfLearning.VariantMode,
+                "enabled",
+                StringComparison.OrdinalIgnoreCase);
+            var skillVariantTarget = SkillVariantStore.CreateTarget(
+                ctx.EffectiveMainModel,
+                ctx.WorkspacePath,
+                ctx.Config.Tools.Sandbox.Enabled,
+                ctx.Config.Permissions.DefaultApprovalPolicy.ToString(),
+                tools.Select(t => t.Name).ToArray());
+
             options.AIContextProviders =
             [
                 new MemoryContextProvider(
@@ -381,7 +392,9 @@ public sealed class AgentFactory : IAsyncDisposable
                     () => TracingChatClient.CurrentSessionKey,
                     sandboxEnabled: _config.Tools.Sandbox.Enabled,
                     deferredMcpServerNames: deferredServerNames,
-                    subAgentProfilesSection: subAgentProfilesSection)
+                    subAgentProfilesSection: subAgentProfilesSection,
+                    skillVariantModeEnabled: skillVariantModeEnabled,
+                    skillVariantTarget: skillVariantTarget)
             ];
         }
 

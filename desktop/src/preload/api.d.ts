@@ -1,8 +1,10 @@
 import type {
   MarketInstallResult,
+  MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketSearchRequest,
   SkillMarketSearchResult
 } from '../shared/skillMarket'
@@ -360,6 +362,9 @@ declare global {
         search(request: SkillMarketSearchRequest): Promise<SkillMarketSearchResult>
         detail(request: SkillMarketDetailRequest): Promise<MarketSkillDetail>
         install(request: SkillMarketInstallRequest): Promise<MarketInstallResult>
+        prepareDotCraftInstall(
+          request: SkillMarketPrepareDotCraftInstallRequest
+        ): Promise<MarketDotCraftInstallPreparation>
       }
       proxy: {
         getStatus(): Promise<ProxyStatusPayload>

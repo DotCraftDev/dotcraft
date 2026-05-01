@@ -727,6 +727,12 @@ public sealed class AppConfig
         public bool Enabled { get; set; } = true;
 
         /// <summary>
+        /// Controls whether self-learning updates are routed to workspace-local skill variants.
+        /// </summary>
+        [ConfigField(Hint = "Skill self-learning write mode: enabled or disabled", Reload = ReloadBehavior.ProcessRestart, HasReload = false)]
+        public string VariantMode { get; set; } = "enabled";
+
+        /// <summary>
         /// Maximum SKILL.md content length in characters.
         /// </summary>
         [ConfigField(Min = 1, Hint = "Maximum SKILL.md size in characters")]

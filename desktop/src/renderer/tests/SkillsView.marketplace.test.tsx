@@ -7,12 +7,15 @@ import { useSkillsStore } from '../stores/skillsStore'
 import { useSkillMarketStore } from '../stores/skillMarketStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
+import { useConnectionStore } from '../stores/connectionStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
 const skillMarketSearch = vi.fn()
 const skillMarketDetail = vi.fn()
 const skillMarketInstall = vi.fn()
+const skillMarketPrepareDotCraftInstall = vi.fn()
+const workspaceConfigGetCore = vi.fn()
 const openExternal = vi.fn()
 
 function renderView(): void {
@@ -27,6 +30,7 @@ function renderView(): void {
 describe('SkillsView marketplace browse and manage modes', () => {
   afterEach(() => {
     cleanup()
+    useUIStore.getState().setPendingWelcomeTurn(null)
     vi.clearAllTimers()
   })
 
@@ -48,13 +52,23 @@ describe('SkillsView marketplace browse and manage modes', () => {
       error: null,
       selectedSkill: null,
       detailLoading: false,
-      installSlug: null
+      installSlug: null,
+      dotCraftInstallSlug: null
+    })
+    useConnectionStore.getState().reset()
+    useConnectionStore.getState().setStatus({
+      status: 'connected',
+      capabilities: {
+        skillsManagement: true,
+        skillVariants: true
+      }
     })
     useThreadStore.getState().reset()
     useThreadStore.getState().setActiveThreadId('thread-existing')
     useUIStore.setState({
       activeMainView: 'skills',
-      welcomeDraft: null
+      welcomeDraft: null,
+      pendingWelcomeTurn: null
     })
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
@@ -96,6 +110,18 @@ describe('SkillsView marketplace browse and manage modes', () => {
           }
         }
       }
+      if (method === 'thread/start') {
+        return {
+          thread: {
+            id: 'thread-dotcraft-install',
+            displayName: null,
+            status: 'active',
+            originChannel: 'dotcraft-desktop',
+            createdAt: '2026-05-01T00:00:00.000Z',
+            lastActiveAt: '2026-05-01T00:00:00.000Z'
+          }
+        }
+      }
       return { content: '---\nname: memory\n---\n# Memory' }
     })
     skillMarketSearch.mockResolvedValue({
@@ -124,15 +150,46 @@ describe('SkillsView marketplace browse and manage modes', () => {
       targetDir: 'E:\\Git\\dotcraft\\.craft\\skills\\git-helper',
       overwritten: false
     })
+    skillMarketPrepareDotCraftInstall.mockResolvedValue({
+      skillName: 'git-helper',
+      provider: 'clawhub',
+      slug: 'git-helper',
+      version: '1.0.0',
+      sourceUrl: 'https://clawhub.ai/skills/git-helper',
+      workspacePath: 'E:\\Git\\dotcraft',
+      stagingDir: 'E:\\Git\\dotcraft\\.craft\\skill-install-staging\\clawhub.git-helper.2026-05-01T00-00-00-000Z',
+      candidateDir: 'E:\\Git\\dotcraft\\.craft\\skill-install-staging\\clawhub.git-helper.2026-05-01T00-00-00-000Z\\source',
+      metadataPath: 'E:\\Git\\dotcraft\\.craft\\skill-install-staging\\clawhub.git-helper.2026-05-01T00-00-00-000Z\\.dotcraft-dotcraft-install.json'
+    })
+    workspaceConfigGetCore.mockResolvedValue({
+      workspace: {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: true,
+        memoryAutoConsolidateEnabled: null,
+        defaultApprovalPolicy: null
+      },
+      userDefaults: {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
+        defaultApprovalPolicy: null
+      }
+    })
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
         settings: { get: settingsGet },
         appServer: { sendRequest: appServerSendRequest },
+        workspaceConfig: { getCore: workspaceConfigGetCore },
         skillMarket: {
           search: skillMarketSearch,
           detail: skillMarketDetail,
-          install: skillMarketInstall
+          install: skillMarketInstall,
+          prepareDotCraftInstall: skillMarketPrepareDotCraftInstall
         },
         shell: {
           openExternal,
@@ -270,5 +327,77 @@ describe('SkillsView marketplace browse and manage modes', () => {
       })
     })
     expect(appServerSendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+  })
+
+  it('starts a DotCraft install thread from marketplace detail', async () => {
+    renderView()
+    fireEvent.change(await screen.findByPlaceholderText('Search skills or install from Marketplace'), {
+      target: { value: 'git' }
+    })
+    fireEvent.click(await screen.findByText('Git Helper'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Install with DotCraft' }))
+
+    await waitFor(() => {
+      expect(skillMarketPrepareDotCraftInstall).toHaveBeenCalledWith({
+        provider: 'clawhub',
+        slug: 'git-helper',
+        version: '1.0.0'
+      })
+    })
+    expect(appServerSendRequest).toHaveBeenCalledWith('thread/start', {
+      identity: {
+        channelName: 'dotcraft-desktop',
+        userId: 'local',
+        channelContext: 'workspace:E:\\Git\\dotcraft',
+        workspacePath: 'E:\\Git\\dotcraft'
+      },
+      historyMode: 'server'
+    })
+    expect(useThreadStore.getState().activeThreadId).toBe('thread-dotcraft-install')
+    expect(useUIStore.getState().activeMainView).toBe('conversation')
+    expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
+      threadId: 'thread-dotcraft-install',
+      inputParts: [
+        { type: 'skillRef', name: 'skill-installer' },
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Candidate directory: E:\\Git\\dotcraft\\.craft\\skill-install-staging')
+        })
+      ],
+      mode: 'agent',
+      approvalPolicy: 'default'
+    })
+  })
+
+  it('disables DotCraft install when self-learning is disabled', async () => {
+    workspaceConfigGetCore.mockResolvedValueOnce({
+      workspace: {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: false,
+        memoryAutoConsolidateEnabled: null,
+        defaultApprovalPolicy: null
+      },
+      userDefaults: {
+        apiKey: null,
+        endPoint: null,
+        welcomeSuggestionsEnabled: null,
+        skillsSelfLearningEnabled: null,
+        memoryAutoConsolidateEnabled: null,
+        defaultApprovalPolicy: null
+      }
+    })
+
+    renderView()
+    fireEvent.change(await screen.findByPlaceholderText('Search skills or install from Marketplace'), {
+      target: { value: 'git' }
+    })
+    fireEvent.click(await screen.findByText('Git Helper'))
+
+    const button = await screen.findByRole('button', { name: 'Install with DotCraft' })
+    await waitFor(() => {
+      expect(button).toBeDisabled()
+    })
   })
 })

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Installer"
+  short_description: "Install and check DotCraft skills through the verifier workflow."
+  default_prompt: "Install this skill with $skill-installer and check whether it needs workspace-specific adaptation."

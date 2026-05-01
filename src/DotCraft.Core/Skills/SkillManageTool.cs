@@ -23,21 +23,22 @@ public sealed class SkillManageTool(
 
     private const string SkillManageDescription =
         """
-        Manage workspace skills. The 'action' parameter must be one of:
+        Manage workspace skills. Updates normally write a workspace adaptation so the original skill is not modified.
+        The 'action' parameter must be one of:
         'create', 'edit', 'patch', 'write_file', 'remove_file' or `delete`.
 
         Examples:
         SkillManage(action: "create", name: "my-skill", content: "<full SKILL.md>") - create a new workspace skill;
-        SkillManage(action: "patch", name: "my-skill", oldString: "...", newString: "...") - targeted fix in SKILL.md;
-        SkillManage(action: "edit", name: "my-skill", content: "<full updated SKILL.md>") - full rewrite;
-        SkillManage(action: "write_file", name: "my-skill", filePath: "scripts/check.sh", fileContent: "...") - write supporting file;
-        SkillManage(action: "remove_file", name: "my-skill", filePath: "assets/example.json") - remove supporting file;
+        SkillManage(action: "patch", name: "my-skill", oldString: "...", newString: "...") - targeted fix in the effective SKILL.md;
+        SkillManage(action: "edit", name: "my-skill", content: "<full updated SKILL.md>") - full rewrite of the effective SKILL.md;
+        SkillManage(action: "write_file", name: "my-skill", filePath: "scripts/check.sh", fileContent: "...") - write supporting file in the workspace adaptation;
+        SkillManage(action: "remove_file", name: "my-skill", filePath: "assets/example.json") - remove supporting file from the workspace adaptation;
         SkillManage(action: "delete", name: "my-skill") - delete the skill.
 
         Create when a complex task succeeded, a tricky error was fixed, a user correction produced a stable workflow,
         or the user asks you to remember a procedure. Update when a skill is stale, incomplete, wrong, or missing a pitfall.
         Skip simple one-offs.
-        Prefer 'patch' for small fixes. For major rewrites, read the current SKILL.md first and use 'edit'.
+        Prefer 'patch' for small fixes. For major rewrites, load the current skill with SkillView first and use 'edit'.
         Read the skill-authoring skill when authoring or restructuring skills for frontmatter, supporting-file rules,
         pitfalls, and verification guidance.
         """;

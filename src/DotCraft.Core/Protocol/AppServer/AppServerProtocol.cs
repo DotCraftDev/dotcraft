@@ -496,6 +496,12 @@ public sealed class AppServerServerCapabilities
     public bool SkillsManagement { get; set; }
 
     /// <summary>
+    /// Server supports effective skill views and restoring source skills from workspace adaptations.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SkillVariants { get; set; }
+
+    /// <summary>
     /// Server supports command management methods (command/list, command/execute). See spec Section 19.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -1191,6 +1197,30 @@ public sealed class SkillsReadResult
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, string>? Metadata { get; set; }
+}
+
+public sealed class SkillsViewParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SkillsViewResult
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Content { get; set; } = string.Empty;
+}
+
+public sealed class SkillsRestoreOriginalParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SkillsRestoreOriginalResult
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Restored { get; set; }
 }
 
 public sealed class SkillsSetEnabledParams
@@ -2361,6 +2391,8 @@ public static class AppServerMethods
     // Client → Server requests (skills management, spec Section 18)
     public const string SkillsList = "skills/list";
     public const string SkillsRead = "skills/read";
+    public const string SkillsView = "skills/view";
+    public const string SkillsRestoreOriginal = "skills/restoreOriginal";
     public const string SkillsSetEnabled = "skills/setEnabled";
 
     // Client → Server requests (command management, spec Section 19)
