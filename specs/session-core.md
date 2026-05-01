@@ -467,9 +467,9 @@ not by appending deltas to an already completed Turn.
 
 `SystemNotice` items are created by Session Core and persisted via the normal
 rollout/`turn.Items` pipeline, so they survive thread reload and round-trip
-through `thread/read`. Clients treat them as inline dividers in the timeline.
-`memoryConsolidated` has no compaction-specific token fields.
+through `thread/read`. Clients treat them as inline dividers in the timeline
 rather than part of the model conversation.
+`memoryConsolidated` notices have no compaction-specific token fields.
 
 ### 4.3 Stable Identifiers and Normalization Rules
 
