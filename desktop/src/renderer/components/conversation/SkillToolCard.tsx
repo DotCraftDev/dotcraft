@@ -4,6 +4,7 @@ import { translate, type AppLocale } from '../../../shared/locales'
 import { useSkillsStore } from '../../stores/skillsStore'
 import { useUIStore } from '../../stores/uiStore'
 import { SkillAvatar } from '../skills/SkillAvatar'
+import { VariantBadge } from '../skills/VariantBadge'
 import { ActionTooltip } from '../ui/ActionTooltip'
 
 interface SkillToolCardProps {
@@ -11,6 +12,7 @@ interface SkillToolCardProps {
   skillName: string
   badge: string
   subtitle: string
+  showVariantBadge?: boolean
   children?: ReactNode
 }
 
@@ -19,6 +21,7 @@ export function SkillToolCard({
   skillName,
   badge,
   subtitle,
+  showVariantBadge = false,
   children
 }: SkillToolCardProps): JSX.Element {
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
@@ -32,6 +35,7 @@ export function SkillToolCard({
     () => skills.find((skill) => skill.name.trim().toLocaleLowerCase() === normalizedSkillName),
     [normalizedSkillName, skills]
   )
+  const hasVariant = showVariantBadge || skillEntry?.hasVariant === true
 
   useEffect(() => {
     if (skillEntry || skillsLoading) return
@@ -59,6 +63,7 @@ export function SkillToolCard({
           <div style={eyebrowRow}>
             <span style={eyebrow}>{translate(locale, 'skillTool.card.title')}</span>
             <span style={badgeStyle}>{badge}</span>
+            {hasVariant ? <VariantBadge compact /> : null}
           </div>
           <div style={title}>{skillName}</div>
         </div>

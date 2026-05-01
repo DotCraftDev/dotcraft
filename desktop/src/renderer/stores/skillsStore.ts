@@ -10,6 +10,7 @@ export interface SkillEntry {
   unavailableReason?: string | null
   enabled: boolean
   path: string
+  hasVariant?: boolean
   iconSmallDataUrl?: string | null
   iconLargeDataUrl?: string | null
   defaultPrompt?: string | null
@@ -54,7 +55,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   async selectSkill(name: string) {
     set({ selectedSkillName: name, skillContent: null, contentLoading: true })
     try {
-      const result = (await window.api.appServer.sendRequest('skills/read', {
+      const result = (await window.api.appServer.sendRequest('skills/view', {
         name
       })) as { content?: string }
       set({ skillContent: result.content ?? '', contentLoading: false })

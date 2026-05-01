@@ -363,6 +363,8 @@ The table below covers common method families. The complete method list is in th
 
 Clients should use `capabilities` from the `initialize` response before showing feature-specific UI.
 
+Skill entries returned by `skills/list` may include `hasVariant: true`, which means the current runtime resolves that skill through a workspace adaptation. `skills/read` still reads the source `SKILL.md`; use `skills/view` when a client needs the effective content.
+
 ## Minimal Node Client
 
 This example starts AppServer over stdio, initializes the connection, creates a thread, and starts a turn:

@@ -8,6 +8,7 @@ import { useThreadStore } from '../../stores/threadStore'
 import type { MarketDotCraftInstallPreparation, MarketSkillDetail, MarketSkillSummary } from '../../../shared/skillMarket'
 import { SkillAvatar } from './SkillAvatar'
 import { SkillDetailDialog } from './SkillDetailDialog'
+import { VariantBadge } from './VariantBadge'
 import { PillSwitch } from '../ui/PillSwitch'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
@@ -489,7 +490,10 @@ function SkillsManageView({
               iconDataUrl={skill.iconSmallDataUrl}
             />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={rowTitle}>{skillTitle(skill)}</div>
+              <div style={rowTitleLine}>
+                <div style={rowTitle}>{skillTitle(skill)}</div>
+                {skill.hasVariant ? <VariantBadge compact /> : null}
+              </div>
               <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
             </div>
             <span style={manageSource}>{sourceLabel(skill, t)}</span>
@@ -517,7 +521,10 @@ function LocalSkillItem({ skill, onOpen }: { skill: SkillEntry; onOpen: () => vo
         iconDataUrl={skill.iconSmallDataUrl}
       />
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={rowTitle}>{skillTitle(skill)}</div>
+        <div style={rowTitleLine}>
+          <div style={rowTitle}>{skillTitle(skill)}</div>
+          {skill.hasVariant ? <VariantBadge compact /> : null}
+        </div>
         <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
       </div>
       <span title={skill.enabled ? t('skillCard.on') : t('skillCard.disabledBadge')} style={statusIcon}>
@@ -925,6 +932,13 @@ const rowTitle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap'
+}
+
+const rowTitleLine: React.CSSProperties = {
+  minWidth: 0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px'
 }
 
 const rowDesc: React.CSSProperties = {

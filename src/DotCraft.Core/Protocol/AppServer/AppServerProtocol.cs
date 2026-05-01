@@ -1171,6 +1171,12 @@ public sealed class SkillInfoWire
 
     public string Path { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True when the current runtime resolves this skill through a workspace variant.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasVariant { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IconSmallDataUrl { get; set; }
 

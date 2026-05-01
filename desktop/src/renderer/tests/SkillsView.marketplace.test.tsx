@@ -85,6 +85,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
               source: 'builtin',
               available: true,
               enabled: true,
+              hasVariant: true,
               path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
             },
             {
@@ -259,6 +260,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
     const moreButton = within(dialog).getByRole('button', { name: 'More actions' })
     expect(moreButton).toBeInTheDocument()
     expect(screen.getByTestId('skill-detail-scroll-body')).toBeInTheDocument()
+    expect(within(dialog).getByText('Variant')).toBeInTheDocument()
 
     fireEvent.click(moreButton)
     expect(await screen.findByRole('menuitem', { name: 'Open folder' })).toBeInTheDocument()
@@ -288,7 +290,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
       })
     })
     await waitFor(() => {
-      expect(appServerSendRequest).toHaveBeenCalledWith('skills/read', {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/view', {
         name: 'memory'
       })
     })
@@ -326,6 +328,22 @@ describe('SkillsView marketplace browse and manage modes', () => {
     await waitFor(() => {
       expect(useToastStore.getState().toasts.some((toast) => toast.message === 'This skill is already using its original source')).toBe(true)
     })
+  })
+
+  it('shows variant badges in local skill lists and detail', async () => {
+    renderView()
+
+    expect(await screen.findByText('Memory')).toBeInTheDocument()
+    expect(screen.getByText('Variant')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Memory'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Variant')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
+    expect(await screen.findByText('Skills 2')).toBeInTheDocument()
+    expect(screen.getByText('Variant')).toBeInTheDocument()
   })
 
   it('starts a new welcome draft with the selected skill tag from detail', async () => {

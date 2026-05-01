@@ -3044,6 +3044,7 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
   "unavailableReason": null,
   "enabled": true,
   "path": "/home/user/project/skills/browser/SKILL.md",
+  "hasVariant": true,
   "iconSmallDataUrl": "data:image/svg+xml;base64,...",
   "iconLargeDataUrl": "data:image/png;base64,...",
   "defaultPrompt": "Use $browser-use to inspect a local browser target.",
@@ -3064,7 +3065,8 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 | `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
 | `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
 | `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
-| `path` | string | Absolute filesystem path to the `SKILL.md` file. |
+| `path` | string | Absolute filesystem path to the source `SKILL.md` file. |
+| `hasVariant` | boolean? | Present and `true` when the current runtime resolves this skill through a current workspace variant. Omitted or `false` means the effective skill currently falls back to source. |
 | `iconSmallDataUrl` | string? | Optional small icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
 | `iconLargeDataUrl` | string? | Optional large icon as a data URL. Resolved only from safe relative paths inside the skill directory. |
 | `defaultPrompt` | string? | Optional default starter prompt from `agents/openai.yaml` `interface.default_prompt`. |
@@ -3108,6 +3110,7 @@ List all installed skills across all sources.
       "unavailableReason": null,
       "enabled": true,
       "path": "/home/user/project/skills/browser/SKILL.md",
+      "hasVariant": true,
       "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
     },
     {
@@ -3161,6 +3164,7 @@ List all installed skills across all sources.
         "unavailableReason": null,
         "enabled": true,
         "path": "/home/user/project/skills/browser/SKILL.md",
+        "hasVariant": true,
         "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
       }
     ]
@@ -3337,6 +3341,7 @@ When disabling, the skill is marked unavailable for future agent context resolut
       "unavailableReason": null,
       "enabled": false,
       "path": "/home/user/project/skills/browser/SKILL.md",
+      "hasVariant": true,
       "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
     }
 } }

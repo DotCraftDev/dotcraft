@@ -494,13 +494,14 @@ describe('ToolCallCard shell rendering', () => {
               source: 'workspace',
               available: true,
               enabled: true,
+              hasVariant: false,
               path: 'F:\\dotcraft\\.craft\\skills\\demo-skill\\SKILL.md',
               iconSmallDataUrl: iconDataUrl
             }
           ]
         }
       }
-      if (method === 'skills/read') {
+      if (method === 'skills/view') {
         return { content: '# Demo' }
       }
       return {}
@@ -542,7 +543,7 @@ describe('ToolCallCard shell rendering', () => {
     expect(useUIStore.getState().activeMainView).toBe('skills')
     expect(useSkillsStore.getState().selectedSkillName).toBe('demo-skill')
     expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
-    expect(sendRequest).toHaveBeenCalledWith('skills/read', { name: 'demo-skill' })
+    expect(sendRequest).toHaveBeenCalledWith('skills/view', { name: 'demo-skill' })
   })
 
   it('renders successful SkillManage patch as a skill card with an embedded diff', () => {
@@ -582,6 +583,7 @@ describe('ToolCallCard shell rendering', () => {
     const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Variant updated')).toBeInTheDocument()
+    expect(screen.getByText('Variant')).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
     const filename = screen.getByText('SKILL.md')
     expect(filename).toHaveAttribute('title', 'demo-skill/SKILL.md')
@@ -672,13 +674,14 @@ describe('ToolCallCard shell rendering', () => {
               source: 'workspace',
               available: true,
               enabled: true,
+              hasVariant: true,
               path: 'F:\\dotcraft\\.craft\\skills\\browser-use\\SKILL.md',
               iconSmallDataUrl: iconDataUrl
             }
           ]
         }
       }
-      if (method === 'skills/read') {
+      if (method === 'skills/view') {
         return { content: '# Browser workflow' }
       }
       return {}
@@ -696,6 +699,7 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.getByText('Skill')).toBeInTheDocument()
     expect(screen.getByText('Loaded')).toBeInTheDocument()
     expect(screen.getByText('browser-use')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Variant')).toBeInTheDocument())
     await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', iconDataUrl))
     expect(screen.getByText('Skill instructions loaded.')).toBeInTheDocument()
     expect(screen.queryByText('Browser workflow')).toBeNull()
@@ -709,7 +713,7 @@ describe('ToolCallCard shell rendering', () => {
     expect(useUIStore.getState().activeMainView).toBe('skills')
     expect(useSkillsStore.getState().selectedSkillName).toBe('browser-use')
     expect(sendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
-    expect(sendRequest).toHaveBeenCalledWith('skills/read', { name: 'browser-use' })
+    expect(sendRequest).toHaveBeenCalledWith('skills/view', { name: 'browser-use' })
   })
 
   it('renders SkillView not found as a non-expandable failed row', () => {

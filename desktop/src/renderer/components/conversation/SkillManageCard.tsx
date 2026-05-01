@@ -26,7 +26,13 @@ export function SkillManageCard({ item, locale, diff }: SkillManageCardProps): J
   const subtitle = display.message || translate(locale, 'skillManage.card.updatedFallback')
 
   return (
-    <SkillToolCard locale={locale} skillName={display.name} badge={badge} subtitle={subtitle}>
+    <SkillToolCard
+      locale={locale}
+      skillName={display.name}
+      badge={badge}
+      subtitle={subtitle}
+      showVariantBadge={display.variantUpdated}
+    >
       {diff && (
         <div style={diffFrame}>
           <InlineDiffView

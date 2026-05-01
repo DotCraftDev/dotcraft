@@ -102,6 +102,39 @@ public sealed class AppServerSkillsManagementTests : IDisposable
     }
 
     [Fact]
+    public async Task SkillsList_ReportsHasVariantForCurrentVariantOnly()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var target = SkillVariantStore.CreateTarget(
+            harness.Monitor.Current.Model,
+            harness.Identity.WorkspacePath,
+            sandboxEnabled: false,
+            harness.Monitor.Current.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
+        var applier = new VariantSkillMutationApplier(new WorkspaceFileSkillMutationApplier(loader), loader, target);
+        await applier.PatchAsync(new SkillPatchRequest("demo-skill", "Source body.", "Variant body.", null, false));
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsList, new { includeUnavailable = true }));
+        using var listResponse = harness.Transport.TryReadSent()!;
+        var skill = listResponse.RootElement.GetProperty("result").GetProperty("skills")[0];
+        Assert.True(skill.GetProperty("hasVariant").GetBoolean());
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsRestoreOriginal, new { name = "demo-skill" }));
+        using var restoreResponse = harness.Transport.TryReadSent()!;
+        Assert.True(restoreResponse.RootElement.GetProperty("result").GetProperty("restored").GetBoolean());
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsList, new { includeUnavailable = true }));
+        using var restoredListResponse = harness.Transport.TryReadSent()!;
+        var restoredSkill = restoredListResponse.RootElement.GetProperty("result").GetProperty("skills")[0];
+        Assert.False(restoredSkill.TryGetProperty("hasVariant", out var hasVariant)
+                     && hasVariant.GetBoolean());
+    }
+
+    [Fact]
     public async Task SkillsRestoreOriginal_MakesSkillsViewFallBackToSource()
     {
         var craftPath = Path.Combine(_tempRoot, ".craft");

@@ -2461,11 +2461,22 @@ public sealed class AppServerRequestHandler(
             UnavailableReason = s.UnavailableReason,
             Enabled = s.Enabled,
             Path = s.Path,
+            HasVariant = HasCurrentSkillVariant(s),
             IconSmallDataUrl = interfaceInfo?.IconSmallDataUrl,
             IconLargeDataUrl = interfaceInfo?.IconLargeDataUrl,
             DefaultPrompt = interfaceInfo?.DefaultPrompt,
             Metadata = metadata
         };
+    }
+
+    private bool HasCurrentSkillVariant(SkillsLoader.SkillInfo source)
+    {
+        if (skillsLoader == null || !IsSkillVariantModeEnabled())
+            return false;
+
+        var effectivePath = skillsLoader.ResolveEffectiveSkillFile(source, true, BuildSkillVariantTarget());
+        return effectivePath != null
+               && !string.Equals(effectivePath, source.Path, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsSkillVariantModeEnabled()

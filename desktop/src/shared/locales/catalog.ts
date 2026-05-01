@@ -784,6 +784,8 @@ const MESSAGES_EN = {
   'skillView.card.view': 'View',
   'skillView.card.viewInSkills': 'View in Skills',
   'skillView.card.loadedFallback': 'Skill instructions loaded.',
+  'skillVariant.badge': 'Variant',
+  'skillVariant.badgeTooltip': 'Optimized by DotCraft for this workspace.',
   // Running / streaming labels for built-in tools
   'toolCall.streaming.readingFile': 'Reading {{filename}}...',
   'toolCall.streaming.readingGeneric': 'Reading file...',
@@ -2422,6 +2424,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'skillView.card.view': '查看',
   'skillView.card.viewInSkills': '在技能中查看',
   'skillView.card.loadedFallback': '已加载技能说明。',
+  'skillVariant.badge': '变体',
+  'skillVariant.badgeTooltip': 'DotCraft 已根据项目环境优化此技能。',
   'toolCall.streaming.readingFile': '正在读取 {{filename}}...',
   'toolCall.streaming.readingGeneric': '正在读取文件...',
   'toolCall.streaming.searchingGrep': '正在搜索「{{pattern}}」...',
