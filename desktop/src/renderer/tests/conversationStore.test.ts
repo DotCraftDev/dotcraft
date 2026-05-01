@@ -509,6 +509,14 @@ describe('system events', () => {
     expect(s().systemLabel).toBeNull()
   })
 
+  it('clears label on "consolidationSkipped" event', () => {
+    s().onTurnStarted(makeTurn())
+    s().onSystemEvent('consolidating')
+    expect(s().systemLabel).toBe('systemStatus.consolidating')
+    s().onSystemEvent('consolidationSkipped')
+    expect(s().systemLabel).toBeNull()
+  })
+
   it('ignores unknown system event kinds', () => {
     s().onTurnStarted(makeTurn())
     s().onSystemEvent('unknown-event-xyz')
@@ -650,6 +658,25 @@ describe('systemNotice items', () => {
     s().onItemCompleted(payload)
     const count = s().turns[0].items.filter((i) => i.type === 'systemNotice').length
     expect(count).toBe(1)
+  })
+
+  it('appends a memory consolidation notice to turn.items on item/completed', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'notice-memory',
+        type: 'systemNotice',
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        payload: {
+          kind: 'memoryConsolidated'
+        }
+      }
+    })
+
+    const notice = s().turns[0].items.find((i) => i.type === 'systemNotice')
+    expect(notice?.systemNotice?.kind).toBe('memoryConsolidated')
   })
 })
 

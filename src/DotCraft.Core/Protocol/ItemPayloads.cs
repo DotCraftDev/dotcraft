@@ -383,15 +383,15 @@ public sealed record ApprovalResponsePayload
 }
 
 /// <summary>
-/// Payload for SystemNotice items. Currently used to mark points where the
-/// context was compacted so clients can render a persistent divider in the
-/// conversation timeline.
+/// Payload for SystemNotice items. Used to mark maintenance milestones such as
+/// context compaction and long-term memory consolidation so clients can render
+/// persistent dividers in the conversation timeline.
 /// </summary>
 public sealed record SystemNoticePayload
 {
     /// <summary>
-    /// Notice classifier. Currently only <c>"compacted"</c> is emitted; leaving
-    /// this as a string keeps future kinds (e.g. <c>"memoryConsolidated"</c>)
+    /// Notice classifier. Known values include <c>"compacted"</c> and
+    /// <c>"memoryConsolidated"</c>. Leaving this as a string keeps future kinds
     /// additive without rev'ing the wire protocol.
     /// </summary>
     public string Kind { get; init; } = string.Empty;

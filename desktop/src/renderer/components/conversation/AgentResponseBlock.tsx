@@ -150,6 +150,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
             nativeInputParts={item.nativeInputParts}
             imageDataUrls={item.imageDataUrls}
             images={item.images}
+            createdAt={item.createdAt}
             triggerKind={item.triggerKind}
             triggerLabel={item.triggerLabel}
             triggerRefId={item.triggerRefId}

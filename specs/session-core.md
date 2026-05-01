@@ -455,7 +455,7 @@ not by appending deltas to an already completed Turn.
 
 ```
 {
-  "kind": string,              // Notice classifier. Currently "compacted"; future kinds are additive.
+  "kind": string,              // Notice classifier. Known values: "compacted", "memoryConsolidated".
   "trigger": string,           // For kind="compacted": "auto" | "reactive" | "manual"
   "mode": string,              // For kind="compacted": "micro" | "partial"
   "tokensBefore": number,      // Approximate input tokens right before compaction ran
@@ -469,6 +469,7 @@ not by appending deltas to an already completed Turn.
 rollout/`turn.Items` pipeline, so they survive thread reload and round-trip
 through `thread/read`. Clients treat them as inline dividers in the timeline
 rather than part of the model conversation.
+`memoryConsolidated` notices have no compaction-specific token fields.
 
 ### 4.3 Stable Identifiers and Normalization Rules
 
@@ -771,7 +772,8 @@ SessionEvent
     {
       "kind": string,          // One of: "compactWarning", "compactError",
                                 //         "compacting", "compacted", "compactSkipped", "compactFailed",
-                                //         "consolidating", "consolidated", "consolidationFailed"
+                                //         "consolidating", "consolidated", "consolidationSkipped",
+                                //         "consolidationFailed"
       "message": string,       // Human-readable description (nullable)
       "percentLeft": double,   // Fraction of the effective context window still unused (nullable; 0.0-1.0)
       "tokenCount": long       // Current estimated prompt token usage (nullable)
@@ -790,6 +792,7 @@ SessionEvent
     | `compactFailed` | Compaction attempted but failed (LLM error, cancellation). The circuit breaker may trip after several consecutive failures. | Synchronous, immediately after the pipeline returns `Failed`. |
     | `consolidating` | Memory consolidation is starting. Consolidation is driven by Session Core after every configured number of successful Turns, independent from compaction. | Reserved for asynchronous memory-maintenance notifications. |
     | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | Reserved for asynchronous memory-maintenance notifications. |
+    | `consolidationSkipped` | Memory consolidation completed without writing MEMORY.md or HISTORY.md (for example, no `save_memory` call or no valid changes). UIs should dismiss any active consolidation status and should not show a success marker. | Asynchronous, after the background consolidation task returns no changes. |
     | `consolidationFailed` | Memory consolidation failed (LLM error, provider error, or persistence failure). UIs should dismiss any active consolidation status. | Asynchronous, after the background consolidation task throws. |
 
   - **Emission rules**:
@@ -797,9 +800,9 @@ SessionEvent
     - The threshold advisory events (`compactWarning`, `compactError`) carry `percentLeft` and `tokenCount` so UIs can render a "context almost full" warning bar without needing a separate usage request.
     - Auto-compaction events (`compacting`, `compacted`, `compactSkipped`, `compactFailed`) are synchronous within Step 5k and always fire in the order `compacting` → one terminal event (`compacted` / `compactSkipped` / `compactFailed`).
     - The pipeline may also be invoked **reactively** from the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. In that case the Turn still fails, but `compacting` followed by `compacted` / `compactFailed` is emitted first so UIs know the history was repaired before the user retries.
-    - Memory consolidation is a fire-and-forget maintenance task scheduled by Session Core after a configured number of successful Turns. It is not spawned by the compaction pipeline, and Turn completion is **not** deferred for consolidation. Its start event (`consolidating`) is emitted through the turn-scoped `SessionEventChannel`; its terminal events (`consolidated` / `consolidationFailed`) are emitted through the thread event broker with `turnId = null`. See [Memory Consolidation](memory-consolidation.md) for the design contract.
+    - Memory consolidation is a fire-and-forget maintenance task scheduled by Session Core after a configured number of successful Turns and after the baseline thread/session persistence attempt for that Turn has finished. It is not spawned by the compaction pipeline, and Turn completion is **not** deferred for consolidation. Its start event (`consolidating`) is emitted through the turn-scoped `SessionEventChannel`; its terminal events (`consolidated` / `consolidationSkipped` / `consolidationFailed`) are emitted through the thread event broker with `turnId = null`. On `consolidated`, Session Core persists a `SystemNotice` item with `kind = "memoryConsolidated"` into the completed Turn and broadcasts `item/started` + `item/completed` through the thread event broker. See [Memory Consolidation](memory-consolidation.md) for the design contract.
     - Turn-scoped system events are emitted through the turn-scoped `SessionEventChannel`, so they are guaranteed to arrive before `turn/completed`. Thread-scoped maintenance events may arrive later.
-    - The `message` field carries a localized human-readable description suitable for display (on `compactSkipped` / `compactFailed` it contains the machine-readable failure reason, e.g. `circuit_breaker_tripped`, `summary_unavailable`).
+    - The `message` field carries a localized human-readable description suitable for display (on `compactSkipped` / `compactFailed` / `consolidationSkipped` / `consolidationFailed` it may contain a machine-readable reason, e.g. `circuit_breaker_tripped`, `summary_unavailable`, `save_memory_not_called`).
   - **Adapters**: Adapters that display session maintenance status (e.g., CLI spinner for consolidation, status text for compaction) should consume `system/event` notifications. Adapters that do not need maintenance status may ignore this event type or opt out via `optOutNotificationMethods`.
 
 #### Usage Events

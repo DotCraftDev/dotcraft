@@ -44,7 +44,7 @@ Short-term compaction and long-term memory consolidation may observe similar con
 Consolidation runs after successful turns, using a simple per-thread counter:
 
 - Each successfully completed turn increments the thread's consolidation counter.
-- When the counter reaches the configured interval, DotCraft schedules a background consolidation task and resets the counter.
+- When the counter reaches the configured interval, DotCraft snapshots model-visible history. If the snapshot is non-empty, it resets the counter and schedules a background consolidation task. Empty snapshots do not consume the scheduled attempt.
 - Failed or cancelled turns do not increment the counter and do not reset it.
 - Clearing or deleting a thread clears that thread's consolidation counter.
 
@@ -69,7 +69,7 @@ Consolidation writes two memory layers:
 
 The operation is best-effort. The system should avoid corrupting existing memory files; if a consolidation attempt cannot produce a valid update, it should leave existing memory unchanged.
 
-Concurrent consolidation attempts should be treated as independent background maintenance work. Implementations should keep each attempted write atomic at the file level and avoid blocking the active turn.
+Concurrent consolidation attempts should be treated as independent background maintenance work. Implementations should serialize writes per memory store, replace `MEMORY.md` atomically via a temporary file, append `HISTORY.md` under the same store lock, and avoid blocking the active turn.
 
 ## 6. Failure And Backpressure
 
@@ -86,11 +86,12 @@ Unlike context compaction, consolidation does not need a circuit breaker in the 
 
 Memory consolidation emits transient `system/event` notifications so clients can display and dismiss maintenance status without blocking the active Turn:
 
-- `consolidating` is emitted through the active turn-scoped event channel after the successful Turn is marked complete and before the background consolidation task is scheduled. It carries the completed Turn's `turnId`.
-- `consolidated` is emitted through the thread event broker after the background task finishes successfully. Because the turn-scoped event channel may already be closed, this event is thread-scoped and carries `turnId = null`.
+- `consolidating` is emitted through the active turn-scoped event channel after the successful Turn is marked complete and the baseline thread/session persistence attempt has finished, immediately before the background consolidation task is scheduled. It carries the completed Turn's `turnId`.
+- `consolidated` is emitted through the thread event broker after the background task successfully writes `MEMORY.md` or `HISTORY.md`. Because the turn-scoped event channel may already be closed, this event is thread-scoped and carries `turnId = null`.
+- `consolidationSkipped` is emitted through the thread event broker when the background task completes without writing durable memory, such as when the model does not call `save_memory` or returns no valid changes. Clients should dismiss any active consolidation status without showing a success marker.
 - `consolidationFailed` is emitted through the thread event broker if the background task fails. Clients should dismiss any active consolidation status and may surface the event `message`.
 
-These events are status notifications only. They do not create persistent conversation items and do not change the triggering model.
+On `consolidated`, Session Core also persists a `SystemNotice` item with `kind = "memoryConsolidated"` into the completed Turn and broadcasts `item/started` + `item/completed` through the thread event broker. This gives Desktop and other timeline clients a durable divider that survives thread reloads. Skipped and failed attempts do not create persistent conversation items.
 
 ## 8. Configuration
 

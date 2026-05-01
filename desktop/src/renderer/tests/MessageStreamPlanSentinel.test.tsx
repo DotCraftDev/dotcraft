@@ -225,6 +225,42 @@ describe('MessageStream plan-accept sentinel filtering', () => {
     })
   })
 
+  it('renders a persistent memory consolidation notice divider', () => {
+    useConversationStore.setState({
+      turns: [{
+        id: 'turn-1',
+        threadId: 'thread-1',
+        status: 'completed',
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        items: [
+          {
+            id: 'u1',
+            type: 'userMessage',
+            status: 'completed',
+            text: 'Remember this preference',
+            createdAt: new Date().toISOString()
+          },
+          {
+            id: 'notice-memory',
+            type: 'systemNotice',
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            systemNotice: { kind: 'memoryConsolidated' }
+          }
+        ]
+      }],
+      turnStatus: 'idle',
+      activeTurnId: null
+    })
+
+    renderWithLocale(<MessageStream />)
+
+    expect(screen.getByRole('separator', { name: 'Long-term memory updated' })).toBeInTheDocument()
+    expect(screen.getByText('Long-term memory updated')).toBeInTheDocument()
+  })
+
   it('shows the inline edit affordance only on the last completed text-only user message', () => {
     useConversationStore.setState({
       turns: [

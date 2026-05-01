@@ -242,7 +242,8 @@ public sealed record SystemEventPayload
     /// <summary>
     /// System event kind. One of: "compactWarning", "compactError",
     /// "compacting", "compacted", "compactSkipped", "compactFailed",
-    /// "consolidating", "consolidated", "consolidationFailed".
+    /// "consolidating", "consolidated", "consolidationSkipped",
+    /// "consolidationFailed".
     /// </summary>
     public required string Kind { get; init; }
 

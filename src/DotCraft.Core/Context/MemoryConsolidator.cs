@@ -16,6 +16,7 @@ namespace DotCraft.Context;
 /// compaction does not drive this workflow.
 /// </summary>
 public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memoryStore, Action<string>? onStatus = null)
+    : IMemoryConsolidator
 {
     private const string SystemPrompt =
         "You are a memory consolidation agent. " +
@@ -45,12 +46,12 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
     /// Consolidate the given thread-history snapshot into MEMORY.md and HISTORY.md.
     /// Runs the LLM consolidation call and writes results to disk.
     /// </summary>
-    public async Task ConsolidateAsync(
+    public async Task<MemoryConsolidationResult> ConsolidateAsync(
         IReadOnlyList<AiChatMessage> messagesToArchive,
         CancellationToken cancellationToken = default)
     {
         if (messagesToArchive.Count == 0)
-            return;
+            return MemoryConsolidationResult.Skipped("empty_snapshot");
 
         var currentMemory = memoryStore.ReadLongTerm();
         var conversationText = FormatMessages(messagesToArchive);
@@ -87,39 +88,50 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
             if (completion.FinishReason != ChatFinishReason.ToolCalls)
             {
                 onStatus?.Invoke("[grey][[Memory]][/] [yellow]Consolidation: LLM did not call save_memory, skipping.[/]");
-                return;
+                return MemoryConsolidationResult.Skipped("save_memory_not_called");
             }
 
+            var sawSaveMemoryTool = false;
             foreach (var toolCall in completion.ToolCalls)
             {
                 if (toolCall.FunctionName != "save_memory")
                     continue;
 
+                sawSaveMemoryTool = true;
                 using var doc = JsonDocument.Parse(toolCall.FunctionArguments);
                 var root = doc.RootElement;
+                string? historyEntry = null;
+                string? memoryUpdate = null;
 
                 if (root.TryGetProperty("history_entry", out var historyEl))
                 {
-                    var entry = historyEl.GetString();
-                    if (!string.IsNullOrWhiteSpace(entry))
-                        memoryStore.AppendHistory(entry);
+                    historyEntry = historyEl.GetString();
                 }
 
                 if (root.TryGetProperty("memory_update", out var memoryEl))
                 {
-                    var updated = memoryEl.GetString();
-                    if (!string.IsNullOrWhiteSpace(updated) && updated != currentMemory)
-                        memoryStore.WriteLongTerm(updated);
+                    memoryUpdate = memoryEl.GetString();
+                }
+
+                var result = memoryStore.SaveConsolidation(historyEntry, memoryUpdate);
+                if (!result.AnyWritten)
+                {
+                    onStatus?.Invoke("[grey][[Memory]][/] [yellow]Consolidation: no memory changes, skipping.[/]");
+                    return MemoryConsolidationResult.Skipped("no_memory_changes");
                 }
 
                 onStatus?.Invoke("[grey][[Memory]][/] [green]Consolidation complete.[/]");
-                break;
+                return MemoryConsolidationResult.Succeeded(result.MemoryWritten, result.HistoryWritten);
             }
+
+            return sawSaveMemoryTool
+                ? MemoryConsolidationResult.Skipped("no_memory_changes")
+                : MemoryConsolidationResult.Skipped("save_memory_not_called");
         }
         catch (Exception ex)
         {
             onStatus?.Invoke($"[grey][[Memory]][/] [red]Consolidation failed: {Markup.Escape(ex.Message)}[/]");
-            throw;
+            return MemoryConsolidationResult.Failed(ex.Message);
         }
     }
 

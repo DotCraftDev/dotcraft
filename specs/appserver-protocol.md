@@ -1638,9 +1638,9 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 | Field | Type | Description |
 |-------|------|-------------|
 | `threadId` | string | Parent thread. |
-| `turnId` | string? | Active turn. May be null for asynchronous thread-scoped maintenance events such as `consolidated` and `consolidationFailed`. |
-| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`, `"consolidationFailed"`. |
-| `message` | string? | Human-readable description (or machine-readable failure reason on `compactSkipped` / `compactFailed` / `consolidationFailed`). May be null. |
+| `turnId` | string? | Active turn. May be null for asynchronous thread-scoped maintenance events such as `consolidated`, `consolidationSkipped`, and `consolidationFailed`. |
+| `kind` | string | Event kind. One of: `"compactWarning"`, `"compactError"`, `"compacting"`, `"compacted"`, `"compactSkipped"`, `"compactFailed"`, `"consolidating"`, `"consolidated"`, `"consolidationSkipped"`, `"consolidationFailed"`. |
+| `message` | string? | Human-readable description (or machine-readable reason on `compactSkipped` / `compactFailed` / `consolidationSkipped` / `consolidationFailed`). May be null. |
 | `percentLeft` | number? | Fraction of the effective context window still unused (`0.0`-`1.0`). Populated for compaction-related events. |
 | `tokenCount` | number? | Current estimated prompt token usage. Populated for compaction-related events. |
 
@@ -1656,6 +1656,7 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 | `compactFailed` | Compaction attempted but failed (LLM error, cancellation). Repeated failures trip the circuit breaker. |
 | `consolidating` | Memory consolidation is starting (fire-and-forget, driven by Session Core after a configured number of successful Turns). |
 | `consolidated` | Memory consolidation completed successfully. MEMORY.md / HISTORY.md have been updated. |
+| `consolidationSkipped` | Memory consolidation completed without writing MEMORY.md or HISTORY.md (for example, the model did not call `save_memory` or produced no valid changes). Clients should dismiss any active consolidation status and should not show a success marker. |
 | `consolidationFailed` | Memory consolidation failed. Clients should dismiss any active consolidation status and may surface `message`. |
 
 **Emission rules**:
@@ -1664,9 +1665,10 @@ Emitted when a system-level maintenance operation occurs during a Turn's post-pr
 - Threshold advisory events (`compactWarning`, `compactError`) fire when token usage crosses a threshold but auto-compaction has not yet been triggered.
 - Auto-compaction is a synchronous pair: `compacting` → one of `compacted` / `compactSkipped` / `compactFailed`.
 - Reactive compaction fires on the Turn's error path when the model rejects a request with `prompt_too_long` / `context_length_exceeded`. The Turn still fails, but `compacting` and its terminal event are emitted first so UIs know the history was repaired before the user retries.
-- Memory consolidation is fire-and-forget after a configured number of successful Turns; it is independent from compaction and the Turn completes without awaiting it. The start event is `consolidating`; the terminal event is either `consolidated` or `consolidationFailed`. See [Memory Consolidation](memory-consolidation.md) for the design contract.
+- Memory consolidation is fire-and-forget after a configured number of successful Turns; it is independent from compaction and the Turn completes without awaiting it. The start event is `consolidating`; the terminal event is one of `consolidated`, `consolidationSkipped`, or `consolidationFailed`. See [Memory Consolidation](memory-consolidation.md) for the design contract.
 - Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
 - On a successful `compacted` event (auto or reactive trigger), Session Core additionally persists a `SystemNotice` SessionItem (kind = `"compacted"`) into the current turn and emits the normal `item/started` + `item/completed` pair for it. This gives clients a persistent timeline marker that survives thread reload, alongside the transient `system/event` notification used to drive toast/status-line UX. See [Session Core](session-core.md#systemnotice) for the payload schema.
+- On a successful `consolidated` event, Session Core additionally persists a `SystemNotice` SessionItem (kind = `"memoryConsolidated"`) into the completed turn and emits the normal `item/started` + `item/completed` pair through the thread event broker. `consolidationSkipped` does not create a persistent notice.
 
 **Example sequence**:
 

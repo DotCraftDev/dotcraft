@@ -245,8 +245,17 @@ public sealed class AppServerProcess : IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        // Dispose the wire client first (closes its writer stream which signals EOF to the server)
+        // Dispose the wire client first, then close the owned stdin stream so the
+        // subprocess observes EOF and can clean up its workspace lock.
         await Wire.DisposeAsync();
+        try
+        {
+            _process.StandardInput.Close();
+        }
+        catch
+        {
+            // ignored
+        }
 
         // Wait up to 3 seconds for the server to exit cleanly on EOF
         var deadline = Task.Delay(TimeSpan.FromSeconds(3));
@@ -257,6 +266,16 @@ public sealed class AppServerProcess : IAsyncDisposable
             try
             {
                 _process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // ignored
+            }
+
+            try
+            {
+                await _process.WaitForExitAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
             }
             catch
             {

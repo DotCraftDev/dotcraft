@@ -20,6 +20,7 @@ interface UserMessageBlockProps {
   nativeInputParts?: InputPart[]
   imageDataUrls?: string[]
   images?: UserMessageImageRef[]
+  createdAt?: string
   triggerKind?: ConversationItem['triggerKind']
   triggerLabel?: string
   triggerRefId?: string
@@ -44,6 +45,7 @@ export function UserMessageBlock({
   nativeInputParts,
   imageDataUrls,
   images,
+  createdAt,
   triggerKind,
   triggerLabel,
   triggerRefId,
@@ -61,6 +63,7 @@ export function UserMessageBlock({
   const editAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
+  const [focusedWithin, setFocusedWithin] = useState(false)
   const [hydratedImages, setHydratedImages] = useState<Array<{ url: string; absolutePath?: string }>>(
     (imageDataUrls ?? []).map((url) => ({ url }))
   )
@@ -77,6 +80,8 @@ export function UserMessageBlock({
     (seg): seg is Extract<(typeof segments)[number], { type: 'attachedFile' }> => seg.type === 'attachedFile'
   )
   const textSegments = segments.filter((seg) => seg.type !== 'attachedFile')
+  const sentTime = formatMessageTime(createdAt)
+  const actionsVisible = hovered || focusedWithin
 
   useEffect(() => {
     if (!editing) return
@@ -143,16 +148,13 @@ export function UserMessageBlock({
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onFocusCapture={() => setFocusedWithin(true)}
+        onBlurCapture={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) {
+            setFocusedWithin(false)
+          }
+        }}
         style={{
-          backgroundColor: 'var(--user-message-bg)',
-          borderRadius: '12px',
-          padding: '9px 13px',
-          fontFamily: 'var(--font-body)',
-          fontSize: 'var(--text-body-size)',
-          lineHeight: 'var(--text-body-line-height)',
-          color: 'var(--text-primary)',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
           alignSelf: 'flex-end',
           width: editing ? 'min(100%, var(--conversation-reading-width))' : undefined,
           maxWidth: editing
@@ -160,95 +162,111 @@ export function UserMessageBlock({
             : 'min(82%, var(--conversation-reading-width))',
           display: 'flex',
           flexDirection: 'column',
-          gap: '6px',
-          userSelect: 'text',
-          position: 'relative'
+          alignItems: 'flex-end'
         }}
       >
-        {editing ? (
-          <>
-            <textarea
-              ref={editAreaRef}
-              value={editText ?? text}
-              aria-label={t('conversation.editTextarea')}
-              disabled={editSubmitting}
-              onChange={(e) => onEditTextChange?.(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  onCancelEdit?.()
-                  return
-                }
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault()
-                  if (!editSubmitDisabled) {
-                    onSubmitEdit?.()
-                  }
-                }
-              }}
-              style={{
-                width: '100%',
-                minHeight: '72px',
-                maxHeight: '184px',
-                resize: 'none',
-                overflowY: 'auto',
-                border: 'none',
-                outline: 'none',
-                background: 'transparent',
-                color: 'var(--text-primary)',
-                font: 'inherit',
-                lineHeight: 'inherit',
-                padding: 0
-              }}
-            />
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                gap: '8px'
-              }}
-            >
-              <button
-                type="button"
-                onClick={onCancelEdit}
+        <div
+          style={{
+            width: '100%',
+            backgroundColor: 'var(--user-message-bg)',
+            borderRadius: '12px',
+            padding: '9px 13px',
+            fontFamily: 'var(--font-body)',
+            fontSize: 'var(--text-body-size)',
+            lineHeight: 'var(--text-body-line-height)',
+            color: 'var(--text-primary)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            userSelect: 'text'
+          }}
+        >
+          {editing ? (
+            <>
+              <textarea
+                ref={editAreaRef}
+                value={editText ?? text}
+                aria-label={t('conversation.editTextarea')}
                 disabled={editSubmitting}
+                onChange={(e) => onEditTextChange?.(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    onCancelEdit?.()
+                    return
+                  }
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    if (!editSubmitDisabled) {
+                      onSubmitEdit?.()
+                    }
+                  }
+                }}
                 style={{
-                  height: 32,
-                  padding: '0 12px',
-                  borderRadius: 16,
-                  border: '1px solid var(--border-default)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-secondary)',
-                  cursor: editSubmitting ? 'default' : 'pointer',
-                  opacity: editSubmitting ? 0.7 : 1
+                  width: '100%',
+                  minHeight: '72px',
+                  maxHeight: '184px',
+                  resize: 'none',
+                  overflowY: 'auto',
+                  border: 'none',
+                  outline: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  font: 'inherit',
+                  lineHeight: 'inherit',
+                  padding: 0
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
               >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={onSubmitEdit}
-                disabled={editSubmitDisabled}
-                aria-label={t('conversation.editSend')}
-                style={{
-                  height: 32,
-                  padding: '0 14px',
-                  borderRadius: 16,
-                  border: '1px solid transparent',
-                  background: editSubmitDisabled ? 'var(--bg-tertiary)' : 'var(--text-primary)',
-                  color: editSubmitDisabled ? 'var(--text-dimmed)' : 'var(--bg-primary)',
-                  cursor: editSubmitDisabled ? 'not-allowed' : 'pointer',
-                  fontWeight: 600
-                }}
-              >
-                {editSubmitting ? t('conversation.editSending') : t('conversation.editSend')}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-        {hasImages && (
+                <button
+                  type="button"
+                  onClick={onCancelEdit}
+                  disabled={editSubmitting}
+                  style={{
+                    height: 32,
+                    padding: '0 12px',
+                    borderRadius: 16,
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    cursor: editSubmitting ? 'default' : 'pointer',
+                    opacity: editSubmitting ? 0.7 : 1
+                  }}
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={onSubmitEdit}
+                  disabled={editSubmitDisabled}
+                  aria-label={t('conversation.editSend')}
+                  style={{
+                    height: 32,
+                    padding: '0 14px',
+                    borderRadius: 16,
+                    border: '1px solid transparent',
+                    background: editSubmitDisabled ? 'var(--bg-tertiary)' : 'var(--text-primary)',
+                    color: editSubmitDisabled ? 'var(--text-dimmed)' : 'var(--bg-primary)',
+                    cursor: editSubmitDisabled ? 'not-allowed' : 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  {editSubmitting ? t('conversation.editSending') : t('conversation.editSend')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+          {hasImages && (
           <div
             style={{
               display: 'flex',
@@ -348,46 +366,82 @@ export function UserMessageBlock({
             refId={triggerRefId}
           />
         )}
-        <MessageCopyButton
-          getText={() => text}
-          visible={hovered && text.length > 0}
-        />
-        {editable && onEdit && (
-          <ActionTooltip
-            label={t('conversation.editMessage')}
-            placement="top"
-            wrapperStyle={{
-              position: 'absolute',
-              right: text.length > 0 ? '40px' : '8px',
-              bottom: '6px',
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? 'auto' : 'none',
-              zIndex: 2
+            </>
+          )}
+        </div>
+        {!editing && (
+          <div
+            style={{
+              minHeight: '24px',
+              marginTop: '2px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: '6px',
+              color: 'var(--text-tertiary)',
+              fontSize: '11px',
+              lineHeight: 1,
+              userSelect: 'none'
             }}
           >
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label={t('conversation.editMessage')}
-              style={{
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text-secondary)',
+            {sentTime && (
+              <span
+                title={sentTime.title}
+                style={{
+                  padding: '0 2px',
+                  opacity: actionsVisible ? 1 : 0,
+                  transition: 'opacity 120ms ease'
+                }}
+              >
+                {sentTime.label}
+              </span>
+            )}
+            {editable && onEdit && (
+              <ActionTooltip
+                label={t('conversation.editMessage')}
+                placement="top"
+                wrapperStyle={{
+                  display: 'inline-flex',
+                  opacity: actionsVisible ? 1 : 0,
+                  pointerEvents: actionsVisible ? 'auto' : 'none',
+                  transition: 'opacity 120ms ease'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  aria-label={t('conversation.editMessage')}
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'opacity 120ms ease, color 120ms ease'
+                  }}
+                >
+                  <Pencil size={14} aria-hidden />
+                </button>
+              </ActionTooltip>
+            )}
+            <MessageCopyButton
+              getText={() => text}
+              visible={actionsVisible && text.length > 0}
+              disabled={text.length === 0}
+              wrapperStyle={{
+                position: 'static',
                 display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'opacity 120ms ease, color 120ms ease'
+                opacity: actionsVisible && text.length > 0 ? 1 : 0,
+                pointerEvents: actionsVisible && text.length > 0 ? 'auto' : 'none',
+                transition: 'opacity 120ms ease'
               }}
-            >
-              <Pencil size={14} aria-hidden />
-            </button>
-          </ActionTooltip>
-        )}
-          </>
+            />
+          </div>
         )}
       </div>
       {lightboxSrc != null && (
@@ -395,6 +449,31 @@ export function UserMessageBlock({
       )}
     </>
   )
+}
+
+function formatMessageTime(createdAt?: string): { label: string; title: string } | null {
+  if (!createdAt) return null
+  const date = new Date(createdAt)
+  if (!Number.isFinite(date.getTime())) return null
+
+  return {
+    label: new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      hourCycle: 'h23'
+    }).format(date),
+    title: new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      hourCycle: 'h23'
+    }).format(date)
+  }
 }
 
 function SkillRefChip({ skillName }: { skillName: string }): JSX.Element {

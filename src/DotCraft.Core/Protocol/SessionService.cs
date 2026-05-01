@@ -1382,12 +1382,6 @@ public sealed class SessionService(
                 thread.LastActiveAt = DateTimeOffset.UtcNow;
                 RecordTurnTokenUsage(thread, turn);
                 eventChannel.EmitTurnCompleted(turn);
-                TryScheduleMemoryConsolidation(threadId, session, eventChannel);
-                ThreadRuntimeSignalForBroadcast?.Invoke(
-                    threadId,
-                    EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
-                        ? SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation
-                        : SessionThreadRuntimeSignal.TurnCompleted);
 
                 try
                 {
@@ -1398,6 +1392,13 @@ public sealed class SessionService(
                 {
                     logger?.LogError(ex, "Failed to persist thread state after turn completion for thread {ThreadId}", threadId);
                 }
+
+                TryScheduleMemoryConsolidation(threadId, thread, turn, session, eventChannel, NextItemSeq);
+                ThreadRuntimeSignalForBroadcast?.Invoke(
+                    threadId,
+                    EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
+                        ? SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation
+                        : SessionThreadRuntimeSignal.TurnCompleted);
 
                 await TryStartNextQueuedTurnAsync(threadId, CancellationToken.None);
             }
@@ -2209,8 +2210,11 @@ public sealed class SessionService(
 
     private void TryScheduleMemoryConsolidation(
         string threadId,
+        SessionThread thread,
+        SessionTurn turn,
         AgentSession session,
-        SessionEventChannel eventChannel)
+        SessionEventChannel eventChannel,
+        Func<int> nextItemSequence)
     {
         var consolidator = agentFactory.Consolidator;
         var memoryConfig = _appConfigMonitor?.Current.Memory
@@ -2228,11 +2232,11 @@ public sealed class SessionService(
         if (count < interval)
             return;
 
-        _turnsSinceConsolidation[threadId] = 0;
-        var history = SnapshotSessionHistoryForConsolidation(session);
+        var history = SnapshotSessionHistoryForConsolidation(session, thread);
         if (history.Count == 0)
             return;
 
+        _turnsSinceConsolidation[threadId] = 0;
         eventChannel.EmitSystemEvent("consolidating");
 
         var broker = GetOrCreateBroker(threadId);
@@ -2240,8 +2244,31 @@ public sealed class SessionService(
         {
             try
             {
-                await consolidator.ConsolidateAsync(history);
-                broker.PublishSystemEvent("consolidated");
+                var result = await consolidator.ConsolidateAsync(history);
+                switch (result.Outcome)
+                {
+                    case MemoryConsolidationOutcome.Succeeded:
+                        await AppendMemoryConsolidationNoticeAsync(
+                            threadId,
+                            thread,
+                            turn,
+                            nextItemSequence,
+                            broker);
+                        broker.PublishSystemEvent("consolidated");
+                        break;
+
+                    case MemoryConsolidationOutcome.Skipped:
+                        broker.PublishSystemEvent("consolidationSkipped", message: result.Message);
+                        break;
+
+                    case MemoryConsolidationOutcome.Failed:
+                        logger?.LogWarning(
+                            "Memory consolidation failed for thread {ThreadId}: {Message}",
+                            threadId,
+                            result.Message);
+                        broker.PublishSystemEvent("consolidationFailed", message: result.Message);
+                        break;
+                }
             }
             catch (Exception ex)
             {
@@ -2251,12 +2278,37 @@ public sealed class SessionService(
         });
     }
 
-    private static IReadOnlyList<ChatMessage> SnapshotSessionHistoryForConsolidation(AgentSession session)
+    private static IReadOnlyList<ChatMessage> SnapshotSessionHistoryForConsolidation(
+        AgentSession session,
+        SessionThread thread)
     {
         var chatHistory = session.GetService<ChatHistoryProvider>();
-        return chatHistory is InMemoryChatHistoryProvider provider
-            ? [.. provider.GetMessages(session)]
-            : [];
+        if (chatHistory is InMemoryChatHistoryProvider provider)
+        {
+            var messages = provider.GetMessages(session).ToList();
+            if (messages.Count > 0)
+                return messages;
+        }
+
+        var fallback = new List<ChatMessage>();
+        foreach (var turn in thread.Turns)
+        {
+            foreach (var item in turn.Items)
+            {
+                if (item.Type == ItemType.UserMessage && item.AsUserMessage is { Text: { } userText } &&
+                    !string.IsNullOrWhiteSpace(userText))
+                {
+                    fallback.Add(new ChatMessage(ChatRole.User, userText.Trim()));
+                }
+                else if (item.Type == ItemType.AgentMessage && item.AsAgentMessage is { Text: { } agentText } &&
+                         !string.IsNullOrWhiteSpace(agentText))
+                {
+                    fallback.Add(new ChatMessage(ChatRole.Assistant, agentText.Trim()));
+                }
+            }
+        }
+
+        return fallback;
     }
 
     private async Task TrySaveThreadAsync(SessionThread thread)
@@ -2381,6 +2433,44 @@ public sealed class SessionService(
                 ClearedToolResults = status.ClearedToolResults
             }
         };
+    }
+
+    private static SessionItem CreateMemoryConsolidationNoticeItem(SessionTurn turn, int seq)
+    {
+        return new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(seq),
+            TurnId = turn.Id,
+            Type = ItemType.SystemNotice,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new SystemNoticePayload
+            {
+                Kind = "memoryConsolidated"
+            }
+        };
+    }
+
+    private async Task AppendMemoryConsolidationNoticeAsync(
+        string threadId,
+        SessionThread thread,
+        SessionTurn turn,
+        Func<int> nextItemSequence,
+        ThreadEventBroker broker)
+    {
+        if (IsPendingPermanentDeletion(threadId))
+            return;
+
+        using var gateLock = await sessionGate.AcquireAsync(threadId, CancellationToken.None);
+        if (IsPendingPermanentDeletion(threadId))
+            return;
+
+        var noticeItem = CreateMemoryConsolidationNoticeItem(turn, nextItemSequence());
+        turn.Items.Add(noticeItem);
+        broker.PublishItemEvent(SessionEventType.ItemStarted, turn.Id, noticeItem);
+        broker.PublishItemEvent(SessionEventType.ItemCompleted, turn.Id, noticeItem);
+        await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
     }
 
     private async Task<AIAgent> BuildAgentForThreadAsync(

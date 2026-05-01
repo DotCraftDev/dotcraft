@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
@@ -9,6 +9,7 @@ interface MessageCopyButtonProps {
   visible: boolean
   disabled?: boolean
   ariaLabel?: string
+  wrapperStyle?: CSSProperties
 }
 
 /**
@@ -19,7 +20,8 @@ export function MessageCopyButton({
   getText,
   visible,
   disabled = false,
-  ariaLabel
+  ariaLabel,
+  wrapperStyle
 }: MessageCopyButtonProps): JSX.Element | null {
   const t = useT()
   const [copied, setCopied] = useState(false)
@@ -40,19 +42,20 @@ export function MessageCopyButton({
   }
 
   const label = ariaLabel ?? t('conversation.copyMessage')
+  const defaultWrapperStyle: CSSProperties = {
+    position: 'absolute',
+    right: '8px',
+    bottom: '6px',
+    opacity: visible ? 1 : 0,
+    pointerEvents: visible ? 'auto' : 'none',
+    zIndex: 2
+  }
 
   return (
     <ActionTooltip
       label={label}
       placement="top"
-      wrapperStyle={{
-        position: 'absolute',
-        right: '8px',
-        bottom: '6px',
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? 'auto' : 'none',
-        zIndex: 2
-      }}
+      wrapperStyle={{ ...defaultWrapperStyle, ...wrapperStyle }}
     >
       <button
         type="button"

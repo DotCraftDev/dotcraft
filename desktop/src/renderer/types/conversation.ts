@@ -24,9 +24,9 @@ export type ItemType =
   | 'systemNotice'
 
 /**
- * Payload for systemNotice items. Currently only the `compacted` kind is
- * emitted by the backend; the optional fields below are populated for that
- * kind and mirror `SystemNoticePayload` on the wire.
+ * Payload for systemNotice items. Known kinds include `compacted` and
+ * `memoryConsolidated`; the optional fields below are populated for compaction
+ * notices and mirror `SystemNoticePayload` on the wire.
  */
 export interface SystemNoticeInfo {
   kind: string

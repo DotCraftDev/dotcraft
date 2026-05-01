@@ -882,6 +882,7 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
         var buffered = new List<RenderEvent>(capacity: 4);
         var spinnerText = statusEvt.Content;
         bool completed = false;
+        string? completionTextOverride = null;
 
         try
         {
@@ -919,6 +920,7 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                             // SystemInfo arriving while spinner is active signals completion
                             if (evt.Type == RenderEventType.SystemInfo)
                             {
+                                completionTextOverride = evt.Content;
                                 completed = true;
                                 return;
                             }
@@ -942,8 +944,9 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
         // Show completion message after spinner closes
         if (completed)
         {
-            var completionText = statusEvt.AdditionalInfo ?? "Done.";
-            AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(completionText)}[/]");
+            var completionText = completionTextOverride ?? statusEvt.AdditionalInfo ?? "Done.";
+            if (!string.IsNullOrWhiteSpace(completionText))
+                AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(completionText)}[/]");
         }
 
         // Replay buffered events
