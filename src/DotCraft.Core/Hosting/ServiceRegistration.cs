@@ -91,6 +91,12 @@ public static class ServiceRegistration
         var pluginDiagnostics = new BuiltInPluginDeployer(Path.Combine(botPath, "plugins")).Deploy();
         PluginDiagnosticsStore.Shared.Append(pluginDiagnostics);
         PluginDiagnosticsLogger.Write(pluginDiagnostics);
+        PluginRuntimeConfigurator.ConfigureSkillsLoader(
+            skillsLoader,
+            config,
+            workspacePath,
+            botPath,
+            PluginDiagnosticsStore.Shared);
         services.AddSingleton<ISkillMutationApplier>(sp =>
             new WorkspaceFileSkillMutationApplier(sp.GetRequiredService<SkillsLoader>()));
 

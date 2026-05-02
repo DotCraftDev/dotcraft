@@ -13,12 +13,13 @@ public enum PluginDiscoverySourceKind
 }
 
 /// <summary>
-/// A discovered and enabled plugin manifest.
+/// A discovered plugin manifest.
 /// </summary>
 public sealed record DiscoveredPlugin(
     PluginManifest Manifest,
     PluginDiscoverySourceKind SourceKind,
-    string SourceRoot);
+    string SourceRoot,
+    bool Enabled);
 
 /// <summary>
 /// Result of a plugin discovery pass.
@@ -37,6 +38,17 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
     /// </summary>
     public PluginDiscoveryResult Discover(AppConfig config, string workspacePath, string botPath)
     {
+        var result = DiscoverAll(config, workspacePath, botPath);
+        return new PluginDiscoveryResult(
+            result.Plugins.Where(plugin => plugin.Enabled).ToArray(),
+            result.Diagnostics);
+    }
+
+    /// <summary>
+    /// Discovers all local plugin manifests for the current workspace, including disabled plugins.
+    /// </summary>
+    public PluginDiscoveryResult DiscoverAll(AppConfig config, string workspacePath, string botPath)
+    {
         var diagnostics = new List<PluginDiagnostic>();
         var candidates = EnumerateCandidates(config, workspacePath, botPath, diagnostics);
         var discovered = new List<DiscoveredPlugin>();
@@ -50,11 +62,12 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
             if (manifest == null)
                 continue;
 
-            if (!config.Plugins.IsPluginEnabled(manifest.Id, defaultEnabled: true))
+            if (PluginIds.EqualsCanonical(manifest.Id, PluginIds.LegacyNodeRepl)
+                && string.Equals(manifest.Id, PluginIds.LegacyNodeRepl, StringComparison.OrdinalIgnoreCase))
             {
                 diagnostics.Add(PluginDiagnostic.Info(
-                    "PluginDisabled",
-                    $"Plugin '{manifest.Id}' is disabled by configuration.",
+                    "LegacyPluginIgnored",
+                    "Legacy plugin id 'node-repl' is ignored; Browser Use is now provided by 'browser-use'.",
                     manifest.Id,
                     path: manifest.ManifestPath));
                 continue;
@@ -70,7 +83,17 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
                 continue;
             }
 
-            discovered.Add(new DiscoveredPlugin(manifest, candidate.SourceKind, candidate.SourceRoot));
+            var enabled = config.Plugins.IsPluginEnabled(manifest.Id, defaultEnabled: true);
+            if (!enabled)
+            {
+                diagnostics.Add(PluginDiagnostic.Info(
+                    "PluginDisabled",
+                    $"Plugin '{manifest.Id}' is disabled by configuration.",
+                    manifest.Id,
+                    path: manifest.ManifestPath));
+            }
+
+            discovered.Add(new DiscoveredPlugin(manifest, candidate.SourceKind, candidate.SourceRoot, enabled));
         }
 
         return new PluginDiscoveryResult(discovered, diagnostics);

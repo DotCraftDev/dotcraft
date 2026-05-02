@@ -209,7 +209,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
   it('searches local and marketplace skills from the browse page without switches', async () => {
     renderView()
 
-    expect(await screen.findByText('Give DotCraft the skills you need')).toBeInTheDocument()
+    expect(await screen.findByText('Give DotCraft the ability you need')).toBeInTheDocument()
     expect(await screen.findByText('Memory')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()

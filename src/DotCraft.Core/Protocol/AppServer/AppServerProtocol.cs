@@ -496,6 +496,12 @@ public sealed class AppServerServerCapabilities
     public bool SkillsManagement { get; set; }
 
     /// <summary>
+    /// Server supports plugin management methods (plugin/list, plugin/view, plugin/setEnabled).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PluginManagement { get; set; }
+
+    /// <summary>
     /// Server has skill variants enabled for effective skill views and restoring source skills from workspace adaptations.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -1162,6 +1168,12 @@ public sealed class SkillInfoWire
 
     public string Source { get; set; } = string.Empty;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginDisplayName { get; set; }
+
     public bool Available { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1239,6 +1251,151 @@ public sealed class SkillsSetEnabledParams
 public sealed class SkillsSetEnabledResult
 {
     public SkillInfoWire Skill { get; set; } = new();
+}
+
+// ───── plugin/* ─────
+
+public sealed class PluginListParams
+{
+    public bool? IncludeDisabled { get; set; }
+}
+
+public sealed class PluginListResult
+{
+    public List<PluginInfoWire> Plugins { get; set; } = [];
+
+    public List<PluginDiagnosticWire> Diagnostics { get; set; } = [];
+}
+
+public sealed class PluginViewParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginViewResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginSetEnabledParams
+{
+    public string Id { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class PluginSetEnabledResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginInfoWire
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; set; }
+
+    public bool Enabled { get; set; }
+
+    public string Source { get; set; } = string.Empty;
+
+    public string RootPath { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PluginInterfaceWire? Interface { get; set; }
+
+    public List<PluginFunctionInfoWire> Functions { get; set; } = [];
+
+    public List<PluginSkillInfoWire> Skills { get; set; } = [];
+
+    public List<PluginDiagnosticWire> Diagnostics { get; set; } = [];
+}
+
+public sealed class PluginInterfaceWire
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShortDescription { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LongDescription { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeveloperName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Category { get; set; }
+
+    public List<string> Capabilities { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultPrompt { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BrandColor { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ComposerIconDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LogoDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WebsiteUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PrivacyPolicyUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TermsOfServiceUrl { get; set; }
+}
+
+public sealed class PluginFunctionInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; set; }
+
+    public string Description { get; set; } = string.Empty;
+}
+
+public sealed class PluginSkillInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Description { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShortDescription { get; set; }
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class PluginDiagnosticWire
+{
+    public string Severity { get; set; } = string.Empty;
+
+    public string Code { get; set; } = string.Empty;
+
+    public string Message { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; set; }
 }
 
 // ───── automation/task/* DTOs ─────
@@ -2399,6 +2556,11 @@ public static class AppServerMethods
     public const string SkillsView = "skills/view";
     public const string SkillsRestoreOriginal = "skills/restoreOriginal";
     public const string SkillsSetEnabled = "skills/setEnabled";
+
+    // Client → Server requests (plugin management)
+    public const string PluginList = "plugin/list";
+    public const string PluginView = "plugin/view";
+    public const string PluginSetEnabled = "plugin/setEnabled";
 
     // Client → Server requests (command management, spec Section 19)
     public const string CommandList = "command/list";

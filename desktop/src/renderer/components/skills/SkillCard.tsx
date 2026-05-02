@@ -150,12 +150,20 @@ function SourceBadge({
       borderRadius: '4px',
       backgroundColor: 'rgba(34, 197, 94, 0.12)',
       color: 'var(--success)'
+    },
+    plugin: {
+      fontSize: '11px',
+      padding: '2px 6px',
+      borderRadius: '4px',
+      backgroundColor: 'rgba(14, 165, 233, 0.12)',
+      color: '#0ea5e9'
     }
   }
   const labels: Record<SkillEntry['source'], string> = {
     builtin: t('skillCard.builtin'),
     workspace: t('skills.source.workspace'),
-    user: t('skills.source.user')
+    user: t('skills.source.user'),
+    plugin: t('plugins.source.plugin')
   }
   return <span style={styles[source]}>{labels[source]}</span>
 }

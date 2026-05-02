@@ -30,6 +30,65 @@ public sealed class PluginDiscoveryTests
     }
 
     [Fact]
+    public void ManifestParser_AcceptsInterfaceAndSkillsPath()
+    {
+        var root = NewTempDir();
+        var pluginRoot = Path.Combine(root, "demo");
+        Directory.CreateDirectory(Path.Combine(pluginRoot, "skills", "demo-skill"));
+        File.WriteAllText(Path.Combine(pluginRoot, "skills", "demo-skill", "SKILL.md"), "---\nname: demo-skill\n---\n# Demo");
+        Directory.CreateDirectory(Path.Combine(pluginRoot, "assets"));
+        File.WriteAllText(Path.Combine(pluginRoot, "assets", "icon.svg"), "<svg />");
+        WritePlugin(
+            pluginRoot,
+            id: "demo-plugin",
+            functionName: "DemoFunction",
+            extra: """
+,
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Demo Plugin",
+    "shortDescription": "Demo short.",
+    "longDescription": "Demo long.",
+    "developerName": "DotCraft",
+    "category": "Coding",
+    "capabilities": ["Read"],
+    "defaultPrompt": "Try demo",
+    "brandColor": "#123456",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg"
+  }
+""");
+
+        var result = PluginManifestParser.Load(pluginRoot);
+
+        Assert.NotNull(result.Manifest);
+        Assert.Equal(
+            Path.TrimEndingDirectorySeparator(Path.Combine(pluginRoot, "skills")),
+            Path.TrimEndingDirectorySeparator(result.Manifest!.SkillsPath!));
+        Assert.Equal("Demo Plugin", result.Manifest.Interface?.DisplayName);
+        Assert.Equal(Path.Combine(pluginRoot, "assets", "icon.svg"), result.Manifest.Interface?.ComposerIcon);
+    }
+
+    [Fact]
+    public void ManifestParser_RejectsEscapingSkillsPath()
+    {
+        var root = NewTempDir();
+        WritePlugin(
+            Path.Combine(root, "demo"),
+            id: "demo-plugin",
+            functionName: "DemoFunction",
+            extra: """
+,
+  "skills": "../skills"
+""");
+
+        var result = PluginManifestParser.Load(Path.Combine(root, "demo"));
+
+        Assert.Null(result.Manifest);
+        Assert.Contains(result.Diagnostics, d => d.Code == "InvalidPluginManifestPath");
+    }
+
+    [Fact]
     public void ManifestParser_RejectsPathEscape()
     {
         var root = NewTempDir();
@@ -72,7 +131,7 @@ public sealed class PluginDiscoveryTests
     }
 
     [Fact]
-    public void BuiltInPluginDeployer_DeploysNodeReplManifest()
+    public void BuiltInPluginDeployer_DeploysBrowserUseManifest()
     {
         var root = NewTempDir();
         var deployer = new BuiltInPluginDeployer(root);
@@ -80,15 +139,16 @@ public sealed class PluginDiscoveryTests
         var diagnostics = deployer.Deploy();
 
         Assert.DoesNotContain(diagnostics, d => d.Severity == PluginDiagnosticSeverity.Error);
-        Assert.True(File.Exists(Path.Combine(root, "node-repl", ".craft-plugin", "plugin.json")));
-        Assert.True(File.Exists(Path.Combine(root, "node-repl", ".builtin")));
+        Assert.True(File.Exists(Path.Combine(root, "browser-use", ".craft-plugin", "plugin.json")));
+        Assert.True(File.Exists(Path.Combine(root, "browser-use", ".builtin")));
+        Assert.True(File.Exists(Path.Combine(root, "browser-use", "skills", "browser-use", "SKILL.md")));
     }
 
     [Fact]
     public void BuiltInPluginDeployer_DoesNotOverwriteUserOwnedPlugin()
     {
         var root = NewTempDir();
-        var userPlugin = Path.Combine(root, "node-repl");
+        var userPlugin = Path.Combine(root, "browser-use");
         Directory.CreateDirectory(userPlugin);
         File.WriteAllText(Path.Combine(userPlugin, "owned.txt"), "mine");
 
@@ -143,8 +203,8 @@ public sealed class PluginDiscoveryTests
     {
         var context = CreateContext(new FakeNodeReplProxy(true));
         WritePlugin(
-            Path.Combine(context.BotPath, "plugins", "node-repl"),
-            id: "node-repl",
+            Path.Combine(context.BotPath, "plugins", "browser-use"),
+            id: "browser-use",
             displayName: "Node REPL",
             functionName: "ManifestNodeReplJs",
             backendFunctionName: "NodeReplJs",
@@ -174,7 +234,7 @@ public sealed class PluginDiscoveryTests
     public void NodeReplManifest_WhenProxyUnavailable_ReturnsNoTools()
     {
         var context = CreateContext(new FakeNodeReplProxy(false));
-        WritePlugin(Path.Combine(context.BotPath, "plugins", "node-repl"), id: "node-repl", functionName: "NodeReplJs");
+        WritePlugin(Path.Combine(context.BotPath, "plugins", "browser-use"), id: "browser-use", functionName: "NodeReplJs");
         var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()], new PluginDiagnosticsStore());
 
         var tools = provider.CreateTools(context).ToList();

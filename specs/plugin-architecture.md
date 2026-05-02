@@ -31,7 +31,7 @@ Plugin Functions are model-callable functions provided by a plugin.
 
 Each Plugin Function has:
 
-- `pluginId`: stable plugin identity, such as `node-repl` or `external-channel:telegram`.
+- `pluginId`: stable plugin identity, such as `browser-use` or `external-channel:telegram`.
 - `namespace`: optional DotCraft-internal namespace.
 - `name`: flat model-visible function name exported as `AIFunction.Name`.
 - `description`: model-facing function description.
@@ -66,9 +66,15 @@ Manifest metadata includes:
 - `displayName`
 - `description`
 - `capabilities`
+- `interface`
+- `skills`
 - `functions`
 
 Function entries describe Plugin Function metadata and a backend binding. Manifest-relative paths must start with `./`, must remain inside the plugin root, and must not contain `..`.
+
+`interface` contains optional UI metadata for Desktop and other clients: display name, short and long descriptions, developer, category, capability tags, default prompt, brand color, icon/logo paths, and public website/privacy/terms links. Path fields inside `interface` use the same manifest-relative path rules.
+
+`skills` points to a plugin-contained skill directory, for example `"./skills/"`. Each child directory can contain a DotCraft/Codex-compatible `SKILL.md`. Skills contributed by enabled plugins are available in `skills/list` with source `plugin` and include `pluginId` / `pluginDisplayName` attribution. Disabling the plugin removes its contributed skills from agent context and hides compatibility built-in copies owned by that plugin.
 
 DotCraft discovers plugin roots from:
 
@@ -107,7 +113,7 @@ The `builtin` backend binds a manifest function declaration to a known C# provid
 ```json
 {
   "kind": "builtin",
-  "providerId": "node-repl",
+  "providerId": "browser-use",
   "functionName": "NodeReplJs"
 }
 ```
@@ -121,6 +127,15 @@ Built-in plugin manifests are embedded resources deployed to workspace `.craft/p
 - Directories without `.builtin` are treated as user-owned and are not overwritten.
 
 If built-in manifest deployment or discovery fails, a built-in C# provider may keep using a fallback descriptor so the runtime capability remains available.
+
+### Browser Use Built-In Plugin
+
+DotCraft ships Browser Use as the built-in plugin `browser-use`. It contributes:
+
+- `NodeReplJs`, backed by the Desktop thread-bound Node REPL C# provider.
+- The `browser-use` skill, loaded from the plugin's `skills` directory.
+
+The legacy plugin id `node-repl` is accepted only as a configuration alias for disabling Browser Use. New manifests, diagnostics, and configuration writes use `browser-use`.
 
 ### External Channel Backend
 
@@ -165,6 +180,8 @@ The `Plugins` config section contains:
 
 Built-in plugins can define their own default enablement policy. Local manifest plugins are enabled by default unless disabled.
 
+`node-repl` in `DisabledPlugins` is treated as a legacy alias for `browser-use`; new writes normalize to `browser-use`.
+
 ---
 
 ## 8. Protocol Boundaries
@@ -173,4 +190,3 @@ Built-in plugins can define their own default enablement policy. Local manifest 
 - Session item payloads, including `pluginFunctionCall`, are defined in [Session Core](session-core.md).
 - External channel adapter handshake, delivery, and `ext/channel/*` requests are defined in [External Channel Adapter](external-channel-adapter.md).
 - Desktop user-facing module workflows are defined in [Desktop Client](desktop-client.md).
-

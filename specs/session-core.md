@@ -391,7 +391,7 @@ Delta payload (during streaming):
 
 ```
 {
-  "pluginId": string,       // Stable plugin identifier, e.g. "node-repl" or "external-channel:telegram"
+  "pluginId": string,       // Stable plugin identifier, e.g. "browser-use" or "external-channel:telegram"
   "namespace": string,      // Optional plugin function namespace
   "functionName": string,   // Model-visible function name
   "callId": string,         // Correlation ID for the plugin function invocation

@@ -289,18 +289,22 @@ This section defines how protocol messages affect user-visible behavior. It inte
 
 ## 6. Secondary Flows
 
-### 6.1 Skills
+### 6.1 Plugins and Skills
 
-The Skills surface remains within Desktop scope as a workflow, not a UI design.
+The sidebar Plugins entry opens a two-level surface with `Plugins` and `Skills` tabs. Plugins is the default tab when `capabilities.pluginManagement` is available; Skills remains available as the second tab when `capabilities.skillsManagement` is available.
 
 Required behavior:
 
+- Users can browse discovered plugins, inspect plugin details, see included functions and skills, and enable or disable a plugin when the server supports `plugin/setEnabled`.
+- Plugin enablement refreshes both plugin and skill state because plugin-contained skills are controlled by the plugin.
+- Browser Use is the built-in reference plugin. It shows the `NodeReplJs` Plugin Function and the `browser-use` skill in its included content.
 - Users can enter a Skills view if the server exposes skills capabilities.
 - Users can browse installed skills.
 - Users can inspect the content of a selected skill.
 - Users can enable or disable a skill when the server supports that action.
+- Skills with source `plugin` show plugin attribution.
 - If a skill is unavailable because server-side requirements are unmet, the client explains that the skill exists but is currently unusable.
-- If skills capability is absent, the entry point is hidden or disabled with a clear reason.
+- If plugin or skills capability is absent, the corresponding tab or action is hidden or disabled with a clear reason.
 
 ### 6.2 Automations
 

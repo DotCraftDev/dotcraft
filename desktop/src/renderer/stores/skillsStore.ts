@@ -5,7 +5,9 @@ export interface SkillEntry {
   description: string
   displayName?: string | null
   shortDescription?: string | null
-  source: 'builtin' | 'workspace' | 'user'
+  source: 'builtin' | 'workspace' | 'user' | 'plugin'
+  pluginId?: string | null
+  pluginDisplayName?: string | null
   available: boolean
   unavailableReason?: string | null
   enabled: boolean

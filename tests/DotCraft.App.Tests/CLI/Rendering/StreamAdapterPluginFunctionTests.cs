@@ -44,7 +44,7 @@ public sealed class StreamAdapterPluginFunctionTests
                   "id": "plugin-1",
                   "type": "pluginFunctionCall",
                   "payload": {
-                    "pluginId": "node-repl",
+                    "pluginId": "browser-use",
                     "namespace": "node_repl",
                     "functionName": "NodeReplJs",
                     "callId": "plugin-call-1",
@@ -67,7 +67,7 @@ public sealed class StreamAdapterPluginFunctionTests
                   "id": "plugin-1",
                   "type": "pluginFunctionCall",
                   "payload": {
-                    "pluginId": "node-repl",
+                    "pluginId": "browser-use",
                     "namespace": "node_repl",
                     "functionName": "NodeReplJs",
                     "callId": "plugin-call-1",

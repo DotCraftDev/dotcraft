@@ -95,6 +95,26 @@ public sealed class BuiltInPluginDeployer(string workspacePluginsPath)
         if (fileName.StartsWith("craft_plugin.", StringComparison.Ordinal))
             return Path.Combine(".craft-plugin", fileName["craft_plugin.".Length..]);
 
+        if (fileName.StartsWith("skills.", StringComparison.Ordinal))
+        {
+            var remainder = fileName["skills.".Length..];
+            var dotIndex = remainder.IndexOf('.');
+            if (dotIndex > 0)
+            {
+                var skillName = remainder[..dotIndex] switch
+                {
+                    "browser_use" => "browser-use",
+                    var name => name
+                };
+                var skillFileName = remainder[(dotIndex + 1)..];
+                if (skillFileName.StartsWith("agents.", StringComparison.Ordinal))
+                    return Path.Combine("skills", skillName, "agents", skillFileName["agents.".Length..]);
+                if (skillFileName.StartsWith("assets.", StringComparison.Ordinal))
+                    return Path.Combine("skills", skillName, "assets", skillFileName["assets.".Length..]);
+                return Path.Combine("skills", skillName, skillFileName);
+            }
+        }
+
         return fileName;
     }
 

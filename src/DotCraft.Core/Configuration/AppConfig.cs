@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using DotCraft.Plugins;
 using System.Text.RegularExpressions;
 using DotCraft.Context;
 using DotCraft.Context.Compaction;
@@ -660,7 +661,7 @@ public sealed class AppConfig
         /// <summary>
         /// Plugin ids explicitly enabled for this workspace.
         /// </summary>
-        [ConfigField(Hint = "JSON array of plugin ids. Built-in ids include node-repl and external-channel.")]
+        [ConfigField(Hint = "JSON array of plugin ids. Built-in ids include browser-use and external-channel.")]
         public List<string> EnabledPlugins { get; set; } = [];
 
         /// <summary>
@@ -678,10 +679,11 @@ public sealed class AppConfig
 
         public bool IsPluginEnabled(string pluginId, bool defaultEnabled)
         {
-            if (DisabledPlugins.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            var canonicalPluginId = PluginIds.Canonicalize(pluginId);
+            if (DisabledPlugins.Any(id => PluginIds.EqualsCanonical(id, canonicalPluginId)))
                 return false;
 
-            if (EnabledPlugins.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            if (EnabledPlugins.Any(id => PluginIds.EqualsCanonical(id, canonicalPluginId)))
                 return true;
 
             return defaultEnabled;

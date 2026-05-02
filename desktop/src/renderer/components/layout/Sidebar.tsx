@@ -17,7 +17,7 @@ import {
 } from '../sidebar/sidebarNavRowStyles'
 import { SettingsIcon } from '../ui/AppIcons'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
-import { MessageSquare, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
+import { MessageSquare, PanelLeftClose, PanelLeftOpen, Puzzle } from 'lucide-react'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ACTION_SHORTCUTS } from '../ui/shortcutKeys'
 
@@ -174,7 +174,7 @@ function SidebarNavRow({
 }
 
 function SkillsIcon(): JSX.Element {
-  return <Sun size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+  return <Puzzle size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 function ChannelsIcon(): JSX.Element {

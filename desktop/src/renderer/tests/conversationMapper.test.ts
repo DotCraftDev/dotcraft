@@ -146,7 +146,7 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
       id: 'plugin-1',
       type: 'pluginFunctionCall',
       payload: {
-        pluginId: 'node-repl',
+        pluginId: 'browser-use',
         namespace: 'node_repl',
         functionName: 'NodeReplJs',
         callId: 'plugin-call-1',
@@ -164,7 +164,7 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
     expect(item.type).toBe('pluginFunctionCall')
     expect(item.toolName).toBe('NodeReplJs')
     expect(item.toolCallId).toBe('plugin-call-1')
-    expect(item.pluginId).toBe('node-repl')
+    expect(item.pluginId).toBe('browser-use')
     expect(item.pluginNamespace).toBe('node_repl')
     expect(item.functionName).toBe('NodeReplJs')
     expect(item.arguments).toEqual({ code: '1 + 1' })

@@ -26,6 +26,11 @@ public sealed record PluginManifest
 
     public IReadOnlyDictionary<string, string> Paths { get; init; } = new Dictionary<string, string>();
 
+    [JsonPropertyName("interface")]
+    public PluginInterfaceMetadata? Interface { get; init; }
+
+    public string? SkillsPath { get; init; }
+
     public required string RootPath { get; init; }
 
     public required string ManifestPath { get; init; }
@@ -82,6 +87,35 @@ public sealed record PluginManifestBackend
     public string? ProviderId { get; init; }
 
     public string? FunctionName { get; init; }
+}
+
+public sealed record PluginInterfaceMetadata
+{
+    public string? DisplayName { get; init; }
+
+    public string? ShortDescription { get; init; }
+
+    public string? LongDescription { get; init; }
+
+    public string? DeveloperName { get; init; }
+
+    public string? Category { get; init; }
+
+    public IReadOnlyList<string> Capabilities { get; init; } = [];
+
+    public string? DefaultPrompt { get; init; }
+
+    public string? BrandColor { get; init; }
+
+    public string? ComposerIcon { get; init; }
+
+    public string? Logo { get; init; }
+
+    public string? WebsiteUrl { get; init; }
+
+    public string? PrivacyPolicyUrl { get; init; }
+
+    public string? TermsOfServiceUrl { get; init; }
 }
 
 /// <summary>
@@ -177,6 +211,19 @@ public static partial class PluginManifestParser
                 path: manifestPath));
 
         var resolvedPaths = ResolvePaths(pluginRoot, raw.Paths, raw.Id, manifestPath, diagnostics);
+        var skillsPath = ResolveOptionalManifestPath(
+            pluginRoot,
+            raw.Skills,
+            "skills",
+            raw.Id,
+            manifestPath,
+            diagnostics);
+        var interfaceMetadata = ParseInterface(
+            pluginRoot,
+            raw.Interface,
+            raw.Id,
+            manifestPath,
+            diagnostics);
         var functions = ParseFunctions(raw, manifestPath, diagnostics);
 
         if (diagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error))
@@ -196,6 +243,8 @@ public static partial class PluginManifestParser
                 .ToArray(),
             Functions = functions,
             Paths = resolvedPaths,
+            Interface = interfaceMetadata,
+            SkillsPath = skillsPath,
             RootPath = Path.GetFullPath(pluginRoot),
             ManifestPath = Path.GetFullPath(manifestPath)
         };
@@ -352,6 +401,76 @@ public static partial class PluginManifestParser
         return resolved;
     }
 
+    private static string? ResolveOptionalManifestPath(
+        string pluginRoot,
+        string? value,
+        string fieldName,
+        string? pluginId,
+        string manifestPath,
+        List<PluginDiagnostic> diagnostics)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var normalized = ResolveManifestPath(pluginRoot, value, out var error);
+        if (normalized != null)
+            return normalized;
+
+        diagnostics.Add(PluginDiagnostic.Error(
+            "InvalidPluginManifestPath",
+            $"Manifest path '{fieldName}' is invalid: {error}",
+            pluginId,
+            path: manifestPath));
+        return null;
+    }
+
+    private static PluginInterfaceMetadata? ParseInterface(
+        string pluginRoot,
+        RawPluginInterface? raw,
+        string? pluginId,
+        string manifestPath,
+        List<PluginDiagnostic> diagnostics)
+    {
+        if (raw == null)
+            return null;
+
+        var composerIcon = ResolveOptionalManifestPath(
+            pluginRoot,
+            raw.ComposerIcon,
+            "interface.composerIcon",
+            pluginId,
+            manifestPath,
+            diagnostics);
+        var logo = ResolveOptionalManifestPath(
+            pluginRoot,
+            raw.Logo,
+            "interface.logo",
+            pluginId,
+            manifestPath,
+            diagnostics);
+
+        return new PluginInterfaceMetadata
+        {
+            DisplayName = NormalizeOptional(raw.DisplayName),
+            ShortDescription = NormalizeOptional(raw.ShortDescription),
+            LongDescription = NormalizeOptional(raw.LongDescription),
+            DeveloperName = NormalizeOptional(raw.DeveloperName),
+            Category = NormalizeOptional(raw.Category),
+            Capabilities = raw.Capabilities
+                .Where(capability => !string.IsNullOrWhiteSpace(capability))
+                .Select(capability => capability.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            DefaultPrompt = NormalizeOptional(raw.DefaultPrompt),
+            BrandColor = NormalizeOptional(raw.BrandColor),
+            ComposerIcon = composerIcon,
+            Logo = logo,
+            WebsiteUrl = NormalizeOptional(raw.WebsiteUrl),
+            PrivacyPolicyUrl = NormalizeOptional(raw.PrivacyPolicyUrl),
+            TermsOfServiceUrl = NormalizeOptional(raw.TermsOfServiceUrl)
+        };
+    }
+
     private static string? ResolveManifestPath(string pluginRoot, string value, out string error)
     {
         error = string.Empty;
@@ -418,7 +537,41 @@ public static partial class PluginManifestParser
 
         public Dictionary<string, string>? Paths { get; set; }
 
+        public string? Skills { get; set; }
+
+        [JsonPropertyName("interface")]
+        public RawPluginInterface? Interface { get; set; }
+
         public List<RawPluginFunction>? Functions { get; set; }
+    }
+
+    private sealed class RawPluginInterface
+    {
+        public string? DisplayName { get; set; }
+
+        public string? ShortDescription { get; set; }
+
+        public string? LongDescription { get; set; }
+
+        public string? DeveloperName { get; set; }
+
+        public string? Category { get; set; }
+
+        public List<string> Capabilities { get; set; } = [];
+
+        public string? DefaultPrompt { get; set; }
+
+        public string? BrandColor { get; set; }
+
+        public string? ComposerIcon { get; set; }
+
+        public string? Logo { get; set; }
+
+        public string? WebsiteUrl { get; set; }
+
+        public string? PrivacyPolicyUrl { get; set; }
+
+        public string? TermsOfServiceUrl { get; set; }
     }
 
     private sealed class RawPluginFunction

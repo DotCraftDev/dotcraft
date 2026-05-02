@@ -11,7 +11,7 @@ namespace DotCraft.Plugins;
 public sealed record PluginFunctionDescriptor
 {
     /// <summary>
-    /// Stable plugin identifier. Built-in plugins use ids such as <c>node-repl</c>.
+    /// Stable plugin identifier. Built-in plugins use ids such as <c>browser-use</c>.
     /// </summary>
     public required string PluginId { get; init; }
 

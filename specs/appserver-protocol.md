@@ -332,6 +332,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "cronManagement": true,
     "heartbeatManagement": true,
     "skillsManagement": true,
+    "pluginManagement": true,
     "skillVariants": true,
     "commandManagement": true,
     "modelCatalogManagement": true,
@@ -361,6 +362,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
+| `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/setEnabled`). |
 | `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
@@ -3147,7 +3149,7 @@ List all installed skills across all sources.
 }
 ```
 
-**Behavior**: Returns skills from all sources merged by the standard priority rules. Skills are sorted by source priority (`builtin`, then `workspace`, then `user`), then alphabetically within each source group.
+**Behavior**: Returns skills from all sources merged by the standard priority rules. Skills may have source `workspace`, `plugin`, `builtin`, or `user`. Plugin skills include `pluginId` and `pluginDisplayName` attribution. Workspace user-owned skills have highest priority, then enabled plugin skills, compatibility built-ins, and user-global skills.
 
 **Example**:
 
@@ -3347,16 +3349,87 @@ When disabling, the skill is marked unavailable for future agent context resolut
 } }
 ```
 
-### 18.8 Error Codes
+### 18.8 Plugin Management Methods
+
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, built-in backend rules, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
+
+#### `plugin/list`
+
+Returns discovered plugins, including disabled plugins when requested.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `includeDisabled` | boolean? | no | When false, disabled plugins are excluded. Default true. |
+
+**Result**:
+
+```json
+{
+  "plugins": [
+    {
+      "id": "browser-use",
+      "displayName": "Browser Use",
+      "description": "Control the in-app browser with DotCraft",
+      "enabled": true,
+      "source": "workspace",
+      "interface": {
+        "displayName": "Browser Use",
+        "shortDescription": "Control the in-app browser with DotCraft",
+        "developerName": "DotCraft",
+        "category": "Coding",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "defaultPrompt": "Test my checkout flow on localhost"
+      },
+      "functions": [{ "name": "NodeReplJs", "namespace": "node_repl" }],
+      "skills": [{ "name": "browser-use", "displayName": "Browser Use", "enabled": true }]
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+#### `plugin/view`
+
+Returns one plugin by id.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Plugin id. Legacy `node-repl` is accepted as an alias for `browser-use` only for compatibility. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+#### `plugin/setEnabled`
+
+Enables or disables a plugin for the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Plugin id. |
+| `enabled` | boolean | yes | Desired enabled state. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills"]`.
+
+### 18.9 Error Codes
 
 | Code | Constant | When |
 |------|----------|------|
 | `-32040` | `SkillNotFound` | The requested skill name does not exist in any source (workspace, user, or builtin). |
 
-### 18.9 Capability Advertisement
+### 18.10 Capability Advertisement
 
 Clients must check `capabilities.skillsManagement` before calling any `skills/*` method.
 Clients should additionally check `capabilities.skillVariants` before offering variant-dependent UX such as restoring the original skill. `skills/view` may still be available as a source-only effective view when this capability is absent or false.
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method.
 
 ---
 

@@ -1206,7 +1206,7 @@ describe('pluginFunctionCall items', () => {
         type: 'pluginFunctionCall',
         createdAt: '2025-01-01T00:00:00.000Z',
         payload: {
-          pluginId: 'node-repl',
+          pluginId: 'browser-use',
           namespace: 'node_repl',
           callId: 'plugin-call-1',
           functionName: 'NodeReplJs',
@@ -1219,7 +1219,7 @@ describe('pluginFunctionCall items', () => {
     expect(item?.type).toBe('pluginFunctionCall')
     expect(item?.toolName).toBe('NodeReplJs')
     expect(item?.toolCallId).toBe('plugin-call-1')
-    expect(item?.pluginId).toBe('node-repl')
+    expect(item?.pluginId).toBe('browser-use')
     expect(item?.pluginNamespace).toBe('node_repl')
 
     s().onItemCompleted({
@@ -1229,7 +1229,7 @@ describe('pluginFunctionCall items', () => {
         type: 'pluginFunctionCall',
         completedAt: '2025-01-01T00:00:01.000Z',
         payload: {
-          pluginId: 'node-repl',
+          pluginId: 'browser-use',
           namespace: 'node_repl',
           callId: 'plugin-call-1',
           functionName: 'NodeReplJs',

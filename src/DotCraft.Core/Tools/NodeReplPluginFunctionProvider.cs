@@ -11,7 +11,7 @@ namespace DotCraft.Tools;
 /// </summary>
 public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
 {
-    public const string PluginId = "node-repl";
+    public const string PluginId = PluginIds.BrowserUse;
 
     public int Priority => 120;
 

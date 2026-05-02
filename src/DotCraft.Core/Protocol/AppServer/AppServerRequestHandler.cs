@@ -12,6 +12,7 @@ using DotCraft.Heartbeat;
 using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
+using DotCraft.Plugins;
 using DotCraft.Skills;
 using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.AI;
@@ -125,6 +126,9 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.SkillsView,
         AppServerMethods.SkillsRestoreOriginal,
         AppServerMethods.SkillsSetEnabled,
+        AppServerMethods.PluginList,
+        AppServerMethods.PluginView,
+        AppServerMethods.PluginSetEnabled,
         AppServerMethods.CommandList,
         AppServerMethods.CommandExecute,
         AppServerMethods.AutomationTaskList,
@@ -236,6 +240,9 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsView => HandleSkillsViewAsync(msg, ct),
                 AppServerMethods.SkillsRestoreOriginal => HandleSkillsRestoreOriginalAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.PluginList => HandlePluginListAsync(msg, ct),
+                AppServerMethods.PluginView => HandlePluginViewAsync(msg, ct),
+                AppServerMethods.PluginSetEnabled => HandlePluginSetEnabledAsync(msg, ct),
                 AppServerMethods.CommandList => HandleCommandListAsync(msg, ct),
                 AppServerMethods.CommandExecute => HandleCommandExecuteAsync(msg, ct),
                 AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
@@ -295,6 +302,7 @@ public sealed class AppServerRequestHandler(
             CronManagement = cronService != null,
             HeartbeatManagement = heartbeatService != null,
             SkillsManagement = skillsLoader != null,
+            PluginManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SkillVariants = skillsLoader != null && IsSkillVariantModeEnabled(),
             CommandManagement = true,
             Automations = automationsHandler != null,
@@ -2342,6 +2350,90 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
     }
 
+    private Task<object?> HandlePluginListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginList);
+
+        var p = GetParams<PluginListParams>(msg);
+        var discovery = RefreshPluginRuntime();
+        var plugins = discovery.Plugins
+            .Where(plugin => p.IncludeDisabled != false || plugin.Enabled)
+            .Select(plugin => MapPluginToWire(plugin, discovery.Diagnostics))
+            .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Task.FromResult<object?>(new PluginListResult
+        {
+            Plugins = plugins,
+            Diagnostics = discovery.Diagnostics.Select(MapPluginDiagnosticToWire).ToList()
+        });
+    }
+
+    private Task<object?> HandlePluginViewAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginView);
+
+        var p = GetParams<PluginViewParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var discovery = RefreshPluginRuntime();
+        var plugin = discovery.Plugins.FirstOrDefault(
+            candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, p.Id));
+        if (plugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{p.Id}' was not found.");
+
+        return Task.FromResult<object?>(new PluginViewResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginSetEnabled);
+
+        var p = GetParams<PluginSetEnabledParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var before = RefreshPluginRuntime();
+        if (before.Plugins.All(candidate => !PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId)))
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        if (p.Enabled)
+            disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        else if (!disabled.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            disabled.Add(pluginId);
+
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginSetEnabled,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (plugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+
+        return Task.FromResult<object?>(new PluginSetEnabledResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
     private Task<object?> HandleCommandListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = ct;
@@ -2446,6 +2538,134 @@ public sealed class AppServerRequestHandler(
         };
     }
 
+    private PluginDiscoveryResult RefreshPluginRuntime()
+    {
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        return PluginRuntimeConfigurator.ConfigureSkillsLoader(
+            skillsLoader,
+            current,
+            _hostWorkspacePath
+            ?? (workspaceCraftPath == null ? Directory.GetCurrentDirectory() : Directory.GetParent(workspaceCraftPath)?.FullName)
+            ?? Directory.GetCurrentDirectory(),
+            workspaceCraftPath ?? Path.Combine(Directory.GetCurrentDirectory(), ".craft"),
+            PluginDiagnosticsStore.Shared);
+    }
+
+    private PluginInfoWire MapPluginToWire(
+        DiscoveredPlugin plugin,
+        IReadOnlyList<PluginDiagnostic> diagnostics)
+    {
+        var manifest = plugin.Manifest;
+        return new PluginInfoWire
+        {
+            Id = manifest.Id,
+            DisplayName = manifest.Interface?.DisplayName ?? manifest.DisplayName,
+            Description = manifest.Interface?.ShortDescription ?? manifest.Description,
+            Version = manifest.Version,
+            Enabled = plugin.Enabled,
+            Source = plugin.SourceKind.ToString().ToLowerInvariant(),
+            RootPath = manifest.RootPath,
+            Interface = MapPluginInterfaceToWire(manifest.Interface),
+            Functions = manifest.Functions
+                .Select(function => new PluginFunctionInfoWire
+                {
+                    Name = function.Name,
+                    Namespace = function.Namespace,
+                    Description = function.Description
+                })
+                .ToList(),
+            Skills = MapPluginSkillsToWire(manifest),
+            Diagnostics = diagnostics
+                .Where(d => string.Equals(d.PluginId, manifest.Id, StringComparison.OrdinalIgnoreCase))
+                .Select(MapPluginDiagnosticToWire)
+                .ToList()
+        };
+    }
+
+    private PluginInterfaceWire? MapPluginInterfaceToWire(PluginInterfaceMetadata? metadata)
+    {
+        if (metadata == null)
+            return null;
+
+        return new PluginInterfaceWire
+        {
+            DisplayName = metadata.DisplayName,
+            ShortDescription = metadata.ShortDescription,
+            LongDescription = metadata.LongDescription,
+            DeveloperName = metadata.DeveloperName,
+            Category = metadata.Category,
+            Capabilities = metadata.Capabilities.ToList(),
+            DefaultPrompt = metadata.DefaultPrompt,
+            BrandColor = metadata.BrandColor,
+            ComposerIconDataUrl = TryReadDataUrl(metadata.ComposerIcon),
+            LogoDataUrl = TryReadDataUrl(metadata.Logo),
+            WebsiteUrl = metadata.WebsiteUrl,
+            PrivacyPolicyUrl = metadata.PrivacyPolicyUrl,
+            TermsOfServiceUrl = metadata.TermsOfServiceUrl
+        };
+    }
+
+    private List<PluginSkillInfoWire> MapPluginSkillsToWire(PluginManifest manifest)
+    {
+        if (string.IsNullOrWhiteSpace(manifest.SkillsPath) || !Directory.Exists(manifest.SkillsPath))
+            return [];
+
+        var allSkills = skillsLoader?.ListSkills(filterUnavailable: false) ?? new List<SkillsLoader.SkillInfo>();
+        return Directory.GetDirectories(manifest.SkillsPath)
+            .Where(dir => File.Exists(Path.Combine(dir, "SKILL.md")))
+            .Select(dir =>
+            {
+                var name = Path.GetFileName(dir);
+                var skill = allSkills.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase));
+                var interfaceInfo = skillsLoader?.GetSkillInterface(name);
+                return new PluginSkillInfoWire
+                {
+                    Name = name,
+                    Description = skillsLoader?.GetSkillDescription(name) ?? name,
+                    DisplayName = interfaceInfo?.DisplayName,
+                    ShortDescription = interfaceInfo?.ShortDescription,
+                    Enabled = skill?.Enabled
+                              ?? (!string.Equals(manifest.Id, PluginIds.BrowserUse, StringComparison.OrdinalIgnoreCase)
+                                  || (appConfigMonitor?.Current ?? new AppConfig()).Plugins.IsPluginEnabled(PluginIds.BrowserUse, true))
+                };
+            })
+            .ToList();
+    }
+
+    private static PluginDiagnosticWire MapPluginDiagnosticToWire(PluginDiagnostic diagnostic) =>
+        new()
+        {
+            Severity = diagnostic.Severity.ToString().ToLowerInvariant(),
+            Code = diagnostic.Code,
+            Message = diagnostic.Message,
+            PluginId = diagnostic.PluginId,
+            Path = diagnostic.Path
+        };
+
+    private static string? TryReadDataUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return null;
+
+        var mimeType = Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".svg" => "image/svg+xml",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => null
+        };
+        if (mimeType == null)
+            return null;
+
+        var info = new FileInfo(path);
+        if (info.Length <= 0 || info.Length > 512 * 1024)
+            return null;
+
+        return $"data:{mimeType};base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+    }
+
     private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
     {
         var metadata = skillsLoader!.GetSkillMetadata(s.Name);
@@ -2457,6 +2677,8 @@ public sealed class AppServerRequestHandler(
             DisplayName = interfaceInfo?.DisplayName,
             ShortDescription = interfaceInfo?.ShortDescription,
             Source = s.Source,
+            PluginId = s.PluginId,
+            PluginDisplayName = s.PluginDisplayName,
             Available = s.Available,
             UnavailableReason = s.UnavailableReason,
             Enabled = s.Enabled,
