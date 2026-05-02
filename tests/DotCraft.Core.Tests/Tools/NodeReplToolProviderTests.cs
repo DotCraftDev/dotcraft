@@ -22,7 +22,6 @@ public sealed class NodeReplToolProviderTests
             CancellationToken ct = default) =>
             Task.FromResult<NodeReplEvaluateResult?>(result ?? new NodeReplEvaluateResult { ResultText = "ok" });
 
-        public Task<bool> ResetAsync(CancellationToken ct = default) => Task.FromResult(true);
     }
 
     [Fact]
@@ -39,8 +38,7 @@ public sealed class NodeReplToolProviderTests
         var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]);
         var tools = provider.CreateTools(CreateContext(new FakeNodeReplProxy(true))).ToList();
         Assert.Contains(tools, t => t.Name == "NodeReplJs");
-        Assert.Contains(tools, t => t.Name == "NodeReplReset");
-        Assert.Equal(2, tools.Count);
+        Assert.Single(tools);
     }
 
     [Fact]

@@ -18,7 +18,6 @@ export type ItemType =
   | 'commandExecution'
   | 'toolCall'
   | 'pluginFunctionCall'
-  | 'externalChannelToolCall'
   | 'toolResult'
   | 'error'
   | 'approvalCard'
@@ -109,8 +108,6 @@ export interface ConversationItem {
   argumentsPreview?: string
   /** Extracted partial file content preview while WriteFile/EditFile is streaming */
   streamingFileContent?: string
-  /** External adapter channel name for externalChannelToolCall items */
-  toolChannelName?: string
   /** Plugin ID for pluginFunctionCall items */
   pluginId?: string
   /** Plugin function namespace for pluginFunctionCall items */
@@ -210,8 +207,8 @@ export interface UserMessageImageRef {
 
 export function isToolLikeItemType(
   type: string | undefined
-): type is 'toolCall' | 'pluginFunctionCall' | 'externalChannelToolCall' {
-  return type === 'toolCall' || type === 'pluginFunctionCall' || type === 'externalChannelToolCall'
+): type is 'toolCall' | 'pluginFunctionCall' {
+  return type === 'toolCall' || type === 'pluginFunctionCall'
 }
 
 export function normalizePluginFunctionContentItems(
@@ -415,8 +412,6 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.status as ConversationItem['executionStatus'] | undefined),
     arguments: (raw.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
-    toolChannelName: (raw.toolChannelName as string | undefined)
-      ?? (payload.channelName as string | undefined),
     pluginId: (raw.pluginId as string | undefined)
       ?? (payload.pluginId as string | undefined),
     pluginNamespace: (raw.namespace as string | undefined)

@@ -361,7 +361,7 @@ function mergeExistingCommandExecutionIntoToolCall(
 
 function buildToolLikeItem(
   item: Record<string, unknown>,
-  type: 'toolCall' | 'pluginFunctionCall' | 'externalChannelToolCall',
+  type: 'toolCall' | 'pluginFunctionCall',
   status: ConversationItem['status']
 ): ConversationItem {
   const payload = (item.payload ?? {}) as Record<string, unknown>
@@ -398,8 +398,6 @@ function buildToolLikeItem(
     arguments:
       (item.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
-    toolChannelName: (item.toolChannelName as string | undefined)
-      ?? (payload.channelName as string | undefined),
     pluginId: (item.pluginId as string | undefined)
       ?? (payload.pluginId as string | undefined),
     pluginNamespace: (item.namespace as string | undefined)
@@ -1345,10 +1343,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
               }
         )
       }))
-    } else if (type === 'pluginFunctionCall' || type === 'externalChannelToolCall') {
+    } else if (type === 'pluginFunctionCall') {
       const completedItem = buildToolLikeItem(
         item,
-        type as 'pluginFunctionCall' | 'externalChannelToolCall',
+        type as 'pluginFunctionCall',
         'completed'
       )
       set((s) => ({
@@ -1372,7 +1370,6 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                       arguments: completedItem.arguments ?? i.arguments,
                       result: completedItem.result ?? i.result,
                       success: completedItem.success ?? true,
-                      toolChannelName: completedItem.toolChannelName ?? i.toolChannelName,
                       pluginId: completedItem.pluginId ?? i.pluginId,
                       pluginNamespace: completedItem.pluginNamespace ?? i.pluginNamespace,
                       functionName: completedItem.functionName ?? i.functionName,

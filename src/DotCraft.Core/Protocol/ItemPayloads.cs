@@ -291,30 +291,6 @@ public sealed record ToolCallPayload
 }
 
 /// <summary>
-/// Payload for ExternalChannelToolCall items.
-/// </summary>
-public sealed record ExternalChannelToolCallPayload
-{
-    public string ToolName { get; init; } = string.Empty;
-
-    public string CallId { get; init; } = string.Empty;
-
-    public string ChannelName { get; init; } = string.Empty;
-
-    public bool RequiresChatContext { get; init; }
-
-    public JsonObject? Arguments { get; init; }
-
-    public string? Result { get; init; }
-
-    public bool Success { get; init; }
-
-    public string? ErrorCode { get; init; }
-
-    public string? ErrorMessage { get; init; }
-}
-
-/// <summary>
 /// Payload for PluginFunctionCall items.
 /// </summary>
 public sealed record PluginFunctionCallPayload

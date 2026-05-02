@@ -16,10 +16,6 @@ public interface INodeReplProxy
     /// </summary>
     Task<NodeReplEvaluateResult?> EvaluateAsync(string code, int? timeoutSeconds = null, CancellationToken ct = default);
 
-    /// <summary>
-    /// Resets the Desktop Node REPL runtime for the current thread.
-    /// </summary>
-    Task<bool> ResetAsync(CancellationToken ct = default);
 }
 
 public sealed class NodeReplEvaluateResult

@@ -704,7 +704,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SessionService_ExternalChannelToolCall_DoesNotEmitToolCallOrToolResultItems(bool nullToolNameInFirstDelta)
+    public async Task SessionService_PluginFunctionCall_DoesNotEmitToolCallOrToolResultItems(bool nullToolNameInFirstDelta)
     {
         var registry = new ExternalChannelRegistry();
         var host = CreateHost("telegram");
@@ -810,7 +810,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task SessionService_ExternalChannelToolCall_InterleavesWithAgentMessages()
+    public async Task SessionService_PluginFunctionCall_InterleavesWithAgentMessages()
     {
         var registry = new ExternalChannelRegistry();
         var host = CreateHost("telegram");

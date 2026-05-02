@@ -29,7 +29,6 @@ public enum ItemType
     CommandExecution,
     ToolCall,
     PluginFunctionCall,
-    ExternalChannelToolCall,
     ToolResult,
     ApprovalRequest,
     ApprovalResponse,

@@ -181,7 +181,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     // lib.rs::handle_server_request when item/approval/request arrives.
                     state.turn_status = TurnStatus::WaitingApproval;
                 }
-                "toolCall" | "pluginFunctionCall" | "externalChannelToolCall" => {
+                "toolCall" | "pluginFunctionCall" => {
                     let (call_id, tool_name, arguments) = tool_started_fields(item, item_type);
                     state.streaming.active_tools.push(ActiveToolCall {
                         call_id,
@@ -512,7 +512,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .active_command_executions
                         .retain(|e| e.item_id != item_id);
                 }
-                "toolCall" | "toolResult" | "pluginFunctionCall" | "externalChannelToolCall" => {
+                "toolCall" | "toolResult" | "pluginFunctionCall" => {
                     // The wire protocol sends two separate item/completed events per tool:
                     //   1. type="toolCall"   — the call completed; payload has no result
                     //   2. type="toolResult" — the result arrived; payload has the result text
@@ -568,7 +568,6 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     // toolCall completion: move the entry to committed history.
                     if item_type == "toolCall"
                         || item_type == "pluginFunctionCall"
-                        || item_type == "externalChannelToolCall"
                     {
                         if let Some(pos) = state
                             .streaming

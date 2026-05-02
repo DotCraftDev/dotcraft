@@ -68,7 +68,7 @@ public static class StreamAdapter
                     if (!hasParams || !@params.TryGetProperty("item", out var item)) break;
                     var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
 
-                    if (type is "toolCall" or "pluginFunctionCall" or "externalChannelToolCall")
+                    if (type is "toolCall" or "pluginFunctionCall")
                     {
                         var payload = item.TryGetProperty("payload", out var p) ? p : default;
                         var toolName = GetInvocationName(type, payload);
@@ -116,16 +116,12 @@ public static class StreamAdapter
                         }
                         yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, result, formattedDisplay, callId: callId);
                     }
-                    else if (type is "pluginFunctionCall" or "externalChannelToolCall")
+                    else if (type == "pluginFunctionCall")
                     {
                         var payload = item.TryGetProperty("payload", out var p) ? p : default;
                         var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
                             ? ci.GetString() : null;
-                        var result = type == "pluginFunctionCall"
-                            ? FormatPluginFunctionResult(payload)
-                            : payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("result", out var r)
-                                ? r.GetString()
-                                : null;
+                        var result = FormatPluginFunctionResult(payload);
                         string? icon = null, name = null, argsJson = null, formattedDisplay = null;
                         if (!string.IsNullOrEmpty(callId) && callIdMap.TryGetValue(callId!, out var info))
                         {

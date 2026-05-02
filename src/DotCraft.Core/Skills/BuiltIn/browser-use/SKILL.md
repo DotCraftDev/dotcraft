@@ -47,7 +47,6 @@ await globalThis.tab.domSnapshot();
 - Store only cross-call state on `globalThis`, such as `globalThis.tab`, `globalThis.lastSnapshot`, or a current ref chosen from the latest snapshot.
 - Use `console.log(...)` for values you need to inspect, or `display(await globalThis.tab.screenshot())` when visual inspection matters.
 - A single-expression cell can return a result. In multi-statement cells, use explicit `return ...` if you need `resultText`; otherwise rely on `console.log`.
-- Use `NodeReplReset` only when you intentionally want to clear the JS cell state and close browser-use tabs.
 
 ## Observation loop
 
@@ -84,7 +83,7 @@ await globalThis.tab.domSnapshot();
 - Unknown or stale ref errors mean the page changed or the ref came from an old snapshot; take a fresh `domSnapshot()` and use a current ref.
 - If `getByRole(...).count()` is `0` but the snapshot lists the element, use the snapshot selector or `href`, then observe again.
 - Timeout usually means stale state, hidden/disabled UI, or an unexpected route. Observe before retrying.
-- Syntax, reference, and promise rejection errors should return quickly as ToolResults. Fix the snippet and retry; use `NodeReplReset` only when you want to clear persistent `globalThis` state.
+- Syntax, reference, and promise rejection errors should return quickly as ToolResults. Fix the snippet and retry.
 - If navigation is denied or blocked, explain that Desktop Browser Use policy controls access and ask the user to approve the domain or update allow/block settings. Do not bypass policy.
 - After two failed attempts on the same goal, stop narrowing blindly. Summarize what is visible, what failed, and the next user-friendly option.
 

@@ -2384,7 +2384,6 @@ public static class AppServerMethods
     // Server → Client requests (Desktop Node REPL + IAB browser-use runtime)
     public const string ExtNodeReplEvaluate = "ext/nodeRepl/evaluate";
     public const string ExtNodeReplCancel = "ext/nodeRepl/cancel";
-    public const string ExtNodeReplReset = "ext/nodeRepl/reset";
 
     // Client → Server requests (cron management, spec Section 16)
     public const string CronList = "cron/list";

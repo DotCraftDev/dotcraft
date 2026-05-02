@@ -1184,7 +1184,7 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         });
                     }
                 }
-                "toolCall" | "externalChannelToolCall" => {
+                "toolCall" => {
                     let call_id = payload
                         .get("callId")
                         .and_then(|v| v.as_str())

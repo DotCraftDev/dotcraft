@@ -170,11 +170,6 @@ async function handleServerRequestInMain(method: string, params: unknown): Promi
       : { ok: false }
   }
 
-  if (method === 'ext/nodeRepl/reset') {
-    const p = (params ?? {}) as { threadId?: string }
-    return p.threadId ? nodeReplManager.reset(p.threadId) : { ok: false }
-  }
-
   return undefined
 }
 

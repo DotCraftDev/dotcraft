@@ -44,20 +44,6 @@ public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
             },
             new NodeReplJsInvoker(proxy));
 
-        yield return new PluginFunctionRegistration(
-            new PluginFunctionDescriptor
-            {
-                PluginId = PluginId,
-                Namespace = "node_repl",
-                Name = "NodeReplReset",
-                Description = "Reset the Desktop Node REPL JavaScript context and close browser tabs for the current thread.",
-                InputSchema = new JsonObject
-                {
-                    ["type"] = "object",
-                    ["properties"] = new JsonObject()
-                }
-            },
-            new NodeReplResetInvoker(proxy));
     }
 
     private sealed class NodeReplJsInvoker(INodeReplProxy proxy) : IPluginFunctionInvoker
@@ -135,23 +121,4 @@ public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
         }
     }
 
-    private sealed class NodeReplResetInvoker(INodeReplProxy proxy) : IPluginFunctionInvoker
-    {
-        public async ValueTask<PluginFunctionInvocationResult> InvokeAsync(
-            PluginFunctionInvocationContext context,
-            CancellationToken cancellationToken)
-        {
-            var ok = await proxy.ResetAsync(cancellationToken);
-            var text = ok
-                ? "Node REPL browser runtime reset."
-                : "Node REPL browser runtime is not available for this thread.";
-            return new PluginFunctionInvocationResult
-            {
-                Success = ok,
-                ErrorCode = ok ? null : "NodeReplUnavailable",
-                ErrorMessage = ok ? null : text,
-                ContentItems = [new PluginFunctionContentItem { Type = "text", Text = text }]
-            };
-        }
-    }
 }

@@ -93,14 +93,6 @@ public static class SessionHistoryPrinter
                         PrintToolCallInline(functionName, argsNode, result);
                         break;
                     }
-                    case ItemType.ExternalChannelToolCall:
-                    {
-                        var toolName = GetWirePayloadString(item.Payload, "toolName") ?? string.Empty;
-                        var argsNode = ParseJsonObject(GetWirePayloadRaw(item.Payload, "arguments"));
-                        var result = GetWirePayloadString(item.Payload, "result");
-                        PrintToolCallInline(toolName, argsNode, result);
-                        break;
-                    }
                 }
             }
         }
@@ -129,13 +121,6 @@ public static class SessionHistoryPrinter
                 "callId" => pc.CallId,
                 _ => null
             },
-            ExternalChannelToolCallPayload ec => field switch
-            {
-                "toolName" => ec.ToolName,
-                "callId" => ec.CallId,
-                "result" => ec.Result,
-                _ => null
-            },
             ToolResultPayload tr => field switch
             {
                 "callId" => tr.CallId,
@@ -158,7 +143,6 @@ public static class SessionHistoryPrinter
         {
             ToolCallPayload tc when field == "arguments" => tc.Arguments?.ToJsonString(),
             PluginFunctionCallPayload pc when field == "arguments" => pc.Arguments?.ToJsonString(),
-            ExternalChannelToolCallPayload ec when field == "arguments" => ec.Arguments?.ToJsonString(),
             JsonElement je when je.ValueKind == JsonValueKind.Object
                                 && je.TryGetProperty(field, out var v)
                 => v.GetRawText(),

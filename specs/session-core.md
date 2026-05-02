@@ -281,6 +281,7 @@ Fields:
   - `ReasoningContent` — Agent's internal reasoning/thinking (if exposed by the model).
   - `CommandExecution` — Server-observed shell execution stream for `Exec`-style tools. Payload includes command metadata and aggregated output.
   - `ToolCall` — Agent invokes a tool. Payload includes tool name and arguments.
+  - `PluginFunctionCall` — Agent invokes a Plugin Function. Payload includes plugin identity, function name, arguments, content items, structured result, and success/failure metadata. Plugin-backed tools do not create companion `ToolResult` items.
   - `ToolResult` — Result of a tool invocation. Payload includes result text and success/failure.
   - `ApprovalRequest` — Agent requests user approval for a sensitive operation.
   - `ApprovalResponse` — User's approval decision (approved/rejected).
@@ -385,6 +386,32 @@ Delta payload (during streaming):
   "callId": string        // Correlation ID linking ToolCall to ToolResult
 }
 ```
+
+#### PluginFunctionCall
+
+```
+{
+  "pluginId": string,       // Stable plugin identifier, e.g. "node-repl" or "external-channel:telegram"
+  "namespace": string,      // Optional plugin function namespace
+  "functionName": string,   // Model-visible function name
+  "callId": string,         // Correlation ID for the plugin function invocation
+  "arguments": object,      // Function arguments as key-value pairs
+  "contentItems": [         // Optional rich result content
+    {
+      "type": string,       // "text" | "image"
+      "text": string,       // Text content when type is "text"
+      "mediaType": string,  // Image media type when type is "image"
+      "dataBase64": string  // Base64 image data when type is "image"
+    }
+  ],
+  "structuredResult": any,  // Optional structured JSON result
+  "success": boolean,      // Whether the plugin function succeeded
+  "errorCode": string,     // Optional machine-readable failure code
+  "errorMessage": string   // Optional human-readable failure message
+}
+```
+
+Plugin Function invocations are represented by this single item. Session Core does not emit a paired `ToolResult` item for the same call.
 
 #### ToolResult
 
@@ -603,6 +630,7 @@ rather than part of the model conversation.
 - `Started` → `Completed` (for non-streaming items)
   - Items like `ToolResult`, `ApprovalRequest`, `ApprovalResponse`, `Error` are created with their full payload and immediately completed.
   - `ToolCall` is usually completed directly, but hosts may expose an intermediate streaming preview of argument construction before the final completed payload is persisted.
+  - `PluginFunctionCall` starts when the plugin wrapper begins execution and completes with the plugin result payload.
 
 **Invariants**:
 
@@ -617,7 +645,7 @@ A typical Turn produces Items in this order:
 ```
 1. UserMessage (input)
 2. [ReasoningContent] (if model exposes thinking)
-3. [ToolCall → ToolResult]* (zero or more tool invocations)
+3. [ToolCall → ToolResult | PluginFunctionCall]* (zero or more tool invocations)
    3a. [ApprovalRequest → ApprovalResponse] (within a tool call, if approval needed)
 4. AgentMessage (final response, streamed)
 5. [Error] (if something went wrong)
