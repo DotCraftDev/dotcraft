@@ -38,7 +38,7 @@ const RESOLVED_LABELS: Record<ApprovalState, { label: string; color: string } | 
  * Pending state: interactive card with 5 decision buttons and keyboard shortcuts.
  * Resolved state: compact read-only summary showing the decision outcome.
  *
- * Spec §M5, §10.4, §13
+ * Spec §10.4, §13.
  */
 export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCardProps): JSX.Element {
   const t = useT()

@@ -232,7 +232,7 @@ interface ConversationActions {
   upsertChangedFile(diff: FileDiff): void
   /** Store incremental diff for one toolCall item (keyed by ConversationItem.id) */
   upsertItemDiff(itemId: string, diff: FileDiff): void
-  /** Mark all files in a turn as reverted (M4: state-only, actual revert in M6) */
+  /** Mark all files in a turn as reverted in client state. */
   revertFilesForTurn(turnId: string): void
   /** Mark a single file as reverted (state only; caller must write disk via IPC) */
   revertFile(filePath: string): void
@@ -241,22 +241,22 @@ interface ConversationActions {
   /** Replace entire plan state from plan/updated notification */
   onPlanUpdated(plan: Partial<AgentPlan>): void
   /**
-   * Called when AppServer sends item/approval/request (M5).
+   * Called when AppServer sends item/approval/request.
    * Adds an approvalCard item to the current turn and sets waitingApproval state.
    */
   onApprovalRequest(bridgeId: string, params: Record<string, unknown>): void
   /**
-   * Called when the user makes a decision (M5).
+   * Called when the user makes a decision.
    * Updates the approval item state locally; IPC response is sent by the caller.
    */
   onApprovalDecision(decision: ApprovalDecision): void
   /**
-   * Called when item/approval/resolved notification arrives (M5).
+   * Called when item/approval/resolved notification arrives.
    * Clears pendingApproval and restores turnStatus to 'running'.
    */
   onApprovalResolved(): void
   /**
-   * Called when approval timeout error (-32020) is received (M5).
+   * Called when approval timeout error (-32020) is received.
    * Updates the approval item to 'timedOut' state.
    */
   onApprovalTimeout(): void

@@ -545,7 +545,7 @@ internal sealed class ExternalChannelMessageDispatcher(
         {
             return Failure(
                 "MediaResolutionFailed",
-                "Remote URL media cannot be validated against maxBytes in this milestone.");
+                "Remote URL media cannot be validated against maxBytes.");
         }
 
         if (constraints.MaxBytes is > 0 && artifact.ByteLength > constraints.MaxBytes.Value)

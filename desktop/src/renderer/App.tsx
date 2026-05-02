@@ -1141,7 +1141,7 @@ export function App(): JSX.Element {
   )
 
   // Keep viewerTabStore in sync with active thread, and restore/fallback
-  // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
+  // uiStore.activeDetailTab according to the incoming thread's viewer state.
   useEffect(() => {
     const viewerStore = useViewerTabStore.getState()
     useUIStore.getState().resetAutoShowReasons()

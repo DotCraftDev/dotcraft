@@ -291,7 +291,7 @@ Each `channelTools` descriptor supports:
 
 Channel tool names should use PascalCase. For cross-runtime icon support, adapters should prefer declaring emoji icons via `channelTools[].display.icon`.
 
-`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
+`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior.
 
 When `approval` is present, it is a descriptive risk declaration rather than an adapter-owned policy block:
 
@@ -1304,7 +1304,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
-| `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` → `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin Function discovery and manifest planning are tracked in [plugin-functions.md](plugin-functions.md). |
+| `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` -> `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin discovery and manifest architecture are defined in [plugin-architecture.md](plugin-architecture.md). |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -4314,7 +4314,7 @@ Server notification emitted after a successful workspace configuration write.
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
-`regions` taxonomy in this milestone:
+Current `regions` taxonomy:
 
 | Region | Fired by |
 |--------|----------|
@@ -4338,7 +4338,7 @@ Semantics:
 ### 25.6 Backward Compatibility
 
 - Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
-- Servers that predate M2 may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
+- Older servers may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
 ## 26. GitHub Tracker Config Methods
 

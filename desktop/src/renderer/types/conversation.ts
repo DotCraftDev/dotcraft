@@ -1,9 +1,9 @@
 import type { SubAgentEntry } from './toolCall'
 
 /**
- * Conversation-level types for M3.
- * These expand on the minimal Turn/Item stubs used in M2 and map directly
- * to the AppServer Wire Protocol payloads (specs/appserver-protocol.md Section 6).
+ * Conversation-level types.
+ * These map directly to the AppServer Wire Protocol payloads
+ * (specs/appserver-protocol.md Section 6).
  */
 
 export type TurnStatus = 'running' | 'completed' | 'failed' | 'cancelled'

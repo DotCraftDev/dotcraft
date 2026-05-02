@@ -51,7 +51,7 @@ public sealed class SkillVariantStore(string craftPath)
     }
 
     /// <summary>
-    /// Builds a target signature for M1 variant compatibility.
+    /// Builds a target signature for variant compatibility.
     /// </summary>
     public static SkillVariantTarget CreateTarget(
         string? model,

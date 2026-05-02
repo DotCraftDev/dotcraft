@@ -63,7 +63,7 @@ function lastUserItem(turn: ConversationTurn): ConversationItem | undefined {
 
 /**
  * Scrollable container that renders the full turn history and live streaming content.
- * Spec §10.3.3, M7-14 (scroll position restoration)
+ * Spec §10.3.3. Handles scroll position restoration.
  */
 export function MessageStream(): JSX.Element {
   const t = useT()

@@ -28,7 +28,7 @@ interface WorkspaceHeaderProps {
  * Compact workspace identity row shown below the LogoHeader.
  * Displays the workspace name with a subtle "···" overflow button that opens
  * the workspace menu (Open in Explorer, Switch Workspace, Recent Workspaces).
- * Spec §9.2, M7-2, M7-3, M7-5
+ * Spec §9.2.
  */
 export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeaderProps): JSX.Element {
   const t = useT()

@@ -366,7 +366,7 @@ The existing `TrackedWorkItem` maps to `AutomationTask` as follows:
 
 ## 6. Local Task Source
 
-> **Implementation note:** The on-disk layout and `IAutomationSource` behavior in [M4](milestones/M4-automations-local-source.md) (per-task directory, `task.md`, profile `local-task`, `ShouldStopWorkflowAfterTurnAsync`) supersede the older single-file YAML sketch in §6.1–6.4 below. For the authoritative format, see the M4 milestone and §13.
+> **Implementation note:** The on-disk layout and `IAutomationSource` behavior in §13 (per-task directory, `task.md`, profile `local-task`, `ShouldStopWorkflowAfterTurnAsync`) supersede the older single-file YAML sketch in §6.1–6.4 below.
 
 ### 6.1 Task Store Layout
 
@@ -1317,7 +1317,7 @@ Implementations **SHOULD** emit at least the following at **`LogLevel.Informatio
 #### Non-goals
 
 - No requirement to ship a **central log stack** (ELK, Loki, etc.) in this spec.
-- **Wire-delivered log streams** or **Desktop-embedded log panels** are optional and may be specified in Wire Protocol / Desktop milestones (e.g. M6/M7), not as a prerequisite for file logging.
+- **Wire-delivered log streams** or **Desktop-embedded log panels** are optional and may be specified in Wire Protocol or Desktop specs, not as a prerequisite for file logging.
 
 ---
 

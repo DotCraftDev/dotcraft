@@ -1241,7 +1241,7 @@ public sealed class SkillsSetEnabledResult
     public SkillInfoWire Skill { get; set; } = new();
 }
 
-// ───── automation/task/* DTOs (M6) ─────
+// ───── automation/task/* DTOs ─────
 
 public sealed class AutomationTaskWire
 {
@@ -2404,7 +2404,7 @@ public static class AppServerMethods
     public const string CommandList = "command/list";
     public const string CommandExecute = "command/execute";
 
-    // Client → Server requests (automations, M6)
+    // Client → Server requests (automations)
     public const string AutomationTaskList = "automation/task/list";
     public const string AutomationTaskRead = "automation/task/read";
     public const string AutomationTaskCreate = "automation/task/create";
@@ -2424,6 +2424,6 @@ public static class AppServerMethods
     /// <summary>Deletes a user-authored automation template. Built-in ids are rejected.</summary>
     public const string AutomationTemplateDelete = "automation/template/delete";
 
-    // Server → Client notification (automations, M6)
+    // Server → Client notification (automations)
     public const string AutomationTaskUpdated = "automation/task/updated";
 }

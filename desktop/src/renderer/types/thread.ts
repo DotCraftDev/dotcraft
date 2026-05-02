@@ -27,7 +27,7 @@ export interface ThreadSummary {
 }
 
 /**
- * Minimal Turn stub used in ThreadSummary / Thread for M2 sidebar purposes.
+ * Minimal Turn stub used in ThreadSummary / Thread sidebar data.
  * The full ConversationTurn (with items, streaming state) lives in types/conversation.ts
  * and is used by the conversation panel.
  */

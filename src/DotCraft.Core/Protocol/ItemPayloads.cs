@@ -386,7 +386,7 @@ public sealed record ApprovalResponsePayload
 }
 
 /// <summary>
-/// Payload for SystemNotice items. Used to mark maintenance milestones such as
+/// Payload for SystemNotice items. Used to mark maintenance events such as
 /// context compaction and long-term memory consolidation so clients can render
 /// persistent dividers in the conversation timeline.
 /// </summary>

@@ -16,7 +16,7 @@ public sealed record PluginFunctionDescriptor
     public required string PluginId { get; init; }
 
     /// <summary>
-    /// Optional internal namespace. The MEAI-facing function name remains flat in M1.
+    /// Optional internal namespace. The MEAI-facing function name remains flat.
     /// </summary>
     public string? Namespace { get; init; }
 
@@ -56,7 +56,7 @@ public sealed record PluginFunctionDescriptor
     public bool RequiresChatContext { get; init; }
 
     /// <summary>
-    /// Reserved for future lazy-loading support. M1 records the value but does not apply lazy loading.
+    /// Reserved for future lazy-loading support. The current runtime records the value but does not apply lazy loading.
     /// </summary>
     public bool? DeferLoading { get; init; }
 }

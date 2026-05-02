@@ -1,5 +1,5 @@
 /**
- * M4 tool call types: diffs, file changes, and SubAgent progress.
+ * Tool call types: diffs, file changes, and SubAgent progress.
  */
 
 export interface DiffLine {

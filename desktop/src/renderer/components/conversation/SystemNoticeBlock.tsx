@@ -9,7 +9,7 @@ interface SystemNoticeBlockProps {
 
 /**
  * Inline divider rendered inside the conversation timeline for persisted
- * maintenance milestones. Stays visible after thread reloads because the item
+ * maintenance events. Stays visible after thread reloads because the item
  * is persisted alongside normal turn items.
  *
  * Unknown notice kinds render nothing — the wire protocol reserves kind as a

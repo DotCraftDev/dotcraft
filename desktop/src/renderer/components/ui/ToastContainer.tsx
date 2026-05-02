@@ -13,7 +13,7 @@ const TOAST_STACK_MAX_WIDTH_PX = 440
 /**
  * Stacked toast notification container, fixed to the top-right corner.
  * Toasts auto-dismiss and can be click-dismissed.
- * Spec §6.9, M7
+ * Spec §6.9.
  */
 export function ToastContainer(): JSX.Element {
   const toasts = useToastStore((s) => s.toasts)

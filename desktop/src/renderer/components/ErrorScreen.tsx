@@ -7,7 +7,7 @@ interface ErrorScreenProps {
 
 /**
  * Full-screen error display for fatal AppServer connection errors.
- * Spec §18.1, M7-15, M7-16
+ * Spec §18.1.
  *
  * Shown when:
  * - AppServer binary not found (errorType: 'binary-not-found')

@@ -27,7 +27,7 @@ interface SidebarProps {
 }
 
 /**
- * Main sidebar panel — M2: fully functional thread list.
+ * Main sidebar panel with the thread list.
  *
  * Structure:
  * 1. WorkspaceHeader (name, path, dropdown)

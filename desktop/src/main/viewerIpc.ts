@@ -1,5 +1,5 @@
 /**
- * IPC handlers for the viewer panel (M1).
+ * IPC handlers for the viewer panel.
  *
  * Exposes three channels:
  *  - `workspace:viewer:list-files`   — list (or fuzzy-search) workspace files
@@ -7,7 +7,7 @@
  *  - `workspace:viewer:read-text`    — read a text file with optional size cap
  *
  * `list-files` is workspace-scoped (discovery surface), while classify/read-text
- * can operate on any readable local file (deep-link surface, M3).
+ * can operate on any readable local file for deep links.
  */
 import { promises as fs } from 'fs'
 import * as path from 'path'
@@ -145,7 +145,7 @@ export async function classifyFile(
   absolutePath: string,
   workspaceRoot: string
 ): Promise<ClassifyResult> {
-  // M3 deep-links are allowed to target readable local files outside workspace.
+  // Deep links are allowed to target readable local files outside workspace.
   void workspaceRoot
 
   const stat = await fs.stat(absolutePath)
@@ -211,7 +211,7 @@ export async function readTextFile(
   workspaceRoot: string,
   limitBytes: number = DEFAULT_READ_LIMIT_BYTES
 ): Promise<ReadTextResult> {
-  // M3 deep-links are allowed to target readable local files outside workspace.
+  // Deep links are allowed to target readable local files outside workspace.
   void workspaceRoot
 
   const stat = await fs.stat(absolutePath)

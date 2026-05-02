@@ -6,7 +6,7 @@
 | **Status** | Living |
 | **Date** | 2026-04-19 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
-| **Related Specs** | [TypeScript External Channel Module Contract](typescript-external-channel-module-contract.md) |
+| **Related Specs** | [Plugin Architecture](plugin-architecture.md) |
 
 Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a protocol client for DotCraft AppServer. This document specifies user-visible flows, interaction rules, state transitions, and recovery behavior. It does not define frontend implementation details, visual design, or framework choices.
 
@@ -45,7 +45,7 @@ Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a
 ### 1.2 What This Spec Does Not Define
 
 - Wire protocol payloads, transport rules, or server semantics already defined in [appserver-protocol.md](appserver-protocol.md).
-- TypeScript module contract details (manifest schema, package exports, launcher contract, and conformance rules) defined in [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md).
+- TypeScript module contract details (manifest schema, package exports, launcher contract, and conformance rules) defined in [plugin-architecture.md](plugin-architecture.md).
 - Frontend frameworks, component trees, IPC method signatures, process architecture, or state-store structure.
 - Layout geometry, colors, typography, icons, spacing, animation, or other visual design details.
 - Platform-specific implementation APIs for notifications, menus, file search, or file persistence.
@@ -259,7 +259,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 - In the conversation view, shell work remains collapsed by default using the normal tool-card style. If the user expands the card, live output may be shown there while the command is still running.
 - The Terminal detail surface shows all `commandExecution` items for the current thread history, including in-progress commands.
 - If the user switches to another thread while a command is still running, the output continues updating in the background thread state without forcing a focus change.
-- This milestone does not require interactive terminal input; shell output is read-only from the Desktop client's perspective.
+- Desktop does not require interactive terminal input; shell output is read-only from the Desktop client's perspective.
 - The client may reveal related context automatically when new changes or plans appear, but the rule should be based on relevance, not on any fixed panel design.
 
 ### 5.8 Interrupt a Running Turn
@@ -355,7 +355,7 @@ Required behavior:
 - Desktop follows the three-tier configuration model defined in [settings-reload-ux-m3.md](settings-reload-ux-m3.md): live-apply fields, subsystem-restart fields, and process-restart fields.
 - `ApiKey` and `EndPoint` are proxy-aware fields. When the managed proxy is active, the fields are locked to proxy-managed values and are not directly editable.
 - The legacy shared footer Save/Cancel pattern is retired. Settings actions are group-scoped (for example Apply, Restart, or Apply & Restart) based on the tier semantics of that group.
-- Desktop exposes a workspace-level `Personalization` tab. In this milestone, it includes an `Enable personalized welcome suggestions` toggle backed by workspace config rather than client-global preferences.
+- Desktop exposes a workspace-level `Personalization` tab with an `Enable personalized welcome suggestions` toggle backed by workspace config rather than client-global preferences.
 - Toggling personalized welcome suggestions applies immediately for the active workspace. On success, the client reacts to the resulting `workspace/configChanged` notification and updates the welcome surface without requiring manual refresh or app restart.
 - Edit-race policy is deterministic:
   - Tier A (live-apply) preserves local in-flight edits when the client receives an echo notification for the same logical change.
@@ -377,7 +377,7 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
 
 - Module configuration is workspace-scoped and stored in `.craft/<configFileName>`.
 - Desktop must allow users to view and update module configuration values required for runtime startup.
-- Configuration key semantics and descriptor contracts remain defined by [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md).
+- Configuration key semantics and descriptor contracts remain defined by [plugin-architecture.md](plugin-architecture.md).
 - Fields intended for interactive setup only are not treated as ordinary manual-entry fields in the default config workflow.
 
 #### 6.8.3 Enable, Disable, and Runtime Expectations

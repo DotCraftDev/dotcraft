@@ -16,7 +16,7 @@ interface CommitDialogProps {
 /**
  * Modal dialog for staging and committing file changes to git.
  * Lists only non-reverted (written) files; commit message is pre-populated.
- * Spec §M6-16, §M6-17, §16.5
+ * Spec §16.5.
  */
 export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogProps): JSX.Element {
   const t = useT()
