@@ -669,6 +669,13 @@ public sealed class AppConfig
         [ConfigField(Hint = "JSON array of plugin ids. Disabled entries override enabled/default entries.")]
         public List<string> DisabledPlugins { get; set; } = [];
 
+        /// <summary>
+        /// Additional local plugin roots or plugin container directories.
+        /// Relative paths are resolved against the workspace root.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of local plugin roots or directories containing plugins.")]
+        public List<string> PluginRoots { get; set; } = [];
+
         public bool IsPluginEnabled(string pluginId, bool defaultEnabled)
         {
             if (DisabledPlugins.Contains(pluginId, StringComparer.OrdinalIgnoreCase))

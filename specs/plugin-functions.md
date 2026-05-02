@@ -33,7 +33,7 @@ DotCraft currently exposes Plugin Functions through internal C# providers and th
 - Runtime conversation projection uses `pluginFunctionCall` items. Plugin-backed tools do not emit companion `toolCall` or `toolResult` items.
 - Plugin enablement is controlled by `Plugins.EnabledPlugins` and `Plugins.DisabledPlugins`.
 
-M2 is expected to reduce this baseline before M3 by removing model-visible `NodeReplReset` and deleting the old `externalChannelToolCall` item type.
+M2 reduced this baseline by removing model-visible `NodeReplReset` and deleting the old `externalChannelToolCall` item type.
 
 ---
 
@@ -49,6 +49,7 @@ Required M3 outcomes:
 - Support built-in C# plugin providers through the same discovered plugin identity model.
 - Keep external-channel runtime tool declaration compatible with the current adapter contract.
 - Define extension points for later executable plugin backends without loading arbitrary third-party code in M3.
+- Deploy built-in plugin manifests to workspace `.craft/plugins` using the same ownership model as built-in skills.
 
 M3 must preserve the model-facing `AIFunction.Name = descriptor.name` behavior from M1/M2. If multiple enabled plugins provide the same model-visible function name in one agent tool set, the later function is rejected and a diagnostic is recorded.
 
@@ -75,6 +76,18 @@ M3 should discover plugin roots from:
 - Explicit config roots under `Plugins.PluginRoots`
 
 Explicit roots are additive. Relative explicit roots are resolved against the workspace root. Missing roots are ignored with diagnostics rather than treated as fatal startup errors.
+
+Local manifest plugins are enabled by default. `Plugins.DisabledPlugins` disables a plugin even when it is discovered from a default root or explicit root.
+
+When multiple roots contain the same plugin id, discovery uses this precedence:
+
+1. Workspace-local root: `<workspace>/.craft/plugins`
+2. Explicit roots in `Plugins.PluginRoots` order
+3. User-global root: `<craft-home>/plugins`
+
+Duplicate lower-priority plugin roots are skipped with diagnostics.
+
+An explicit root may point either to one plugin root containing `.craft-plugin/plugin.json` or to a container directory containing multiple plugin roots.
 
 ### 3.3 Manifest Shape
 
@@ -103,6 +116,20 @@ Function entries should describe Plugin Function metadata but not require M3 to 
 
 All manifest-relative paths must start with `./`, must stay inside the plugin root, and must not contain `..`.
 
+M3 uses `schemaVersion = 1`.
+
+For built-in C# backends, M3 supports this backend shape:
+
+```json
+{
+  "kind": "builtin",
+  "providerId": "node-repl",
+  "functionName": "NodeReplJs"
+}
+```
+
+For `builtin` backends, `providerId` must match the manifest `id`. This prevents a local plugin from declaring a different built-in provider identity.
+
 ---
 
 ## 4. Loader and Registration Model
@@ -114,6 +141,14 @@ M3 should split plugin loading into three layers:
 3. **Plugin function loader**: binds enabled plugin records to available providers/backends and returns `PluginFunctionRegistration` objects.
 
 Built-in providers remain C# implementations, but their plugin identity should be resolved through the same plugin ID system. For example, `node-repl` remains a built-in provider while being eligible for manifest metadata and config-driven enablement.
+
+Built-in plugin manifests are embedded resources deployed to workspace `.craft/plugins/<pluginId>`. Deployed built-ins carry a `.builtin` marker:
+
+- If the directory is missing, DotCraft deploys the embedded built-in plugin manifest.
+- If the directory has `.builtin` and the marker version is stale, DotCraft updates it.
+- If the directory exists without `.builtin`, DotCraft treats it as user-owned and does not overwrite it.
+
+If built-in manifest deployment or discovery fails, a built-in C# provider may keep using its fallback descriptor so the runtime capability remains available.
 
 External-channel tools remain thread-scoped and runtime-declared. They should keep using plugin IDs such as `external-channel:<channelName>` and should not require a static manifest in M3.
 
@@ -153,6 +188,8 @@ Diagnostics should be available to logs and future UI surfaces. They should cove
 
 Discovery failures for one plugin must not prevent other plugins from loading.
 
+M3 does not add AppServer plugin management methods. Diagnostics are kept in process memory and logs for future UI surfaces.
+
 ---
 
 ## 7. M3 Acceptance Criteria
@@ -162,6 +199,7 @@ M3 is complete when:
 - DotCraft can discover valid local plugin manifests from workspace, user-global, and explicit roots.
 - Invalid manifests produce diagnostics without aborting startup.
 - Built-in C# plugin functions can be associated with manifest metadata and controlled by plugin enable/disable config.
+- Built-in plugin manifests are deployed to workspace `.craft/plugins` without overwriting user-owned plugin directories.
 - External-channel tools continue to work without static manifests.
 - Duplicate model-visible function names are rejected deterministically with diagnostics.
 - Plugin Function runtime still emits only `pluginFunctionCall` conversation items for plugin-backed tools.
