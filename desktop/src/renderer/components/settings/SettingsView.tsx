@@ -21,6 +21,8 @@ import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults
 import { mergeAvailableChannels } from '../../utils/availableChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { usePluginStore } from '../../stores/pluginStore'
+import { useSkillsStore } from '../../stores/skillsStore'
 import { usePendingRestartStore } from '../../stores/pendingRestartStore'
 import { useSettingsWorkspaceConfigChangeEffects } from '../../hooks/useSettingsWorkspaceConfigChangeEffects'
 import { SecretInput } from '../channels/FormShared'
@@ -37,6 +39,8 @@ import { ActionTooltip } from '../ui/ActionTooltip'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import { SettingsPageHeader } from './SettingsPageHeader'
+import { PluginCatalogItem } from '../plugins/PluginCatalogItem'
+import { PluginInstallDialog } from '../plugins/PluginInstallDialog'
 import {
   EditableKeyValueList,
   EditableValueList,
@@ -528,6 +532,10 @@ export function SettingsView({
   const capabilities = useConnectionStore((s) => s.capabilities)
   const setExpectedRestart = useConnectionStore((s) => s.setExpectedRestart)
   const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
+  const plugins = usePluginStore((s) => s.plugins)
+  const fetchPlugins = usePluginStore((s) => s.fetchPlugins)
+  const installPlugin = usePluginStore((s) => s.installPlugin)
+  const fetchSkills = useSkillsStore((s) => s.fetchSkills)
   const mcpStatuses = useMcpStore((s) => s.statuses)
   const setMcpStatuses = useMcpStore((s) => s.setStatuses)
   const [binarySource, setBinarySource] = useState<BinarySource>('bundled')
@@ -586,6 +594,8 @@ export function SettingsView({
   const [browserUseDomainTarget, setBrowserUseDomainTarget] = useState<'blocked' | 'allowed' | null>(null)
   const [browserUseDomainError, setBrowserUseDomainError] = useState('')
   const [clearingBrowserCookies, setClearingBrowserCookies] = useState(false)
+  const [browserUseInstallOpen, setBrowserUseInstallOpen] = useState(false)
+  const [browserUseInstalling, setBrowserUseInstalling] = useState(false)
   const [baselineConnection, setBaselineConnection] = useState<{
     binarySource: BinarySource
     binaryPath: string
@@ -655,6 +665,9 @@ export function SettingsView({
 
   const mcpEnabled = capabilities?.mcpManagement === true
   const subAgentEnabled = capabilities?.subAgentManagement === true
+  const pluginManagementEnabled = capabilities?.pluginManagement === true
+  const browserUsePlugin = plugins.find((plugin) => plugin.id === 'browser-use') ?? null
+  const browserUsePluginReady = !pluginManagementEnabled || browserUsePlugin?.installed === true
   const proxyLockActive = proxyStatusText === 'running'
   const llmApiKeyTrimmed = llmApiKey.trim()
   const llmEndPointTrimmed = llmEndPoint.trim()
@@ -891,6 +904,12 @@ export function SettingsView({
       setActiveSettingsTab('general')
     }
   }, [activeSettingsTab, mcpEnabled, subAgentEnabled])
+
+  useEffect(() => {
+    if (activeSettingsTab === 'browserUse' && pluginManagementEnabled) {
+      void fetchPlugins()
+    }
+  }, [activeSettingsTab, fetchPlugins, pluginManagementEnabled])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -1586,6 +1605,41 @@ export function SettingsView({
     } finally {
       setClearingBrowserCookies(false)
     }
+  }
+
+  async function handleInstallBrowserUsePlugin(): Promise<void> {
+    if (!browserUsePlugin) return
+    setBrowserUseInstalling(true)
+    try {
+      await installPlugin(browserUsePlugin.id)
+      await fetchPlugins()
+      await fetchSkills()
+      setBrowserUseInstallOpen(false)
+      addToast(t('plugins.installSuccess'), 'success')
+    } catch {
+      addToast(t('plugins.installFailed'), 'error')
+    } finally {
+      setBrowserUseInstalling(false)
+    }
+  }
+
+  function handleTryBrowserUseInChat(): void {
+    const prompt = browserUsePlugin?.interface?.defaultPrompt || ''
+    const text = `$browser-use${prompt ? ` ${prompt}` : ''}`
+    const ui = useUIStore.getState()
+    const existing = ui.welcomeDraft
+    ui.setWelcomeDraft({
+      text,
+      segments: [{ type: 'skill', skillName: 'browser-use' }],
+      selectionStart: text.length,
+      selectionEnd: text.length,
+      images: [],
+      files: [],
+      mode: existing?.mode ?? 'agent',
+      model: existing?.model || 'Default',
+      approvalPolicy: existing?.approvalPolicy ?? 'default'
+    })
+    ui.goToNewChat()
   }
 
   function normalizePortOrDefault(raw: string, defaultPort: number): number {
@@ -2812,6 +2866,21 @@ export function SettingsView({
             {activeSettingsTab === 'browserUse' && (
               <GeneralPanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {pluginManagementEnabled && browserUsePlugin && (
+                  <SettingsGroup title={t('settings.browserUse.plugin')}>
+                    <SettingsRow orientation="block">
+                      <PluginCatalogItem
+                        plugin={browserUsePlugin}
+                        tryLabel={t('plugins.tryInChat')}
+                        installLabel={t('plugins.install')}
+                        onTryInChat={handleTryBrowserUseInChat}
+                        onInstall={() => setBrowserUseInstallOpen(true)}
+                        style={{ height: 54, padding: '0 4px' }}
+                      />
+                    </SettingsRow>
+                  </SettingsGroup>
+                )}
+
                 <SettingsGroup title={t('settings.browserUse.browsingData')}>
                   <SettingsRow
                     label={t('settings.browserUse.cookies')}
@@ -2829,80 +2898,92 @@ export function SettingsView({
                   />
                 </SettingsGroup>
 
-                <SettingsGroup title={t('settings.browserUse.permissions')}>
-                  <SettingsRow
-                    label={t('settings.browserUse.approval')}
-                    description={t('settings.browserUse.approvalHint')}
-                    control={
-                      <select
-                        value={browserUseApprovalMode}
-                        onChange={(e) => void handleBrowserUseApprovalModeChange(e.target.value as BrowserUseApprovalMode)}
-                        style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
-                      >
-                        <option value="alwaysAsk">{t('settings.browserUse.approval.alwaysAsk')}</option>
-                        <option value="askUnknown">{t('settings.browserUse.approval.askUnknown')}</option>
-                        <option value="neverAsk">{t('settings.browserUse.approval.neverAsk')}</option>
-                      </select>
-                    }
-                  />
-                </SettingsGroup>
+                {browserUsePluginReady && (
+                  <>
+                    <SettingsGroup title={t('settings.browserUse.permissions')}>
+                      <SettingsRow
+                        label={t('settings.browserUse.approval')}
+                        description={t('settings.browserUse.approvalHint')}
+                        control={
+                          <select
+                            value={browserUseApprovalMode}
+                            onChange={(e) => void handleBrowserUseApprovalModeChange(e.target.value as BrowserUseApprovalMode)}
+                            style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
+                          >
+                            <option value="alwaysAsk">{t('settings.browserUse.approval.alwaysAsk')}</option>
+                            <option value="askUnknown">{t('settings.browserUse.approval.askUnknown')}</option>
+                            <option value="neverAsk">{t('settings.browserUse.approval.neverAsk')}</option>
+                          </select>
+                        }
+                      />
+                    </SettingsGroup>
 
-                <SettingsGroup
-                  title={t('settings.browserUse.blockedDomains')}
-                  description={t('settings.browserUse.blockedDomainsHint')}
-                  headerAction={
-                    <button type="button" onClick={() => openBrowserUseDomainDialog('blocked')} style={secondaryActionButtonStyle(false)}>
-                      {t('settings.browserUse.add')}
-                    </button>
-                  }
-                >
-                  {browserUseBlockedDomains.length === 0 ? (
-                    <SettingsRow>
-                      <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                        {t('settings.browserUse.noBlockedDomains')}
-                      </div>
-                    </SettingsRow>
-                  ) : browserUseBlockedDomains.map((domain) => (
-                    <SettingsRow
-                      key={domain}
-                      label={domain}
-                      control={
-                        <button type="button" onClick={() => void handleRemoveBrowserUseDomain('blocked', domain)} style={secondaryButtonStyle(false)}>
-                          {t('settings.browserUse.remove')}
+                    <SettingsGroup
+                      title={t('settings.browserUse.blockedDomains')}
+                      description={t('settings.browserUse.blockedDomainsHint')}
+                      headerAction={
+                        <button type="button" onClick={() => openBrowserUseDomainDialog('blocked')} style={secondaryActionButtonStyle(false)}>
+                          {t('settings.browserUse.add')}
                         </button>
                       }
-                    />
-                  ))}
-                </SettingsGroup>
+                    >
+                      {browserUseBlockedDomains.length === 0 ? (
+                        <SettingsRow>
+                          <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                            {t('settings.browserUse.noBlockedDomains')}
+                          </div>
+                        </SettingsRow>
+                      ) : browserUseBlockedDomains.map((domain) => (
+                        <SettingsRow
+                          key={domain}
+                          label={domain}
+                          control={
+                            <button type="button" onClick={() => void handleRemoveBrowserUseDomain('blocked', domain)} style={secondaryButtonStyle(false)}>
+                              {t('settings.browserUse.remove')}
+                            </button>
+                          }
+                        />
+                      ))}
+                    </SettingsGroup>
 
-                <SettingsGroup
-                  title={t('settings.browserUse.allowedDomains')}
-                  description={t('settings.browserUse.allowedDomainsHint')}
-                  headerAction={
-                    <button type="button" onClick={() => openBrowserUseDomainDialog('allowed')} style={secondaryActionButtonStyle(false)}>
-                      {t('settings.browserUse.add')}
-                    </button>
-                  }
-                >
-                  {browserUseAllowedDomains.length === 0 ? (
-                    <SettingsRow>
-                      <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                        {t('settings.browserUse.noAllowedDomains')}
-                      </div>
-                    </SettingsRow>
-                  ) : browserUseAllowedDomains.map((domain) => (
-                    <SettingsRow
-                      key={domain}
-                      label={domain}
-                      control={
-                        <button type="button" onClick={() => void handleRemoveBrowserUseDomain('allowed', domain)} style={secondaryButtonStyle(false)}>
-                          {t('settings.browserUse.remove')}
+                    <SettingsGroup
+                      title={t('settings.browserUse.allowedDomains')}
+                      description={t('settings.browserUse.allowedDomainsHint')}
+                      headerAction={
+                        <button type="button" onClick={() => openBrowserUseDomainDialog('allowed')} style={secondaryActionButtonStyle(false)}>
+                          {t('settings.browserUse.add')}
                         </button>
                       }
-                    />
-                  ))}
-                </SettingsGroup>
+                    >
+                      {browserUseAllowedDomains.length === 0 ? (
+                        <SettingsRow>
+                          <div style={{ width: '100%', textAlign: 'center', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                            {t('settings.browserUse.noAllowedDomains')}
+                          </div>
+                        </SettingsRow>
+                      ) : browserUseAllowedDomains.map((domain) => (
+                        <SettingsRow
+                          key={domain}
+                          label={domain}
+                          control={
+                            <button type="button" onClick={() => void handleRemoveBrowserUseDomain('allowed', domain)} style={secondaryButtonStyle(false)}>
+                              {t('settings.browserUse.remove')}
+                            </button>
+                          }
+                        />
+                      ))}
+                    </SettingsGroup>
+                  </>
+                )}
               </div>
+              {browserUsePlugin && browserUseInstallOpen && (
+                <PluginInstallDialog
+                  plugin={browserUsePlugin}
+                  installing={browserUseInstalling}
+                  onClose={() => setBrowserUseInstallOpen(false)}
+                  onInstall={() => void handleInstallBrowserUsePlugin()}
+                />
+              )}
               </GeneralPanel>
             )}
 

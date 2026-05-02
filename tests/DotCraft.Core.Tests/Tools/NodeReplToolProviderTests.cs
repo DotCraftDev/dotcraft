@@ -97,14 +97,16 @@ public sealed class NodeReplToolProviderTests
     {
         var root = Path.Combine(Path.GetTempPath(), "dotcraft-node-repl-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        var botPath = Path.Combine(root, ".craft");
+        new BuiltInPluginDeployer(Path.Combine(botPath, "plugins")).DeployPlugin(NodeReplPluginFunctionProvider.PluginId);
         return new ToolProviderContext
         {
             Config = new AppConfig(),
             ChatClient = null!,
             WorkspacePath = root,
-            BotPath = Path.Combine(root, ".craft"),
-            MemoryStore = new MemoryStore(Path.Combine(root, ".craft")),
-            SkillsLoader = new SkillsLoader(Path.Combine(root, ".craft")),
+            BotPath = botPath,
+            MemoryStore = new MemoryStore(botPath),
+            SkillsLoader = new SkillsLoader(botPath),
             ApprovalService = new AutoApproveApprovalService(),
             PathBlacklist = new PathBlacklist([]),
             NodeReplProxy = proxy

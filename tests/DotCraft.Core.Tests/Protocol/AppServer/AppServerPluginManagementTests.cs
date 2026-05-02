@@ -14,7 +14,6 @@ public sealed class AppServerPluginManagementTests : IDisposable
     {
         _workspaceCraftPath = Path.Combine(_tempRoot, ".craft");
         Directory.CreateDirectory(_workspaceCraftPath);
-        new BuiltInPluginDeployer(Path.Combine(_workspaceCraftPath, "plugins")).Deploy();
     }
 
     public void Dispose()
@@ -56,7 +55,9 @@ public sealed class AppServerPluginManagementTests : IDisposable
         AppServerTestHarness.AssertIsSuccessResponse(response);
         var plugin = Assert.Single(response.RootElement.GetProperty("result").GetProperty("plugins").EnumerateArray());
         Assert.Equal("browser-use", plugin.GetProperty("id").GetString());
-        Assert.True(plugin.GetProperty("enabled").GetBoolean());
+        Assert.False(plugin.GetProperty("enabled").GetBoolean());
+        Assert.False(plugin.GetProperty("installed").GetBoolean());
+        Assert.True(plugin.GetProperty("installable").GetBoolean());
         Assert.Equal("Browser Use", plugin.GetProperty("displayName").GetString());
         Assert.Contains(
             plugin.GetProperty("functions").EnumerateArray(),
@@ -67,11 +68,32 @@ public sealed class AppServerPluginManagementTests : IDisposable
     }
 
     [Fact]
+    public async Task PluginInstall_DeploysBrowserUseAndEnablesContents()
+    {
+        var loader = CreateSkillsLoader(new AppConfig());
+        using var harness = CreateHarness(loader: loader);
+        await harness.InitializeAsync(configChange: true);
+
+        var msg = harness.BuildRequest(AppServerMethods.PluginInstall, new { id = "browser-use" });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        var plugin = response.RootElement.GetProperty("result").GetProperty("plugin");
+        Assert.True(plugin.GetProperty("installed").GetBoolean());
+        Assert.True(plugin.GetProperty("enabled").GetBoolean());
+        Assert.True(plugin.GetProperty("removable").GetBoolean());
+        Assert.True(File.Exists(Path.Combine(_workspaceCraftPath, "plugins", "browser-use", ".builtin")));
+        Assert.Contains(loader.ListSkills(filterUnavailable: false), skill => skill.Name == "browser-use");
+    }
+
+    [Fact]
     public async Task PluginSetEnabled_DisablesBrowserUseAndWritesCanonicalId()
     {
         var loader = CreateSkillsLoader(new AppConfig());
         using var harness = CreateHarness(loader: loader);
         await harness.InitializeAsync(configChange: true);
+        await InstallBrowserUseAsync(harness);
 
         var msg = harness.BuildRequest(AppServerMethods.PluginSetEnabled, new { id = "browser-use", enabled = false });
         await harness.ExecuteRequestAsync(msg);
@@ -83,6 +105,56 @@ public sealed class AppServerPluginManagementTests : IDisposable
         Assert.Contains("browser-use", configJson, StringComparison.Ordinal);
         Assert.DoesNotContain("node-repl", configJson, StringComparison.Ordinal);
         Assert.DoesNotContain(loader.ListSkills(filterUnavailable: false), skill => skill.Name == "browser-use");
+    }
+
+    [Fact]
+    public async Task PluginSetEnabled_WhenNotInstalled_ReturnsError()
+    {
+        using var harness = CreateHarness();
+        await harness.InitializeAsync();
+
+        var msg = harness.BuildRequest(AppServerMethods.PluginSetEnabled, new { id = "browser-use", enabled = true });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(response, AppServerErrors.InvalidParamsCode);
+    }
+
+    [Fact]
+    public async Task PluginRemove_RemovesManagedBuiltInDirectory()
+    {
+        var loader = CreateSkillsLoader(new AppConfig());
+        using var harness = CreateHarness(loader: loader);
+        await harness.InitializeAsync(configChange: true);
+        await InstallBrowserUseAsync(harness);
+
+        var msg = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "browser-use" });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        var plugin = response.RootElement.GetProperty("result").GetProperty("plugin");
+        Assert.False(plugin.GetProperty("installed").GetBoolean());
+        Assert.False(plugin.GetProperty("enabled").GetBoolean());
+        Assert.False(Directory.Exists(Path.Combine(_workspaceCraftPath, "plugins", "browser-use")));
+        Assert.DoesNotContain(loader.ListSkills(filterUnavailable: false), skill => skill.Name == "browser-use");
+    }
+
+    [Fact]
+    public async Task PluginRemove_UserOwnedDirectoryWithoutMarkerIsRejected()
+    {
+        var pluginRoot = Path.Combine(_workspaceCraftPath, "plugins", "browser-use");
+        new BuiltInPluginDeployer(Path.Combine(_workspaceCraftPath, "plugins")).DeployPlugin("browser-use");
+        File.Delete(Path.Combine(pluginRoot, ".builtin"));
+        using var harness = CreateHarness();
+        await harness.InitializeAsync();
+
+        var msg = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "browser-use" });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(response, AppServerErrors.InvalidParamsCode);
+        Assert.True(Directory.Exists(pluginRoot));
     }
 
     [Fact]
@@ -120,5 +192,13 @@ public sealed class AppServerPluginManagementTests : IDisposable
         loader.SetDisabledSkills(config.Skills.DisabledSkills);
         PluginRuntimeConfigurator.ConfigureSkillsLoader(loader, config, _tempRoot, _workspaceCraftPath);
         return loader;
+    }
+
+    private static async Task InstallBrowserUseAsync(AppServerTestHarness harness)
+    {
+        var install = harness.BuildRequest(AppServerMethods.PluginInstall, new { id = "browser-use" });
+        await harness.ExecuteRequestAsync(install);
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
     }
 }

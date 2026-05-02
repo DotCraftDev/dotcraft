@@ -88,9 +88,6 @@ public static class ServiceRegistration
         var skillsLoader = new SkillsLoader(botPath);
         skillsLoader.DeployBuiltInSkills();
         services.AddSingleton(skillsLoader);
-        var pluginDiagnostics = new BuiltInPluginDeployer(Path.Combine(botPath, "plugins")).Deploy();
-        PluginDiagnosticsStore.Shared.Append(pluginDiagnostics);
-        PluginDiagnosticsLogger.Write(pluginDiagnostics);
         PluginRuntimeConfigurator.ConfigureSkillsLoader(
             skillsLoader,
             config,

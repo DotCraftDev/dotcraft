@@ -295,9 +295,9 @@ The sidebar Plugins entry opens a two-level surface with `Plugins` and `Skills` 
 
 Required behavior:
 
-- Users can browse discovered plugins, inspect plugin details, see included functions and skills, and enable or disable a plugin when the server supports `plugin/setEnabled`.
-- Plugin enablement refreshes both plugin and skill state because plugin-contained skills are controlled by the plugin.
-- Browser Use is the built-in reference plugin. It shows the `NodeReplJs` Plugin Function and the `browser-use` skill in its included content.
+- Users can browse discovered and installable plugins, inspect plugin details, see included tools and skills, install or remove managed built-in plugins, and enable or disable installed plugins.
+- Plugin installation, removal, and enablement refresh both plugin and skill state because plugin-contained skills are controlled by the plugin lifecycle.
+- Browser Use is the built-in reference plugin. It shows the `NodeReplJs` tool and the `browser-use` skill in its included content.
 - Users can enter a Skills view if the server exposes skills capabilities.
 - Users can browse installed skills.
 - Users can inspect the content of a selected skill.

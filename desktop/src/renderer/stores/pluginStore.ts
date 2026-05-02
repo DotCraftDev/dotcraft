@@ -36,6 +36,9 @@ export interface PluginEntry {
   description?: string | null
   version?: string | null
   enabled: boolean
+  installed: boolean
+  installable: boolean
+  removable: boolean
   source: string
   rootPath: string
   interface?: PluginInterface | null
@@ -55,6 +58,8 @@ interface PluginState {
   fetchPlugins(): Promise<void>
   selectPlugin(id: string): Promise<void>
   clearSelection(): void
+  installPlugin(id: string): Promise<void>
+  removePlugin(id: string): Promise<void>
   togglePluginEnabled(id: string, enabled: boolean): Promise<void>
 }
 
@@ -102,6 +107,42 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     set({ selectedPluginId: null, selectedPlugin: null, detailLoading: false })
   },
 
+  async installPlugin(id: string) {
+    try {
+      const result = (await window.api.appServer.sendRequest('plugin/install', { id })) as { plugin?: PluginEntry }
+      const updated = result.plugin
+      if (updated) {
+        set((state) => ({
+          plugins: upsertPlugin(state.plugins, updated),
+          selectedPlugin: state.selectedPlugin?.id === updated.id ? updated : state.selectedPlugin
+        }))
+      } else {
+        await get().fetchPlugins()
+      }
+    } catch (e: unknown) {
+      console.error('plugin/install failed:', e)
+      throw e
+    }
+  },
+
+  async removePlugin(id: string) {
+    try {
+      const result = (await window.api.appServer.sendRequest('plugin/remove', { id })) as { plugin?: PluginEntry }
+      const updated = result.plugin
+      if (updated) {
+        set((state) => ({
+          plugins: upsertPlugin(state.plugins, updated),
+          selectedPlugin: state.selectedPlugin?.id === updated.id ? updated : state.selectedPlugin
+        }))
+      } else {
+        await get().fetchPlugins()
+      }
+    } catch (e: unknown) {
+      console.error('plugin/remove failed:', e)
+      throw e
+    }
+  },
+
   async togglePluginEnabled(id: string, enabled: boolean) {
     try {
       const result = (await window.api.appServer.sendRequest('plugin/setEnabled', {
@@ -111,7 +152,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
       const updated = result.plugin
       if (updated) {
         set((state) => ({
-          plugins: state.plugins.map((plugin) => (plugin.id === updated.id ? updated : plugin)),
+          plugins: upsertPlugin(state.plugins, updated),
           selectedPlugin: state.selectedPlugin?.id === updated.id ? updated : state.selectedPlugin
         }))
       } else {
@@ -123,3 +164,9 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     }
   }
 }))
+
+function upsertPlugin(plugins: PluginEntry[], updated: PluginEntry): PluginEntry[] {
+  const found = plugins.some((plugin) => plugin.id === updated.id)
+  if (!found) return [...plugins, updated]
+  return plugins.map((plugin) => (plugin.id === updated.id ? updated : plugin))
+}

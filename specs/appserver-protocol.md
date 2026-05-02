@@ -362,7 +362,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
-| `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/setEnabled`). |
+| `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`). |
 | `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
@@ -3355,7 +3355,7 @@ Clients must check `capabilities.pluginManagement` before calling any `plugin/*`
 
 #### `plugin/list`
 
-Returns discovered plugins, including disabled plugins when requested.
+Returns discovered plugins, including disabled installed plugins and installable built-in catalog plugins when requested.
 
 **Direction**: client → server (request)
 
@@ -3375,11 +3375,14 @@ Returns discovered plugins, including disabled plugins when requested.
       "displayName": "Browser Use",
       "description": "Control the in-app browser with DotCraft",
       "enabled": true,
+      "installed": true,
+      "installable": false,
+      "removable": true,
       "source": "workspace",
       "interface": {
         "displayName": "Browser Use",
         "shortDescription": "Control the in-app browser with DotCraft",
-        "developerName": "DotCraft",
+        "developerName": "DotHarness",
         "category": "Coding",
         "capabilities": ["Interactive", "Read", "Write"],
         "defaultPrompt": "Test my checkout flow on localhost"
@@ -3404,9 +3407,45 @@ Returns one plugin by id.
 
 **Result**: `{ "plugin": PluginInfo }`
 
+`PluginInfo` includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `installed` | boolean | True when the plugin exists in a discovered local plugin root and can contribute runtime behavior. |
+| `installable` | boolean | True for known built-in catalog entries that are not installed in the workspace. |
+| `removable` | boolean | True for DotCraft-managed built-in plugin directories that carry a `.builtin` marker. |
+
+#### `plugin/install`
+
+Installs a known built-in plugin into the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Canonical plugin id. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+On success, the server deploys the built-in resources to `.craft/plugins/<id>`, removes that id from `Plugins.DisabledPlugins`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/install"` and `regions: ["plugins", "skills"]`.
+
+#### `plugin/remove`
+
+Removes a DotCraft-managed built-in plugin from the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Canonical plugin id. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+The server deletes only workspace plugin directories that carry the `.builtin` marker and are inside `.craft/plugins`. User-owned plugin directories are rejected. On success, the server refreshes plugin-contributed skill sources and emits `workspace/configChanged` with `source: "plugin/remove"` and `regions: ["plugins", "skills"]`.
+
 #### `plugin/setEnabled`
 
-Enables or disables a plugin for the workspace.
+Enables or disables an installed plugin for the workspace.
 
 **Params**:
 
@@ -3417,7 +3456,7 @@ Enables or disables a plugin for the workspace.
 
 **Result**: `{ "plugin": PluginInfo }`
 
-On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills"]`.
+`plugin/setEnabled` does not install a built-in catalog entry. If the plugin is not installed, the server rejects the request. On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills"]`.
 
 ### 18.9 Error Codes
 
@@ -4383,7 +4422,7 @@ Server notification emitted after a successful workspace configuration write.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
@@ -4395,7 +4434,8 @@ Current `regions` taxonomy:
 | `workspace.apiKey` | `workspace/config/update` |
 | `workspace.endpoint` | `workspace/config/update` |
 | `welcomeSuggestions` | `workspace/config/update` |
-| `skills` | `skills/setEnabled`, `workspace/config/update` |
+| `skills` | `skills/setEnabled`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `workspace/config/update` |
+| `plugins` | `plugin/install`, `plugin/remove`, `plugin/setEnabled` |
 | `memory` | `workspace/config/update` |
 | `workspace.defaultApprovalPolicy` | `workspace/config/update` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |

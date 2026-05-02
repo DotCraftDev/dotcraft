@@ -9,39 +9,39 @@ namespace DotCraft.Plugins;
 public sealed class BuiltInPluginDeployer(string workspacePluginsPath)
 {
     private const string ResourcePrefix = "DotCraft.Plugins.BuiltIn.";
-    private const string MarkerFile = ".builtin";
+    public const string MarkerFile = ".builtin";
 
     /// <summary>
     /// Deploys embedded built-in plugins into the workspace plugin directory.
     /// </summary>
     public IReadOnlyList<PluginDiagnostic> Deploy(Assembly? resourceAssembly = null)
+        => DeployCore(targetPluginId: null, resourceAssembly);
+
+    /// <summary>
+    /// Deploys one embedded built-in plugin into the workspace plugin directory.
+    /// </summary>
+    public IReadOnlyList<PluginDiagnostic> DeployPlugin(string pluginId, Assembly? resourceAssembly = null)
+        => DeployCore(PluginIds.Canonicalize(pluginId), resourceAssembly);
+
+    public static bool IsManagedBuiltInPluginRoot(string pluginRoot) =>
+        File.Exists(Path.Combine(pluginRoot, MarkerFile));
+
+    private IReadOnlyList<PluginDiagnostic> DeployCore(string? targetPluginId, Assembly? resourceAssembly)
     {
         var diagnostics = new List<PluginDiagnostic>();
         var assembly = resourceAssembly ?? typeof(BuiltInPluginDeployer).Assembly;
         var currentVersion = assembly.GetName().Version?.ToString() ?? "0.0.0.0";
-        var groups = assembly
-            .GetManifestResourceNames()
-            .Where(name => name.StartsWith(ResourcePrefix, StringComparison.Ordinal))
-            .Select(name =>
-            {
-                var remainder = name[ResourcePrefix.Length..];
-                var dotIndex = remainder.IndexOf('.');
-                if (dotIndex <= 0)
-                    return (PluginId: string.Empty, FileName: string.Empty, ResourceName: name);
-
-                return (
-                    PluginId: remainder[..dotIndex],
-                    FileName: remainder[(dotIndex + 1)..],
-                    ResourceName: name);
-            })
-            .Where(resource => !string.IsNullOrWhiteSpace(resource.PluginId)
-                               && !string.IsNullOrWhiteSpace(resource.FileName))
-            .GroupBy(resource => resource.PluginId, StringComparer.OrdinalIgnoreCase);
+        var groups = GetResourceGroups(assembly);
+        var deployed = false;
 
         Directory.CreateDirectory(workspacePluginsPath);
         foreach (var group in groups)
         {
             var pluginId = ReadBuiltInPluginId(assembly, group) ?? group.Key;
+            if (!string.IsNullOrWhiteSpace(targetPluginId)
+                && !PluginIds.EqualsCanonical(pluginId, targetPluginId))
+                continue;
+
             var pluginDir = Path.Combine(workspacePluginsPath, pluginId);
             var markerPath = Path.Combine(pluginDir, MarkerFile);
             if (Directory.Exists(pluginDir) && !File.Exists(markerPath))
@@ -57,6 +57,7 @@ public sealed class BuiltInPluginDeployer(string workspacePluginsPath)
             if (File.Exists(markerPath)
                 && string.Equals(File.ReadAllText(markerPath).Trim(), currentVersion, StringComparison.Ordinal))
             {
+                deployed = true;
                 continue;
             }
 
@@ -75,10 +76,41 @@ public sealed class BuiltInPluginDeployer(string workspacePluginsPath)
             }
 
             File.WriteAllText(markerPath, currentVersion);
+            deployed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetPluginId) && !deployed)
+        {
+            diagnostics.Add(PluginDiagnostic.Warning(
+                "BuiltInPluginNotFound",
+                $"Built-in plugin '{targetPluginId}' was not found.",
+                targetPluginId));
         }
 
         return diagnostics;
     }
+
+    internal static IReadOnlyList<IGrouping<string, (string PluginId, string FileName, string ResourceName)>>
+        GetResourceGroups(Assembly assembly) =>
+        assembly
+            .GetManifestResourceNames()
+            .Where(name => name.StartsWith(ResourcePrefix, StringComparison.Ordinal))
+            .Select(name =>
+            {
+                var remainder = name[ResourcePrefix.Length..];
+                var dotIndex = remainder.IndexOf('.');
+                if (dotIndex <= 0)
+                    return (PluginId: string.Empty, FileName: string.Empty, ResourceName: name);
+
+                return (
+                    PluginId: remainder[..dotIndex],
+                    FileName: remainder[(dotIndex + 1)..],
+                    ResourceName: name);
+            })
+            .Where(resource => !string.IsNullOrWhiteSpace(resource.PluginId)
+                               && !string.IsNullOrWhiteSpace(resource.FileName))
+            .GroupBy(resource => resource.PluginId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private static string NormalizeBuiltInResourceFileName(string fileName)
     {
@@ -118,7 +150,7 @@ public sealed class BuiltInPluginDeployer(string workspacePluginsPath)
         return fileName;
     }
 
-    private static string? ReadBuiltInPluginId(
+    internal static string? ReadBuiltInPluginId(
         Assembly assembly,
         IEnumerable<(string PluginId, string FileName, string ResourceName)> resources)
     {

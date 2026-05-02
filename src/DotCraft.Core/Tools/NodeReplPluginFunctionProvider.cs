@@ -20,6 +20,15 @@ public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
         if (!context.Config.Plugins.IsPluginEnabled(PluginId, defaultEnabled: true))
             yield break;
 
+        if (!PluginRuntimeConfigurator.IsPluginInstalledAndEnabled(
+                context.Config,
+                context.WorkspacePath,
+                context.BotPath,
+                PluginId))
+        {
+            yield break;
+        }
+
         var proxy = context.NodeReplProxy;
         if (proxy?.IsAvailable != true)
             yield break;

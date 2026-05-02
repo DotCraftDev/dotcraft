@@ -128,6 +128,8 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.SkillsSetEnabled,
         AppServerMethods.PluginList,
         AppServerMethods.PluginView,
+        AppServerMethods.PluginInstall,
+        AppServerMethods.PluginRemove,
         AppServerMethods.PluginSetEnabled,
         AppServerMethods.CommandList,
         AppServerMethods.CommandExecute,
@@ -242,6 +244,8 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
                 AppServerMethods.PluginList => HandlePluginListAsync(msg, ct),
                 AppServerMethods.PluginView => HandlePluginViewAsync(msg, ct),
+                AppServerMethods.PluginInstall => HandlePluginInstallAsync(msg, ct),
+                AppServerMethods.PluginRemove => HandlePluginRemoveAsync(msg, ct),
                 AppServerMethods.PluginSetEnabled => HandlePluginSetEnabledAsync(msg, ct),
                 AppServerMethods.CommandList => HandleCommandListAsync(msg, ct),
                 AppServerMethods.CommandExecute => HandleCommandExecuteAsync(msg, ct),
@@ -2406,8 +2410,11 @@ public sealed class AppServerRequestHandler(
         var pluginId = PluginIds.Canonicalize(p.Id.Trim());
         var current = appConfigMonitor?.Current ?? new AppConfig();
         var before = RefreshPluginRuntime();
-        if (before.Plugins.All(candidate => !PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId)))
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (!beforePlugin.Installed)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' is not installed.");
 
         var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
         if (p.Enabled)
@@ -2429,6 +2436,103 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
 
         return Task.FromResult<object?>(new PluginSetEnabledResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginInstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginInstall);
+
+        var p = GetParams<PluginInstallParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var before = RefreshPluginRuntime();
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (beforePlugin.Installed)
+            return Task.FromResult<object?>(new PluginInstallResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+        if (!beforePlugin.Installable)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' is not installable.");
+
+        var diagnostics = new BuiltInPluginDeployer(Path.Combine(workspaceCraftPath, "plugins")).DeployPlugin(pluginId);
+        PluginDiagnosticsStore.Shared.Append(diagnostics);
+        PluginDiagnosticsLogger.Write(diagnostics);
+        if (diagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error || d.Code == "BuiltInPluginNotFound"))
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
+
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginInstall,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (plugin == null || !plugin.Installed)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
+
+        return Task.FromResult<object?>(new PluginInstallResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginRemove);
+
+        var p = GetParams<PluginRemoveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var before = RefreshPluginRuntime();
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (!beforePlugin.Installed)
+            return Task.FromResult<object?>(new PluginRemoveResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+        if (!beforePlugin.Removable)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
+
+        var pluginRoot = Path.GetFullPath(beforePlugin.Manifest.RootPath);
+        var workspacePluginsRoot = Path.GetFullPath(Path.Combine(workspaceCraftPath, "plugins"));
+        if (!IsPathWithin(pluginRoot, workspacePluginsRoot) || !BuiltInPluginDeployer.IsManagedBuiltInPluginRoot(pluginRoot))
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
+
+        Directory.Delete(pluginRoot, recursive: true);
+
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginRemove,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (plugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found after removal.");
+
+        return Task.FromResult<object?>(new PluginRemoveResult
         {
             Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
         });
@@ -2563,6 +2667,9 @@ public sealed class AppServerRequestHandler(
             Description = manifest.Interface?.ShortDescription ?? manifest.Description,
             Version = manifest.Version,
             Enabled = plugin.Enabled,
+            Installed = plugin.Installed,
+            Installable = plugin.Installable,
+            Removable = plugin.Removable,
             Source = plugin.SourceKind.ToString().ToLowerInvariant(),
             RootPath = manifest.RootPath,
             Interface = MapPluginInterfaceToWire(manifest.Interface),
@@ -2574,12 +2681,21 @@ public sealed class AppServerRequestHandler(
                     Description = function.Description
                 })
                 .ToList(),
-            Skills = MapPluginSkillsToWire(manifest),
+            Skills = MapPluginSkillsToWire(plugin),
             Diagnostics = diagnostics
                 .Where(d => string.Equals(d.PluginId, manifest.Id, StringComparison.OrdinalIgnoreCase))
                 .Select(MapPluginDiagnosticToWire)
                 .ToList()
         };
+    }
+
+    private static bool IsPathWithin(string path, string root)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return !Path.IsPathRooted(relative)
+               && !relative.Equals("..", StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
     }
 
     private PluginInterfaceWire? MapPluginInterfaceToWire(PluginInterfaceMetadata? metadata)
@@ -2605,8 +2721,9 @@ public sealed class AppServerRequestHandler(
         };
     }
 
-    private List<PluginSkillInfoWire> MapPluginSkillsToWire(PluginManifest manifest)
+    private List<PluginSkillInfoWire> MapPluginSkillsToWire(DiscoveredPlugin plugin)
     {
+        var manifest = plugin.Manifest;
         if (string.IsNullOrWhiteSpace(manifest.SkillsPath) || !Directory.Exists(manifest.SkillsPath))
             return [];
 
@@ -2625,9 +2742,11 @@ public sealed class AppServerRequestHandler(
                     Description = skillsLoader?.GetSkillDescription(name) ?? name,
                     DisplayName = interfaceInfo?.DisplayName,
                     ShortDescription = interfaceInfo?.ShortDescription,
-                    Enabled = skill?.Enabled
+                    Enabled = plugin.Installed
+                              && plugin.Enabled
+                              && (skill?.Enabled
                               ?? (!string.Equals(manifest.Id, PluginIds.BrowserUse, StringComparison.OrdinalIgnoreCase)
-                                  || (appConfigMonitor?.Current ?? new AppConfig()).Plugins.IsPluginEnabled(PluginIds.BrowserUse, true))
+                                  || (appConfigMonitor?.Current ?? new AppConfig()).Plugins.IsPluginEnabled(PluginIds.BrowserUse, true)))
                 };
             })
             .ToList();

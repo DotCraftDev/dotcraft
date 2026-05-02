@@ -16,7 +16,7 @@ public static class PluginRuntimeConfigurator
         if (skillsLoader != null)
         {
             var sources = discovery.Plugins
-                .Where(plugin => plugin.Enabled && !string.IsNullOrWhiteSpace(plugin.Manifest.SkillsPath))
+                .Where(plugin => plugin.Installed && plugin.Enabled && !string.IsNullOrWhiteSpace(plugin.Manifest.SkillsPath))
                 .Select(plugin => new SkillsLoader.PluginSkillSource(
                     plugin.Manifest.Id,
                     plugin.Manifest.Interface?.DisplayName ?? plugin.Manifest.DisplayName,
@@ -29,6 +29,19 @@ public static class PluginRuntimeConfigurator
         diagnosticsStore?.Append(discovery.Diagnostics);
         PluginDiagnosticsLogger.Write(discovery.Diagnostics);
         return discovery;
+    }
+
+    public static bool IsPluginInstalledAndEnabled(
+        AppConfig config,
+        string workspacePath,
+        string botPath,
+        string pluginId)
+    {
+        var discovery = new PluginDiscoveryService().DiscoverAll(config, workspacePath, botPath);
+        return discovery.Plugins.Any(plugin =>
+            plugin.Installed
+            && plugin.Enabled
+            && PluginIds.EqualsCanonical(plugin.Manifest.Id, pluginId));
     }
 
     private static IReadOnlyList<string> ResolveDisabledPluginSkillNames(

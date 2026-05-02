@@ -10,16 +10,16 @@
     "displayName": "Browser Use",
     "shortDescription": "Control the in-app browser with DotCraft",
     "longDescription": "Browser Use lets DotCraft open and control the Desktop embedded browser for local development pages, files, and approved web targets. Use it to navigate, inspect, click, type, and take screenshots while testing pages inside DotCraft.",
-    "developerName": "DotCraft",
+    "developerName": "DotHarness",
     "category": "Coding",
     "capabilities": ["Interactive", "Read", "Write"],
     "defaultPrompt": "Test my checkout flow on localhost",
     "brandColor": "#0B63CE",
     "composerIcon": "./skills/browser-use/assets/browser-use-small.svg",
     "logo": "./skills/browser-use/assets/browser-use.svg",
-    "websiteUrl": "https://github.com/",
-    "privacyPolicyUrl": "https://github.com/",
-    "termsOfServiceUrl": "https://github.com/"
+    "websiteUrl": "https://github.com/DotHarness/dotcraft",
+    "privacyPolicyUrl": "https://github.com/DotHarness/dotcraft",
+    "termsOfServiceUrl": "https://github.com/DotHarness/dotcraft"
   },
   "functions": [
     {

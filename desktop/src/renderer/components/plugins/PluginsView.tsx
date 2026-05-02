@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Box, Check, ChevronLeft, ExternalLink, Plus, Settings, Wrench } from 'lucide-react'
+import { Box, ChevronLeft, ExternalLink, Link, MessageCircle, Settings, Trash2, Wrench } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { usePluginStore, type PluginEntry } from '../../stores/pluginStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -16,17 +16,32 @@ import {
   CatalogTabs,
   styles as catalogStyles
 } from '../catalog/CatalogSurface'
+import { PluginCatalogItem, PluginIcon, pluginSourceLabel, pluginSubtitle, pluginTitle } from './PluginCatalogItem'
+import { PluginInstallDialog } from './PluginInstallDialog'
 
 type Surface = 'plugins' | 'skills'
 type PluginMode = 'browse' | 'manage'
 type PublisherFilter = 'dotcraft' | 'all'
 type CategoryFilter = string
+const DOTCRAFT_PLUGIN_FALLBACK_URL = 'https://github.com/DotHarness/dotcraft'
 
 export function PluginsView(): JSX.Element {
   const t = useT()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const pluginManagement = capabilities?.pluginManagement === true
-  const { plugins, loading, error, fetchPlugins, selectedPlugin, detailLoading, selectPlugin, clearSelection, togglePluginEnabled } = usePluginStore()
+  const {
+    plugins,
+    loading,
+    error,
+    fetchPlugins,
+    selectedPlugin,
+    detailLoading,
+    selectPlugin,
+    clearSelection,
+    installPlugin,
+    removePlugin,
+    togglePluginEnabled
+  } = usePluginStore()
   const fetchSkills = useSkillsStore((s) => s.fetchSkills)
   const [surface, setSurface] = useState<Surface>('plugins')
   const [mode, setMode] = useState<PluginMode>('browse')
@@ -34,6 +49,8 @@ export function PluginsView(): JSX.Element {
   const [publisherFilter, setPublisherFilter] = useState<PublisherFilter>('dotcraft')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [savedPluginId, setSavedPluginId] = useState<string | null>(null)
+  const [installTarget, setInstallTarget] = useState<PluginEntry | null>(null)
+  const [installingId, setInstallingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (pluginManagement) void fetchPlugins()
@@ -52,6 +69,28 @@ export function PluginsView(): JSX.Element {
   const managePlugins = useMemo(() => filterPlugins(plugins, query, 'all', 'all'), [plugins, query])
   const categoryOptions = useMemo(() => buildCategoryOptions(plugins, t), [plugins, t])
   const sections = useMemo(() => buildSections(browsePlugins, categoryFilter, t), [browsePlugins, categoryFilter, t])
+  const installDialog = installTarget ? (
+    <PluginInstallDialog
+      plugin={installTarget}
+      installing={installingId === installTarget.id}
+      onClose={() => setInstallTarget(null)}
+      onInstall={async () => {
+        try {
+          setInstallingId(installTarget.id)
+          await installPlugin(installTarget.id)
+          await fetchSkills()
+          await selectPlugin(installTarget.id)
+          setSavedPluginId(installTarget.id)
+          setInstallTarget(null)
+          addToast(t('plugins.installSuccess'), 'success')
+        } catch {
+          addToast(t('plugins.installFailed'), 'error')
+        } finally {
+          setInstallingId(null)
+        }
+      }}
+    />
+  ) : null
 
   if (surface === 'skills') {
     return (
@@ -66,79 +105,97 @@ export function PluginsView(): JSX.Element {
 
   if (selectedPlugin) {
     return (
-      <PluginDetailView
-        plugin={selectedPlugin}
-        loading={detailLoading}
-        saved={savedPluginId === selectedPlugin.id}
-        onBack={() => clearSelection()}
-        onSurfaceChange={(next) => {
-          clearSelection()
-          setSurface(next)
-        }}
-        onToggle={async (enabled) => {
-          try {
-            await togglePluginEnabled(selectedPlugin.id, enabled)
-            await fetchSkills()
-            setSavedPluginId(selectedPlugin.id)
-          } catch {
-            addToast(t('plugins.updateFailed'), 'error')
-          }
-        }}
-        onTryInChat={() => tryPluginInChat(selectedPlugin)}
-      />
+      <>
+        <PluginDetailView
+          plugin={selectedPlugin}
+          loading={detailLoading}
+          saved={savedPluginId === selectedPlugin.id}
+          onBack={() => clearSelection()}
+          onSurfaceChange={(next) => {
+            clearSelection()
+            setSurface(next)
+          }}
+          onInstall={() => setInstallTarget(selectedPlugin)}
+          onRemove={async () => {
+            try {
+              await removePlugin(selectedPlugin.id)
+              await fetchSkills()
+              setSavedPluginId(selectedPlugin.id)
+              addToast(t('plugins.removeSuccess'), 'success')
+            } catch {
+              addToast(t('plugins.removeFailed'), 'error')
+            }
+          }}
+          onToggle={async (enabled) => {
+            try {
+              await togglePluginEnabled(selectedPlugin.id, enabled)
+              await fetchSkills()
+              setSavedPluginId(selectedPlugin.id)
+            } catch {
+              addToast(t('plugins.updateFailed'), 'error')
+            }
+          }}
+          onTryInChat={() => tryPluginInChat(selectedPlugin)}
+        />
+        {installDialog}
+      </>
     )
   }
 
   if (mode === 'manage') {
     return (
-      <div style={page}>
-        <SurfaceTabs value={surface} onChange={setSurface} />
-        <header style={manageHeader}>
-          <div style={breadcrumb}>
-            <button type="button" onClick={() => setMode('browse')} style={breadcrumbButton}>
-              <ChevronLeft size={14} aria-hidden />
-              {t('plugins.pageTitle')}
-            </button>
-            <span style={breadcrumbSep}>›</span>
-            <span style={breadcrumbCurrent}>{t('plugins.manage')}</span>
-          </div>
-          <div style={manageToolbar}>
-            <CatalogChip label={t('plugins.manage.count.plugins', { count: String(plugins.length) })} active />
-            <CatalogChip label={t('plugins.manage.count.apps', { count: '0' })} />
-            <CatalogChip label={t('plugins.manage.count.mcp', { count: '0' })} />
-            <CatalogChip label={t('plugins.manage.count.skills', { count: String(plugins.reduce((sum, plugin) => sum + plugin.skills.length, 0)) })} />
-            <div style={{ flex: 1 }} />
-            {savedPluginId && <span style={savedHint}>{t('settings.savedToast')}</span>}
-            <CatalogSearchBox
-              value={query}
-              placeholder={t('plugins.manage.searchPlaceholder')}
-              onChange={setQuery}
-              style={{ maxWidth: '280px', flex: '0 1 280px' }}
-            />
-          </div>
-        </header>
-        <main style={manageMain}>
-          {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
-          {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
-          {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
-          {managePlugins.map((plugin) => (
-            <PluginManageItem
-              key={plugin.id}
-              plugin={plugin}
-              onOpen={() => void selectPlugin(plugin.id)}
-              onToggle={async (enabled) => {
-                try {
-                  await togglePluginEnabled(plugin.id, enabled)
-                  await fetchSkills()
-                  setSavedPluginId(plugin.id)
-                } catch {
-                  addToast(t('plugins.updateFailed'), 'error')
-                }
-              }}
-            />
-          ))}
-        </main>
-      </div>
+      <>
+        <div style={page}>
+          <SurfaceTabs value={surface} onChange={setSurface} />
+          <header style={manageHeader}>
+            <div style={breadcrumb}>
+              <button type="button" onClick={() => setMode('browse')} style={breadcrumbButton}>
+                <ChevronLeft size={14} aria-hidden />
+                {t('plugins.pageTitle')}
+              </button>
+              <span style={breadcrumbSep}>›</span>
+              <span style={breadcrumbCurrent}>{t('plugins.manage')}</span>
+            </div>
+            <div style={manageToolbar}>
+              <CatalogChip label={t('plugins.manage.count.plugins', { count: String(plugins.length) })} active />
+              <CatalogChip label={t('plugins.manage.count.apps', { count: '0' })} />
+              <CatalogChip label={t('plugins.manage.count.mcp', { count: '0' })} />
+              <CatalogChip label={t('plugins.manage.count.skills', { count: String(plugins.reduce((sum, plugin) => sum + plugin.skills.length, 0)) })} />
+              <div style={{ flex: 1 }} />
+              {savedPluginId && <span style={savedHint}>{t('settings.savedToast')}</span>}
+              <CatalogSearchBox
+                value={query}
+                placeholder={t('plugins.manage.searchPlaceholder')}
+                onChange={setQuery}
+                style={{ maxWidth: '280px', flex: '0 1 280px' }}
+              />
+            </div>
+          </header>
+          <main style={manageMain}>
+            {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
+            {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
+            {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
+            {managePlugins.map((plugin) => (
+              <PluginManageItem
+                key={plugin.id}
+                plugin={plugin}
+                onOpen={() => void selectPlugin(plugin.id)}
+                onInstall={() => setInstallTarget(plugin)}
+                onToggle={async (enabled) => {
+                  try {
+                    await togglePluginEnabled(plugin.id, enabled)
+                    await fetchSkills()
+                    setSavedPluginId(plugin.id)
+                  } catch {
+                    addToast(t('plugins.updateFailed'), 'error')
+                  }
+                }}
+              />
+            ))}
+          </main>
+        </div>
+        {installDialog}
+      </>
     )
   }
 
@@ -181,13 +238,22 @@ export function PluginsView(): JSX.Element {
             <h2 style={sectionTitle}>{section.title}</h2>
             <div style={compactGrid}>
               {section.plugins.map((plugin) => (
-                <PluginListItem key={plugin.id} plugin={plugin} onOpen={() => void selectPlugin(plugin.id)} />
+                <PluginCatalogItem
+                  key={plugin.id}
+                  plugin={plugin}
+                  tryLabel={t('plugins.tryInChat')}
+                  installLabel={t('plugins.install')}
+                  onOpen={() => void selectPlugin(plugin.id)}
+                  onTryInChat={() => tryPluginInChat(plugin)}
+                  onInstall={() => setInstallTarget(plugin)}
+                />
               ))}
             </div>
           </section>
         ))}
         {!loading && !error && browsePlugins.length === 0 && <p style={emptyText}>{t('plugins.empty')}</p>}
       </main>
+      {installDialog}
     </div>
   )
 }
@@ -206,20 +272,18 @@ function SurfaceTabs({ value, onChange }: { value: Surface; onChange: (value: Su
   )
 }
 
-function PluginListItem({ plugin, onOpen }: { plugin: PluginEntry; onOpen: () => void }): JSX.Element {
-  return (
-    <button type="button" onClick={onOpen} style={compactItem}>
-      <PluginIcon plugin={plugin} size={40} />
-      <span style={pluginText}>
-        <strong style={rowTitle}>{pluginTitle(plugin)}</strong>
-        <span style={rowDesc}>{pluginSubtitle(plugin)}</span>
-      </span>
-      <span style={statusIcon}>{plugin.enabled ? <Check size={16} aria-hidden /> : <Plus size={16} aria-hidden />}</span>
-    </button>
-  )
-}
-
-function PluginManageItem({ plugin, onOpen, onToggle }: { plugin: PluginEntry; onOpen: () => void; onToggle: (enabled: boolean) => void }): JSX.Element {
+function PluginManageItem({
+  plugin,
+  onOpen,
+  onInstall,
+  onToggle
+}: {
+  plugin: PluginEntry
+  onOpen: () => void
+  onInstall: () => void
+  onToggle: (enabled: boolean) => void
+}): JSX.Element {
+  const t = useT()
   return (
     <div style={manageRow}>
       <button type="button" onClick={onOpen} style={manageItemMain}>
@@ -230,7 +294,11 @@ function PluginManageItem({ plugin, onOpen, onToggle }: { plugin: PluginEntry; o
         </span>
       </button>
       <span style={manageSource}>{pluginSourceLabel(plugin)}</span>
-      <PillSwitch checked={plugin.enabled} onChange={onToggle} size="sm" ariaLabel={`${pluginTitle(plugin)} enabled`} />
+      {plugin.installed ? (
+        <PillSwitch checked={plugin.enabled} onChange={onToggle} size="sm" ariaLabel={`${pluginTitle(plugin)} enabled`} />
+      ) : (
+        <button type="button" onClick={onInstall} style={installMiniButton}>{t('plugins.install')}</button>
+      )}
     </div>
   )
 }
@@ -241,6 +309,8 @@ function PluginDetailView({
   saved,
   onBack,
   onSurfaceChange,
+  onInstall,
+  onRemove,
   onToggle,
   onTryInChat
 }: {
@@ -249,6 +319,8 @@ function PluginDetailView({
   saved: boolean
   onBack: () => void
   onSurfaceChange: (surface: Surface) => void
+  onInstall: () => void
+  onRemove: () => void
   onToggle: (enabled: boolean) => void
   onTryInChat: () => void
 }): JSX.Element {
@@ -281,9 +353,25 @@ function PluginDetailView({
           </button>
           <div style={{ flex: 1 }} />
           {saved && <span style={savedHint}>{t('settings.savedToast')}</span>}
-          <button type="button" style={tryButton} disabled={!plugin.enabled} onClick={onTryInChat}>
-            {t('plugins.tryInChat')}
-          </button>
+          <a href={(info?.websiteUrl ?? '').trim() || DOTCRAFT_PLUGIN_FALLBACK_URL} style={detailIconButton} aria-label={t('plugins.detail.website')}>
+            <Link size={15} aria-hidden />
+          </a>
+          {plugin.installed && plugin.removable && (
+            <button type="button" style={secondaryDetailButton} onClick={onRemove}>
+              <Trash2 size={14} aria-hidden />
+              {t('plugins.removeFromDotCraft')}
+            </button>
+          )}
+          {plugin.installed ? (
+            <button type="button" style={tryButton} disabled={!plugin.enabled} onClick={onTryInChat}>
+              <MessageCircle size={14} aria-hidden />
+              {t('plugins.tryInChat')}
+            </button>
+          ) : (
+            <button type="button" style={tryButton} onClick={onInstall}>
+              {t('plugins.install')}
+            </button>
+          )}
         </div>
         <PluginIcon plugin={plugin} size={48} />
         <h1 style={detailTitle}>{pluginTitle(plugin)}</h1>
@@ -320,16 +408,18 @@ function PluginDetailView({
           <div style={infoTable}>
             <InfoRow label={t('plugins.detail.category')} value={[displayCategory(info?.category, t), info?.developerName].filter(Boolean).join(', ')} />
             <InfoRow label={t('plugins.detail.capabilities')} value={(info?.capabilities ?? []).join(', ')} />
-            <InfoRow label={t('plugins.detail.developer')} value={info?.developerName || 'DotCraft'} />
+            <InfoRow label={t('plugins.detail.developer')} value={info?.developerName || 'DotHarness'} />
             <InfoLinkRow label={t('plugins.detail.website')} href={info?.websiteUrl} />
             <InfoLinkRow label={t('plugins.detail.privacy')} href={info?.privacyPolicyUrl} />
             <InfoLinkRow label={t('plugins.detail.terms')} href={info?.termsOfServiceUrl} />
           </div>
         </section>
-        <div style={detailToggleRow}>
-          <span>{plugin.enabled ? t('plugins.enabled') : t('plugins.disabled')}</span>
-          <PillSwitch checked={plugin.enabled} onChange={onToggle} ariaLabel={`${pluginTitle(plugin)} enabled`} />
-        </div>
+        {plugin.installed && (
+          <div style={detailToggleRow}>
+            <span>{plugin.enabled ? t('plugins.enabled') : t('plugins.disabled')}</span>
+            <PillSwitch checked={plugin.enabled} onChange={onToggle} ariaLabel={`${pluginTitle(plugin)} enabled`} />
+          </div>
+        )}
       </main>
     </div>
   )
@@ -345,22 +435,14 @@ function InfoRow({ label, value }: { label: string; value?: string | null }): JS
 }
 
 function InfoLinkRow({ label, href }: { label: string; href?: string | null }): JSX.Element {
+  const resolvedHref = href?.trim() || DOTCRAFT_PLUGIN_FALLBACK_URL
   return (
     <div style={infoRow}>
       <span style={infoLabel}>{label}</span>
       <span style={infoValue}>
-        {href ? <a href={href} style={plainLink}><ExternalLink size={14} aria-hidden /></a> : '-'}
+        <a href={resolvedHref} style={plainLink}><ExternalLink size={14} aria-hidden /></a>
       </span>
     </div>
-  )
-}
-
-function PluginIcon({ plugin, size }: { plugin: PluginEntry; size: number }): JSX.Element {
-  const icon = plugin.interface?.composerIconDataUrl || plugin.interface?.logoDataUrl
-  return (
-    <span style={{ ...iconShell, width: size, height: size, backgroundColor: plugin.interface?.brandColor || '#0B63CE' }}>
-      {icon ? <img src={icon} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : pluginTitle(plugin).slice(0, 1)}
-    </span>
   )
 }
 
@@ -372,7 +454,7 @@ function filterPlugins(
 ): PluginEntry[] {
   const q = query.trim().toLowerCase()
   return plugins.filter((plugin) => {
-    if (publisherFilter === 'dotcraft' && !isDotCraftPlugin(plugin)) return false
+    if (publisherFilter === 'dotcraft' && !isDotHarnessPlugin(plugin)) return false
     if (categoryFilter === 'featured' && !isFeaturedPlugin(plugin)) return false
     if (categoryFilter !== 'all' && categoryFilter !== 'featured' && pluginCategoryKey(plugin) !== categoryFilter) return false
     if (!q) return true
@@ -438,9 +520,9 @@ function isFeaturedPlugin(plugin: PluginEntry): boolean {
   return plugin.id === 'browser-use'
 }
 
-function isDotCraftPlugin(plugin: PluginEntry): boolean {
+function isDotHarnessPlugin(plugin: PluginEntry): boolean {
   const developer = plugin.interface?.developerName?.trim().toLowerCase()
-  return plugin.id === 'browser-use' || developer === 'dotcraft' || plugin.source.toLowerCase().includes('builtin')
+  return plugin.id === 'browser-use' || developer === 'dotharness' || plugin.source.toLowerCase().includes('builtin')
 }
 
 function pluginCategoryKey(plugin: PluginEntry): string {
@@ -466,18 +548,6 @@ function categoryLabel(category: string, t: ReturnType<typeof useT>): string {
 
 function displayCategory(category: string | null | undefined, t: ReturnType<typeof useT>): string {
   return categoryLabel(normalizeCategory(category), t)
-}
-
-function pluginTitle(plugin: PluginEntry): string {
-  return plugin.interface?.displayName || plugin.displayName || plugin.id
-}
-
-function pluginSubtitle(plugin: PluginEntry): string {
-  return plugin.interface?.shortDescription || plugin.description || ''
-}
-
-function pluginSourceLabel(plugin: PluginEntry): string {
-  return plugin.interface?.developerName || plugin.source
 }
 
 function tryPluginInChat(plugin: PluginEntry): void {
@@ -510,7 +580,6 @@ const compactGrid: CSSProperties = catalogStyles.compactGrid
 const compactItem: CSSProperties = catalogStyles.compactItem
 const rowTitle: CSSProperties = catalogStyles.rowTitle
 const rowDesc: CSSProperties = catalogStyles.rowDesc
-const statusIcon: CSSProperties = catalogStyles.statusIcon
 const manageButton: CSSProperties = catalogStyles.manageButton
 const manageHeader: CSSProperties = catalogStyles.manageHeader
 const breadcrumb: CSSProperties = catalogStyles.breadcrumb
@@ -524,14 +593,16 @@ const manageRow: CSSProperties = catalogStyles.manageRow
 const emptyText: CSSProperties = catalogStyles.emptyText
 const manageItemMain: CSSProperties = { ...compactItem, flex: 1, padding: 0, height: 'auto' }
 const manageSource: CSSProperties = { width: '86px', color: 'var(--text-secondary)', fontSize: '13px', textAlign: 'left' }
+const installMiniButton: CSSProperties = { border: 'none', borderRadius: 999, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '6px 11px', fontSize: 12, cursor: 'pointer' }
 const pluginText: CSSProperties = { display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }
-const iconShell: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, overflow: 'hidden', color: '#fff', fontSize: 15, fontWeight: 700, flex: '0 0 auto' }
 const detailMain: CSSProperties = { flex: 1, minHeight: 0, overflow: 'auto', maxWidth: 760, width: '100%', margin: '0 auto', padding: '0 0 48px' }
 const detailHeader: CSSProperties = { maxWidth: 760, width: '100%', margin: '22px auto 28px' }
 const detailTopRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }
 const detailTitle: CSSProperties = { margin: '22px 0 6px', fontSize: 22, fontWeight: 600 }
 const detailSubtitle: CSSProperties = { margin: 0, color: 'var(--text-secondary)', fontSize: 15 }
-const tryButton: CSSProperties = { border: 'none', borderRadius: 8, background: '#050505', color: '#fff', padding: '8px 12px', cursor: 'pointer' }
+const detailIconButton: CSSProperties = { width: 32, height: 32, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', textDecoration: 'none' }
+const secondaryDetailButton: CSSProperties = { border: 'none', borderRadius: 8, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '8px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }
+const tryButton: CSSProperties = { border: 'none', borderRadius: 8, background: '#050505', color: '#fff', padding: '8px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }
 const promptPreview: CSSProperties = { height: 132, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(120deg, #b6cdf5, #d9cef7 58%, #f3f0fb)' }
 const promptBubble: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, maxWidth: '80%', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 13, background: 'rgba(255,255,255,0.82)', color: '#111', padding: '8px 12px', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 const longDescription: CSSProperties = { margin: '54px 8px 40px', lineHeight: 1.55, fontSize: 14, color: 'var(--text-primary)' }

@@ -1277,6 +1277,26 @@ public sealed class PluginViewResult
     public PluginInfoWire Plugin { get; set; } = new();
 }
 
+public sealed class PluginInstallParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginInstallResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginRemoveParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginRemoveResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
 public sealed class PluginSetEnabledParams
 {
     public string Id { get; set; } = string.Empty;
@@ -1302,6 +1322,12 @@ public sealed class PluginInfoWire
     public string? Version { get; set; }
 
     public bool Enabled { get; set; }
+
+    public bool Installed { get; set; } = true;
+
+    public bool Installable { get; set; }
+
+    public bool Removable { get; set; }
 
     public string Source { get; set; } = string.Empty;
 
@@ -2560,6 +2586,8 @@ public static class AppServerMethods
     // Client → Server requests (plugin management)
     public const string PluginList = "plugin/list";
     public const string PluginView = "plugin/view";
+    public const string PluginInstall = "plugin/install";
+    public const string PluginRemove = "plugin/remove";
     public const string PluginSetEnabled = "plugin/setEnabled";
 
     // Client → Server requests (command management, spec Section 19)

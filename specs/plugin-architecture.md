@@ -120,13 +120,15 @@ The `builtin` backend binds a manifest function declaration to a known C# provid
 
 For `builtin` backends, `providerId` must match the manifest `id`. This prevents a local plugin from declaring a different built-in provider identity.
 
-Built-in plugin manifests are embedded resources deployed to workspace `.craft/plugins/<pluginId>`. Deployed built-ins carry a `.builtin` marker:
+Built-in plugin manifests are embedded resources exposed through a built-in catalog. Catalog entries are visible to clients before installation, but they are not active until installed into workspace `.craft/plugins/<pluginId>`.
 
-- Missing directories are created from the embedded built-in manifest.
-- Directories with `.builtin` are updated when the marker version is stale.
-- Directories without `.builtin` are treated as user-owned and are not overwritten.
+Installed built-ins carry a `.builtin` marker:
 
-If built-in manifest deployment or discovery fails, a built-in C# provider may keep using a fallback descriptor so the runtime capability remains available.
+- `plugin/install` creates the managed workspace directory from embedded resources and enables the plugin by default.
+- Directories with `.builtin` are owned by DotCraft and can be updated or removed by DotCraft lifecycle operations.
+- Directories without `.builtin` are treated as user-owned and are not overwritten or removed by DotCraft.
+
+`plugin/remove` deletes only managed built-in directories that still carry the `.builtin` marker. Removing a plugin is distinct from disabling it: removed built-ins are absent from runtime discovery but remain visible in the installable catalog, while disabled installed plugins remain on disk and can be re-enabled.
 
 ### Browser Use Built-In Plugin
 
@@ -178,7 +180,7 @@ The `Plugins` config section contains:
 - `EnabledPlugins`: plugin ids explicitly enabled for the workspace.
 - `DisabledPlugins`: plugin ids explicitly disabled for the workspace. Disabled entries override enabled/default entries.
 
-Built-in plugins can define their own default enablement policy. Local manifest plugins are enabled by default unless disabled.
+Installed built-in plugins and local manifest plugins are enabled by default unless disabled. Built-ins that are visible only through the catalog are installable but not enabled and do not contribute functions or skills to agent context.
 
 `node-repl` in `DisabledPlugins` is treated as a legacy alias for `browser-use`; new writes normalize to `browser-use`.
 

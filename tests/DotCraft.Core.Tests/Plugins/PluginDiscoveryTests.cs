@@ -220,14 +220,14 @@ public sealed class PluginDiscoveryTests
     }
 
     [Fact]
-    public void NodeReplManifest_WhenManifestMissing_UsesFallbackDescriptor()
+    public void NodeReplManifest_WhenBrowserUseNotInstalled_ReturnsNoTools()
     {
         var context = CreateContext(new FakeNodeReplProxy(true));
         var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()], new PluginDiagnosticsStore());
 
-        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(provider.CreateTools(context)));
+        var tools = provider.CreateTools(context).ToList();
 
-        Assert.Equal("NodeReplJs", tool.Name);
+        Assert.Empty(tools);
     }
 
     [Fact]

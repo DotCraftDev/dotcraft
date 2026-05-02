@@ -9,7 +9,8 @@ public enum PluginDiscoverySourceKind
 {
     Workspace,
     Explicit,
-    UserGlobal
+    UserGlobal,
+    BuiltIn
 }
 
 /// <summary>
@@ -19,7 +20,10 @@ public sealed record DiscoveredPlugin(
     PluginManifest Manifest,
     PluginDiscoverySourceKind SourceKind,
     string SourceRoot,
-    bool Enabled);
+    bool Enabled,
+    bool Installed = true,
+    bool Installable = false,
+    bool Removable = false);
 
 /// <summary>
 /// Result of a plugin discovery pass.
@@ -40,7 +44,7 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
     {
         var result = DiscoverAll(config, workspacePath, botPath);
         return new PluginDiscoveryResult(
-            result.Plugins.Where(plugin => plugin.Enabled).ToArray(),
+            result.Plugins.Where(plugin => plugin.Installed && plugin.Enabled).ToArray(),
             result.Diagnostics);
     }
 
@@ -93,7 +97,26 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
                     path: manifest.ManifestPath));
             }
 
-            discovered.Add(new DiscoveredPlugin(manifest, candidate.SourceKind, candidate.SourceRoot, enabled));
+            var removable = candidate.SourceKind == PluginDiscoverySourceKind.Workspace
+                            && BuiltInPluginDeployer.IsManagedBuiltInPluginRoot(manifest.RootPath);
+            discovered.Add(new DiscoveredPlugin(
+                manifest,
+                candidate.SourceKind,
+                candidate.SourceRoot,
+                enabled,
+                Installed: true,
+                Installable: false,
+                Removable: removable));
+        }
+
+        var builtInDiscovery = new BuiltInPluginCatalog().Discover();
+        diagnostics.AddRange(builtInDiscovery.Diagnostics);
+        foreach (var builtIn in builtInDiscovery.Plugins)
+        {
+            if (!seen.Add(builtIn.Manifest.Id))
+                continue;
+
+            discovered.Add(builtIn);
         }
 
         return new PluginDiscoveryResult(discovered, diagnostics);
