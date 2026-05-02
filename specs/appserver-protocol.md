@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -361,7 +361,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
-| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
+| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`). |
 | `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`). |
 | `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
@@ -3063,7 +3063,7 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 | `description` | string | Human-readable description extracted from frontmatter `description` field. Falls back to `name` if absent. |
 | `displayName` | string? | Optional UI display name from Codex-compatible `agents/openai.yaml` `interface.display_name`. |
 | `shortDescription` | string? | Optional compact UI description from `agents/openai.yaml` `interface.short_description`. |
-| `source` | string | One of `"builtin"`, `"workspace"`, or `"user"`. Indicates where the skill is installed. |
+| `source` | string | One of `"workspace"`, `"plugin"`, `"builtin"`, or `"user"`. Indicates where the skill is installed. |
 | `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
 | `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
 | `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
@@ -3349,7 +3349,50 @@ When disabling, the skill is marked unavailable for future agent context resolut
 } }
 ```
 
-### 18.8 Plugin Management Methods
+### 18.8 `skills/uninstall`
+
+Uninstall a user-managed source skill.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to uninstall. |
+
+**Result**:
+
+```json
+{
+  "name": "code-review",
+  "uninstalled": true,
+  "source": "user",
+  "removedSourcePath": "/home/user/.craft/skills/code-review",
+  "removedVariantCount": 1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `uninstalled` | boolean | `true` when the source skill directory was removed. |
+| `source` | string | Removed source kind, either `"workspace"` or `"user"`. |
+| `removedSourcePath` | string | Absolute directory path that was removed. |
+| `removedVariantCount` | number | Number of associated workspace variants removed. |
+
+On success, the server removes the skill from `Skills.DisabledSkills`, deletes associated variants for that source skill, and emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "skills/uninstall"` and `regions: ["skills"]`.
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32602` | The resolved skill source is `builtin` or `plugin`, or the source path is outside the expected skill root. |
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Only `workspace` and `user` skills are directly uninstallable. `builtin` skills are managed by DotCraft, and `plugin` skills are managed by their owning plugin lifecycle.
+
+### 18.9 Plugin Management Methods
 
 Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, built-in backend rules, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
 
@@ -4422,7 +4465,7 @@ Server notification emitted after a successful workspace configuration write.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `skills/uninstall`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
@@ -4434,7 +4477,7 @@ Current `regions` taxonomy:
 | `workspace.apiKey` | `workspace/config/update` |
 | `workspace.endpoint` | `workspace/config/update` |
 | `welcomeSuggestions` | `workspace/config/update` |
-| `skills` | `skills/setEnabled`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `workspace/config/update` |
+| `skills` | `skills/setEnabled`, `skills/uninstall`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `workspace/config/update` |
 | `plugins` | `plugin/install`, `plugin/remove`, `plugin/setEnabled` |
 | `memory` | `workspace/config/update` |
 | `workspace.defaultApprovalPolicy` | `workspace/config/update` |

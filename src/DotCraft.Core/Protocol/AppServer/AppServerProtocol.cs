@@ -490,7 +490,7 @@ public sealed class AppServerServerCapabilities
     public bool HeartbeatManagement { get; set; }
 
     /// <summary>
-    /// Server supports skills management methods (skills/list, skills/read, skills/setEnabled). See spec Section 18.
+    /// Server supports skills management methods (skills/list, skills/read, skills/view, skills/restoreOriginal, skills/setEnabled, skills/uninstall). See spec Section 18.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SkillsManagement { get; set; }
@@ -1251,6 +1251,24 @@ public sealed class SkillsSetEnabledParams
 public sealed class SkillsSetEnabledResult
 {
     public SkillInfoWire Skill { get; set; } = new();
+}
+
+public sealed class SkillsUninstallParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SkillsUninstallResult
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Uninstalled { get; set; }
+
+    public string Source { get; set; } = string.Empty;
+
+    public string RemovedSourcePath { get; set; } = string.Empty;
+
+    public int RemovedVariantCount { get; set; }
 }
 
 // ───── plugin/* ─────
@@ -2582,6 +2600,7 @@ public static class AppServerMethods
     public const string SkillsView = "skills/view";
     public const string SkillsRestoreOriginal = "skills/restoreOriginal";
     public const string SkillsSetEnabled = "skills/setEnabled";
+    public const string SkillsUninstall = "skills/uninstall";
 
     // Client → Server requests (plugin management)
     public const string PluginList = "plugin/list";

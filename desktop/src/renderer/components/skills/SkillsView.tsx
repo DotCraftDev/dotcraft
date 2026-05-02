@@ -36,7 +36,8 @@ export function SkillsView(): JSX.Element {
     contentLoading,
     selectSkill,
     clearSelection,
-    toggleSkillEnabled
+    toggleSkillEnabled,
+    uninstallSkill
   } = useSkillsStore()
   const {
     query: marketQuery,
@@ -209,6 +210,30 @@ export function SkillsView(): JSX.Element {
     }
   }
 
+  async function handleUninstallSkill(skill: SkillEntry): Promise<void> {
+    if (!isUninstallableSkill(skill)) return
+
+    const ok = await confirm({
+      title: t('skillDetail.uninstallTitle', { name: skill.displayName ?? skill.name }),
+      message: skill.hasVariant
+        ? t('skillDetail.uninstallVariantMessage', { name: skill.displayName ?? skill.name })
+        : t('skillDetail.uninstallMessage', { name: skill.displayName ?? skill.name }),
+      confirmLabel: t('skillDetail.uninstall'),
+      cancelLabel: t('common.cancel'),
+      danger: true
+    })
+    if (!ok) return
+
+    try {
+      await uninstallSkill(skill.name)
+      await fetchSkills()
+      addToast(t('skillDetail.uninstallSuccess', { name: skill.displayName ?? skill.name }), 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('skillDetail.uninstallFailed', { error: msg }), 'error')
+    }
+  }
+
   const dotCraftDisabledReason = dotCraftInstallDisabledReason(
     connectionStatus,
     capabilities,
@@ -354,6 +379,7 @@ export function SkillsView(): JSX.Element {
           }}
           onTryInChat={() => handleTrySkillInChat(selected)}
           onRestoreOriginal={() => void handleRestoreOriginalSkill(selected)}
+          onUninstall={isUninstallableSkill(selected) ? () => void handleUninstallSkill(selected) : undefined}
         />
       )}
 
@@ -751,6 +777,10 @@ function sourceLabel(skill: SkillEntry, t: ReturnType<typeof useT>): string {
   if (skill.source === 'workspace') return t('skills.source.workspace')
   if (skill.source === 'plugin') return skill.pluginDisplayName || t('plugins.source.plugin')
   return t('skills.source.user')
+}
+
+function isUninstallableSkill(skill: SkillEntry): boolean {
+  return skill.source === 'workspace' || skill.source === 'user'
 }
 
 function providerLabel(provider: SkillMarketProviderFilter): string {

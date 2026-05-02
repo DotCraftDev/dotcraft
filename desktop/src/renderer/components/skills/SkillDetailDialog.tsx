@@ -18,6 +18,7 @@ interface SkillDetailDialogProps {
   onToggleEnabled: (enabled: boolean) => void
   onTryInChat: () => void
   onRestoreOriginal?: () => void
+  onUninstall?: () => void
   showToggle?: boolean
 }
 
@@ -29,6 +30,7 @@ export function SkillDetailDialog({
   onToggleEnabled,
   onTryInChat,
   onRestoreOriginal,
+  onUninstall,
   showToggle = true,
 }: SkillDetailDialogProps) {
   const t = useT()
@@ -112,7 +114,13 @@ export function SkillDetailDialog({
         </div>
 
         <footer style={footer}>
-          <span style={statusText}>{skill.enabled ? t('skillCard.on') : t('skillCard.disabledBadge')}</span>
+          {onUninstall ? (
+            <button type="button" style={uninstallButton} onClick={onUninstall}>
+              {t('skillDetail.uninstall')}
+            </button>
+          ) : (
+            <span style={statusText}>{skill.enabled ? t('skillCard.on') : t('skillCard.disabledBadge')}</span>
+          )}
           <button type="button" style={tryButton} onClick={onTryInChat}>
             <MessageCircle size={15} strokeWidth={2} />
             {t('skillDetail.tryInChat')}
@@ -290,6 +298,22 @@ const tryButton: React.CSSProperties = {
   background: 'var(--button-secondary-bg)',
   color: 'var(--text-primary)',
   fontSize: 13,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const uninstallButton: React.CSSProperties = {
+  height: 32,
+  padding: '0 12px',
+  border: 'none',
+  borderRadius: 10,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'color-mix(in srgb, var(--error) 16%, transparent)',
+  color: 'var(--error)',
+  fontSize: 13,
+  fontWeight: 600,
   cursor: 'pointer',
   whiteSpace: 'nowrap',
 }

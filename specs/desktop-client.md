@@ -302,7 +302,9 @@ Required behavior:
 - Users can browse installed skills.
 - Users can inspect the content of a selected skill.
 - Users can enable or disable a skill when the server supports that action.
+- Users can uninstall user-managed `workspace` and `user` skills from the skill detail dialog. Uninstalling a skill also removes its workspace-local variants.
 - Skills with source `plugin` show plugin attribution.
+- Skills with source `plugin` are managed through the owning plugin lifecycle and do not expose a standalone skill uninstall action.
 - If a skill is unavailable because server-side requirements are unmet, the client explains that the skill exists but is currently unusable.
 - If plugin or skills capability is absent, the corresponding tab or action is hidden or disabled with a clear reason.
 

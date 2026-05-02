@@ -1,3 +1,4 @@
+using DotCraft.Configuration;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
 
@@ -163,6 +164,113 @@ public sealed class AppServerSkillsManagementTests : IDisposable
         Assert.DoesNotContain("Variant body.", viewContent);
     }
 
+    [Fact]
+    public async Task SkillsUninstall_RemovesWorkspaceSkill_DisabledEntry_AndEmitsConfigChanged()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        loader.SetDisabledSkills(["demo-skill"]);
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var changes = new List<AppConfigChangedEventArgs>();
+        harness.Monitor.Changed += OnChanged;
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsUninstall, new { name = "demo-skill" }));
+        using var response = harness.Transport.TryReadSent()!;
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.True(result.GetProperty("uninstalled").GetBoolean());
+        Assert.Equal("workspace", result.GetProperty("source").GetString());
+        Assert.False(Directory.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill")));
+        Assert.DoesNotContain(loader.ListSkills(filterUnavailable: false), skill => skill.Name == "demo-skill");
+        Assert.DoesNotContain(loader.ListSkills(filterUnavailable: false), skill => !skill.Enabled);
+        Assert.Single(changes);
+        Assert.Equal(AppServerMethods.SkillsUninstall, changes[0].Source);
+        Assert.Contains(ConfigChangeRegions.Skills, changes[0].Regions);
+
+        var configText = File.ReadAllText(Path.Combine(craftPath, "config.json"));
+        Assert.DoesNotContain("demo-skill", configText);
+        harness.Monitor.Changed -= OnChanged;
+
+        void OnChanged(object? sender, AppConfigChangedEventArgs args) => changes.Add(args);
+    }
+
+    [Fact]
+    public async Task SkillsUninstall_RemovesUserSkillFromUserRoot()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var userSkillsPath = Path.Combine(_tempRoot, "user-skills");
+        var loader = new SkillsLoader(craftPath, userSkillsPath);
+        WriteSkillAtRoot(userSkillsPath, "user-skill", "User body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsUninstall, new { name = "user-skill" }));
+        using var response = harness.Transport.TryReadSent()!;
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.True(result.GetProperty("uninstalled").GetBoolean());
+        Assert.Equal("user", result.GetProperty("source").GetString());
+        Assert.False(Directory.Exists(Path.Combine(userSkillsPath, "user-skill")));
+    }
+
+    [Fact]
+    public async Task SkillsUninstall_RejectsBuiltinAndPluginSkills()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "builtin-skill", "Built-in body.");
+        File.WriteAllText(Path.Combine(loader.WorkspaceSkillsPath, "builtin-skill", ".builtin"), string.Empty);
+
+        var pluginSkillsPath = Path.Combine(_tempRoot, "plugin", "skills");
+        WriteSkillAtRoot(pluginSkillsPath, "plugin-skill", "Plugin body.");
+        loader.SetPluginSkillSources([
+            new SkillsLoader.PluginSkillSource("demo-plugin", "Demo Plugin", pluginSkillsPath)
+        ]);
+
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsUninstall, new { name = "builtin-skill" }));
+        using var builtinResponse = harness.Transport.TryReadSent()!;
+        AppServerTestHarness.AssertIsErrorResponse(builtinResponse, AppServerErrors.InvalidParamsCode);
+        Assert.True(Directory.Exists(Path.Combine(loader.WorkspaceSkillsPath, "builtin-skill")));
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsUninstall, new { name = "plugin-skill" }));
+        using var pluginResponse = harness.Transport.TryReadSent()!;
+        AppServerTestHarness.AssertIsErrorResponse(pluginResponse, AppServerErrors.InvalidParamsCode);
+        Assert.True(Directory.Exists(Path.Combine(pluginSkillsPath, "plugin-skill")));
+    }
+
+    [Fact]
+    public async Task SkillsUninstall_RemovesAssociatedVariants()
+    {
+        var craftPath = Path.Combine(_tempRoot, ".craft");
+        var loader = new SkillsLoader(craftPath);
+        WriteSkill(loader, "demo-skill", "Source body.");
+        using var harness = new AppServerTestHarness(workspaceCraftPath: craftPath, skillsLoader: loader);
+        var target = SkillVariantStore.CreateTarget(
+            harness.Monitor.Current.Model,
+            harness.Identity.WorkspacePath,
+            sandboxEnabled: false,
+            harness.Monitor.Current.Permissions.DefaultApprovalPolicy.ToString(),
+            toolNames: null);
+        var applier = new VariantSkillMutationApplier(new WorkspaceFileSkillMutationApplier(loader), loader, target);
+        await applier.PatchAsync(new SkillPatchRequest("demo-skill", "Source body.", "Variant body.", null, false));
+        var sourceVariantRoot = Path.Combine(loader.VariantStore.VariantsRoot, "workspace.demo-skill");
+        Assert.True(Directory.Exists(sourceVariantRoot));
+        await harness.InitializeAsync();
+
+        await harness.ExecuteRequestAsync(harness.BuildRequest(AppServerMethods.SkillsUninstall, new { name = "demo-skill" }));
+        using var response = harness.Transport.TryReadSent()!;
+        var result = response.RootElement.GetProperty("result");
+
+        Assert.Equal(1, result.GetProperty("removedVariantCount").GetInt32());
+        Assert.False(Directory.Exists(sourceVariantRoot));
+        Assert.False(Directory.Exists(Path.Combine(loader.WorkspaceSkillsPath, "demo-skill")));
+    }
+
     public void Dispose()
     {
         try
@@ -178,7 +286,12 @@ public sealed class AppServerSkillsManagementTests : IDisposable
 
     private static void WriteSkill(SkillsLoader loader, string name, string body)
     {
-        var skillDir = Path.Combine(loader.WorkspaceSkillsPath, name);
+        WriteSkillAtRoot(loader.WorkspaceSkillsPath, name, body);
+    }
+
+    private static void WriteSkillAtRoot(string skillsRoot, string name, string body)
+    {
+        var skillDir = Path.Combine(skillsRoot, name);
         Directory.CreateDirectory(skillDir);
         File.WriteAllText(
             Path.Combine(skillDir, "SKILL.md"),

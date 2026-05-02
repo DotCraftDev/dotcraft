@@ -9,7 +9,7 @@ namespace DotCraft.Skills;
 /// Loader for agent skills from Skills/ directory.
 /// Skills are markdown files (SKILL.md) that teach the agent specific capabilities.
 /// </summary>
-public sealed class SkillsLoader(string workspaceRoot)
+public sealed class SkillsLoader(string workspaceRoot, string? userSkillsPath = null)
 {
     private const int MaxIconBytes = 512 * 1024;
 
@@ -29,7 +29,8 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// <summary>
     /// Gets the user skills path.
     /// </summary>
-    public string UserSkillsPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
+    public string UserSkillsPath { get; } =
+        userSkillsPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
 
     /// <summary>
     /// Gets the workspace-local variant store.

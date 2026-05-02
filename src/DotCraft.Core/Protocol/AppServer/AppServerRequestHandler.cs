@@ -126,6 +126,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.SkillsView,
         AppServerMethods.SkillsRestoreOriginal,
         AppServerMethods.SkillsSetEnabled,
+        AppServerMethods.SkillsUninstall,
         AppServerMethods.PluginList,
         AppServerMethods.PluginView,
         AppServerMethods.PluginInstall,
@@ -242,6 +243,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsView => HandleSkillsViewAsync(msg, ct),
                 AppServerMethods.SkillsRestoreOriginal => HandleSkillsRestoreOriginalAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.SkillsUninstall => HandleSkillsUninstallAsync(msg, ct),
                 AppServerMethods.PluginList => HandlePluginListAsync(msg, ct),
                 AppServerMethods.PluginView => HandlePluginViewAsync(msg, ct),
                 AppServerMethods.PluginInstall => HandlePluginInstallAsync(msg, ct),
@@ -2354,6 +2356,63 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
     }
 
+    private Task<object?> HandleSkillsUninstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (skillsLoader == null || string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsUninstall);
+
+        var p = GetParams<SkillsUninstallParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var source = skillsLoader.ResolveSkillInfo(p.Name);
+        if (source == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        if (!string.Equals(source.Source, "workspace", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(source.Source, "user", StringComparison.OrdinalIgnoreCase))
+        {
+            throw AppServerErrors.InvalidParams(
+                $"Skill '{source.Name}' is {source.Source} and cannot be uninstalled directly.");
+        }
+
+        var skillDir = Path.GetDirectoryName(source.Path);
+        if (string.IsNullOrWhiteSpace(skillDir))
+            throw AppServerErrors.InvalidParams($"Skill '{source.Name}' has an invalid path.");
+
+        var allowedRoot = string.Equals(source.Source, "workspace", StringComparison.OrdinalIgnoreCase)
+            ? skillsLoader.WorkspaceSkillsPath
+            : skillsLoader.UserSkillsPath;
+        if (!IsStrictChildPathOf(skillDir, allowedRoot))
+            throw AppServerErrors.InvalidParams($"Skill '{source.Name}' is outside the allowed {source.Source} skill root.");
+
+        var disabled = skillsLoader.ListSkills(filterUnavailable: false)
+            .Where(s => !s.Enabled)
+            .Select(s => s.Name)
+            .ToList();
+        disabled.RemoveAll(n => string.Equals(n, source.Name, StringComparison.OrdinalIgnoreCase));
+
+        var removedVariantCount = skillsLoader.VariantStore.DeleteVariantsForSource(source);
+        Directory.Delete(skillDir, recursive: true);
+
+        SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
+        skillsLoader.SetDisabledSkills(disabled);
+        skillsLoader.RefreshDescriptors();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SkillsUninstall,
+            [ConfigChangeRegions.Skills]);
+
+        return Task.FromResult<object?>(new SkillsUninstallResult
+        {
+            Name = source.Name,
+            Uninstalled = true,
+            Source = source.Source,
+            RemovedSourcePath = skillDir,
+            RemovedVariantCount = removedVariantCount
+        });
+    }
+
     private Task<object?> HandlePluginListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = ct;
@@ -2818,6 +2877,17 @@ public sealed class AppServerRequestHandler(
         var effectivePath = skillsLoader.ResolveEffectiveSkillFile(source, true, BuildSkillVariantTarget());
         return effectivePath != null
                && !string.Equals(effectivePath, source.Path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStrictChildPathOf(string path, string root)
+    {
+        var normalizedPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return normalizedPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+               || normalizedPath.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsSkillVariantModeEnabled()

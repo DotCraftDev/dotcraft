@@ -178,6 +178,20 @@ public sealed class SkillVariantStore(string craftPath)
     }
 
     /// <summary>
+    /// Deletes all stored variants associated with a source skill.
+    /// </summary>
+    public int DeleteVariantsForSource(SkillsLoader.SkillInfo source)
+    {
+        var sourceDir = Path.Combine(_variantsRoot, GetSourceKey(source));
+        if (!Directory.Exists(sourceDir))
+            return 0;
+
+        var count = Directory.EnumerateFiles(sourceDir, "manifest.json", SearchOption.AllDirectories).Count();
+        Directory.Delete(sourceDir, recursive: true);
+        return count;
+    }
+
+    /// <summary>
     /// Returns the skill directory for a variant.
     /// </summary>
     public string GetVariantSkillDir(SkillVariantManifest manifest) =>
