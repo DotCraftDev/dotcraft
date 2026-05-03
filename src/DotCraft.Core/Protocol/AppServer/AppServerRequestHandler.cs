@@ -158,7 +158,10 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.SubAgentSettingsUpdate,
         AppServerMethods.SubAgentProfileSetEnabled,
         AppServerMethods.SubAgentProfileUpsert,
-        AppServerMethods.SubAgentProfileRemove
+        AppServerMethods.SubAgentProfileRemove,
+        AppServerMethods.SubAgentChildrenList,
+        AppServerMethods.SubAgentClose,
+        AppServerMethods.SubAgentResume
     ];
 
     // -------------------------------------------------------------------------
@@ -208,6 +211,9 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SubAgentProfileSetEnabled => HandleSubAgentProfileSetEnabledAsync(msg, ct),
                 AppServerMethods.SubAgentProfileUpsert => HandleSubAgentProfileUpsertAsync(msg, ct),
                 AppServerMethods.SubAgentProfileRemove => HandleSubAgentProfileRemoveAsync(msg, ct),
+                AppServerMethods.SubAgentChildrenList => HandleSubAgentChildrenListAsync(msg, ct),
+                AppServerMethods.SubAgentClose => HandleSubAgentCloseAsync(msg, ct),
+                AppServerMethods.SubAgentResume => HandleSubAgentResumeAsync(msg, ct),
                 AppServerMethods.McpStatusList => HandleMcpStatusListAsync(msg, ct),
                 AppServerMethods.McpTest => HandleMcpTestAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
@@ -318,6 +324,7 @@ public sealed class AppServerRequestHandler(
             McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && mcpClientManager != null,
             ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SubAgentManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+            SubAgentSessions = true,
             McpStatus = mcpClientManager != null
         };
 
@@ -426,7 +433,8 @@ public sealed class AppServerRequestHandler(
             identity,
             p.IncludeArchived ?? false,
             crossOrigins,
-            ct);
+            ct,
+            p.IncludeSubAgents ?? false);
 
         if (!string.IsNullOrEmpty(p.ChannelName))
         {
@@ -436,6 +444,50 @@ public sealed class AppServerRequestHandler(
         }
 
         return new ThreadListResult { Data = [.. threads] };
+    }
+
+    private async Task<object?> HandleSubAgentChildrenListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<SubAgentChildrenListParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ParentThreadId))
+            throw AppServerErrors.InvalidParams("'parentThreadId' is required.");
+
+        var edges = await sessionService.ListSubAgentChildrenAsync(
+            p.ParentThreadId.Trim(),
+            p.IncludeClosed ?? false,
+            ct);
+        var data = new List<SubAgentChildWire>();
+        foreach (var edge in edges)
+        {
+            SessionWireThread? thread = null;
+            if (p.IncludeThreads == true)
+            {
+                var child = await sessionService.GetThreadAsync(edge.ChildThreadId, ct);
+                thread = child.ToWire(includeTurns: false);
+            }
+
+            data.Add(new SubAgentChildWire { Edge = edge, Thread = thread });
+        }
+
+        return new SubAgentChildrenListResult { Data = data };
+    }
+
+    private async Task<object?> HandleSubAgentCloseAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<SubAgentThreadParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ParentThreadId) || string.IsNullOrWhiteSpace(p.ChildThreadId))
+            throw AppServerErrors.InvalidParams("'parentThreadId' and 'childThreadId' are required.");
+
+        return await SubAgentSessionControl.CloseAgentAsync(sessionService, p.ChildThreadId.Trim(), ct);
+    }
+
+    private async Task<object?> HandleSubAgentResumeAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<SubAgentThreadParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ParentThreadId) || string.IsNullOrWhiteSpace(p.ChildThreadId))
+            throw AppServerErrors.InvalidParams("'parentThreadId' and 'childThreadId' are required.");
+
+        return await SubAgentSessionControl.ResumeAgentAsync(sessionService, p.ChildThreadId.Trim(), ct);
     }
 
     private async Task BindNodeReplThreadAndRefreshAgentAsync(string threadId, CancellationToken ct)
@@ -3262,7 +3314,9 @@ public sealed class AppServerRequestHandler(
             return AppServerErrors.TurnInProgress(id);
 
         // historyMode contract violations are caller errors → InvalidParams (-32602)
-        if (msg.Contains("client-managed history") || msg.Contains("server-managed history"))
+        if (msg.Contains("client-managed history")
+            || msg.Contains("server-managed history")
+            || msg.Contains("SubAgent child thread"))
             return AppServerErrors.InvalidParams(msg);
 
         return AppServerErrors.InternalError(msg);

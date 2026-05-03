@@ -279,14 +279,14 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
-    public void BuildStreamOptOutToolNames_IncludesSpawnSubagent()
+    public void BuildStreamOptOutToolNames_IncludesSpawnAgent()
     {
         var agentTools = new AgentTools();
-        var spawnSubagentTool = AIFunctionFactory.Create(agentTools.SpawnSubagent);
+        var spawnAgentTool = AIFunctionFactory.Create(agentTools.SpawnAgent);
 
-        var optOut = AgentFactory.BuildStreamOptOutToolNames([spawnSubagentTool]);
+        var optOut = AgentFactory.BuildStreamOptOutToolNames([spawnAgentTool]);
 
-        Assert.Contains(spawnSubagentTool.Name, optOut);
+        Assert.Contains(spawnAgentTool.Name, optOut);
     }
 
     private static class FakeToolMethods

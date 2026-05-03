@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Memory;
 using DotCraft.Protocol;
@@ -11,6 +14,8 @@ namespace DotCraft.Tests.Sessions.Protocol;
 
 public sealed class WelcomeSuggestionServiceTests : IDisposable
 {
+    private static readonly JsonSerializerOptions JsonOptions = JsonSerializerOptions.Web;
+
     private readonly string _workspacePath;
     private readonly string _craftPath;
     private readonly ThreadStore _threadStore;
@@ -232,7 +237,8 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         await _threadStore.SaveThreadAsync(thread);
         var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
 
-        var result = await methods.ReadWelcomeThreadHistory(thread.Id);
+        var resultJson = await methods.ReadWelcomeThreadHistory(thread.Id);
+        var result = JsonSerializer.Deserialize<WelcomeThreadHistoryResult>(resultJson, JsonOptions)!;
 
         Assert.Equal(thread.Id, result.ThreadId);
         Assert.NotEmpty(result.UserSnippets);
@@ -254,9 +260,69 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
 
         var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
 
-        var result = await methods.ReadWelcomeWorkspaceMemory();
+        var resultJson = await methods.ReadWelcomeWorkspaceMemory();
+        var result = JsonSerializer.Deserialize<WelcomeWorkspaceMemoryResult>(resultJson, JsonOptions)!;
 
         Assert.NotEmpty(result.MemoryHighlights);
+    }
+
+    [Fact]
+    public async Task WelcomeSuggestionTools_ReturnJsonStrings()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review workspace welcome suggestions and make the next prompts concrete.");
+        _memoryStore.WriteLongTerm("Desktop welcome suggestions should use workspace memory.");
+
+        var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
+
+        var listJson = await methods.ListRecentWorkspaceThreads();
+        var list = JsonSerializer.Deserialize<List<WelcomeSuggestionThreadSummary>>(listJson, JsonOptions)!;
+        Assert.NotEmpty(list);
+        Assert.Contains(list, item => !string.IsNullOrWhiteSpace(item.Id));
+
+        var historyJson = await methods.ReadWelcomeThreadHistory(list[0].Id);
+        var history = JsonSerializer.Deserialize<WelcomeThreadHistoryResult>(historyJson, JsonOptions)!;
+        Assert.Equal(list[0].Id, history.ThreadId);
+
+        var memoryJson = await methods.ReadWelcomeWorkspaceMemory();
+        var memory = JsonSerializer.Deserialize<WelcomeWorkspaceMemoryResult>(memoryJson, JsonOptions)!;
+        Assert.Contains("workspace memory", memory.Memory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WelcomeSuggestionTools_ExposeStringReturnSchema()
+    {
+        var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
+        var toolMethods = new[]
+        {
+            nameof(WelcomeSuggestionToolMethods.ListRecentWorkspaceThreads),
+            nameof(WelcomeSuggestionToolMethods.ReadWelcomeThreadHistory),
+            nameof(WelcomeSuggestionToolMethods.ReadWelcomeWorkspaceMemory)
+        };
+
+        foreach (var methodName in toolMethods)
+        {
+            var method = typeof(WelcomeSuggestionToolMethods).GetMethod(methodName)!;
+            Assert.Equal(typeof(Task<string>), method.ReturnType);
+
+            var description = method.GetCustomAttribute<DescriptionAttribute>()!.Description;
+            Assert.Contains("compact JSON string", description);
+
+            var function = methodName switch
+            {
+                nameof(WelcomeSuggestionToolMethods.ListRecentWorkspaceThreads) =>
+                    AIFunctionFactory.Create(methods.ListRecentWorkspaceThreads),
+                nameof(WelcomeSuggestionToolMethods.ReadWelcomeThreadHistory) =>
+                    AIFunctionFactory.Create(methods.ReadWelcomeThreadHistory),
+                nameof(WelcomeSuggestionToolMethods.ReadWelcomeWorkspaceMemory) =>
+                    AIFunctionFactory.Create(methods.ReadWelcomeWorkspaceMemory),
+                _ => throw new InvalidOperationException(methodName)
+            };
+            var rawSchema = Assert.NotNull(function.ReturnJsonSchema).GetRawText();
+            Assert.Contains("\"string\"", rawSchema, StringComparison.Ordinal);
+            Assert.DoesNotContain("threadId", rawSchema, StringComparison.Ordinal);
+            Assert.DoesNotContain("memoryHighlights", rawSchema, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

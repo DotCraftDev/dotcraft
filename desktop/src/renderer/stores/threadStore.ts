@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ThreadSummary, Thread, ThreadStatus, ThreadRuntimeSnapshot } from '../types/thread'
 import { useViewerTabStore } from './viewerTabStore'
+import { getSubAgentParentThreadId, isSubAgentThread } from '../utils/subAgentThreads'
 export type { ThreadRuntimeSnapshot } from '../types/thread'
 
 export interface ParkedApproval {
@@ -38,8 +39,11 @@ interface ThreadStoreActions {
   setThreadList(threads: ThreadSummary[]): void
   /** Prepend a new thread to the list (newest first). No-op if the same id already exists. */
   addThread(thread: ThreadSummary): void
+  /** Insert or refresh thread summaries without replacing the whole list. */
+  upsertThreads(threads: ThreadSummary[]): void
   updateThreadStatus(threadId: string, newStatus: ThreadStatus): void
   removeThread(threadId: string): void
+  removeThreadTree(rootThreadId: string): void
   renameThread(threadId: string, displayName: string): void
   setActiveThreadId(id: string | null): void
   setActiveThread(thread: Thread | null): void
@@ -82,6 +86,34 @@ function filterMapToThreadList<T>(current: Map<string, T>, ids: Set<string>): Ma
   return new Map([...current].filter(([id]) => ids.has(id)))
 }
 
+function collectThreadTreeIds(threads: ThreadSummary[], rootThreadId: string): Set<string> {
+  const ids = new Set<string>([rootThreadId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const thread of threads) {
+      if (ids.has(thread.id)) continue
+      const parentId = isSubAgentThread(thread) ? getSubAgentParentThreadId(thread) : null
+      if (parentId && ids.has(parentId)) {
+        ids.add(thread.id)
+        changed = true
+      }
+    }
+  }
+  return ids
+}
+
+function disposeViewerTabsForThread(threadId: string): void {
+  useViewerTabStore.getState().onThreadDeleted(threadId, {
+    onBrowserTabRemoved: (tab) => {
+      void window.api.workspace.viewer.browser.destroy({ tabId: tab.id })
+    },
+    onTerminalTabRemoved: (tab) => {
+      void window.api.workspace.viewer.terminal.dispose({ tabId: tab.id })
+    }
+  })
+}
+
 export const useThreadStore = create<ThreadStore>((set, _get) => ({
   ...initialState,
 
@@ -110,6 +142,7 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
         const previous = runtimeSnapshots.get(thread.id)
         const isActive = state.activeThreadId === thread.id
         const isDesktopOrigin = thread.originChannel?.toLowerCase() === 'dotcraft-desktop'
+        const isSubAgent = isSubAgentThread(thread)
         runtimeSnapshots.set(thread.id, snapshot)
 
         if (snapshot.running) {
@@ -117,7 +150,7 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
           unreadCompletedThreadIds.delete(thread.id)
         } else {
           runningTurnThreadIds.delete(thread.id)
-          if (!isActive && previous?.running === true) {
+          if (!isActive && !isSubAgent && previous?.running === true) {
             unreadCompletedThreadIds.add(thread.id)
           }
         }
@@ -157,6 +190,51 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
     })
   },
 
+  upsertThreads(threads) {
+    if (threads.length === 0) return
+    set((state) => {
+      const incoming = new Map(threads.map((thread) => [thread.id, thread]))
+      const seen = new Set<string>()
+      const threadList = state.threadList.map((thread) => {
+        const next = incoming.get(thread.id)
+        if (!next) return thread
+        seen.add(thread.id)
+        return { ...thread, ...next }
+      })
+      const missing = threads.filter((thread) => !seen.has(thread.id))
+      const runtimeSnapshots = new Map(state.runtimeSnapshots)
+      const runningTurnThreadIds = new Set(state.runningTurnThreadIds)
+      const unreadCompletedThreadIds = new Set(state.unreadCompletedThreadIds)
+
+      for (const thread of threads) {
+        const runtime = thread.runtime
+        if (!runtime) continue
+        const snapshot: ThreadRuntimeSnapshot = {
+          running: runtime.running === true,
+          waitingOnApproval: runtime.waitingOnApproval === true,
+          waitingOnPlanConfirmation: runtime.waitingOnPlanConfirmation === true
+        }
+        runtimeSnapshots.set(thread.id, snapshot)
+        if (snapshot.running) {
+          runningTurnThreadIds.add(thread.id)
+          unreadCompletedThreadIds.delete(thread.id)
+        } else {
+          runningTurnThreadIds.delete(thread.id)
+          if (isSubAgentThread(thread)) {
+            unreadCompletedThreadIds.delete(thread.id)
+          }
+        }
+      }
+
+      return {
+        threadList: [...missing, ...threadList],
+        runtimeSnapshots,
+        runningTurnThreadIds,
+        unreadCompletedThreadIds
+      }
+    })
+  },
+
   updateThreadStatus(threadId, newStatus) {
     set((state) => ({
       threadList: state.threadList.map((t) =>
@@ -171,14 +249,7 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
   },
 
   removeThread(threadId) {
-    useViewerTabStore.getState().onThreadDeleted(threadId, {
-      onBrowserTabRemoved: (tab) => {
-        void window.api.workspace.viewer.browser.destroy({ tabId: tab.id })
-      },
-      onTerminalTabRemoved: (tab) => {
-        void window.api.workspace.viewer.terminal.dispose({ tabId: tab.id })
-      }
-    })
+    disposeViewerTabsForThread(threadId)
     set((state) => {
       const parkedApprovals = new Map(state.parkedApprovals)
       parkedApprovals.delete(threadId)
@@ -198,6 +269,44 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
           state.activeThreadId === threadId ? null : state.activeThreadId,
         activeThread:
           state.activeThread?.id === threadId ? null : state.activeThread,
+        runningTurnThreadIds,
+        parkedApprovals,
+        runtimeSnapshots,
+        pendingApprovalThreadIds,
+        pendingPlanConfirmationThreadIds,
+        unreadCompletedThreadIds
+      }
+    })
+  },
+
+  removeThreadTree(rootThreadId) {
+    set((state) => {
+      const treeIds = collectThreadTreeIds(state.threadList, rootThreadId)
+      for (const id of treeIds) {
+        disposeViewerTabsForThread(id)
+      }
+
+      const parkedApprovals = new Map(state.parkedApprovals)
+      const runtimeSnapshots = new Map(state.runtimeSnapshots)
+      const pendingApprovalThreadIds = new Set(state.pendingApprovalThreadIds)
+      const pendingPlanConfirmationThreadIds = new Set(state.pendingPlanConfirmationThreadIds)
+      const unreadCompletedThreadIds = new Set(state.unreadCompletedThreadIds)
+      const runningTurnThreadIds = new Set(state.runningTurnThreadIds)
+      for (const id of treeIds) {
+        parkedApprovals.delete(id)
+        runtimeSnapshots.delete(id)
+        pendingApprovalThreadIds.delete(id)
+        pendingPlanConfirmationThreadIds.delete(id)
+        unreadCompletedThreadIds.delete(id)
+        runningTurnThreadIds.delete(id)
+      }
+
+      return {
+        threadList: state.threadList.filter((t) => !treeIds.has(t.id)),
+        activeThreadId:
+          state.activeThreadId && treeIds.has(state.activeThreadId) ? null : state.activeThreadId,
+        activeThread:
+          state.activeThread && treeIds.has(state.activeThread.id) ? null : state.activeThread,
         runningTurnThreadIds,
         parkedApprovals,
         runtimeSnapshots,
@@ -334,7 +443,12 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
       if (options.isActive || runtime.running) {
         unreadCompletedThreadIds.delete(threadId)
       } else if (previous?.running === true) {
-        unreadCompletedThreadIds.add(threadId)
+        const thread = state.threadList.find((entry) => entry.id === threadId)
+        if (thread && isSubAgentThread(thread)) {
+          unreadCompletedThreadIds.delete(threadId)
+        } else {
+          unreadCompletedThreadIds.add(threadId)
+        }
       }
 
       return {

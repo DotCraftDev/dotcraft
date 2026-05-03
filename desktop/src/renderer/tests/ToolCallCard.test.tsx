@@ -63,6 +63,76 @@ describe('ToolCallCard plugin function rendering', () => {
   })
 })
 
+describe('ToolCallCard subagent result rendering', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        },
+        appServer: {
+          sendRequest: vi.fn(async () => ({}))
+        }
+      }
+    })
+  })
+
+  it('renders SpawnAgent result as a compact subagent row without raw JSON', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'SpawnAgent',
+      toolCallId: 'call-1',
+      arguments: { prompt: 'Create hatch pet', agentNickname: 'Popper', profile: 'native' },
+      result: JSON.stringify({
+        childThreadId: 'thread_child',
+        agentNickname: 'Popper',
+        profileName: 'native',
+        runtimeType: 'native',
+        status: 'running'
+      }),
+      success: true,
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Started Popper')).toBeInTheDocument()
+    expect(screen.getByText(/native/)).toBeInTheDocument()
+    expect(screen.queryByText(/childThreadId/)).toBeNull()
+  })
+
+  it('folds WaitAgent message behind an expandable result body', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-2',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-2',
+      arguments: { childThreadId: 'thread_child' },
+      result: JSON.stringify({
+        childThreadId: 'thread_child',
+        agentNickname: 'Reviewer',
+        profileName: 'codex',
+        status: 'completed',
+        message: 'Detailed child agent result'
+      }),
+      success: true,
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Reviewer completed')).toBeInTheDocument()
+    expect(screen.queryByText('Detailed child agent result')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand subagent result' }))
+    expect(screen.getByText('Detailed child agent result')).toBeInTheDocument()
+  })
+})
+
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()

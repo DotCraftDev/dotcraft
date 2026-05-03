@@ -6,7 +6,6 @@ import { ToolCallCard } from './ToolCallCard'
 import { AgentMessage } from './AgentMessage'
 import { ErrorBlock } from './ErrorBlock'
 import { CancelledNotice } from './CancelledNotice'
-import { SubAgentProgressBlock } from './SubAgentProgressBlock'
 import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { TurnArtifacts } from './TurnArtifacts'
 import { ApprovalCard } from './ApprovalCard'
@@ -17,7 +16,6 @@ import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
 import { isToolItemLive } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
-import type { SubAgentEntry } from '../../types/toolCall'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
@@ -38,16 +36,6 @@ interface AgentResponseBlockProps {
    * (e.g. automation task review panel).
    */
   activeItemIdOverride?: string | null
-  /**
-   * When set, SubAgent table uses this data instead of the global conversation store
-   * (e.g. automation review scoped to reviewThreadId).
-   */
-  subAgentEntriesOverride?: SubAgentEntry[]
-  /**
-   * Thread-level SubAgent snapshot must render at most once. Show on the active turn
-   * while streaming, and on the last turn for the collapsed completed summary.
-   */
-  isLastTurn?: boolean
 }
 
 /**
@@ -71,19 +59,12 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   streamingReasoning = '',
   isRunning = false,
   isActiveTurn = false,
-  activeItemIdOverride,
-  subAgentEntriesOverride,
-  isLastTurn = false
+  activeItemIdOverride
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
-  const liveSubAgentEntries = useConversationStore((s) => s.subAgentEntries)
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
-  const resolvedSubAgentEntries = subAgentEntriesOverride
-    ?? (isActiveTurn
-      ? liveSubAgentEntries
-      : (turn.subAgentEntries ?? (isLastTurn ? liveSubAgentEntries : [])))
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
@@ -94,9 +75,6 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       && i.type !== 'commandExecution'
   )
 
-  // Build render nodes in item order with shared insertion state so subagent
-  // summary only appears once even when a completed turn is split into slices.
-  let subAgentBlockInserted = false
   const renderItemSequence = (
     itemsToRender: ConversationItem[],
     keyPrefix = ''
@@ -118,31 +96,12 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         }
         const isTrailingRun = i + 1 >= itemsToRender.length
         const { entries } = planToolRunRender(toolRun, { isRunning, isTrailingRun })
-        const runNodes: React.ReactNode[] = []
-        let lastSpawnSubagentIndex = -1
 
         for (const entry of entries) {
-          runNodes.push(
-            renderAggregatedEntry(entry, turn.id, nodes.length + runNodes.length, keyPrefix)
+          nodes.push(
+            renderAggregatedEntry(entry, turn.id, nodes.length, keyPrefix)
           )
-          if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
-            lastSpawnSubagentIndex = runNodes.length - 1
-          }
         }
-
-        if (!subAgentBlockInserted && lastSpawnSubagentIndex >= 0) {
-          runNodes.splice(
-            lastSpawnSubagentIndex + 1,
-            0,
-            <SubAgentProgressBlock
-              key={`subagent-progress-${turn.id}`}
-              entries={resolvedSubAgentEntries}
-            />
-          )
-          subAgentBlockInserted = true
-        }
-
-        nodes.push(...runNodes)
       } else if (item.type === 'userMessage' && item.deliveryMode === 'guidance') {
         nodes.push(
           <UserMessageBlock

@@ -471,11 +471,11 @@ public static class CoreToolDisplays
         return [$"{exitTag} · {ToolDisplayHelpers.Truncate(preview, 80)}"];
     }
 
-    public static string SpawnSubagent(IDictionary<string, object?>? args)
+    public static string SpawnAgent(IDictionary<string, object?>? args)
     {
-        var label = ToolDisplayHelpers.GetString(args, "label");
-        var task = ToolDisplayHelpers.GetString(args, "task") ?? "task";
-        return $"Spawned subagent: {SubAgentManager.NormalizeLabel(label, task)}";
+        var nickname = ToolDisplayHelpers.GetString(args, "agentNickname");
+        var prompt = ToolDisplayHelpers.GetString(args, "prompt") ?? "task";
+        return $"Spawned subagent: {SubAgentManager.NormalizeLabel(nickname, prompt)}";
     }
 
     public static string CreatePlan(IDictionary<string, object?>? args)

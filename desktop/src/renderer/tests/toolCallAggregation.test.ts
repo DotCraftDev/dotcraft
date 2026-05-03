@@ -148,8 +148,8 @@ describe('aggregateToolCalls', () => {
 
   it('keeps non-aggregatable tools as individual cards', () => {
     const items = [
-      makeItem('SpawnSubagent', '1'),
-      makeItem('SpawnSubagent', '2')
+      makeItem('SpawnAgent', '1'),
+      makeItem('SpawnAgent', '2')
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(2)

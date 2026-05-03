@@ -476,7 +476,7 @@ public sealed class AppServerSubAgentProgressTests : IDisposable
             Id = "item_tool_001", TurnId = turnId,
             Type = ItemType.ToolCall, Status = ItemStatus.Started,
             CreatedAt = now,
-            Payload = new ToolCallPayload { CallId = "call_001", ToolName = "SpawnSubagent" }
+            Payload = new ToolCallPayload { CallId = "call_001", ToolName = "SpawnAgent" }
         };
         var toolResultItem = new SessionItem
         {

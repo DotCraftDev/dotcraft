@@ -59,7 +59,7 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
     private volatile Func<object?>? _pausedAction;
     private volatile TaskCompletionSource<object?>? _pausedActionResultTcs;
 
-    private const string SubAgentToolName = "SpawnSubagent";
+    private const string SubAgentToolName = "SpawnAgent";
     private const string SubAgentDisplayPrefix = "Spawned subagent: ";
 
     private static bool IsSubAgentTool(RenderEvent evt) => string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);

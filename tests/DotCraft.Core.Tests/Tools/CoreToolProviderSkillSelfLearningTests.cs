@@ -2,9 +2,11 @@ using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Configuration;
 using DotCraft.Memory;
+using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using DotCraft.Tools.Sandbox;
 
 namespace DotCraft.Tests.Tools;
 
@@ -33,6 +35,60 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
         Assert.Equal(["SkillView", "SkillManage"], skillTools);
     }
 
+    [Fact]
+    public void CreateTools_AgentControlToolsDisabled_DoesNotExposeSubAgentControlTools()
+    {
+        var tools = CreateTools(
+            new AppConfig.SelfLearningConfig { Enabled = false },
+            agentControlToolAccess: AgentControlToolAccess.Disabled);
+        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(AgentControlToolPolicy.AllToolNames, toolName => Assert.DoesNotContain(toolName, toolNames));
+        Assert.Contains("ReadFile", toolNames);
+    }
+
+    [Fact]
+    public void CreateTools_AgentControlToolsFull_ExposesSubAgentControlTools()
+    {
+        var tools = CreateTools(
+            new AppConfig.SelfLearningConfig { Enabled = false },
+            agentControlToolAccess: AgentControlToolAccess.Full);
+        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(AgentControlToolPolicy.AllToolNames, toolName => Assert.Contains(toolName, toolNames));
+    }
+
+    [Fact]
+    public void CreateTools_AgentControlToolsAllowList_ExposesOnlyAllowedControlTools()
+    {
+        var tools = CreateTools(
+            new AppConfig.SelfLearningConfig { Enabled = false },
+            agentControlToolAccess: AgentControlToolAccess.AllowList,
+            allowedAgentControlTools: new HashSet<string>(["WaitAgent", "CloseAgent"], StringComparer.Ordinal));
+        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain("SpawnAgent", toolNames);
+        Assert.DoesNotContain("SendInput", toolNames);
+        Assert.Contains("WaitAgent", toolNames);
+        Assert.DoesNotContain("ResumeAgent", toolNames);
+        Assert.Contains("CloseAgent", toolNames);
+    }
+
+    [Fact]
+    public void SandboxCreateTools_AgentControlToolsDisabled_DoesNotExposeSubAgentControlTools()
+    {
+        var context = CreateContext(
+            new AppConfig.SelfLearningConfig { Enabled = false },
+            agentControlToolAccess: AgentControlToolAccess.Disabled,
+            sandboxEnabled: true);
+        var tools = new SandboxToolProvider().CreateTools(context).ToList();
+        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(AgentControlToolPolicy.AllToolNames, toolName => Assert.DoesNotContain(toolName, toolNames));
+        Assert.Contains("ReadFile", toolNames);
+        Assert.Contains("Exec", toolNames);
+    }
+
     public void Dispose()
     {
         try
@@ -46,7 +102,20 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
         }
     }
 
-    private List<Microsoft.Extensions.AI.AITool> CreateTools(AppConfig.SelfLearningConfig selfLearning)
+    private List<Microsoft.Extensions.AI.AITool> CreateTools(
+        AppConfig.SelfLearningConfig selfLearning,
+        AgentControlToolAccess agentControlToolAccess = AgentControlToolAccess.Full,
+        IReadOnlySet<string>? allowedAgentControlTools = null)
+    {
+        var context = CreateContext(selfLearning, agentControlToolAccess, allowedAgentControlTools);
+        return new CoreToolProvider().CreateTools(context).ToList();
+    }
+
+    private ToolProviderContext CreateContext(
+        AppConfig.SelfLearningConfig selfLearning,
+        AgentControlToolAccess agentControlToolAccess = AgentControlToolAccess.Full,
+        IReadOnlySet<string>? allowedAgentControlTools = null,
+        bool sandboxEnabled = false)
     {
         Directory.CreateDirectory(_tempRoot);
         var config = new AppConfig
@@ -56,12 +125,20 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
             Skills = new AppConfig.SkillsConfig
             {
                 SelfLearning = selfLearning
+            },
+            Tools = new AppConfig.ToolsConfig
+            {
+                Sandbox = new AppConfig.SandboxConfig
+                {
+                    Enabled = sandboxEnabled,
+                    IdleTimeoutSeconds = 0
+                }
             }
         };
         var skillsLoader = new SkillsLoader(_tempRoot);
         var openAIClientProvider = new OpenAIClientProvider();
         var mainModel = openAIClientProvider.ResolveMainModel(config);
-        var context = new ToolProviderContext
+        return new ToolProviderContext
         {
             Config = config,
             ChatClient = openAIClientProvider.GetChatClient(config, mainModel),
@@ -72,9 +149,13 @@ public sealed class CoreToolProviderSkillSelfLearningTests : IDisposable
             MemoryStore = new MemoryStore(_tempRoot),
             SkillsLoader = skillsLoader,
             SkillMutationApplier = new WorkspaceFileSkillMutationApplier(skillsLoader),
-            ApprovalService = new AutoApproveApprovalService()
+            ApprovalService = new AutoApproveApprovalService(),
+            CurrentThreadId = "thread_parent",
+            CurrentThreadSource = ThreadSource.User(),
+            CurrentOriginChannel = "dotcraft-desktop",
+            CurrentChannelContext = "workspace:test",
+            AgentControlToolAccess = agentControlToolAccess,
+            AllowedAgentControlTools = allowedAgentControlTools
         };
-
-        return new CoreToolProvider().CreateTools(context).ToList();
     }
 }

@@ -1,4 +1,5 @@
 using DotCraft.Protocol;
+using DotCraft.Agents;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
@@ -10,7 +11,7 @@ namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 /// <c>SubmitInputAsync</c> yields canned <see cref="SessionEvent"/> sequences queued
 /// per thread via <see cref="EnqueueSubmitEvents"/>.
 /// </summary>
-internal sealed class TestableSessionService : ISessionService, IThreadAgentRefreshService
+internal sealed class TestableSessionService : ISessionService, IThreadAgentRefreshService, ISubAgentSyntheticTurnService
 {
     private readonly ThreadStore _store;
     private readonly Dictionary<string, SessionThread> _cache = new();
@@ -37,6 +38,9 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
+
+    /// <inheritdoc />
+    public Action<string, ThreadStatus, ThreadStatus>? ThreadStatusChangedForBroadcast { get; set; }
 
     /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
@@ -71,7 +75,8 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
         string? displayName = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ThreadSource? source = null)
     {
         var thread = new SessionThread
         {
@@ -84,7 +89,8 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
             Configuration = config,
-            DisplayName = displayName
+            DisplayName = displayName,
+            Source = source ?? ThreadSource.User()
         };
         if (identity.ChannelContext != null)
         {
@@ -167,7 +173,8 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
         SessionIdentity identity,
         bool includeArchived = false,
         IReadOnlyList<string>? crossChannelOrigins = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool includeSubAgents = false)
     {
         var index = await _store.LoadIndexAsync(ct);
         var hasCross = crossChannelOrigins is { Count: > 0 };
@@ -178,6 +185,14 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
                     return false;
                 if (!(includeArchived || s.Status != ThreadStatus.Archived))
                     return false;
+                if (!includeSubAgents && (string.Equals(s.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(s.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+                if (includeSubAgents
+                    && (string.Equals(s.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(s.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase))
+                    && (identity.UserId == null || s.UserId == identity.UserId))
+                    return true;
 
                 var identityMatch =
                     (identity.UserId == null || s.UserId == identity.UserId)
@@ -202,6 +217,22 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }
+
+    public Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default) =>
+        _store.UpsertThreadSpawnEdgeAsync(edge, ct);
+
+    public Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default) =>
+        _store.SetThreadSpawnEdgeStatusAsync(parentThreadId, childThreadId, status, ct);
+
+    public Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
+        CancellationToken ct = default) =>
+        _store.ListSubAgentChildrenAsync(parentThreadId, includeClosed, ct);
 
     public async Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default) =>
         await GetOrLoadAsync(threadId, ct);
@@ -260,6 +291,96 @@ internal sealed class TestableSessionService : ISessionService, IThreadAgentRefr
             return YieldEvents(events, ct);
 
         return EmptyEvents();
+    }
+
+    public async Task<SessionTurn> StartSubAgentSyntheticTurnAsync(
+        string threadId,
+        IList<AIContent> content,
+        string runtimeType,
+        string? profileName,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var text = string.Concat(content.OfType<TextContent>().Select(c => c.Text));
+        var turn = new SessionTurn
+        {
+            Id = SessionIdGenerator.NewTurnId(thread.Turns.Count + 1),
+            ThreadId = threadId,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow,
+            OriginChannel = thread.OriginChannel
+        };
+        var userItem = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(1),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload { Text = text }
+        };
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+        thread.Turns.Add(turn);
+        thread.Metadata["subagent.syntheticRuntime"] = runtimeType;
+        if (!string.IsNullOrWhiteSpace(profileName))
+            thread.Metadata["subagent.profileName"] = profileName;
+        await _store.SaveThreadAsync(thread, ct);
+        return turn;
+    }
+
+    public async Task<SessionTurn> CompleteSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string text,
+        bool isError,
+        SubAgentTokenUsage? tokensUsed,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var turn = thread.Turns.Single(t => t.Id == turnId);
+        var item = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
+            TurnId = turn.Id,
+            Type = isError ? ItemType.Error : ItemType.AgentMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = isError
+                ? new ErrorPayload { Message = text, Code = "subagent_error", Fatal = true }
+                : new AgentMessagePayload { Text = text }
+        };
+        turn.Items.Add(item);
+        turn.Status = isError ? TurnStatus.Failed : TurnStatus.Completed;
+        turn.CompletedAt = DateTimeOffset.UtcNow;
+        turn.Error = isError ? text : null;
+        if (tokensUsed != null)
+        {
+            turn.TokenUsage = new TokenUsageInfo
+            {
+                InputTokens = tokensUsed.InputTokens,
+                OutputTokens = tokensUsed.OutputTokens,
+                TotalTokens = tokensUsed.InputTokens + tokensUsed.OutputTokens
+            };
+        }
+        await _store.SaveThreadAsync(thread, ct);
+        return turn;
+    }
+
+    public async Task<SessionTurn> CancelSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string reason,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        var turn = thread.Turns.Single(t => t.Id == turnId);
+        turn.Status = TurnStatus.Cancelled;
+        turn.CompletedAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(thread, ct);
+        return turn;
     }
 
     public IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(

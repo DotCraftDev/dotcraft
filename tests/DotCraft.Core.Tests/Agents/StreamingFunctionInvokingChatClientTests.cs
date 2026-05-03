@@ -213,6 +213,67 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_SpawnAgentWithoutPrompt_ReturnsActionableInvalidArgumentsResult()
+    {
+        var inner = new ToolCallFakeChatClient(
+            "SpawnAgent",
+            new Dictionary<string, object?>());
+        var invoked = false;
+        var client = new StreamingFunctionInvokingChatClient(inner)
+        {
+            AdditionalTools = [AIFunctionFactory.Create(() =>
+            {
+                invoked = true;
+                return "should not run";
+            }, name: "SpawnAgent")]
+        };
+
+        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
+        {
+        }
+
+        Assert.False(invoked);
+        Assert.Equal(2, inner.Calls.Count);
+        var result = Assert.Single(inner.Calls[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>());
+        Assert.Contains("SpawnAgent requires a non-empty \"prompt\" argument", result.Result?.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\"prompt\":\"...\"", result.Result?.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Function failed", result.Result?.ToString(), StringComparison.Ordinal);
+        Assert.True(StreamingFunctionInvokingChatClient.IsInvalidToolArgumentsResult(result));
+    }
+
+    [Theory]
+    [InlineData("task")]
+    [InlineData("message")]
+    [InlineData("input")]
+    public async Task GetStreamingResponseAsync_SpawnAgentAliases_AreMappedToPrompt(string alias)
+    {
+        var inner = new ToolCallFakeChatClient(
+            "SpawnAgent",
+            new Dictionary<string, object?> { [alias] = "inspect code" });
+        string? capturedPrompt = null;
+        var client = new StreamingFunctionInvokingChatClient(inner)
+        {
+            AdditionalTools = [AIFunctionFactory.Create(() => "ok", name: "SpawnAgent")],
+            FunctionInvoker = (context, _) =>
+            {
+                capturedPrompt = context.Arguments.TryGetValue("prompt", out var value)
+                    ? value?.ToString()
+                    : null;
+                return ValueTask.FromResult<object?>("ok");
+            }
+        };
+
+        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
+        {
+        }
+
+        Assert.Equal("inspect code", capturedPrompt);
+        var result = Assert.Single(inner.Calls[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>());
+        Assert.Equal("ok", result.Result);
+        Assert.False(StreamingFunctionInvokingChatClient.IsInvalidToolArgumentsResult(result));
+    }
+
+    [Fact]
     public async Task GetStreamingResponseAsync_ExposesCurrentInvocationContext()
     {
         var inner = new RoundTripFakeChatClient();
@@ -235,6 +296,26 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
         Assert.NotNull(captured);
         Assert.Equal("GetStatus", captured.Function.Name);
         Assert.Null(StreamingFunctionInvokingChatClient.CurrentContext);
+    }
+
+    [Fact]
+    public async Task GetStreamingResponseAsync_NormalizesNullFunctionCallArguments()
+    {
+        var inner = new NullArgumentsToolFakeChatClient();
+        var tool = AIFunctionFactory.Create(() => "tool ok", name: "GetStatus");
+        var client = new StreamingFunctionInvokingChatClient(inner)
+        {
+            AdditionalTools = [tool]
+        };
+
+        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
+        {
+        }
+
+        Assert.Equal(2, inner.Calls.Count);
+        var functionCall = Assert.Single(inner.Calls[1].SelectMany(message => message.Contents).OfType<FunctionCallContent>());
+        Assert.NotNull(functionCall.Arguments);
+        Assert.Empty(functionCall.Arguments);
     }
 
     private static string ThrowBoom() => throw new InvalidOperationException("boom");
@@ -465,5 +546,78 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
         {
         }
     }
-}
 
+    private sealed class ToolCallFakeChatClient(string toolName, IDictionary<string, object?> arguments) : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "ok")]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Calls.Add(chatMessages.ToList());
+            if (Calls.Count == 1)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [
+                    new FunctionCallContent("call-1", toolName, new Dictionary<string, object?>(arguments))
+                ]);
+            }
+            else
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, "done");
+            }
+
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class NullArgumentsToolFakeChatClient : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "ok")]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Calls.Add(chatMessages.ToList());
+            if (Calls.Count == 1)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [
+                    new FunctionCallContent("call-1", "GetStatus", null)
+                ]);
+            }
+            else
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, "done");
+            }
+
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+}

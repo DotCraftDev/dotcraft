@@ -18,7 +18,11 @@ pub const BUILTIN_TOOLS: &[&str] = &[
     "Exec",
     "WebSearch",
     "WebFetch",
-    "SpawnSubagent",
+    "SpawnAgent",
+    "WaitAgent",
+    "SendInput",
+    "ResumeAgent",
+    "CloseAgent",
     "LSP",
     "SearchTools",
     "Cron",
@@ -81,7 +85,7 @@ pub fn format_active_invocation_display(
         "Exec" => format_exec_running_label(args),
         "WebSearch" => format_web_search_running_label(args),
         "WebFetch" => format_web_fetch_running_label(args),
-        "SpawnSubagent" => format_spawn_subagent_running_label(args),
+        "SpawnAgent" => format_spawn_agent_running_label(args),
         "LSP" => format_lsp_running_label(args),
         "SearchTools" => format_search_tools_running_label(args),
         "Cron" => format_cron_running_label(args),
@@ -280,19 +284,24 @@ fn format_web_fetch_running_label(args: &str) -> String {
     }
 }
 
-fn format_spawn_subagent_running_label(args: &str) -> String {
-    let label = extract_partial_json_string_value(args, "label").filter(|s| !s.is_empty());
-    let task = extract_partial_json_string_value(args, "task").filter(|s| !s.is_empty());
-    match (label, task) {
-        (Some(l), _) => {
+fn format_spawn_agent_running_label(args: &str) -> String {
+    let label = extract_partial_json_string_value(args, "agentNickname").filter(|s| !s.is_empty());
+    let task = extract_partial_json_string_value(args, "prompt").filter(|s| !s.is_empty());
+    let profile = extract_partial_json_string_value(args, "profile").filter(|s| !s.is_empty());
+    match (label, task, profile) {
+        (Some(l), _, _) => {
             let t = truncate_chars(&l, 60);
-            format!("Spawning subagent: {t}...")
+            format!("Spawning agent: {t}...")
         }
-        (None, Some(t)) => {
+        (None, Some(t), _) => {
             let t = truncate_chars(&t, 60);
-            format!("Spawning subagent for: {t}...")
+            format!("Spawning agent for: {t}...")
         }
-        _ => "Spawning subagent...".to_string(),
+        (None, None, Some(p)) => {
+            let t = truncate_chars(&p, 40);
+            format!("Spawning {t} agent...")
+        }
+        _ => "Spawning agent...".to_string(),
     }
 }
 
@@ -920,6 +929,24 @@ mod tests {
         assert_eq!(
             format_active_invocation_display("WebSearch", partial, None),
             "Searching the web for \"rust async streams\"..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_spawn_agent_prefers_nickname() {
+        let partial = r#"{"prompt":"Write tests","agentNickname":"tester","profile":"native""#;
+        assert_eq!(
+            format_active_invocation_display("SpawnAgent", partial, None),
+            "Spawning agent: tester..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_spawn_agent_falls_back_to_prompt() {
+        let partial = r#"{"prompt":"Write the compatibility tests","profile":"codex""#;
+        assert_eq!(
+            format_active_invocation_display("SpawnAgent", partial, None),
+            "Spawning agent for: Write the compatibility tests..."
         );
     }
 

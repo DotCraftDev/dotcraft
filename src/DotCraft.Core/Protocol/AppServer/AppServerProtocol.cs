@@ -560,6 +560,12 @@ public sealed class AppServerServerCapabilities
     public bool SubAgentManagement { get; set; }
 
     /// <summary>
+    /// Server supports session-backed SubAgent child threads.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SubAgentSessions { get; set; }
+
+    /// <summary>
     /// Compatibility field for GitHub tracker configuration management methods
     /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
     /// New clients should prefer <see cref="Extensions"/>.
@@ -611,6 +617,8 @@ public sealed class ThreadListParams
 
     public bool? IncludeArchived { get; set; }
 
+    public bool? IncludeSubAgents { get; set; }
+
     /// <summary>
     /// When set, only threads whose <c>originChannel</c> matches (case-insensitive) are returned.
     /// </summary>
@@ -628,6 +636,37 @@ public sealed class ThreadListParams
 public sealed class ThreadListResult
 {
     public List<ThreadSummary> Data { get; set; } = [];
+}
+
+// ───── subagent/children/list ─────
+
+public sealed class SubAgentChildrenListParams
+{
+    public string ParentThreadId { get; set; } = string.Empty;
+
+    public bool? IncludeClosed { get; set; }
+
+    public bool? IncludeThreads { get; set; }
+}
+
+public sealed class SubAgentChildWire
+{
+    public ThreadSpawnEdge Edge { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SessionWireThread? Thread { get; set; }
+}
+
+public sealed class SubAgentChildrenListResult
+{
+    public List<SubAgentChildWire> Data { get; set; } = [];
+}
+
+public sealed class SubAgentThreadParams
+{
+    public string ParentThreadId { get; set; } = string.Empty;
+
+    public string ChildThreadId { get; set; } = string.Empty;
 }
 
 // ───── thread/read ─────
@@ -2514,6 +2553,9 @@ public static class AppServerMethods
     public const string SubAgentProfileSetEnabled = "subagent/profiles/setEnabled";
     public const string SubAgentProfileUpsert = "subagent/profiles/upsert";
     public const string SubAgentProfileRemove = "subagent/profiles/remove";
+    public const string SubAgentChildrenList = "subagent/children/list";
+    public const string SubAgentClose = "subagent/close";
+    public const string SubAgentResume = "subagent/resume";
     public const string McpStatusList = "mcp/status/list";
     public const string McpTest = "mcp/test";
 
@@ -2552,6 +2594,7 @@ public static class AppServerMethods
 
     // Server → Client notification (SubAgent progress)
     public const string SubAgentProgress = "subagent/progress";
+    public const string SubAgentGraphChanged = "subagent/graphChanged";
 
     // Server → Client notification (incremental token usage)
     public const string ItemUsageDelta = "item/usage/delta";

@@ -353,7 +353,7 @@ public sealed class AgentFactory : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(instructions))
         {
             string? subAgentProfilesSection = null;
-            if (tools.Any(t => string.Equals(t.Name, "SpawnSubagent", StringComparison.OrdinalIgnoreCase)))
+            if (tools.Any(t => string.Equals(t.Name, "SpawnAgent", StringComparison.OrdinalIgnoreCase)))
             {
                 subAgentProfilesSection = SubAgentProfilePromptSectionBuilder.Build(
                     ctx.Config.SubAgentProfiles,

@@ -13,6 +13,7 @@ using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
 using DotCraft.Logging;
+using DotCraft.Tools;
 using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
@@ -48,7 +49,7 @@ public sealed class SessionService(
     SessionStreamDebugLogger? sessionStreamDebugLogger = null,
     IBackgroundTerminalService? backgroundTerminalService = null,
     IAppConfigMonitor? appConfigMonitor = null)
-    : ISessionService, IThreadAgentRefreshService
+    : ISessionService, IThreadAgentRefreshService, ISubAgentSyntheticTurnService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
@@ -81,7 +82,16 @@ public sealed class SessionService(
     public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
     /// <inheritdoc />
+    public Action<string, ThreadStatus, ThreadStatus>? ThreadStatusChangedForBroadcast { get; set; }
+
+    /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+
+    /// <summary>
+    /// Optional hook invoked after a session-backed SubAgent edge is created or changes status.
+    /// Hosts broadcast <c>subagent/graphChanged</c> so clients can refresh child thread metadata.
+    /// </summary>
+    public Action<string, string>? SubAgentGraphChangedForBroadcast { get; set; }
 
     private ApprovalPolicy ResolveApprovalPolicy(ApprovalPolicy threadPolicy)
     {
@@ -138,7 +148,8 @@ public sealed class SessionService(
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
         string? displayName = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ThreadSource? source = null)
     {
         var thread = new SessionThread
         {
@@ -151,7 +162,8 @@ public sealed class SessionService(
             LastActiveAt = DateTimeOffset.UtcNow,
             HistoryMode = historyMode,
             Configuration = config,
-            DisplayName = displayName
+            DisplayName = displayName,
+            Source = source ?? ThreadSource.User()
         };
 
         if (identity.ChannelContext != null)
@@ -267,30 +279,27 @@ public sealed class SessionService(
     /// <inheritdoc/>
     public async Task ArchiveThreadAsync(string threadId, CancellationToken ct = default)
     {
-        var thread = await GetOrLoadThreadAsync(threadId, ct);
-        if (thread.Status == ThreadStatus.Archived) return;
-        var previousStatus = thread.Status;
-        thread.Status = ThreadStatus.Archived;
-        // Release per-thread agent if any
-        _threadAgents.TryRemove(threadId, out _);
-        _threadModeManagers.TryRemove(threadId, out _);
-        _threadPluginFunctionToolNames.TryRemove(threadId, out _);
-        if (backgroundTerminalService != null)
-            await backgroundTerminalService.CleanThreadAsync(threadId, ct);
-        await PersistThreadStatusAsync(thread, ct);
-        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
+        var root = await GetOrLoadThreadAsync(threadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "archive");
+
+        foreach (var id in await CollectSubAgentSubtreeIdsAsync(root.Id, ct))
+        {
+            var thread = await GetOrLoadThreadAsync(id, ct);
+            await ArchiveThreadCoreAsync(thread, ct);
+        }
     }
 
     /// <inheritdoc/>
     public async Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default)
     {
-        var thread = await GetOrLoadThreadAsync(threadId, ct);
-        if (thread.Status == ThreadStatus.Active) return;
-        var previousStatus = thread.Status;
-        thread.Status = ThreadStatus.Active;
-        thread.LastActiveAt = DateTimeOffset.UtcNow;
-        await PersistThreadStatusAsync(thread, ct);
-        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
+        var root = await GetOrLoadThreadAsync(threadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "unarchive");
+
+        foreach (var id in await CollectSubAgentSubtreeIdsAsync(root.Id, ct))
+        {
+            var thread = await GetOrLoadThreadAsync(id, ct);
+            await UnarchiveThreadCoreAsync(thread, ct);
+        }
     }
 
     /// <inheritdoc/>
@@ -300,46 +309,22 @@ public sealed class SessionService(
         if (normalizedThreadId.Length == 0)
             throw new ArgumentException("threadId is required.", nameof(threadId));
 
-        _threadsPendingPermanentDeletion[normalizedThreadId] = 0;
+        var root = await GetOrLoadThreadAsync(normalizedThreadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "delete");
+        var subtreeIds = await CollectSubAgentSubtreeIdsAsync(normalizedThreadId, ct);
+        var deleteOrder = subtreeIds.Reverse().ToList();
+        foreach (var id in deleteOrder)
+            _threadsPendingPermanentDeletion[id] = 0;
 
         try
         {
-            // Cancel any running or approval-pending turns for this thread
-            if (_threads.TryGetValue(normalizedThreadId, out var thread))
-            {
-                foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
-                {
-                    var key = new TurnKey(normalizedThreadId, turn.Id);
-                    if (_runningTurns.TryRemove(key, out var turnCts))
-                        await turnCts.CancelAsync();
-                    _pendingApprovals.TryRemove(key, out _);
-                }
-            }
-
-            await persistence.DeleteThreadCascadeAsync(normalizedThreadId, ct);
-
-            // Remove all in-memory state only after persistence succeeds.
-            _threads.TryRemove(normalizedThreadId, out _);
-            _threadAgents.TryRemove(normalizedThreadId, out _);
-            _threadModeManagers.TryRemove(normalizedThreadId, out _);
-            _threadEventBrokers.TryRemove(normalizedThreadId, out _);
-            if (_threadQueueLocks.TryRemove(normalizedThreadId, out var queueLock))
-                queueLock.Dispose();
-            if (_threadAgentLocks.TryRemove(normalizedThreadId, out var agentLock))
-                agentLock.Dispose();
-            _materializedThreads.TryRemove(normalizedThreadId, out _);
-            _turnsSinceConsolidation.TryRemove(normalizedThreadId, out _);
-            _threadPluginFunctionToolNames.TryRemove(normalizedThreadId, out _);
-            if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
-                await mcpManager.DisposeAsync();
-            if (backgroundTerminalService != null)
-                await backgroundTerminalService.CleanThreadAsync(normalizedThreadId, ct);
-
-            ThreadDeletedForBroadcast?.Invoke(normalizedThreadId);
+            foreach (var id in deleteOrder)
+                await DeleteThreadCoreAsync(id, ct);
         }
         catch
         {
-            _threadsPendingPermanentDeletion.TryRemove(normalizedThreadId, out _);
+            foreach (var id in deleteOrder)
+                _threadsPendingPermanentDeletion.TryRemove(id, out _);
             throw;
         }
     }
@@ -349,7 +334,8 @@ public sealed class SessionService(
         SessionIdentity identity,
         bool includeArchived = false,
         IReadOnlyList<string>? crossChannelOrigins = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool includeSubAgents = false)
     {
         var all = await persistence.LoadIndexAsync(ct);
         var hasCross = crossChannelOrigins is { Count: > 0 };
@@ -358,7 +344,7 @@ public sealed class SessionService(
             mergedById[summary.Id] = summary;
         foreach (var thread in _threads.Values)
             mergedById[thread.Id] = ThreadSummary.FromThread(thread);
-        var merged = mergedById.Values;
+        var merged = mergedById.Values.ToList();
 
         return merged
             .Where(s =>
@@ -367,6 +353,16 @@ public sealed class SessionService(
                     return false;
                 if (!string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase))
                     return false;
+                if (!includeSubAgents && IsSubAgentSummary(s))
+                    return false;
+                if (includeSubAgents
+                    && IsSubAgentSummary(s)
+                    && IsHiddenByArchivedParent(s, mergedById, includeArchived))
+                    return false;
+                if (includeSubAgents
+                    && IsSubAgentSummary(s)
+                    && (identity.UserId == null || s.UserId == identity.UserId))
+                    return true;
 
                 // userId and channelContext apply together for the native identity path only.
                 // Cron/heartbeat threads use synthetic userIds (e.g. cron:jobId) while Desktop uses local;
@@ -387,6 +383,326 @@ public sealed class SessionService(
             })
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
+    }
+
+    public async Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        await persistence.UpsertThreadSpawnEdgeAsync(edge, ct);
+        SubAgentGraphChangedForBroadcast?.Invoke(edge.ParentThreadId, edge.ChildThreadId);
+    }
+
+    public async Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        await persistence.SetThreadSpawnEdgeStatusAsync(parentThreadId, childThreadId, status, ct);
+        SubAgentGraphChangedForBroadcast?.Invoke(parentThreadId, childThreadId);
+    }
+
+    public Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return persistence.ListSubAgentChildrenAsync(parentThreadId, includeClosed, ct);
+    }
+
+    public async Task<SessionTurn> StartSubAgentSyntheticTurnAsync(
+        string threadId,
+        IList<AIContent> content,
+        string runtimeType,
+        string? profileName,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        if (thread.Status != ThreadStatus.Active)
+            throw new InvalidOperationException($"Thread '{threadId}' is not Active (current status: {thread.Status}). Cannot submit input.");
+
+        if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            throw new InvalidOperationException($"Thread '{threadId}' already has a running Turn. Wait for it to complete or cancel it first.");
+
+        var channelInfo = ChannelSessionScope.Current;
+        var turnOriginChannel = channelInfo?.Channel ?? thread.OriginChannel;
+        var turnChannelContext = channelInfo?.DefaultDeliveryTarget ?? thread.ChannelContext;
+        var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
+        var turn = new SessionTurn
+        {
+            Id = SessionIdGenerator.NewTurnId(thread.Turns.Count + 1),
+            ThreadId = threadId,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow,
+            OriginChannel = turnOriginChannel,
+            Initiator = new TurnInitiatorContext
+            {
+                ChannelName = turnOriginChannel,
+                UserId = channelInfo?.UserId ?? thread.UserId,
+                ChannelContext = turnChannelContext,
+                GroupId = channelInfo?.GroupId
+            }
+        };
+
+        var userItem = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(1),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload
+            {
+                Text = text,
+                ChannelName = turnOriginChannel,
+                ChannelContext = turnChannelContext,
+                GroupId = channelInfo?.GroupId
+            }
+        };
+
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+        thread.Turns.Add(turn);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        thread.Metadata["subagent.syntheticRuntime"] = runtimeType;
+        if (!string.IsNullOrWhiteSpace(profileName))
+            thread.Metadata["subagent.profileName"] = profileName;
+
+        var broker = GetOrCreateBroker(threadId);
+        broker.PublishTurnStarted(turn);
+        ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnStarted);
+        broker.PublishItemEvent(SessionEventType.ItemStarted, turn.Id, userItem);
+        broker.PublishItemEvent(SessionEventType.ItemCompleted, turn.Id, userItem);
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        return turn;
+    }
+
+    public async Task<SessionTurn> CompleteSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string text,
+        bool isError,
+        SubAgentTokenUsage? tokensUsed,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        var turn = thread.Turns.FirstOrDefault(t => string.Equals(t.Id, turnId, StringComparison.Ordinal))
+            ?? throw new KeyNotFoundException($"Turn '{turnId}' not found in thread '{threadId}'.");
+        if (turn.Status is not (TurnStatus.Running or TurnStatus.WaitingApproval))
+            return turn;
+
+        var item = isError
+            ? CreateErrorItem(turn, turn.Items.Count + 1, text, "subagent_error", fatal: true)
+            : new SessionItem
+            {
+                Id = SessionIdGenerator.NewItemId(turn.Items.Count + 1),
+                TurnId = turn.Id,
+                Type = ItemType.AgentMessage,
+                Status = ItemStatus.Completed,
+                CreatedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow,
+                Payload = new AgentMessagePayload { Text = text }
+            };
+
+        turn.Items.Add(item);
+        turn.Status = isError ? TurnStatus.Failed : TurnStatus.Completed;
+        turn.CompletedAt = DateTimeOffset.UtcNow;
+        turn.Error = isError ? text : null;
+        if (tokensUsed != null)
+        {
+            turn.TokenUsage = new TokenUsageInfo
+            {
+                InputTokens = tokensUsed.InputTokens,
+                OutputTokens = tokensUsed.OutputTokens,
+                TotalTokens = tokensUsed.InputTokens + tokensUsed.OutputTokens
+            };
+        }
+
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        var broker = GetOrCreateBroker(threadId);
+        broker.PublishItemEvent(SessionEventType.ItemStarted, turn.Id, item);
+        broker.PublishItemEvent(SessionEventType.ItemCompleted, turn.Id, item);
+        if (isError)
+        {
+            broker.PublishTurnFailed(turn, text);
+            ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
+        }
+        else
+        {
+            broker.PublishTurnCompleted(turn);
+            ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCompleted);
+        }
+
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        return turn;
+    }
+
+    public async Task<SessionTurn> CancelSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string reason,
+        CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        var turn = thread.Turns.FirstOrDefault(t => string.Equals(t.Id, turnId, StringComparison.Ordinal))
+            ?? throw new KeyNotFoundException($"Turn '{turnId}' not found in thread '{threadId}'.");
+        if (turn.Status is not (TurnStatus.Running or TurnStatus.WaitingApproval))
+            return turn;
+
+        turn.Status = TurnStatus.Cancelled;
+        turn.CompletedAt = DateTimeOffset.UtcNow;
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        var broker = GetOrCreateBroker(threadId);
+        broker.PublishTurnCancelled(turn, reason);
+        ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCancelled);
+        await PersistThreadWithMaterializationAsync(thread, ct);
+        return turn;
+    }
+
+    private static bool IsSubAgentSummary(ThreadSummary summary) =>
+        string.Equals(summary.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(summary.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSubAgentThread(SessionThread thread) =>
+        string.Equals(thread.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(thread.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
+
+    private static AgentControlToolAccess ResolveAgentControlToolAccess(SessionThread thread) =>
+        IsSubAgentThread(thread)
+            ? AgentControlToolAccess.Disabled
+            : AgentControlToolAccess.Full;
+
+    private static string? GetSubAgentParentThreadId(SessionThread thread)
+    {
+        var sourceParent = thread.Source.SubAgent?.ParentThreadId?.Trim();
+        if (!string.IsNullOrWhiteSpace(sourceParent))
+            return sourceParent;
+        var context = thread.ChannelContext?.Trim();
+        return string.IsNullOrWhiteSpace(context) ? null : context;
+    }
+
+    private static string? GetSubAgentParentThreadId(ThreadSummary summary)
+    {
+        var sourceParent = summary.Source.SubAgent?.ParentThreadId?.Trim();
+        if (!string.IsNullOrWhiteSpace(sourceParent))
+            return sourceParent;
+        var context = summary.ChannelContext?.Trim();
+        return string.IsNullOrWhiteSpace(context) ? null : context;
+    }
+
+    private static bool IsHiddenByArchivedParent(
+        ThreadSummary summary,
+        IReadOnlyDictionary<string, ThreadSummary> summariesById,
+        bool includeArchived)
+    {
+        if (includeArchived)
+            return false;
+        var parentId = GetSubAgentParentThreadId(summary);
+        return !string.IsNullOrWhiteSpace(parentId)
+            && summariesById.TryGetValue(parentId, out var parent)
+            && parent.Status == ThreadStatus.Archived;
+    }
+
+    private static void ThrowIfDirectSubAgentLifecycleOperation(SessionThread thread, string operation)
+    {
+        if (!IsSubAgentThread(thread))
+            return;
+        var parentId = GetSubAgentParentThreadId(thread);
+        if (string.IsNullOrWhiteSpace(parentId))
+            return;
+        throw new InvalidOperationException(
+            $"SubAgent child thread '{thread.Id}' cannot be {operation}d directly; manage its parent thread '{parentId}' instead.");
+    }
+
+    private async Task<IReadOnlyList<string>> CollectSubAgentSubtreeIdsAsync(string rootThreadId, CancellationToken ct)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        async Task VisitAsync(string id)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!seen.Add(id))
+                return;
+
+            result.Add(id);
+            var children = await persistence.ListSubAgentChildrenAsync(id, includeClosed: true, ct);
+            foreach (var child in children)
+                await VisitAsync(child.ChildThreadId);
+        }
+
+        await VisitAsync(rootThreadId);
+        return result;
+    }
+
+    private async Task ArchiveThreadCoreAsync(SessionThread thread, CancellationToken ct)
+    {
+        if (thread.Status == ThreadStatus.Archived)
+            return;
+        var previousStatus = thread.Status;
+        thread.Status = ThreadStatus.Archived;
+        _threadAgents.TryRemove(thread.Id, out _);
+        _threadModeManagers.TryRemove(thread.Id, out _);
+        _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
+        if (backgroundTerminalService != null)
+            await backgroundTerminalService.CleanThreadAsync(thread.Id, ct);
+        await PersistThreadStatusAsync(thread, ct);
+        PublishThreadStatusChanged(thread.Id, previousStatus, thread.Status);
+    }
+
+    private async Task UnarchiveThreadCoreAsync(SessionThread thread, CancellationToken ct)
+    {
+        if (thread.Status == ThreadStatus.Active)
+            return;
+        var previousStatus = thread.Status;
+        thread.Status = ThreadStatus.Active;
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await PersistThreadStatusAsync(thread, ct);
+        PublishThreadStatusChanged(thread.Id, previousStatus, thread.Status);
+    }
+
+    private async Task DeleteThreadCoreAsync(string threadId, CancellationToken ct)
+    {
+        if (_threads.TryGetValue(threadId, out var thread))
+        {
+            foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            {
+                var key = new TurnKey(threadId, turn.Id);
+                if (_runningTurns.TryRemove(key, out var turnCts))
+                    await turnCts.CancelAsync();
+                _pendingApprovals.TryRemove(key, out _);
+            }
+        }
+
+        await persistence.DeleteThreadCascadeAsync(threadId, ct);
+
+        _threads.TryRemove(threadId, out _);
+        _threadAgents.TryRemove(threadId, out _);
+        _threadModeManagers.TryRemove(threadId, out _);
+        _threadEventBrokers.TryRemove(threadId, out _);
+        if (_threadQueueLocks.TryRemove(threadId, out var queueLock))
+            queueLock.Dispose();
+        if (_threadAgentLocks.TryRemove(threadId, out var agentLock))
+            agentLock.Dispose();
+        _materializedThreads.TryRemove(threadId, out _);
+        _turnsSinceConsolidation.TryRemove(threadId, out _);
+        _threadPluginFunctionToolNames.TryRemove(threadId, out _);
+        if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
+            await mcpManager.DisposeAsync();
+        if (backgroundTerminalService != null)
+            await backgroundTerminalService.CleanThreadAsync(threadId, ct);
+
+        _threadsPendingPermanentDeletion.TryRemove(threadId, out _);
+        ThreadDeletedForBroadcast?.Invoke(threadId);
+    }
+
+    private void PublishThreadStatusChanged(string threadId, ThreadStatus previousStatus, ThreadStatus newStatus)
+    {
+        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, newStatus);
+        ThreadStatusChangedForBroadcast?.Invoke(threadId, previousStatus, newStatus);
     }
 
     private static bool OriginChannelInList(string originChannel, IReadOnlyList<string> origins)
@@ -949,7 +1265,7 @@ public sealed class SessionService(
                 long lastUsageInput = 0, lastUsageOutput = 0;
                 var pluginFunctionToolNames = GetPluginFunctionToolNames(threadId);
 
-                // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
+                // SubAgent progress aggregator: lazily created when SpawnAgent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
 
                 var effectiveWorkspacePath =
@@ -995,6 +1311,15 @@ public sealed class SessionService(
                         EmitItemCompleted = eventChannel.EmitItemCompleted,
                         SupportsCommandExecutionStreaming = supportsCommandExecutionStreaming
                     });
+                var currentSubAgentSource = thread.Source.SubAgent;
+                using var subAgentSessionScope = SubAgentSessionScope.Set(new SubAgentSessionContext
+                {
+                    SessionService = this,
+                    ParentThread = thread,
+                    ParentTurnId = turn.Id,
+                    RootThreadId = currentSubAgentSource?.RootThreadId ?? thread.Id,
+                    Depth = currentSubAgentSource?.Depth ?? 0
+                });
                 try
                 {
                     using var preSamplingCompactionScope = PreSamplingCompactionRuntimeScope.Set(
@@ -1202,14 +1527,14 @@ public sealed class SessionService(
                                         eventChannel.EmitItemCompleted(toolCallItem);
                                     }
 
-                                    // Track SubAgent progress when SpawnSubagent tool calls are detected
-                                    if (string.Equals(fc.Name, "SpawnSubagent", StringComparison.Ordinal)
+                                    // Track SubAgent progress when SpawnAgent tool calls are detected
+                                    if (string.Equals(fc.Name, "SpawnAgent", StringComparison.Ordinal)
                                         && fc.Arguments != null)
                                     {
-                                        var rawLabel = fc.Arguments.TryGetValue("label", out var labelObj)
+                                        var rawLabel = fc.Arguments.TryGetValue("agentNickname", out var labelObj)
                                             ? labelObj?.ToString()
                                             : null;
-                                        var rawTask = fc.Arguments.TryGetValue("task", out var taskObj)
+                                        var rawTask = fc.Arguments.TryGetValue("prompt", out var taskObj)
                                             ? taskObj?.ToString()
                                             : null;
 
@@ -1250,7 +1575,8 @@ public sealed class SessionService(
                                         {
                                             CallId = fr.CallId,
                                             Result = resultText,
-                                            Success = true
+                                            Success = fr.Exception == null
+                                                && !StreamingFunctionInvokingChatClient.IsInvalidToolArgumentsResult(fr)
                                         }
                                     };
                                     turn.Items.Add(toolResultItem);
@@ -2501,10 +2827,16 @@ public sealed class SessionService(
             : AgentMode.Agent;
         var mm = GetOrCreateModeManager(threadId, mode);
         var baseCtx = agentFactory.ToolProviderContext;
+        var agentControlToolAccess = ResolveAgentControlToolAccess(thread);
         var effectiveMainModel = baseCtx.OpenAIClientProvider.ResolveMainModel(baseCtx.Config, config.Model);
         var threadChatClient = ResolveThreadChatClient(baseCtx, effectiveMainModel);
         var externalCliSessionStore = new ThreadExternalCliSessionStore(thread);
-        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient, effectiveMainModel, externalCliSessionStore);
+        var threadBaseContext = CloneContextWithChatClient(
+            baseCtx,
+            threadChatClient,
+            effectiveMainModel,
+            externalCliSessionStore,
+            thread);
 
         ToolProviderContext? scopedContext = null;
         if (!string.IsNullOrEmpty(config.WorkspaceOverride))
@@ -2536,7 +2868,12 @@ public sealed class SessionService(
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
                 ExternalCliSessionStore = externalCliSessionStore,
                 AutomationTaskDirectory = config.AutomationTaskDirectory,
-                RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace
+                RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace,
+                CurrentThreadId = thread.Id,
+                CurrentThreadSource = thread.Source,
+                CurrentOriginChannel = thread.OriginChannel,
+                CurrentChannelContext = thread.ChannelContext,
+                AgentControlToolAccess = agentControlToolAccess
             };
         }
 
@@ -2618,7 +2955,13 @@ public sealed class SessionService(
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
                 ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
                 AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
-                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace
+                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace,
+                CurrentThreadId = scopedContext.CurrentThreadId,
+                CurrentThreadSource = scopedContext.CurrentThreadSource,
+                CurrentOriginChannel = scopedContext.CurrentOriginChannel,
+                CurrentChannelContext = scopedContext.CurrentChannelContext,
+                AgentControlToolAccess = scopedContext.AgentControlToolAccess,
+                AllowedAgentControlTools = scopedContext.AllowedAgentControlTools
             };
 
             var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
@@ -2678,7 +3021,8 @@ public sealed class SessionService(
         ToolProviderContext source,
         OpenAI.Chat.ChatClient chatClient,
         string effectiveMainModel,
-        IExternalCliSessionStore? externalCliSessionStore = null)
+        IExternalCliSessionStore? externalCliSessionStore = null,
+        SessionThread? thread = null)
     {
         var cloned = new ToolProviderContext
         {
@@ -2703,7 +3047,15 @@ public sealed class SessionService(
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,
             RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,
-            DeferredToolRegistry = source.DeferredToolRegistry
+            DeferredToolRegistry = source.DeferredToolRegistry,
+            CurrentThreadId = thread?.Id ?? source.CurrentThreadId,
+            CurrentThreadSource = thread?.Source ?? source.CurrentThreadSource,
+            CurrentOriginChannel = thread?.OriginChannel ?? source.CurrentOriginChannel,
+            CurrentChannelContext = thread?.ChannelContext ?? source.CurrentChannelContext,
+            AgentControlToolAccess = thread == null
+                ? source.AgentControlToolAccess
+                : ResolveAgentControlToolAccess(thread),
+            AllowedAgentControlTools = thread == null ? source.AllowedAgentControlTools : null
         };
         return cloned;
     }

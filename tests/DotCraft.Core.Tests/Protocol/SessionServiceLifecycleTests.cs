@@ -270,6 +270,160 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task FindThreads_SubAgentThreadsHiddenByDefault()
+    {
+        var identity = MakeIdentity("user1", "/ws/alpha");
+        var parent = await _svc.CreateThreadAsync(identity);
+        var childIdentity = new SessionIdentity
+        {
+            ChannelName = SubAgentThreadOrigin.ChannelName,
+            UserId = identity.UserId,
+            WorkspacePath = identity.WorkspacePath,
+            ChannelContext = parent.Id
+        };
+
+        var child = await _svc.CreateThreadAsync(
+            childIdentity,
+            threadId: "child-thread",
+            displayName: "Worker",
+            source: ThreadSource.ForSubAgent(new SubAgentThreadSource
+            {
+                ParentThreadId = parent.Id,
+                ParentTurnId = "turn_1",
+                RootThreadId = parent.Id,
+                Depth = 1,
+                AgentNickname = "Worker",
+                AgentRole = "worker"
+            }));
+
+        var defaultResults = await _svc.FindThreadsAsync(identity);
+        var includeSubAgentsResults = await _svc.FindThreadsAsync(identity, includeSubAgents: true);
+
+        Assert.Contains(defaultResults, s => s.Id == parent.Id);
+        Assert.DoesNotContain(defaultResults, s => s.Id == child.Id);
+        Assert.Contains(includeSubAgentsResults, s => s.Id == child.Id);
+    }
+
+    [Fact]
+    public async Task ThreadSpawnEdges_ListOpenChildrenAndCanClose()
+    {
+        var parent = await _svc.CreateThreadAsync(MakeIdentity());
+        var child = await _svc.CreateThreadAsync(new SessionIdentity
+        {
+            ChannelName = SubAgentThreadOrigin.ChannelName,
+            UserId = parent.UserId,
+            WorkspacePath = parent.WorkspacePath,
+            ChannelContext = parent.Id
+        });
+        await _svc.UpsertThreadSpawnEdgeAsync(new ThreadSpawnEdge
+        {
+            ParentThreadId = parent.Id,
+            ChildThreadId = child.Id,
+            ParentTurnId = "turn_1",
+            Depth = 1,
+            AgentNickname = "Worker",
+            AgentRole = "worker",
+            Status = ThreadSpawnEdgeStatus.Open
+        });
+
+        var open = await _svc.ListSubAgentChildrenAsync(parent.Id);
+        await _svc.SetThreadSpawnEdgeStatusAsync(parent.Id, child.Id, ThreadSpawnEdgeStatus.Closed);
+        var visibleAfterClose = await _svc.ListSubAgentChildrenAsync(parent.Id);
+        var allAfterClose = await _svc.ListSubAgentChildrenAsync(parent.Id, includeClosed: true);
+
+        var edge = Assert.Single(open);
+        Assert.Equal(child.Id, edge.ChildThreadId);
+        Assert.Empty(visibleAfterClose);
+        Assert.Equal(ThreadSpawnEdgeStatus.Closed, Assert.Single(allAfterClose).Status);
+    }
+
+    [Fact]
+    public async Task ArchiveThread_ArchivesSubAgentDescendantsAndHidesThemFromActiveLists()
+    {
+        var identity = MakeIdentity();
+        var parent = await _svc.CreateThreadAsync(identity);
+        var child = await CreateSubAgentAsync(parent, "child-thread");
+        var grandchild = await CreateSubAgentAsync(child, "grandchild-thread");
+
+        await _svc.ArchiveThreadAsync(parent.Id);
+
+        Assert.Equal(ThreadStatus.Archived, (await _store.LoadThreadAsync(parent.Id))!.Status);
+        Assert.Equal(ThreadStatus.Archived, (await _store.LoadThreadAsync(child.Id))!.Status);
+        Assert.Equal(ThreadStatus.Archived, (await _store.LoadThreadAsync(grandchild.Id))!.Status);
+
+        var active = await _svc.FindThreadsAsync(identity, includeSubAgents: true);
+        Assert.DoesNotContain(active, s => s.Id == parent.Id);
+        Assert.DoesNotContain(active, s => s.Id == child.Id);
+        Assert.DoesNotContain(active, s => s.Id == grandchild.Id);
+    }
+
+    [Fact]
+    public async Task UnarchiveThread_RestoresSubAgentDescendants()
+    {
+        var identity = MakeIdentity();
+        var parent = await _svc.CreateThreadAsync(identity);
+        var child = await CreateSubAgentAsync(parent, "child-thread");
+        var grandchild = await CreateSubAgentAsync(child, "grandchild-thread");
+        await _svc.ArchiveThreadAsync(parent.Id);
+
+        await _svc.UnarchiveThreadAsync(parent.Id);
+
+        Assert.Equal(ThreadStatus.Active, (await _store.LoadThreadAsync(parent.Id))!.Status);
+        Assert.Equal(ThreadStatus.Active, (await _store.LoadThreadAsync(child.Id))!.Status);
+        Assert.Equal(ThreadStatus.Active, (await _store.LoadThreadAsync(grandchild.Id))!.Status);
+
+        var active = await _svc.FindThreadsAsync(identity, includeSubAgents: true);
+        Assert.Contains(active, s => s.Id == parent.Id);
+        Assert.Contains(active, s => s.Id == child.Id);
+        Assert.Contains(active, s => s.Id == grandchild.Id);
+    }
+
+    [Fact]
+    public async Task DeleteThreadPermanentlyAsync_DeletesSubAgentDescendantsAndEdges()
+    {
+        var parent = await _svc.CreateThreadAsync(MakeIdentity());
+        var child = await CreateSubAgentAsync(parent, "child-thread");
+        var grandchild = await CreateSubAgentAsync(child, "grandchild-thread");
+        await _svc.ArchiveThreadAsync(parent.Id);
+
+        await _svc.DeleteThreadPermanentlyAsync(parent.Id);
+
+        Assert.Null(await _store.LoadThreadAsync(parent.Id));
+        Assert.Null(await _store.LoadThreadAsync(child.Id));
+        Assert.Null(await _store.LoadThreadAsync(grandchild.Id));
+        Assert.Empty(await _store.ListSubAgentChildrenAsync(parent.Id, includeClosed: true));
+        Assert.Empty(await _store.ListSubAgentChildrenAsync(child.Id, includeClosed: true));
+    }
+
+    [Fact]
+    public async Task DirectSubAgentArchiveOrDelete_Throws()
+    {
+        var parent = await _svc.CreateThreadAsync(MakeIdentity());
+        var child = await CreateSubAgentAsync(parent, "child-thread");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _svc.ArchiveThreadAsync(child.Id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _svc.DeleteThreadPermanentlyAsync(child.Id));
+
+        Assert.NotNull(await _store.LoadThreadAsync(parent.Id));
+        Assert.NotNull(await _store.LoadThreadAsync(child.Id));
+    }
+
+    [Fact]
+    public async Task FindThreads_HidesActiveSubAgentWhenParentIsArchived()
+    {
+        var identity = MakeIdentity();
+        var parent = await _svc.CreateThreadAsync(identity);
+        var child = await CreateSubAgentAsync(parent, "child-thread");
+        parent.Status = ThreadStatus.Archived;
+        await _store.SaveThreadAsync(parent);
+
+        var active = await _svc.FindThreadsAsync(identity, includeSubAgents: true);
+
+        Assert.DoesNotContain(active, s => s.Id == parent.Id);
+        Assert.DoesNotContain(active, s => s.Id == child.Id);
+    }
+
+    [Fact]
     public async Task FindThreads_ChannelContextIsolation_DifferentContextsReturnSeparateThreads()
     {
         var ws = Path.Combine(Path.GetTempPath(), "ctx_test_" + Guid.NewGuid().ToString("N")[..8]);
@@ -473,6 +627,40 @@ public sealed class SessionServiceLifecycleTests : IDisposable
 
     private static SessionIdentity MakeIdentity(string? userId = "user1", string? workspace = "/workspace") =>
         new() { ChannelName = "test", UserId = userId, WorkspacePath = workspace ?? "/workspace" };
+
+    private async Task<SessionThread> CreateSubAgentAsync(SessionThread parent, string threadId)
+    {
+        var rootThreadId = parent.Source.SubAgent?.RootThreadId;
+        if (string.IsNullOrWhiteSpace(rootThreadId))
+            rootThreadId = parent.Id;
+        var depth = parent.Source.SubAgent?.Depth + 1 ?? 1;
+        var child = await _svc.CreateThreadAsync(
+            new SessionIdentity
+            {
+                ChannelName = SubAgentThreadOrigin.ChannelName,
+                UserId = parent.UserId,
+                WorkspacePath = parent.WorkspacePath,
+                ChannelContext = parent.Id
+            },
+            threadId: threadId,
+            displayName: threadId,
+            source: ThreadSource.ForSubAgent(new SubAgentThreadSource
+            {
+                ParentThreadId = parent.Id,
+                RootThreadId = rootThreadId,
+                Depth = depth,
+                AgentNickname = threadId
+            }));
+        await _svc.UpsertThreadSpawnEdgeAsync(new ThreadSpawnEdge
+        {
+            ParentThreadId = parent.Id,
+            ChildThreadId = child.Id,
+            Depth = depth,
+            AgentNickname = threadId,
+            Status = ThreadSpawnEdgeStatus.Open
+        });
+        return child;
+    }
 }
 
 /// <summary>
@@ -496,6 +684,9 @@ internal sealed class FakeSessionService : ISessionService
     public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
     /// <inheritdoc />
+    public Action<string, ThreadStatus, ThreadStatus>? ThreadStatusChangedForBroadcast { get; set; }
+
+    /// <inheritdoc />
     public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 
     /// <inheritdoc />
@@ -507,7 +698,8 @@ internal sealed class FakeSessionService : ISessionService
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
         string? displayName = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ThreadSource? source = null)
     {
         var thread = new SessionThread
         {
@@ -520,7 +712,8 @@ internal sealed class FakeSessionService : ISessionService
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
             Configuration = config,
-            DisplayName = displayName
+            DisplayName = displayName,
+            Source = source ?? ThreadSource.User()
         };
 
         if (identity.ChannelContext != null)
@@ -578,19 +771,33 @@ internal sealed class FakeSessionService : ISessionService
 
     public async Task ArchiveThreadAsync(string threadId, CancellationToken ct = default)
     {
-        var thread = await GetOrLoadAsync(threadId, ct);
-        if (thread.Status == ThreadStatus.Archived) return;
-        thread.Status = ThreadStatus.Archived;
-        await _store.SaveThreadAsync(thread, ct);
+        var root = await GetOrLoadAsync(threadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "archive");
+        foreach (var id in await CollectSubAgentSubtreeIdsAsync(root.Id, ct))
+        {
+            var thread = await GetOrLoadAsync(id, ct);
+            if (thread.Status == ThreadStatus.Archived) continue;
+            var previous = thread.Status;
+            thread.Status = ThreadStatus.Archived;
+            await _store.SaveThreadAsync(thread, ct);
+            ThreadStatusChangedForBroadcast?.Invoke(thread.Id, previous, thread.Status);
+        }
     }
 
     public async Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default)
     {
-        var thread = await GetOrLoadAsync(threadId, ct);
-        if (thread.Status == ThreadStatus.Active) return;
-        thread.Status = ThreadStatus.Active;
-        thread.LastActiveAt = DateTimeOffset.UtcNow;
-        await _store.SaveThreadAsync(thread, ct);
+        var root = await GetOrLoadAsync(threadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "unarchive");
+        foreach (var id in await CollectSubAgentSubtreeIdsAsync(root.Id, ct))
+        {
+            var thread = await GetOrLoadAsync(id, ct);
+            if (thread.Status == ThreadStatus.Active) continue;
+            var previous = thread.Status;
+            thread.Status = ThreadStatus.Active;
+            thread.LastActiveAt = DateTimeOffset.UtcNow;
+            await _store.SaveThreadAsync(thread, ct);
+            ThreadStatusChangedForBroadcast?.Invoke(thread.Id, previous, thread.Status);
+        }
     }
 
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
@@ -607,9 +814,11 @@ internal sealed class FakeSessionService : ISessionService
         SessionIdentity identity,
         bool includeArchived = false,
         IReadOnlyList<string>? crossChannelOrigins = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool includeSubAgents = false)
     {
         var index = await _store.LoadIndexAsync(ct);
+        var byId = index.ToDictionary(s => s.Id, StringComparer.OrdinalIgnoreCase);
         var hasCross = crossChannelOrigins is { Count: > 0 };
         return index
             .Where(s =>
@@ -618,6 +827,17 @@ internal sealed class FakeSessionService : ISessionService
                     return false;
                 if (!(includeArchived || s.Status != ThreadStatus.Archived))
                     return false;
+                if (!includeSubAgents && (string.Equals(s.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(s.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+                if (includeSubAgents
+                    && IsSubAgentSummary(s)
+                    && IsHiddenByArchivedParent(s, byId, includeArchived))
+                    return false;
+                if (includeSubAgents
+                    && IsSubAgentSummary(s)
+                    && (identity.UserId == null || s.UserId == identity.UserId))
+                    return true;
 
                 var identityMatch =
                     (identity.UserId == null || s.UserId == identity.UserId)
@@ -642,6 +862,22 @@ internal sealed class FakeSessionService : ISessionService
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }
+
+    public Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default) =>
+        _store.UpsertThreadSpawnEdgeAsync(edge, ct);
+
+    public Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default) =>
+        _store.SetThreadSpawnEdgeStatusAsync(parentThreadId, childThreadId, status, ct);
+
+    public Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
+        CancellationToken ct = default) =>
+        _store.ListSubAgentChildrenAsync(parentThreadId, includeClosed, ct);
 
     public async Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default) =>
         await GetOrLoadAsync(threadId, ct);
@@ -744,13 +980,17 @@ internal sealed class FakeSessionService : ISessionService
         await _store.SaveThreadAsync(thread, ct);
     }
 
-    public Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
+    public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
     {
-        _threads.Remove(threadId);
-        _store.DeleteThread(threadId);
-        _store.DeleteSessionFile(threadId);
-        ThreadDeletedForBroadcast?.Invoke(threadId);
-        return Task.CompletedTask;
+        var root = await GetOrLoadAsync(threadId, ct);
+        ThrowIfDirectSubAgentLifecycleOperation(root, "delete");
+        foreach (var id in (await CollectSubAgentSubtreeIdsAsync(threadId, ct)).Reverse())
+        {
+            _threads.Remove(id);
+            _store.DeleteThread(id);
+            _store.DeleteSessionFile(id);
+            ThreadDeletedForBroadcast?.Invoke(id);
+        }
     }
 
     private async Task<SessionThread> GetOrLoadAsync(string threadId, CancellationToken ct)
@@ -760,6 +1000,57 @@ internal sealed class FakeSessionService : ISessionService
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
         _threads[threadId] = loaded;
         return loaded;
+    }
+
+    private async Task<IReadOnlyList<string>> CollectSubAgentSubtreeIdsAsync(string rootThreadId, CancellationToken ct)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        async Task VisitAsync(string id)
+        {
+            if (!seen.Add(id)) return;
+            result.Add(id);
+            var children = await _store.ListSubAgentChildrenAsync(id, includeClosed: true, ct);
+            foreach (var child in children)
+                await VisitAsync(child.ChildThreadId);
+        }
+
+        await VisitAsync(rootThreadId);
+        return result;
+    }
+
+    private static void ThrowIfDirectSubAgentLifecycleOperation(SessionThread thread, string operation)
+    {
+        if (!IsSubAgentThread(thread)) return;
+        var parentId = thread.Source.SubAgent?.ParentThreadId?.Trim();
+        if (string.IsNullOrWhiteSpace(parentId))
+            parentId = thread.ChannelContext?.Trim();
+        if (!string.IsNullOrWhiteSpace(parentId))
+            throw new InvalidOperationException(
+                $"SubAgent child thread '{thread.Id}' cannot be {operation}d directly; manage its parent thread '{parentId}' instead.");
+    }
+
+    private static bool IsSubAgentThread(SessionThread thread) =>
+        string.Equals(thread.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(thread.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSubAgentSummary(ThreadSummary summary) =>
+        string.Equals(summary.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(summary.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsHiddenByArchivedParent(
+        ThreadSummary summary,
+        IReadOnlyDictionary<string, ThreadSummary> byId,
+        bool includeArchived)
+    {
+        if (includeArchived) return false;
+        var parentId = summary.Source.SubAgent?.ParentThreadId?.Trim();
+        if (string.IsNullOrWhiteSpace(parentId))
+            parentId = summary.ChannelContext?.Trim();
+        return !string.IsNullOrWhiteSpace(parentId)
+            && byId.TryGetValue(parentId, out var parent)
+            && parent.Status == ThreadStatus.Archived;
     }
 
     private static async IAsyncEnumerable<SessionEvent> EmptyEvents()

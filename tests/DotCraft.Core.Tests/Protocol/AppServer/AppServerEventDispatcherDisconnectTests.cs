@@ -1,4 +1,3 @@
-using System.IO;
 using System.Runtime.CompilerServices;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;

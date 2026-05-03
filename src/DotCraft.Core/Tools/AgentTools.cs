@@ -1,6 +1,7 @@
 using System.ComponentModel;
+using System.Text.Json;
 using DotCraft.Agents;
-using DotCraft.Security;
+using DotCraft.Protocol;
 
 namespace DotCraft.Tools;
 
@@ -9,59 +10,115 @@ namespace DotCraft.Tools;
 /// </summary>
 public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
 {
+    private static readonly JsonSerializerOptions ResultJsonOptions = new(JsonSerializerOptions.Web);
+
     [Description("""
-        Launch a subagent to autonomously handle a research or exploration task and report back.
-
-        The subagent has access to: ReadFile, WriteFile, GrepFiles, FindFiles, Exec (shell), WebSearch, WebFetch.
-        It runs independently in parallel and returns a single result message when done.
-
-        ### When to Use (prefer SpawnSubagent over doing the work yourself)
-        - Open-ended codebase exploration that requires multiple rounds of search (e.g. "find all places that handle X", "understand how Y is implemented across the project")
-        - Researching an unfamiliar part of the codebase before you start editing
-        - Any investigation where you are not confident you will find the answer in 1-2 tool calls
-        - When multiple independent questions can be investigated in parallel — launch multiple subagents concurrently in a single response for maximum performance
-        - Web research tasks (searching docs, fetching references) that run in parallel with other work
-
-        ### When NOT to Use (do the work directly instead)
-        - Reading a specific file at a known path — use ReadFile directly
-        - Searching within 1-2 specific files — use ReadFile or GrepFiles directly
-        - Looking up a specific class/symbol whose location you already know — use GrepFiles directly
-        - Trivial single-step lookups that will succeed on the first try
-        - Edit and write file
-
-        ### Usage Notes
-        1. Launch multiple subagents concurrently whenever possible: include multiple SpawnSubagent calls in a single response
-        2. Native subagents are stateless. External CLI profiles may continue a prior external session when the workspace enables that behavior and you reuse the same profile + label
-        3. Specify exactly what information the subagent should return in its result
-        4. The subagent's output is trusted for broad findings; use it to guide your next actions, but the main agent owns synthesis and should inspect critical files when needed before finalizing a plan
-        5. Available subagent profiles are listed in the system prompt
-        6. Do not guess profile names that are not listed there
-        7. External CLI profiles may expose stage-level progress, but not native tool-by-tool execution details
-        8. Pass workingDirectory only when the selected profile requires it
-        """)]
-    [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnSubagent))]
+        Spawn a session-backed subagent as a child thread.
+        Use this for collaborative background work when the parent agent can continue while the child thread runs.
+        Returns a compact JSON string. The returned childThreadId can be passed to SendInput, WaitAgent, ResumeAgent, and CloseAgent.
+        Available profile names are listed in the system prompt. The default profile is native.
+        External CLI profiles provide a persisted synthetic child turn with stage-level progress and a final result.
+        SendInput works for native profiles and for external CLI profiles only when the profile supports resume and workspace resume is enabled.
+        Child agent output is trusted for broad findings; the main agent owns synthesis and should inspect critical files when needed before finalizing a plan.
+    """)]
+    [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnAgent))]
     [StreamArguments(false)]
-    public async Task<string> SpawnSubagent(
-        [Description("A detailed, self-contained description of the task for the subagent to execute autonomously. Include what to investigate, what tools to use, and exactly what to report back.")] string task,
-        [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null,
-        [Description("Optional named subagent profile. Defaults to native when omitted.")] string? profile = null,
-        [Description("Optional working directory used when the selected profile requires a specified working directory.")] string? workingDirectory = null,
+    public async Task<string> SpawnAgent(
+        [Description("Required non-empty self-contained task prompt for the child agent thread. Always provide this argument.")] string prompt,
+        [Description("Optional short name shown in UI for this child agent.")] string? agentNickname = null,
+        [Description("Optional role label such as worker, explorer, or reviewer.")] string? agentRole = null,
+        [Description("Optional named subagent profile. Defaults to native when omitted. Use only profile names listed in the system prompt.")] string? profile = null,
+        [Description("Optional working directory for the child thread. Defaults to the parent thread workspace.")] string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {
-        if (subAgentManager == null)
-        {
-            return "Subagent functionality is not available.";
-        }
+        var sessionContext = SubAgentSessionScope.Current
+            ?? throw new InvalidOperationException("SpawnAgent is available only inside a Session Core turn.");
 
-        return await subAgentManager.RunAsync(
-            new SubAgentTaskRequest
+        var result = await SubAgentSessionControl.SpawnAgentAsync(
+            sessionContext,
+            new SubAgentSpawnOptions
             {
-                Task = task,
-                Label = label,
-                WorkingDirectory = workingDirectory,
-                ApprovalContext = ApprovalContextScope.Current
+                Prompt = prompt,
+                AgentNickname = agentNickname,
+                AgentRole = agentRole,
+                ProfileName = profile,
+                WorkingDirectory = workingDirectory
             },
-            profile,
+            waitForCompletion: false,
+            subAgentManager,
             cancellationToken);
+        return SerializeResult(result);
     }
+
+    [Description("Send another user message to a session-backed child agent thread.")]
+    [Tool(Icon = "💬")]
+    [StreamArguments(false)]
+    public async Task<string> SendInput(
+        [Description("Child agent thread id returned by SpawnAgent.")] string childThreadId,
+        [Description("Message to send to the child agent.")] string message,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionContext = SubAgentSessionScope.Current
+            ?? throw new InvalidOperationException("SendInput is available only inside a Session Core turn.");
+        var result = await SubAgentSessionControl.SendInputAsync(
+            sessionContext.SessionService,
+            childThreadId,
+            message,
+            subAgentManager,
+            cancellationToken);
+        return SerializeResult(result);
+    }
+
+    [Description("Wait for a session-backed child agent thread to finish its current turn and return its final message.")]
+    [Tool(Icon = "⏱️")]
+    [StreamArguments(false)]
+    public async Task<string> WaitAgent(
+        [Description("Child agent thread id returned by SpawnAgent.")] string childThreadId,
+        [Description("Optional timeout in seconds. Omit or pass 0 to wait without a timeout.")] int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionContext = SubAgentSessionScope.Current
+            ?? throw new InvalidOperationException("WaitAgent is available only inside a Session Core turn.");
+        var result = await SubAgentSessionControl.WaitAgentAsync(
+            sessionContext.SessionService,
+            childThreadId,
+            timeoutSeconds,
+            cancellationToken);
+        return SerializeResult(result);
+    }
+
+    [Description("Resume a paused or closed child agent thread and reopen its parent-child edge.")]
+    [Tool(Icon = "▶️")]
+    [StreamArguments(false)]
+    public async Task<string> ResumeAgent(
+        [Description("Child agent thread id returned by SpawnAgent.")] string childThreadId,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionContext = SubAgentSessionScope.Current
+            ?? throw new InvalidOperationException("ResumeAgent is available only inside a Session Core turn.");
+        var result = await SubAgentSessionControl.ResumeAgentAsync(
+            sessionContext.SessionService,
+            childThreadId,
+            cancellationToken);
+        return SerializeResult(result);
+    }
+
+    [Description("Close a child agent thread edge and cancel its active turn if one is running.")]
+    [Tool(Icon = "⏹️")]
+    [StreamArguments(false)]
+    public async Task<string> CloseAgent(
+        [Description("Child agent thread id returned by SpawnAgent.")] string childThreadId,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionContext = SubAgentSessionScope.Current
+            ?? throw new InvalidOperationException("CloseAgent is available only inside a Session Core turn.");
+        var result = await SubAgentSessionControl.CloseAgentAsync(
+            sessionContext.SessionService,
+            childThreadId,
+            cancellationToken);
+        return SerializeResult(result);
+    }
+
+    private static string SerializeResult(SubAgentControlResult result) =>
+        JsonSerializer.Serialize(result, ResultJsonOptions);
 }

@@ -73,6 +73,15 @@ describe('getStreamingToolDisplay', () => {
     expect(display.label).toBe('Searching the web for "rust streams"...')
   })
 
+  it('renders SpawnAgent streaming label from the new argument names', () => {
+    const display = getStreamingToolDisplay(
+      'SpawnAgent',
+      '{"prompt":"Build tests","agentNickname":"tester","profile":"native"',
+      'en'
+    )
+    expect(display.label).toBe('Spawning agent: tester...')
+  })
+
   it('renders generic builtin label for recognised but unsupported tool', () => {
     const display = getStreamingToolDisplay('CommitSuggest', '{}', 'en')
     expect(display.label).toBe('Preparing commit message...')
@@ -88,6 +97,7 @@ describe('isBuiltinTool / BUILTIN_TOOLS', () => {
   it('recognises PascalCase built-in tool names', () => {
     expect(isBuiltinTool('ReadFile')).toBe(true)
     expect(isBuiltinTool('CreatePlan')).toBe(true)
+    expect(isBuiltinTool('SpawnAgent')).toBe(true)
     expect(isBuiltinTool('acme_mcp_tool')).toBe(false)
   })
 

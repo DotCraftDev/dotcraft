@@ -198,6 +198,9 @@ Fields:
   - Informational only; does not restrict which channels can resume the Thread.
 - `DisplayName` (string, nullable)
   - Human-readable label. Defaults to the first user message text (truncated). Can be set explicitly.
+- `Source` (ThreadSource)
+  - Describes why this thread exists. `kind: "user"` is the default top-level conversation.
+  - `kind: "subagent"` marks a child thread spawned from another thread turn and carries parent thread, parent turn, root thread, depth, nickname, role, profile, and runtime metadata.
 - `Status` (enum: `Active`, `Paused`, `Archived`)
   - See Section 5.1 for lifecycle rules.
 - `CreatedAt` (UTC timestamp)
@@ -217,6 +220,18 @@ Fields:
 #### 4.1.1.1 QueuedTurnInput
 
 A QueuedTurnInput is a durable snapshot of user input waiting to become a future Turn.
+
+#### 4.1.1.2 SubAgent Child Threads
+
+Profile-backed SubAgents are represented as ordinary `SessionThread` instances with `Source.kind = "subagent"` and `OriginChannel = "subagent"`. Native profiles use the same turn, item, approval, persistence, and resume path as main agent threads. External CLI profiles persist synthetic turns containing the submitted prompt, final output or error, and token metadata when available.
+
+SubAgent child threads use normal session tool construction with `AgentControlToolAccess.Disabled`, so DotCraft SubAgent control tools (`SpawnAgent`, `SendInput`, `WaitAgent`, `ResumeAgent`, `CloseAgent`) are not exposed to child agents. This prevents recursive background-agent orchestration from a child thread while preserving ordinary file, shell, web, skill, MCP, and external tools.
+
+Session Core persists a `ThreadSpawnEdge` graph row for each parent/child relationship: `parentThreadId`, `childThreadId`, `parentTurnId`, `depth`, `agentNickname`, `agentRole`, `profileName`, `runtimeType`, `supportsSendInput`, `supportsResume`, `supportsClose`, `status` (`open` or `closed`), `createdAt`, and `updatedAt`.
+
+Top-level thread discovery hides subagent threads by default. Callers that need a raw mixed list must request `includeSubAgents`; active lists still hide children whose parent is archived. Clients that render a Codex-style background-agent widget should prefer the edge list for the active parent thread.
+
+SubAgent child thread lifecycle is owned by the parent thread. Archiving, restoring, or permanently deleting a parent recursively applies to all descendant child threads. Direct archive/delete calls against a child thread are invalid; clients should close/resume children through the SubAgent control APIs or manage the parent thread.
 
 Fields:
 
@@ -549,7 +564,11 @@ rather than part of the model conversation.
 - `Active` → `Archived`
   - Triggered by explicit adapter request or by archival policy (e.g., "archive threads inactive for 30 days").
   - Archived threads are read-only. They can be listed and inspected but not resumed.
-  - Archival is permanent within this spec version (no unarchive).
+  - Archiving a parent thread recursively archives its SubAgent child subtree.
+
+- `Archived` → `Active` (via `UnarchiveThread`)
+  - Triggered by explicit restore request.
+  - Restoring a parent thread recursively restores its SubAgent child subtree.
 
 **Invariants**:
 
@@ -764,7 +783,7 @@ SessionEvent
 #### SubAgent Progress Events
 
 - **`subagent/progress`**
-  - Emitted periodically (~200ms) during Turn execution when one or more SubAgent tool calls (`SpawnSubagent`) are active.
+  - Emitted periodically (~200ms) during Turn execution when one or more SubAgent tool calls (`SpawnAgent`) are active.
   - Provides a snapshot of all active SubAgents' real-time execution progress, including the tool currently being executed, cumulative token consumption, and completion status.
   - Payload:
 
@@ -772,7 +791,7 @@ SessionEvent
     {
       "entries": [
         {
-          "label": string,          // SubAgent identifier/label (matches the label argument passed to SpawnSubagent)
+          "label": string,          // SubAgent identifier/label (matches the agentNickname argument passed to SpawnAgent)
           "currentTool": string,    // Name of the tool the SubAgent is currently executing (nullable, null when thinking)
           "inputTokens": long,      // Cumulative input token consumption
           "outputTokens": long,     // Cumulative output token consumption
@@ -784,10 +803,10 @@ SessionEvent
 
   - **Emission rules**:
     - The event is emitted by a periodic aggregator (~200ms interval) that snapshots the in-process `SubAgentProgressBridge` state.
-    - The aggregator starts when the first `SpawnSubagent` tool call begins within a Turn, and stops when the Turn ends or all tracked SubAgents have completed.
+    - The aggregator starts when the first `SpawnAgent` tool call begins within a Turn, and stops when the Turn ends or all tracked SubAgents have completed.
     - Each notification contains the **complete snapshot** of all tracked SubAgents (not incremental deltas), so clients can replace their local state on each receipt.
     - The event is injected into the Turn's event stream as a sideband signal — it may interleave with `item/started`, `item/delta`, and `item/completed` events. This is expected behavior.
-  - **Relationship to Item events**: SubAgent execution is triggered by `SpawnSubagent` tool calls, which appear as `item/started` (type `toolCall`, toolName `SpawnSubagent`) and `item/completed` (type `toolResult`) events. The `subagent/progress` event provides fine-grained intermediate progress that is not captured by the standard Item lifecycle.
+  - **Relationship to Item events**: SubAgent execution is triggered by `SpawnAgent` tool calls, which appear as `item/started` (type `toolCall`, toolName `SpawnAgent`) and `item/completed` (type `toolResult`) events. The `subagent/progress` event provides fine-grained intermediate progress that is not captured by the standard Item lifecycle.
   - **Adapters**: Adapters that render SubAgent progress (e.g., CLI Live Table) should consume `subagent/progress` events to update their UI. Adapters that do not need SubAgent progress may ignore this event type or opt out via `optOutNotificationMethods`.
 
 #### System Events

@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Session-backed SubAgent child-thread listing/close/resume with the `subAgentSessions` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -482,7 +482,7 @@ Approval semantics:
 
 The server also emits a `thread/started` notification after the response.
 
-In a shared Session Core process (typical AppServer mode), when **any** channel creates a thread (not only via `thread/start` on this connection), the server **broadcasts** the same `thread/started` notification to **all** connected clients. Clients that already received `thread/started` from their own `thread/start` should dedupe by thread id.
+In a shared Session Core process (typical AppServer mode), when **any** channel creates a thread (not only via `thread/start` on this connection), the server **broadcasts** the same `thread/started` notification to connected clients. For ordinary `thread/start` RPCs, the initiating client may receive the post-response notification from the request handler instead of the shared broadcast and should dedupe by thread id. Session-backed SubAgent child threads are always broadcast to the current connection as well, because their creation happens inside a parent turn/tool call and has no direct `thread/start` response.
 
 **Example**:
 
@@ -553,6 +553,7 @@ List threads matching a given identity.
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Identity to filter by. |
 | `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set alongside non-archived threads. |
+| `includeSubAgents` | boolean | no | Default `false`. When `true`, session-backed subagent child threads may be included in the mixed result set. Children whose parent is archived are still hidden unless `includeArchived` is also true. Widget-style clients should prefer `subagent/children/list` for a parent thread. |
 | `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, no cross-channel origin list is applied. When present as an array (possibly empty), non-empty values additionally return threads whose `originChannel` is in the list with the same `workspacePath` and `userId` as `identity`, ignoring `channelContext`. See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
 | `channelName` | string | no | When set, post-filters results to threads whose persisted `originChannel` matches (case-insensitive). Same as existing filter. |
 
@@ -722,7 +723,7 @@ The server emits a `thread/statusChanged` notification.
 
 ### 4.9 `thread/archive`
 
-Archive a thread. Archived threads are read-only — they can be listed and read but not resumed or turned.
+Archive a thread. Archived threads are read-only — they can be listed and read but not resumed or turned. If the target is a top-level parent with session-backed SubAgent descendants, the server recursively archives the full child-thread subtree. Directly archiving a SubAgent child thread is invalid; callers manage it through its parent.
 
 **Direction**: client → server (request)
 
@@ -738,7 +739,7 @@ The server emits a `thread/statusChanged` notification.
 
 ### 4.10 `thread/unarchive`
 
-Restore an archived thread to Active status so it can appear in the normal active thread list again.
+Restore an archived thread to Active status so it can appear in the normal active thread list again. If the target is a top-level parent with session-backed SubAgent descendants, the server recursively restores the full child-thread subtree.
 
 **Direction**: client → server (request)
 
@@ -754,7 +755,7 @@ The server emits a `thread/statusChanged` notification with `newStatus: "active"
 
 ### 4.11 `thread/delete`
 
-Permanently delete a thread, its associated session data, and all tracing sessions/events bound to that thread.
+Permanently delete a thread, its associated session data, and all tracing sessions/events bound to that thread. If the target is a top-level parent with session-backed SubAgent descendants, the server recursively deletes the full child-thread subtree and its graph edges. Directly deleting a SubAgent child thread is invalid; callers manage it through its parent.
 
 **Direction**: client → server (request)
 
@@ -766,7 +767,7 @@ Permanently delete a thread, its associated session data, and all tracing sessio
 
 **Result**: `{}`
 
-After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Deletion is only considered successful after the persisted thread record and all bound tracing data have been removed. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
+After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). For recursive SubAgent deletion, a notification is emitted for each removed thread. Deletion is only considered successful after the persisted thread record and all bound tracing data have been removed. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
 
 ### 4.12 `thread/mode/set`
 
@@ -1110,7 +1111,7 @@ All notifications share the pattern:
 
 #### `thread/started`
 
-Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process.
+Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to connected clients** when a thread is created by any other channel in the same process. Session-backed SubAgent child thread creation is broadcast to the current connection too so sidebar/thread-list UIs can show the child immediately while the parent turn is still running.
 
 **Params**: `{ "thread": Thread }`
 
@@ -1464,7 +1465,7 @@ Emitted after the client responds to an approval request and the server processe
 
 #### `subagent/progress`
 
-Emitted periodically (~200ms) when one or more SubAgent tool calls (`SpawnSubagent`) are active during a Turn. Each notification carries a **complete snapshot** of all tracked SubAgents' progress, allowing clients to replace their local state on each receipt.
+Emitted periodically (~200ms) when one or more SubAgent tool calls (`SpawnAgent`) are active during a Turn. Each notification carries a **complete snapshot** of all tracked SubAgents' progress, allowing clients to replace their local state on each receipt.
 
 This notification is a sideband signal — it may interleave with `item/*` and `turn/*` notifications.
 
@@ -1503,7 +1504,7 @@ This notification is a sideband signal — it may interleave with `item/*` and `
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `label` | string | SubAgent identifier/label (matches the `label` argument passed to `SpawnSubagent`). |
+| `label` | string | SubAgent identifier/label (matches the `agentNickname` argument passed to `SpawnAgent`). |
 | `currentTool` | string? | Name of the tool the SubAgent is currently executing. `null` when the SubAgent is thinking (waiting for model response). |
 | `inputTokens` | integer | Cumulative input token consumption. |
 | `outputTokens` | integer | Cumulative output token consumption. |
@@ -1516,6 +1517,12 @@ This notification is a sideband signal — it may interleave with `item/*` and `
 - The server stops emitting once all tracked SubAgents have completed and a final snapshot with all `isCompleted = true` has been sent.
 - Clients that do not need SubAgent progress can opt out via `optOutNotificationMethods: ["subagent/progress"]` during `initialize`.
 
+#### `subagent/graphChanged`
+
+Emitted when a session-backed SubAgent parent/child edge is created or changes status. Clients should refresh `subagent/children/list` for the parent and may use returned `thread` summaries to hydrate thread lists/sidebar entries immediately.
+
+**Params**: `{ "parentThreadId": "<parent>", "childThreadId": "<child>" }`
+
 **Example sequence**:
 
 ```
@@ -1523,8 +1530,8 @@ Server                                          Client
   |                                               |
   | item/started (notification)                   |
   |  item: { type: "toolCall",                    |
-  |    toolName: "SpawnSubagent",                 |
-  |    arguments: { label: "code-explorer" } }    |
+  |    toolName: "SpawnAgent",                    |
+  |    arguments: { agentNickname: "code-explorer" } } |
   |---------------------------------------------->|
   |                                               |
   | subagent/progress (notification)              |
@@ -2488,8 +2495,8 @@ Client                                          Server
   |                                               |
   | item/started (notification)                   |
   |  item: { type: "toolCall",                    |
-  |    toolName: "SpawnSubagent",                 |
-  |    arguments: { label: "analyzer" } }         |
+  |    toolName: "SpawnAgent",                    |
+  |    arguments: { agentNickname: "analyzer" } } |
   |<----------------------------------------------|
   |                                               |
   | subagent/progress (notification)              |
@@ -4342,6 +4349,68 @@ Remove one workspace-managed SubAgent definition.
 | `-32083` | `SubAgentProfileNotFound` | Requested profile or workspace override does not exist. |
 | `-32084` | `SubAgentProfileValidationFailed` | The profile payload is invalid or incompatible with runtime rules. |
 | `-32085` | `SubAgentProfileProtected` | The requested operation targets a protected profile such as `native`. |
+
+### 24.10 Session-Backed SubAgent Child Threads
+
+Servers advertising `capabilities.subAgentSessions = true` expose profile-backed SubAgents as ordinary child threads plus a lightweight parent/child graph. Native profiles run real child agent turns; external CLI profiles persist synthetic child turns containing the submitted prompt, final output or error, and token metadata when available.
+
+`thread/list` hides subagent child threads unless `includeSubAgents` is true. Children follow the parent lifecycle: parent archive/unarchive/delete recursively applies to descendants, and direct child archive/delete calls are invalid. Clients rendering a composer-adjacent background-agent widget should use `subagent/children/list` for the active parent thread, then call `thread/read` for a child when the user expands or jumps into it.
+
+#### `subagent/children/list`
+
+Params:
+
+```json
+{
+  "parentThreadId": "thread_parent",
+  "includeClosed": false,
+  "includeThreads": true
+}
+```
+
+Result:
+
+```json
+{
+  "data": [
+    {
+      "edge": {
+        "parentThreadId": "thread_parent",
+        "childThreadId": "thread_child",
+        "parentTurnId": "turn_1",
+        "depth": 1,
+        "agentNickname": "Worker",
+        "agentRole": "worker",
+        "profileName": "native",
+        "runtimeType": "native",
+        "supportsSendInput": true,
+        "supportsResume": true,
+        "supportsClose": true,
+        "status": "open"
+      },
+      "thread": {
+        "id": "thread_child",
+        "source": {
+          "kind": "subagent"
+        }
+      }
+    }
+  ]
+}
+```
+
+#### `subagent/close` and `subagent/resume`
+
+Both methods accept:
+
+```json
+{
+  "parentThreadId": "thread_parent",
+  "childThreadId": "thread_child"
+}
+```
+
+`subagent/close` cancels any active child turn when the server still owns the running task, then marks the parent/child edge closed. `subagent/resume` resumes the child thread and marks the edge open; it does not automatically send input to the child.
 
 ## 25. Workspace Config Methods
 

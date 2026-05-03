@@ -100,14 +100,18 @@ internal sealed class ThreadMetadataStore(StateRuntime stateRuntime)
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
+            var originChannel = reader.GetString(3);
             list.Add(new ThreadSummary
             {
                 Id = reader.GetString(0),
                 UserId = reader.IsDBNull(1) ? null : reader.GetString(1),
                 WorkspacePath = reader.GetString(2),
-                OriginChannel = reader.GetString(3),
+                OriginChannel = originChannel,
                 ChannelContext = reader.IsDBNull(4) ? null : reader.GetString(4),
                 DisplayName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                Source = string.Equals(originChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase)
+                    ? ThreadSource.ForSubAgent(new SubAgentThreadSource())
+                    : ThreadSource.User(),
                 Status = Enum.TryParse<ThreadStatus>(reader.GetString(6), out var status) ? status : ThreadStatus.Active,
                 CreatedAt = DateTimeOffset.Parse(reader.GetString(7)),
                 LastActiveAt = DateTimeOffset.Parse(reader.GetString(8)),
@@ -170,6 +174,135 @@ internal sealed class ThreadMetadataStore(StateRuntime stateRuntime)
         command.CommandText = "DELETE FROM threads WHERE thread_id = $thread_id";
         command.Parameters.AddWithValue("$thread_id", threadId);
         command.ExecuteNonQuery();
+    }
+
+    public void UpsertThreadSpawnEdge(ThreadSpawnEdge edge)
+    {
+        using var connection = stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_spawn_edges (
+                parent_thread_id,
+                child_thread_id,
+                parent_turn_id,
+                depth,
+                agent_nickname,
+                agent_role,
+                profile_name,
+                runtime_type,
+                supports_send_input,
+                supports_resume,
+                supports_close,
+                status,
+                created_at,
+                updated_at
+            ) VALUES (
+                $parent_thread_id,
+                $child_thread_id,
+                $parent_turn_id,
+                $depth,
+                $agent_nickname,
+                $agent_role,
+                $profile_name,
+                $runtime_type,
+                $supports_send_input,
+                $supports_resume,
+                $supports_close,
+                $status,
+                $created_at,
+                $updated_at
+            )
+            ON CONFLICT(parent_thread_id, child_thread_id) DO UPDATE SET
+                parent_turn_id = excluded.parent_turn_id,
+                depth = excluded.depth,
+                agent_nickname = excluded.agent_nickname,
+                agent_role = excluded.agent_role,
+                profile_name = excluded.profile_name,
+                runtime_type = excluded.runtime_type,
+                supports_send_input = excluded.supports_send_input,
+                supports_resume = excluded.supports_resume,
+                supports_close = excluded.supports_close,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("$parent_thread_id", edge.ParentThreadId);
+        command.Parameters.AddWithValue("$child_thread_id", edge.ChildThreadId);
+        command.Parameters.AddWithValue("$parent_turn_id", (object?)edge.ParentTurnId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$depth", edge.Depth);
+        command.Parameters.AddWithValue("$agent_nickname", (object?)edge.AgentNickname ?? DBNull.Value);
+        command.Parameters.AddWithValue("$agent_role", (object?)edge.AgentRole ?? DBNull.Value);
+        command.Parameters.AddWithValue("$profile_name", (object?)edge.ProfileName ?? DBNull.Value);
+        command.Parameters.AddWithValue("$runtime_type", (object?)edge.RuntimeType ?? DBNull.Value);
+        command.Parameters.AddWithValue("$supports_send_input", edge.SupportsSendInput ? 1 : 0);
+        command.Parameters.AddWithValue("$supports_resume", edge.SupportsResume ? 1 : 0);
+        command.Parameters.AddWithValue("$supports_close", edge.SupportsClose ? 1 : 0);
+        command.Parameters.AddWithValue("$status", edge.Status);
+        command.Parameters.AddWithValue("$created_at", edge.CreatedAt.UtcDateTime.ToString("O"));
+        command.Parameters.AddWithValue("$updated_at", edge.UpdatedAt.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    public void SetThreadSpawnEdgeStatus(string parentThreadId, string childThreadId, string status)
+    {
+        using var connection = stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE thread_spawn_edges
+            SET status = $status, updated_at = $updated_at
+            WHERE parent_thread_id = $parent_thread_id AND child_thread_id = $child_thread_id
+            """;
+        command.Parameters.AddWithValue("$parent_thread_id", parentThreadId);
+        command.Parameters.AddWithValue("$child_thread_id", childThreadId);
+        command.Parameters.AddWithValue("$status", status);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    public List<ThreadSpawnEdge> ListSubAgentChildren(string parentThreadId, bool includeClosed)
+    {
+        var edges = new List<ThreadSpawnEdge>();
+        using var connection = stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = includeClosed
+            ? """
+              SELECT parent_thread_id, child_thread_id, parent_turn_id, depth, agent_nickname, agent_role, profile_name, runtime_type, supports_send_input, supports_resume, supports_close, status, created_at, updated_at
+              FROM thread_spawn_edges
+              WHERE parent_thread_id = $parent_thread_id
+              ORDER BY updated_at DESC, child_thread_id DESC
+              """
+            : """
+              SELECT parent_thread_id, child_thread_id, parent_turn_id, depth, agent_nickname, agent_role, profile_name, runtime_type, supports_send_input, supports_resume, supports_close, status, created_at, updated_at
+              FROM thread_spawn_edges
+              WHERE parent_thread_id = $parent_thread_id AND status <> $closed
+              ORDER BY updated_at DESC, child_thread_id DESC
+              """;
+        command.Parameters.AddWithValue("$parent_thread_id", parentThreadId);
+        if (!includeClosed)
+            command.Parameters.AddWithValue("$closed", ThreadSpawnEdgeStatus.Closed);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            edges.Add(new ThreadSpawnEdge
+            {
+                ParentThreadId = reader.GetString(0),
+                ChildThreadId = reader.GetString(1),
+                ParentTurnId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Depth = reader.GetInt32(3),
+                AgentNickname = reader.IsDBNull(4) ? null : reader.GetString(4),
+                AgentRole = reader.IsDBNull(5) ? null : reader.GetString(5),
+                ProfileName = reader.IsDBNull(6) ? null : reader.GetString(6),
+                RuntimeType = reader.IsDBNull(7) ? null : reader.GetString(7),
+                SupportsSendInput = !reader.IsDBNull(8) && reader.GetInt32(8) != 0,
+                SupportsResume = !reader.IsDBNull(9) && reader.GetInt32(9) != 0,
+                SupportsClose = reader.IsDBNull(10) || reader.GetInt32(10) != 0,
+                Status = reader.GetString(11),
+                CreatedAt = DateTimeOffset.Parse(reader.GetString(12)),
+                UpdatedAt = DateTimeOffset.Parse(reader.GetString(13))
+            });
+        }
+
+        return edges;
     }
 
     public void SaveSessionJson(string threadId, string sessionJson)

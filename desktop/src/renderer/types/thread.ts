@@ -15,13 +15,38 @@ export interface ThreadRuntimeSnapshot {
   waitingOnPlanConfirmation: boolean
 }
 
+export interface SubAgentThreadSourceWire {
+  parentThreadId?: string
+  parentTurnId?: string
+  spawnCallId?: string
+  rootThreadId?: string
+  depth?: number
+  agentNickname?: string
+  agentRole?: string
+  profileName?: string
+  runtimeType?: string
+  supportsSendInput?: boolean
+  supportsResume?: boolean
+  supportsClose?: boolean
+}
+
+export interface ThreadSourceWire {
+  kind?: string
+  subAgent?: SubAgentThreadSourceWire | null
+}
+
 export interface ThreadSummary {
   id: string
+  userId?: string | null
+  workspacePath?: string
   displayName: string | null
   status: ThreadStatus
   originChannel: string
+  channelContext?: string | null
   createdAt: string      // ISO 8601 UTC
   lastActiveAt: string   // ISO 8601 UTC
+  source?: ThreadSourceWire | null
+  metadata?: Record<string, unknown>
   /** Best-effort current runtime snapshot from thread/list. Omitted by older hosts. */
   runtime?: ThreadRuntimeSnapshot
 }

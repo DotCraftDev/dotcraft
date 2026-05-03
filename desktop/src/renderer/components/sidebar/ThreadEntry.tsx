@@ -15,6 +15,7 @@ import { useAutomationsStore } from '../../stores/automationsStore'
 import { useDragDropStore } from '../../stores/dragDropStore'
 import { addToast } from '../../stores/toastStore'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { getSubAgentDepth, isSubAgentThread } from '../../utils/subAgentThreads'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -40,6 +41,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   } = useThreadStore()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const isActive = activeThreadId === thread.id
+  const isSubAgent = isSubAgentThread(thread)
+  const subAgentDepth = getSubAgentDepth(thread)
   const hasRunningTurn = runningTurnThreadIds.has(thread.id)
   const hasPendingApproval = pendingApprovalThreadIds.has(thread.id)
   const hasPendingPlanConfirmation = pendingPlanConfirmationThreadIds.has(thread.id)
@@ -79,12 +82,13 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const displayName = thread.displayName ?? t('sidebar.newConversation')
   const relativeTime = formatRelativeTime(thread.lastActiveAt, new Date(), locale)
   const showOriginBadge =
+    !isSubAgent &&
     thread.originChannel.length > 0 &&
     thread.originChannel.toLowerCase() !== 'dotcraft-desktop'
   // Hide the archive action during a drag session so the right side stays
   // clean while the drop-hint / already-bound pill is shown.
   const showArchiveAction =
-    !renaming && !dragKind && (hovered || archiveButtonFocused)
+    !isSubAgent && !renaming && !dragKind && (hovered || archiveButtonFocused)
   const showArchiveConfirm = showArchiveAction && archiveConfirming
   const confirm = useConfirmDialog()
   const showPendingApprovalBadge = !isActive && hasPendingApproval
@@ -92,6 +96,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const showUnreadCompletedDot =
     !isActive
     && !hasRunningTurn
+    && !isSubAgent
     && thread.status === 'active'
     && hasUnreadCompleted
 
@@ -102,7 +107,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
       // Best-effort
     }
     if (activeThreadId === thread.id) setActiveThreadId(null)
-    useThreadStore.getState().removeThread(thread.id)
+    useThreadStore.getState().removeThreadTree(thread.id)
   }, [activeThreadId, confirm, setActiveThreadId, t, thread.id])
 
   const archiveThreadWithDialog = useCallback(async (): Promise<void> => {
@@ -256,7 +261,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           display: 'flex',
           alignItems: 'center',
           position: 'relative',
-          padding: '6px 12px 6px 14px',
+          padding: `6px 12px 6px ${14 + subAgentDepth * 14}px`,
           cursor: dimmedTarget ? 'not-allowed' : 'pointer',
           borderLeft:
             !dragKind && isActive
@@ -340,6 +345,14 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               aria-label={thread.status}
             >
               {thread.status === 'paused' ? '⏸' : '🗄'}
+            </span>
+          ) : isSubAgent ? (
+            <span
+              title={t('threadEntry.subAgent')}
+              style={{ fontSize: '12px', color: 'var(--text-dimmed)', flexShrink: 0 }}
+              aria-label={t('threadEntry.subAgent')}
+            >
+              ↳
             </span>
           ) : null}
         </span>
@@ -525,91 +538,95 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {relativeTime}
             </span>
-            <ActionTooltip label={t('threadEntry.archive')} placement="right">
-              <button
-                type="button"
-                aria-label={t('threadEntry.archive')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  beginInlineArchiveConfirm()
-                }}
-                onFocus={() => setArchiveButtonFocused(true)}
-                style={{
-                width: '28px',
-                height: '28px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '6px',
-                backgroundColor: 'transparent',
-                color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: showArchiveAction && !showArchiveConfirm ? 'pointer' : 'default',
-                position: 'absolute',
-                right: 0,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                opacity: showArchiveAction && !showArchiveConfirm ? 1 : 0,
-                pointerEvents: showArchiveAction && !showArchiveConfirm ? 'auto' : 'none',
-                transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
-                e.currentTarget.style.color = 'var(--error)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent'
-                e.currentTarget.style.color = isActive
-                  ? 'var(--text-secondary)'
-                  : 'var(--text-dimmed)'
-              }}
-            >
-              <Archive size={14} strokeWidth={2} aria-hidden="true" />
-              </button>
-            </ActionTooltip>
-            <ActionTooltip label={t('threadEntry.archiveConfirm')} placement="right">
-              <button
-                type="button"
-                tabIndex={showArchiveConfirm ? 0 : -1}
-                aria-label={t('threadEntry.archiveConfirm')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void performArchiveThread()
-                }}
-                onFocus={() => setArchiveButtonFocused(true)}
-                style={{
-                height: '24px',
-                padding: '0 6px',
-                border: '1px solid rgba(248,81,73,0.35)',
-                borderRadius: '999px',
-                backgroundColor: 'rgba(248,81,73,0.10)',
-                color: 'var(--error)',
-                fontSize: 'var(--type-secondary-size)',
-                lineHeight: 'var(--type-secondary-line-height)',
-                fontWeight: 'var(--type-ui-emphasis-weight)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: showArchiveConfirm ? 'pointer' : 'default',
-                position: 'absolute',
-                right: 0,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                opacity: showArchiveConfirm ? 1 : 0,
-                pointerEvents: showArchiveConfirm ? 'auto' : 'none',
-                transition: 'opacity 120ms ease, background-color 120ms ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.18)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.10)'
-              }}
-            >
-              {t('threadEntry.archiveConfirm')}
-              </button>
-            </ActionTooltip>
+            {!isSubAgent && (
+              <>
+                <ActionTooltip label={t('threadEntry.archive')} placement="right">
+                  <button
+                    type="button"
+                    aria-label={t('threadEntry.archive')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      beginInlineArchiveConfirm()
+                    }}
+                    onFocus={() => setArchiveButtonFocused(true)}
+                    style={{
+                    width: '28px',
+                    height: '28px',
+                    padding: 0,
+                    border: 'none',
+                    borderRadius: '6px',
+                    backgroundColor: 'transparent',
+                    color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: showArchiveAction && !showArchiveConfirm ? 'pointer' : 'default',
+                    position: 'absolute',
+                    right: 0,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    opacity: showArchiveAction && !showArchiveConfirm ? 1 : 0,
+                    pointerEvents: showArchiveAction && !showArchiveConfirm ? 'auto' : 'none',
+                    transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
+                    e.currentTarget.style.color = 'var(--error)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                    e.currentTarget.style.color = isActive
+                      ? 'var(--text-secondary)'
+                      : 'var(--text-dimmed)'
+                  }}
+                >
+                  <Archive size={14} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                </ActionTooltip>
+                <ActionTooltip label={t('threadEntry.archiveConfirm')} placement="right">
+                  <button
+                    type="button"
+                    tabIndex={showArchiveConfirm ? 0 : -1}
+                    aria-label={t('threadEntry.archiveConfirm')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void performArchiveThread()
+                    }}
+                    onFocus={() => setArchiveButtonFocused(true)}
+                    style={{
+                    height: '24px',
+                    padding: '0 6px',
+                    border: '1px solid rgba(248,81,73,0.35)',
+                    borderRadius: '999px',
+                    backgroundColor: 'rgba(248,81,73,0.10)',
+                    color: 'var(--error)',
+                    fontSize: 'var(--type-secondary-size)',
+                    lineHeight: 'var(--type-secondary-line-height)',
+                    fontWeight: 'var(--type-ui-emphasis-weight)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: showArchiveConfirm ? 'pointer' : 'default',
+                    position: 'absolute',
+                    right: 0,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    opacity: showArchiveConfirm ? 1 : 0,
+                    pointerEvents: showArchiveConfirm ? 'auto' : 'none',
+                    transition: 'opacity 120ms ease, background-color 120ms ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.18)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.10)'
+                  }}
+                >
+                  {t('threadEntry.archiveConfirm')}
+                  </button>
+                </ActionTooltip>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -622,6 +639,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           onRename={startRename}
           onArchive={archiveThreadWithDialog}
           threadId={thread.id}
+          allowLifecycleActions={!isSubAgent}
         />
       )}
     </>
@@ -634,6 +652,7 @@ interface ThreadEntryContextMenuProps {
   onRename: () => void
   onArchive: () => Promise<void>
   threadId: string
+  allowLifecycleActions: boolean
 }
 
 function ThreadEntryContextMenu({
@@ -641,11 +660,12 @@ function ThreadEntryContextMenu({
   onClose,
   onRename,
   onArchive,
-  threadId
+  threadId,
+  allowLifecycleActions
 }: ThreadEntryContextMenuProps): JSX.Element {
   const t = useT()
   const confirm = useConfirmDialog()
-  const { removeThread, activeThreadId, setActiveThreadId } = useThreadStore()
+  const { removeThreadTree, activeThreadId, setActiveThreadId } = useThreadStore()
 
   async function handleDelete(): Promise<void> {
     onClose()
@@ -659,7 +679,7 @@ function ThreadEntryContextMenu({
     try {
       await window.api.appServer.sendRequest('thread/delete', { threadId })
       if (activeThreadId === threadId) setActiveThreadId(null)
-      removeThread(threadId)
+      removeThreadTree(threadId)
     } catch {
       // Keep local state unchanged when the backend delete fails.
     }
@@ -671,14 +691,18 @@ function ThreadEntryContextMenu({
       onClose={onClose}
       items={[
         { label: t('threadEntry.rename'), onClick: onRename },
-        {
-          label: t('threadEntry.archive'),
-          onClick: async () => {
-            onClose()
-            await onArchive()
-          }
-        },
-        { label: t('threadEntry.delete'), onClick: handleDelete, danger: true }
+        ...(allowLifecycleActions
+          ? [
+              {
+                label: t('threadEntry.archive'),
+                onClick: async () => {
+                  onClose()
+                  await onArchive()
+                }
+              },
+              { label: t('threadEntry.delete'), onClick: handleDelete, danger: true }
+            ]
+          : [])
       ]}
     />
   )

@@ -26,31 +26,34 @@ public sealed class CoreToolProvider : IAgentToolProvider
         var requireOutside =
             context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
 
-        // Agent tools (subagent spawning)
-        var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
-            context.Config,
-            context.EffectiveMainModel);
-        var subAgentManager = new SubAgentManager(
-            subAgentChatClient,
-            context.WorkspacePath,
-            context.Config.SubagentMaxToolCallRounds,
-            maxConcurrency: context.Config.SubagentMaxConcurrency,
-            shellTimeout: context.Config.Tools.Shell.Timeout,
-            requireApprovalOutsideWorkspace: requireOutside,
-            reasoningConfig: context.Config.Reasoning,
-            blacklist: context.PathBlacklist,
-            approvalService: context.ApprovalService,
-            traceCollector: context.TraceCollector);
-        var subAgentCoordinator = new SubAgentCoordinator(
-            context.WorkspacePath,
-            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
-            context.Config.SubAgentProfiles,
-            context.ApprovalService,
-            context.Config.SubAgent.DisabledProfiles,
-            context.ExternalCliSessionStore,
-            context.Config.SubAgent.EnableExternalCliSessionResume);
-        var agentTools = new AgentTools(subAgentCoordinator);
-        tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
+        // Agent-control tools are gated by the context policy so session-backed
+        // SubAgent child threads cannot recursively spawn/control children.
+        if (AgentControlToolPolicy.AllowsAny(context))
+        {
+            var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
+                context.Config,
+                context.EffectiveMainModel);
+            var subAgentManager = new SubAgentManager(
+                subAgentChatClient,
+                context.WorkspacePath,
+                context.Config.SubagentMaxToolCallRounds,
+                maxConcurrency: context.Config.SubagentMaxConcurrency,
+                shellTimeout: context.Config.Tools.Shell.Timeout,
+                requireApprovalOutsideWorkspace: requireOutside,
+                reasoningConfig: context.Config.Reasoning,
+                blacklist: context.PathBlacklist,
+                approvalService: context.ApprovalService,
+                traceCollector: context.TraceCollector);
+            var subAgentCoordinator = new SubAgentCoordinator(
+                context.WorkspacePath,
+                [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+                context.Config.SubAgentProfiles,
+                context.ApprovalService,
+                context.Config.SubAgent.DisabledProfiles,
+                context.ExternalCliSessionStore,
+                context.Config.SubAgent.EnableExternalCliSessionResume);
+            AgentControlToolRegistrar.AddTools(tools, context, subAgentCoordinator);
+        }
 
         // File tools
         var userDotCraftPath = Path.GetFullPath(Path.Combine(

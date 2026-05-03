@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import type { ConversationItem, PluginFunctionContentItem } from '../../types/conversation'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -54,6 +54,8 @@ import {
   formatSkillViewRunningLabel,
   getSkillViewDisplay
 } from '../../utils/skillViewToolDisplay'
+import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -297,6 +299,13 @@ export const ToolCallCard = memo(function ToolCallCard({
     && skillViewDisplay?.loaded
   ) {
     return <SkillViewCard item={item} locale={locale} />
+  }
+
+  const subAgentDisplay = !isRunning
+    ? getSubAgentToolDisplay(toolName, args, item.result, success, locale)
+    : null
+  if (subAgentDisplay) {
+    return <SubAgentToolResultCard display={subAgentDisplay} locale={locale} />
   }
 
   if (isRunning) {
@@ -816,6 +825,188 @@ function WebSearchResultCell({
       </button>
     </td>
   )
+}
+
+interface SubAgentToolDisplay {
+  title: string
+  subtitle: string
+  childThreadId: string | null
+  message: string | null
+  success: boolean
+}
+
+function SubAgentToolResultCard({
+  display,
+  locale
+}: {
+  display: SubAgentToolDisplay
+  locale: AppLocale
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const hasMessage = !!display.message
+
+  const openThread = (): void => {
+    if (!display.childThreadId) return
+    useThreadStore.getState().setActiveThreadId(display.childThreadId)
+    useUIStore.getState().setActiveMainView('conversation')
+  }
+
+  return (
+    <div
+      style={{
+        borderRadius: '4px',
+        overflow: 'hidden',
+        border: expanded ? '1px solid var(--border-default)' : 'none'
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '4px 6px',
+          color: display.success ? 'var(--text-secondary)' : 'var(--error)',
+          fontSize: '12px'
+        }}
+      >
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {display.title}
+          {display.subtitle && (
+            <span style={{ color: 'var(--text-dimmed)', marginLeft: 6 }}>{display.subtitle}</span>
+          )}
+        </span>
+        {display.childThreadId && (
+          <button type="button" onClick={openThread} style={subAgentOpenButtonStyle}>
+            {translate(locale, 'toolCall.subAgent.open')}
+          </button>
+        )}
+        {hasMessage && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            style={subAgentChevronButtonStyle}
+            aria-label={expanded ? translate(locale, 'toolCall.subAgent.collapse') : translate(locale, 'toolCall.subAgent.expand')}
+          >
+            <ToolCollapseChevron expanded={expanded} visible />
+          </button>
+        )}
+      </div>
+      {expanded && hasMessage && (
+        <div
+          className="selectable"
+          style={{
+            padding: '8px',
+            background: 'var(--bg-secondary)',
+            color: display.success ? 'var(--text-secondary)' : 'var(--error)',
+            fontSize: '12px',
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word'
+          }}
+        >
+          {display.message}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function getSubAgentToolDisplay(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  result: string | undefined,
+  success: boolean,
+  locale: AppLocale
+): SubAgentToolDisplay | null {
+  if (!isSubAgentToolName(toolName)) return null
+  const parsed = parseJsonObject(result)
+  const nickname = getString(parsed, 'agentNickname')
+    ?? getString(parsed, 'nickname')
+    ?? getString(args, 'agentNickname')
+    ?? getString(args, 'agentId')
+    ?? getString(args, 'target')
+    ?? ''
+  const profile = getString(parsed, 'profileName') ?? getString(args, 'profile')
+  const childThreadId = getString(parsed, 'childThreadId')
+    ?? getString(parsed, 'agentId')
+    ?? getString(args, 'agentId')
+    ?? getString(args, 'childThreadId')
+  const status = getString(parsed, 'status')
+  const error = getString(parsed, 'error') ?? getString(parsed, 'message')
+  const message = toolName === 'WaitAgent'
+    ? getString(parsed, 'message') ?? getString(parsed, 'result')
+    : null
+  const label = nickname || childThreadId || translate(locale, 'toolCall.subAgent.agent')
+  const subtitleParts = [profile, childThreadId].filter((part): part is string => !!part)
+  const titleKey = !success || status?.toLowerCase() === 'failed'
+    ? 'toolCall.subAgent.failed'
+    : toolName === 'SpawnAgent'
+      ? 'toolCall.subAgent.spawned'
+      : toolName === 'WaitAgent'
+        ? 'toolCall.subAgent.waited'
+        : toolName === 'SendInput'
+          ? 'toolCall.subAgent.sentInput'
+          : toolName === 'ResumeAgent'
+            ? 'toolCall.subAgent.resumed'
+            : 'toolCall.subAgent.closed'
+  return {
+    title: translate(locale, titleKey, { name: label }),
+    subtitle: subtitleParts.length > 0 ? subtitleParts.join(' · ') : '',
+    childThreadId,
+    message: !success && error ? error : message,
+    success
+  }
+}
+
+function isSubAgentToolName(toolName: string): boolean {
+  return toolName === 'SpawnAgent'
+    || toolName === 'WaitAgent'
+    || toolName === 'SendInput'
+    || toolName === 'ResumeAgent'
+    || toolName === 'CloseAgent'
+}
+
+function parseJsonObject(value: string | undefined): Record<string, unknown> | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (typeof parsed === 'string') {
+      const nested = JSON.parse(parsed) as unknown
+      return typeof nested === 'object' && nested != null ? nested as Record<string, unknown> : undefined
+    }
+    return typeof parsed === 'object' && parsed != null ? parsed as Record<string, unknown> : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getString(source: Record<string, unknown> | undefined, key: string): string | null {
+  const value = source?.[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+const subAgentOpenButtonStyle: CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--text-dimmed)',
+  fontSize: '12px',
+  padding: '2px 4px',
+  cursor: 'pointer'
+}
+
+const subAgentChevronButtonStyle: CSSProperties = {
+  width: 22,
+  height: 22,
+  padding: 0,
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: 'var(--text-dimmed)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer'
 }
 
 function parseCompletedCreatePlanArgs(args: Record<string, unknown> | undefined): {

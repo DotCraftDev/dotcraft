@@ -8,6 +8,8 @@ type ComposerActionButtonTone = 'enabled' | 'disabled'
 interface ComposerShellProps {
   dragOver: boolean
   dropLabel: string
+  topAccessory?: ReactNode
+  topAccessoryVisible?: boolean
   attachmentStrip?: ReactNode
   editor: ReactNode
   footerLeading: ReactNode
@@ -31,6 +33,8 @@ interface ComposerModeSwitchProps {
 export function ComposerShell({
   dragOver,
   dropLabel,
+  topAccessory,
+  topAccessoryVisible = false,
   attachmentStrip,
   editor,
   footerLeading,
@@ -44,18 +48,19 @@ export function ComposerShell({
   return (
     <div
       style={{
-        padding: '14px 14px',
+        padding: topAccessoryVisible ? '0 14px 14px' : '14px 14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: 0,
         opacity
       }}
     >
+      {topAccessory}
       <div
         style={{
           position: 'relative',
           border: focused ? '1px solid var(--border-active)' : '1px solid var(--border-default)',
-          borderRadius: '20px',
+          borderRadius: topAccessoryVisible ? '0 0 20px 20px' : '20px',
           background: 'color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary))',
           padding: '10px 10px 8px',
           boxShadow: focused
@@ -73,7 +78,7 @@ export function ComposerShell({
               inset: 0,
               zIndex: 20,
               border: '2px dashed var(--accent)',
-              borderRadius: '10px',
+              borderRadius: topAccessoryVisible ? '0 0 18px 18px' : '18px',
               background: 'rgba(124, 58, 237, 0.08)',
               display: 'flex',
               alignItems: 'center',

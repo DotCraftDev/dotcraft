@@ -146,7 +146,11 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
 
     public event Action<string>? ThreadDeleted;
 
+    public event Action<string, ThreadStatus, ThreadStatus>? ThreadStatusChanged;
+
     public event Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignal;
+
+    public event Action<string, string>? SubAgentGraphChanged;
 
     public event Action<CronJob?, string, bool>? CronStateChanged;
 
@@ -228,8 +232,12 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                 sessionService.ThreadCreatedForBroadcast = thread => ThreadStarted?.Invoke(thread);
                 sessionService.ThreadDeletedForBroadcast = threadId => ThreadDeleted?.Invoke(threadId);
                 sessionService.ThreadRenamedForBroadcast = thread => ThreadRenamed?.Invoke(thread);
+                sessionService.ThreadStatusChangedForBroadcast =
+                    (threadId, previousStatus, newStatus) => ThreadStatusChanged?.Invoke(threadId, previousStatus, newStatus);
                 sessionService.ThreadRuntimeSignalForBroadcast =
                     (threadId, signal) => ThreadRuntimeSignal?.Invoke(threadId, signal);
+                sessionService.SubAgentGraphChangedForBroadcast =
+                    (parentThreadId, childThreadId) => SubAgentGraphChanged?.Invoke(parentThreadId, childThreadId);
 
                 var commitMessageSuggestService =
                     new CommitMessageSuggestService(sessionService, Paths.WorkspacePath);
@@ -472,7 +480,10 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                 started.SessionService.ThreadCreatedForBroadcast = null;
                 started.SessionService.ThreadDeletedForBroadcast = null;
                 started.SessionService.ThreadRenamedForBroadcast = null;
+                started.SessionService.ThreadStatusChangedForBroadcast = null;
                 started.SessionService.ThreadRuntimeSignalForBroadcast = null;
+                if (started.SessionService is SessionService sessionService)
+                    sessionService.SubAgentGraphChangedForBroadcast = null;
             }
             catch (Exception ex)
             {

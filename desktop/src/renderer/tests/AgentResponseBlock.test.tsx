@@ -52,7 +52,7 @@ function renderBlock(turn: ConversationTurn): string {
   return container.textContent ?? ''
 }
 
-describe('AgentResponseBlock subagent progress placement', () => {
+describe('AgentResponseBlock subagent transcript rendering', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -64,14 +64,14 @@ describe('AgentResponseBlock subagent progress placement', () => {
     })
   })
 
-  it('renders completed subagent summary between SpawnSubagent and later tool calls', () => {
+  it('does not render the old inline subagent progress summary between SpawnAgent and later tool calls', () => {
     const turn: ConversationTurn = {
       id: 'turn-1',
       threadId: 'thread-1',
       status: 'completed',
       startedAt: '2026-04-18T10:00:00.000Z',
       items: [
-        makeToolCallItem('tool-1', 'call-1', 'SpawnSubagent', '2026-04-18T10:00:01.000Z'),
+        makeToolCallItem('tool-1', 'call-1', 'SpawnAgent', '2026-04-18T10:00:01.000Z'),
         makeToolCallItem('tool-2', 'call-2', 'FollowupTool', '2026-04-18T10:00:02.000Z')
       ],
       subAgentEntries: [
@@ -87,25 +87,23 @@ describe('AgentResponseBlock subagent progress placement', () => {
     }
 
     const text = renderBlock(turn)
-    const spawnIndex = text.indexOf('Called SpawnSubagent')
-    const bubbleIndex = text.indexOf('SubAgent completed')
+    const spawnIndex = text.indexOf('Started agent')
     const followupIndex = text.indexOf('Called FollowupTool')
 
     expect(spawnIndex).toBeGreaterThan(-1)
-    expect(bubbleIndex).toBeGreaterThan(-1)
     expect(followupIndex).toBeGreaterThan(-1)
-    expect(spawnIndex).toBeLessThan(bubbleIndex)
-    expect(bubbleIndex).toBeLessThan(followupIndex)
+    expect(spawnIndex).toBeLessThan(followupIndex)
+    expect(text).not.toContain('SubAgent completed')
   })
 
-  it('renders completed subagent summary after SpawnSubagent when no follow-up tools exist', () => {
+  it('keeps SpawnAgent output compact when no follow-up tools exist', () => {
     const turn: ConversationTurn = {
       id: 'turn-2',
       threadId: 'thread-1',
       status: 'completed',
       startedAt: '2026-04-18T10:01:00.000Z',
       items: [
-        makeToolCallItem('tool-3', 'call-3', 'SpawnSubagent', '2026-04-18T10:01:01.000Z')
+        makeToolCallItem('tool-3', 'call-3', 'SpawnAgent', '2026-04-18T10:01:01.000Z')
       ],
       subAgentEntries: [
         {
@@ -120,12 +118,8 @@ describe('AgentResponseBlock subagent progress placement', () => {
     }
 
     const text = renderBlock(turn)
-    const spawnIndex = text.indexOf('Called SpawnSubagent')
-    const bubbleIndex = text.indexOf('SubAgent completed')
-
-    expect(spawnIndex).toBeGreaterThan(-1)
-    expect(bubbleIndex).toBeGreaterThan(-1)
-    expect(spawnIndex).toBeLessThan(bubbleIndex)
+    expect(text).toContain('Started agent')
+    expect(text).not.toContain('SubAgent completed')
   })
 
   it('renders pluginFunctionCall items in the tool run', () => {

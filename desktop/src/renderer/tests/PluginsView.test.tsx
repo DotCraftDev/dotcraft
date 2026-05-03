@@ -4,6 +4,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { PluginsView } from '../components/plugins/PluginsView'
 import { useConnectionStore } from '../stores/connectionStore'
 import { usePluginStore, type PluginEntry } from '../stores/pluginStore'
+import { useSkillsStore, type SkillEntry } from '../stores/skillsStore'
 
 const appServerSendRequest = vi.fn()
 const settingsGet = vi.fn()
@@ -55,6 +56,28 @@ const localPlugin: PluginEntry = {
   skills: [{ name: 'external-process-echo', description: 'Echo plugin skill', enabled: true }]
 }
 
+const memorySkill: SkillEntry = {
+  name: 'memory',
+  displayName: 'Memory',
+  shortDescription: 'Remember project facts',
+  description: 'Remember project facts',
+  source: 'builtin',
+  available: true,
+  enabled: true,
+  path: 'F:\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+}
+
+const gitSkill: SkillEntry = {
+  name: 'git-local',
+  displayName: 'Git Local',
+  shortDescription: 'Local git workflows',
+  description: 'Local git workflows',
+  source: 'workspace',
+  available: true,
+  enabled: true,
+  path: 'F:\\dotcraft\\.craft\\skills\\git-local\\SKILL.md'
+}
+
 function renderPluginsView(): void {
   render(
     <LocaleProvider>
@@ -82,6 +105,14 @@ describe('PluginsView local plugin visibility', () => {
       selectedPluginId: null,
       selectedPlugin: null,
       detailLoading: false
+    })
+    useSkillsStore.setState({
+      skills: [],
+      loading: false,
+      error: null,
+      selectedSkillName: null,
+      skillContent: null,
+      contentLoading: false
     })
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -208,5 +239,45 @@ describe('PluginsView local plugin visibility', () => {
 
     expect(shellOpenExternal).toHaveBeenCalledWith('https://example.com/external-process-echo')
     expect(shellOpenExternal).toHaveBeenCalledWith('https://example.com/privacy')
+  })
+
+  it('keeps manage mode while switching between plugin and skill tabs', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') {
+        return { plugins: [browserUsePlugin, localPlugin], diagnostics: [] }
+      }
+      if (method === 'skills/list') {
+        return { skills: [memorySkill, gitSkill] }
+      }
+      return {}
+    })
+
+    renderPluginsView()
+
+    expect(await screen.findByText('Browser Use')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
+
+    expect(await screen.findByText('Plugins 2')).toBeInTheDocument()
+    expect(await screen.findByText('Skills 2')).toBeInTheDocument()
+    expect(screen.queryByText('Apps 0')).not.toBeInTheDocument()
+    expect(screen.queryByText('MCP 0')).not.toBeInTheDocument()
+    const pluginsTab = screen.getByRole('button', { name: 'Plugins 2' })
+    const skillsTab = screen.getByRole('button', { name: 'Skills 2' })
+    expect(pluginsTab).toBeInTheDocument()
+    expect(skillsTab).toBeInTheDocument()
+
+    fireEvent.click(skillsTab)
+
+    expect(await screen.findByText('Skills 2')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search installed skills')).toBeInTheDocument()
+    expect(screen.getByText('Memory')).toBeInTheDocument()
+    expect(screen.getByText('Git Local')).toBeInTheDocument()
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Plugins 2' }))
+
+    expect(await screen.findByText('Plugins 2')).toBeInTheDocument()
+    expect(await screen.findByPlaceholderText('Search installed plugins')).toBeInTheDocument()
+    expect(screen.getByText('External Process Echo')).toBeInTheDocument()
   })
 })

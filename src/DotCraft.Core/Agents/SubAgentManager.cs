@@ -111,7 +111,7 @@ public sealed class SubAgentManager
 
     /// <summary>
     /// Derives the display label for a SubAgent using the same truncation logic as
-    /// <c>CoreToolDisplays.SpawnSubagent</c> so that the progress bridge key
+    /// <c>CoreToolDisplays.SpawnAgent</c> so that the progress bridge key
     /// matches the Live Table entry label exactly.
     /// </summary>
     internal static string NormalizeLabel(string? label, string task)

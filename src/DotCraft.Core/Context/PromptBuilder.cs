@@ -251,10 +251,10 @@ This contains:
 {{envSection}}
 
 ## Tool Usage Policy
-- When doing open-ended file search or codebase exploration that requires multiple rounds of searching, prefer to use SpawnSubagent to reduce context usage and keep the main conversation focused.
-- You should proactively use SpawnSubagent when a research task requires many search rounds, or when independent investigations can run in parallel.
-- Launch multiple subagents concurrently whenever possible — include multiple SpawnSubagent calls in a single response to maximize performance.
-- When you are not confident you can find what you need in 1-2 tool calls, use SpawnSubagent instead.
+- When doing open-ended file search or codebase exploration that requires multiple rounds of searching, prefer to use SpawnAgent to reduce context usage and keep the main conversation focused.
+- You should proactively use SpawnAgent when a research task requires many search rounds, or when independent investigations can run in parallel.
+- Launch multiple subagents concurrently whenever possible — include multiple SpawnAgent calls in a single response to maximize performance, and give each call a different self-contained `prompt`.
+- When you are not confident you can find what you need in 1-2 tool calls, use SpawnAgent instead.
 """;
     }
 
@@ -477,9 +477,9 @@ Example (correct timing):
 
 ## Subagent Exploration
 
-Before editing code in an unfamiliar part of the codebase, use SpawnSubagent
+Before editing code in an unfamiliar part of the codebase, use SpawnAgent
 to research it first. When multiple independent areas need investigation,
-launch multiple SpawnSubagent calls in a single response to run them in
+launch multiple SpawnAgent calls in a single response to run them in
 parallel rather than sequentially.
 </system-reminder>
 """;
@@ -516,13 +516,13 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
 
 ### Phase 1: Initial Understanding
 - Focus on understanding the user's request and the relevant code.
-- Use read-only tools (ReadFile, GrepFiles, FindFiles) and SpawnSubagent to explore the codebase.
+- Use read-only tools (ReadFile, GrepFiles, FindFiles) and SpawnAgent to explore the codebase.
 - Shell commands via Exec are allowed **for observation only**. NEVER use Exec to modify files, run builds, or execute commits.
 - Ask clarifying questions about ambiguities.
 
-**IMPORTANT — Parallel Exploration with SpawnSubagent**: When the task touches multiple independent areas of the codebase, launch multiple SpawnSubagent calls in a single response instead of exploring sequentially. This dramatically reduces planning time.
+**IMPORTANT — Parallel Exploration with SpawnAgent**: When the task touches multiple independent areas of the codebase, launch multiple SpawnAgent calls in a single response instead of exploring sequentially. This dramatically reduces planning time.
 
-Example: if the task involves both a data model and a UI component, send one response with two SpawnSubagent calls — one exploring the model layer and one exploring the UI layer — rather than doing them one after the other.
+Example: if the task involves both a data model and a UI component, send one response with two complete SpawnAgent calls — one with `prompt` focused on the model layer and one with a different `prompt` focused on the UI layer — rather than doing them one after the other.
 
 ### Subagent Result Synthesis
 - After subagents return, identify which findings can be used directly and

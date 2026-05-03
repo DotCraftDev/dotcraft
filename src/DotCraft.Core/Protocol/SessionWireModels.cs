@@ -145,6 +145,8 @@ public sealed record SessionWireThread
 
     public string? DisplayName { get; init; }
 
+    public ThreadSource Source { get; init; } = ThreadSource.User();
+
     public ThreadStatus Status { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; }
@@ -335,6 +337,7 @@ public static class SessionWireMapper
             OriginChannel = thread.OriginChannel,
             ChannelContext = thread.ChannelContext,
             DisplayName = thread.DisplayName,
+            Source = thread.Source,
             Status = thread.Status,
             CreatedAt = thread.CreatedAt,
             LastActiveAt = thread.LastActiveAt,
