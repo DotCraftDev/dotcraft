@@ -300,10 +300,22 @@ public static class SubAgentSessionControl
         SubAgentRunResult result;
         if (RunningChildren.TryGetValue(childThreadId, out var running))
         {
-            var waitTask = running.Completion;
-            if (timeoutSeconds is > 0)
-                waitTask = waitTask.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds.Value), ct);
-            result = await waitTask.WaitAsync(ct);
+            try
+            {
+                var waitTask = running.Completion;
+                if (timeoutSeconds is > 0)
+                    waitTask = waitTask.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds.Value), ct);
+                result = await waitTask.WaitAsync(ct);
+            }
+            catch (TimeoutException)
+            {
+                result = new SubAgentRunResult
+                {
+                    ThreadId = childThreadId,
+                    Status = "timeout",
+                    Message = "Timed out waiting for subagent; it may still be running."
+                };
+            }
         }
         else
         {

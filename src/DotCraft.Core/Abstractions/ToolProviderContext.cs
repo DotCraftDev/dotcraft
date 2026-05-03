@@ -170,13 +170,6 @@ public sealed class ToolProviderContext
     public string? CurrentChannelContext { get; init; }
 
     /// <summary>
-    /// True when tools are being created for a session-backed SubAgent child thread.
-    /// </summary>
-    public bool IsSubAgentThread =>
-        string.Equals(CurrentThreadSource?.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(CurrentOriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
     /// Optional ACP extension proxy for extension method calls.
     /// Available when running in ACP mode (connected to Unity/IDE client).
     /// </summary>

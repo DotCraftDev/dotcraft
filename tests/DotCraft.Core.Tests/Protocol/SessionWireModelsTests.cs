@@ -5,6 +5,40 @@ namespace DotCraft.Tests.Sessions.Protocol;
 public sealed class SessionWireModelsTests
 {
     [Fact]
+    public void ToWire_CompletedThread_IncludesStoppedRuntime()
+    {
+        var thread = BuildThread(TurnStatus.Completed);
+
+        var wire = thread.ToWire();
+
+        Assert.False(wire.Runtime.Running);
+        Assert.False(wire.Runtime.WaitingOnApproval);
+        Assert.False(wire.Runtime.WaitingOnPlanConfirmation);
+    }
+
+    [Fact]
+    public void ToWire_RunningThread_IncludesRunningRuntime()
+    {
+        var thread = BuildThread(TurnStatus.Running);
+
+        var wire = thread.ToWire();
+
+        Assert.True(wire.Runtime.Running);
+        Assert.False(wire.Runtime.WaitingOnApproval);
+    }
+
+    [Fact]
+    public void ToWire_WaitingApprovalThread_IncludesApprovalRuntime()
+    {
+        var thread = BuildThread(TurnStatus.WaitingApproval);
+
+        var wire = thread.ToWire();
+
+        Assert.True(wire.Runtime.Running);
+        Assert.True(wire.Runtime.WaitingOnApproval);
+    }
+
+    [Fact]
     public void ToWireMethodName_ToolCallArgumentsDelta_ReturnsExpectedMethod()
     {
         var evt = new SessionEvent
@@ -56,5 +90,32 @@ public sealed class SessionWireModelsTests
         Assert.Equal("WriteFile", root.GetProperty("toolName").GetString());
         Assert.Equal("call_1", root.GetProperty("callId").GetString());
         Assert.Equal("{\"content\":\"hello\"", root.GetProperty("delta").GetString());
+    }
+
+    private static SessionThread BuildThread(TurnStatus turnStatus)
+    {
+        var completedAt = turnStatus is TurnStatus.Completed or TurnStatus.Failed or TurnStatus.Cancelled
+            ? new DateTimeOffset(2026, 5, 4, 10, 1, 0, TimeSpan.Zero)
+            : (DateTimeOffset?)null;
+        return new SessionThread
+        {
+            Id = "thread_1",
+            WorkspacePath = "/workspace",
+            OriginChannel = "dotcraft-desktop",
+            Status = ThreadStatus.Active,
+            CreatedAt = new DateTimeOffset(2026, 5, 4, 10, 0, 0, TimeSpan.Zero),
+            LastActiveAt = new DateTimeOffset(2026, 5, 4, 10, 1, 0, TimeSpan.Zero),
+            Turns =
+            [
+                new SessionTurn
+                {
+                    Id = "turn_1",
+                    ThreadId = "thread_1",
+                    Status = turnStatus,
+                    StartedAt = new DateTimeOffset(2026, 5, 4, 10, 0, 0, TimeSpan.Zero),
+                    CompletedAt = completedAt
+                }
+            ]
+        };
     }
 }

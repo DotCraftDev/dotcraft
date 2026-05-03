@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSubAgentStore } from '../stores/subAgentStore'
+import { isSubAgentChildRunning, useSubAgentStore } from '../stores/subAgentStore'
 import { useThreadStore } from '../stores/threadStore'
 
 const appServerSendRequest = vi.fn()
@@ -342,6 +342,78 @@ describe('subAgentStore', () => {
         runtime: expect.objectContaining({ running: false })
       })
     )
+  })
+
+  it('uses child thread runtime to prevent open historical edges from showing as running after restart', async () => {
+    appServerSendRequest.mockResolvedValue({
+      data: [
+        {
+          edge: {
+            parentThreadId: 'parent-1',
+            childThreadId: 'child-1',
+            agentNickname: 'Lovelace',
+            supportsClose: true,
+            status: 'open'
+          },
+          thread: {
+            id: 'child-1',
+            displayName: 'Create hatch pet',
+            status: 'active',
+            originChannel: 'subagent',
+            createdAt: '2026-05-03T00:00:00.000Z',
+            lastActiveAt: '2026-05-03T00:01:00.000Z',
+            runtime: {
+              running: false,
+              waitingOnApproval: false,
+              waitingOnPlanConfirmation: false
+            }
+          }
+        }
+      ]
+    })
+
+    await useSubAgentStore.getState().fetchChildren('parent-1')
+
+    expect(useSubAgentStore.getState().childrenByParent.get('parent-1')?.[0]).toEqual(
+      expect.objectContaining({
+        status: 'open',
+        currentTool: null,
+        isCompleted: true,
+        runtime: expect.objectContaining({ running: false })
+      })
+    )
+  })
+
+  it('does not treat hydrated children without runtime as running from open edge status alone', () => {
+    useSubAgentStore.getState().setChildren('parent-1', [
+      {
+        childThreadId: 'child-1',
+        parentThreadId: 'parent-1',
+        nickname: 'Lovelace',
+        agentRole: null,
+        profileName: 'native',
+        runtimeType: 'native',
+        supportsSendInput: true,
+        supportsResume: true,
+        supportsClose: true,
+        status: 'open',
+        lastToolDisplay: null,
+        currentTool: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        isCompleted: false,
+        isPlaceholder: false
+      }
+    ])
+
+    const child = useSubAgentStore.getState().childrenByParent.get('parent-1')?.[0]
+    expect(child).toEqual(
+      expect.objectContaining({
+        isCompleted: false,
+        status: 'open'
+      })
+    )
+    expect(child ? isSubAgentChildRunning(child) : true).toBe(false)
   })
 
   it('merges progress descriptions and token usage into existing child rows', () => {

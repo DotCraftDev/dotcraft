@@ -43,10 +43,10 @@ function makeCreatePlanItem(
   }
 }
 
-function renderBlock(turn: ConversationTurn): string {
+function renderBlock(turn: ConversationTurn, options: { isRunning?: boolean } = {}): string {
   const { container } = render(
     <LocaleProvider>
-      <AgentResponseBlock turn={turn} />
+      <AgentResponseBlock turn={turn} isRunning={options.isRunning} />
     </LocaleProvider>
   )
   return container.textContent ?? ''
@@ -120,6 +120,57 @@ describe('AgentResponseBlock subagent transcript rendering', () => {
     const text = renderBlock(turn)
     expect(text).toContain('Started agent')
     expect(text).not.toContain('SubAgent completed')
+  })
+
+  it('keeps WaitAgent in running state after toolCall completion while waiting for toolResult', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-wait-running',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-05-03T10:00:00.000Z',
+      items: [
+        {
+          id: 'tool-wait',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-wait',
+          toolName: 'WaitAgent',
+          arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+          createdAt: '2026-05-03T10:00:01.000Z'
+        }
+      ]
+    }
+
+    const text = renderBlock(turn, { isRunning: true })
+
+    expect(text).toContain('Waiting for Reviewer')
+    expect(text).not.toContain('Received result from Reviewer')
+    expect(text).not.toContain('thread_child')
+  })
+
+  it('does not keep historical WaitAgent calls running when toolResult is missing', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-wait-history',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-05-03T10:00:00.000Z',
+      items: [
+        {
+          id: 'tool-wait-history',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-wait-history',
+          toolName: 'WaitAgent',
+          arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+          createdAt: '2026-05-03T10:00:01.000Z'
+        }
+      ]
+    }
+
+    const text = renderBlock(turn)
+
+    expect(text).not.toContain('Waiting for Reviewer')
+    expect(text).not.toContain('Received result from Reviewer')
   })
 
   it('renders pluginFunctionCall items in the tool run', () => {

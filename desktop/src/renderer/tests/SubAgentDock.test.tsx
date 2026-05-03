@@ -223,6 +223,42 @@ describe('SubAgentDock', () => {
     expect(screen.queryByRole('button', { name: 'Stop Lovelace' })).not.toBeInTheDocument()
   })
 
+  it('does not show open child edges as running when thread runtime is stopped', () => {
+    useSubAgentStore.getState().setChildren('parent-1', [
+      {
+        childThreadId: 'child-1',
+        parentThreadId: 'parent-1',
+        nickname: 'Lovelace',
+        agentRole: null,
+        profileName: 'codex-cli',
+        runtimeType: 'cli-oneshot',
+        supportsSendInput: false,
+        supportsResume: true,
+        supportsClose: true,
+        status: 'open',
+        lastToolDisplay: 'Reading sprite atlas',
+        currentTool: null,
+        inputTokens: 7,
+        outputTokens: 11,
+        isCompleted: true,
+        runtime: {
+          running: false,
+          waitingOnApproval: false,
+          waitingOnPlanConfirmation: false
+        }
+      }
+    ])
+
+    renderDock()
+
+    expect(screen.getByText('1 background agents')).toBeInTheDocument()
+    expect(screen.getByText('Lovelace')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).not.toHaveClass('tool-running-gradient-text')
+    expect(screen.queryByTestId('subagent-dock-running-child-1')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop all background agents' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
+  })
+
   it('updates a running child to completed without hiding the dock', async () => {
     renderDock()
 

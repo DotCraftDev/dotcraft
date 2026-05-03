@@ -6,6 +6,8 @@ import { useConversationStore } from '../stores/conversationStore'
 import { useSkillsStore } from '../stores/skillsStore'
 import { useUIStore } from '../stores/uiStore'
 import { useViewerTabStore } from '../stores/viewerTabStore'
+import { useSubAgentStore } from '../stores/subAgentStore'
+import { useThreadStore } from '../stores/threadStore'
 import type { ConversationItem } from '../types/conversation'
 import type { FileDiff } from '../types/toolCall'
 
@@ -66,6 +68,8 @@ describe('ToolCallCard plugin function rendering', () => {
 describe('ToolCallCard subagent result rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
+    useSubAgentStore.getState().reset()
+    useThreadStore.getState().reset()
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -103,6 +107,7 @@ describe('ToolCallCard subagent result rendering', () => {
     expect(screen.getByText('Started Popper')).toBeInTheDocument()
     expect(screen.getByText(/native/)).toBeInTheDocument()
     expect(screen.queryByText(/childThreadId/)).toBeNull()
+    expect(screen.queryByText(/thread_child/)).toBeNull()
   })
 
   it('folds WaitAgent message behind an expandable result body', () => {
@@ -126,10 +131,133 @@ describe('ToolCallCard subagent result rendering', () => {
 
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
-    expect(screen.getByText('Reviewer completed')).toBeInTheDocument()
+    expect(screen.getByText('Received result from Reviewer')).toBeInTheDocument()
+    expect(screen.queryByText('Reviewer completed')).toBeNull()
+    expect(screen.queryByText(/thread_child/)).toBeNull()
     expect(screen.queryByText('Detailed child agent result')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Expand subagent result' }))
     expect(screen.getByText('Detailed child agent result')).toBeInTheDocument()
+  })
+
+  it('renders running WaitAgent with the shared running gradient label', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-running-wait',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-running-wait',
+      arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expectRunningGradientText('Waiting for Reviewer')
+    expect(screen.queryByText(/thread_child/)).toBeNull()
+  })
+
+  it('keeps WaitAgent running after toolCall completion until the tool result arrives', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-pending-wait-result',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-pending-wait',
+      arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" turnRunning />)
+
+    expectRunningGradientText('Waiting for Reviewer')
+    expect(screen.queryByText('Received result from Reviewer')).toBeNull()
+    expect(screen.queryByText(/thread_child/)).toBeNull()
+  })
+
+  it('does not show a stale running state for historical WaitAgent calls without a result', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-historical-missing-result',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-historical-wait',
+      arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.queryByText('Waiting for Reviewer')).toBeNull()
+    expect(screen.queryByText('Received result from Reviewer')).toBeNull()
+  })
+
+  it('uses subagent store names for WaitAgent and does not fall back to thread ids', () => {
+    useSubAgentStore.getState().setChildren('parent-1', [
+      {
+        childThreadId: 'thread_child',
+        parentThreadId: 'parent-1',
+        nickname: 'Bench reviewer',
+        agentRole: null,
+        profileName: 'native',
+        runtimeType: 'native',
+        supportsSendInput: true,
+        supportsResume: true,
+        supportsClose: true,
+        status: 'open',
+        lastToolDisplay: null,
+        currentTool: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        isCompleted: false
+      }
+    ])
+    const item: ConversationItem = {
+      id: 'subagent-tool-store-name',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-store-name',
+      arguments: { childThreadId: 'thread_child' },
+      result: JSON.stringify({
+        childThreadId: 'thread_child',
+        status: 'completed',
+        message: 'Done'
+      }),
+      success: true,
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Received result from Bench reviewer')).toBeInTheDocument()
+    expect(screen.queryByText(/thread_child/)).toBeNull()
+  })
+
+  it('renders WaitAgent timeout as a wait timeout rather than a subagent failure', () => {
+    const item: ConversationItem = {
+      id: 'subagent-tool-timeout',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'WaitAgent',
+      toolCallId: 'call-timeout',
+      arguments: { childThreadId: 'thread_child', agentNickname: 'Reviewer' },
+      result: JSON.stringify({
+        childThreadId: 'thread_child',
+        agentNickname: 'Reviewer',
+        status: 'timeout',
+        message: 'Timed out waiting for subagent; it may still be running.'
+      }),
+      success: true,
+      createdAt: '2026-05-03T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Timed out waiting for Reviewer')).toBeInTheDocument()
+    expect(screen.queryByText(/failed/i)).toBeNull()
+    expect(screen.queryByText(/thread_child/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand subagent result' }))
+    expect(screen.getByText('Timed out waiting for subagent; it may still be running.')).toBeInTheDocument()
   })
 })
 
@@ -383,7 +511,7 @@ describe('ToolCallCard shell rendering', () => {
       createdAt: '2026-04-13T10:00:00.000Z'
     }
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" turnRunning />)
 
     expect(screen.getByText('2.0s')).toBeInTheDocument()
 

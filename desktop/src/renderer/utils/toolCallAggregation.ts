@@ -11,6 +11,10 @@ export type AggregatedToolCall =
   | { kind: 'single'; item: ConversationItem }
   | { kind: 'group'; category: ToolGroupCategory; items: ConversationItem[] }
 
+interface ToolItemLiveContext {
+  turnRunning?: boolean
+}
+
 function getGroupCategory(toolName: string): ToolGroupCategory | null {
   if (EXPLORE_TOOLS.has(toolName)) return 'explore'
   if (WRITE_TOOLS.has(toolName)) return 'write'
@@ -19,10 +23,21 @@ function getGroupCategory(toolName: string): ToolGroupCategory | null {
   return null
 }
 
-export function isToolItemLive(item: ConversationItem): boolean {
+function isToolCallAwaitingResult(item: ConversationItem): boolean {
+  return item.type === 'toolCall'
+    && item.status === 'completed'
+    && item.result === undefined
+    && item.success === undefined
+}
+
+export function isToolItemLive(
+  item: ConversationItem,
+  context: ToolItemLiveContext = {}
+): boolean {
   const toolName = item.toolName ?? ''
   if (!SHELL_TOOLS.has(toolName)) {
     return item.status !== 'completed'
+      || (context.turnRunning === true && isToolCallAwaitingResult(item))
   }
 
   if (item.executionStatus != null) {
@@ -33,7 +48,7 @@ export function isToolItemLive(item: ConversationItem): boolean {
   }
 
   if (item.status !== 'completed') return true
-  return item.result === undefined && item.success === undefined
+  return context.turnRunning === true && isToolCallAwaitingResult(item)
 }
 
 /**
@@ -43,7 +58,8 @@ export function isToolItemLive(item: ConversationItem): boolean {
  * Example: [ReadFile, ReadFile, WriteFile] → [group(2), single(WriteFile)]
  */
 export function aggregateToolCalls(
-  items: ConversationItem[]
+  items: ConversationItem[],
+  context: ToolItemLiveContext = {}
 ): AggregatedToolCall[] {
   const result: AggregatedToolCall[] = []
   let i = 0
@@ -86,7 +102,7 @@ export function aggregateToolCalls(
     }
 
     for (const runItem of run) {
-      const isBreakingItem = isToolItemLive(runItem)
+      const isBreakingItem = isToolItemLive(runItem, context)
       if (isBreakingItem) {
         flushSettledBucket()
         result.push({ kind: 'single', item: runItem })
@@ -116,5 +132,5 @@ export function planToolRunRender(
     }
   }
 
-  return { entries: aggregateToolCalls(toolRun) }
+  return { entries: aggregateToolCalls(toolRun, { turnRunning: context.isRunning }) }
 }

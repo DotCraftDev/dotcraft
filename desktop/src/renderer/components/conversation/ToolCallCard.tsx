@@ -40,6 +40,7 @@ import { stripAnsi } from '../../utils/ansi'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { openConversationLink } from '../../utils/conversationDeepLink'
 import type { FileDiff } from '../../types/toolCall'
+import type { Thread, ThreadSummary } from '../../types/thread'
 import {
   SKILL_MANAGE_TOOL_NAME,
   buildSkillManageDiff,
@@ -56,25 +57,13 @@ import {
 } from '../../utils/skillViewToolDisplay'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useSubAgentStore, type SubAgentChild } from '../../stores/subAgentStore'
+import { isToolItemLive } from '../../utils/toolCallAggregation'
 
 interface ToolCallCardProps {
   item: ConversationItem
   turnId: string
-}
-
-function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
-  if (!isShellTool) return false
-  if (item.executionStatus != null) {
-    if (item.executionStatus === 'inProgress') return true
-    // Legacy: wire item lifecycle "started" was mistakenly stored as executionStatus
-    if (String(item.executionStatus) === 'started') return true
-    return false
-  }
-  if (item.status !== 'completed') return true
-  // ToolCall item/completed marks invocation done before the shell finishes; keep the live
-  // timer until toolResult merges (result + success), or until executionStatus is merged.
-  const toolResultPending = item.result === undefined && item.success === undefined
-  return toolResultPending
+  turnRunning?: boolean
 }
 
 function formatRunningToolLabel(
@@ -100,6 +89,12 @@ function formatRunningToolLabel(
     return formatInvocationDisplay(toolName, args, locale) ?? streamingLabel
   }
   return streamingLabel
+}
+
+interface SubAgentLookupSources {
+  childrenByParent: Map<string, SubAgentChild[]>
+  threadList: ThreadSummary[]
+  activeThread: Thread | null
 }
 
 function getFilename(path: string): string {
@@ -131,7 +126,8 @@ function formatFileToolLabel(
 
 export const ToolCallCard = memo(function ToolCallCard({
   item,
-  turnId
+  turnId,
+  turnRunning = false
 }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [hovered, setHovered] = useState(false)
@@ -156,8 +152,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     item.argumentsPreview ?? null,
     locale
   )
-  const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
-  const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
+  const isRunning = isToolItemLive(item, { turnRunning })
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
   const shellFailed = item.executionStatus === 'failed'
     || item.executionStatus === 'cancelled'
@@ -193,18 +188,28 @@ export const ToolCallCard = memo(function ToolCallCard({
   const itemDiffs = useConversationStore((s) => s.itemDiffs)
   const streamingItemDiffs = useConversationStore((s) => s.streamingItemDiffs)
   const plan = useConversationStore((s) => s.plan)
+  const subAgentChildrenByParent = useSubAgentStore((s) => s.childrenByParent)
+  const threadList = useThreadStore((s) => s.threadList)
+  const activeThread = useThreadStore((s) => s.activeThread)
+  const subAgentLookup: SubAgentLookupSources = {
+    childrenByParent: subAgentChildrenByParent,
+    threadList,
+    activeThread
+  }
   const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
   const streamingFileDiff = FILE_WRITE_TOOLS.has(toolName) ? streamingItemDiffs.get(item.id) : undefined
   const skillManageDiff = isSkillManageTool ? buildSkillManageDiff(args, item.result, turnId) : null
   const canExpandCompleted = !isWebFetchTool && !isSkillManageTool && !isSkillViewTool
-  const runningBaseLabel = formatRunningToolLabel(
-    toolName,
-    args,
-    locale,
-    streamingDisplay.label,
-    planTodos
-  )
+  const subAgentRunningLabel = formatSubAgentRunningLabel(toolName, args, locale, subAgentLookup)
+  const runningBaseLabel = subAgentRunningLabel
+    ?? formatRunningToolLabel(
+      toolName,
+      args,
+      locale,
+      streamingDisplay.label,
+      planTodos
+    )
   const runningLabel = FILE_WRITE_TOOLS.has(toolName)
     ? formatFileToolLabel(toolName, streamingFileDiff, runningBaseLabel, locale)
     : runningBaseLabel
@@ -302,7 +307,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   }
 
   const subAgentDisplay = !isRunning
-    ? getSubAgentToolDisplay(toolName, args, item.result, success, locale)
+    ? getSubAgentToolDisplay(toolName, args, item.result, success, locale, subAgentLookup)
     : null
   if (subAgentDisplay) {
     return <SubAgentToolResultCard display={subAgentDisplay} locale={locale} />
@@ -833,6 +838,7 @@ interface SubAgentToolDisplay {
   childThreadId: string | null
   message: string | null
   success: boolean
+  tone: 'normal' | 'warning' | 'error'
 }
 
 function SubAgentToolResultCard({
@@ -844,6 +850,11 @@ function SubAgentToolResultCard({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const hasMessage = !!display.message
+  const textColor = display.tone === 'error'
+    ? 'var(--error)'
+    : display.tone === 'warning'
+      ? 'var(--warning)'
+      : 'var(--text-secondary)'
 
   const openThread = (): void => {
     if (!display.childThreadId) return
@@ -866,7 +877,7 @@ function SubAgentToolResultCard({
           alignItems: 'center',
           gap: '8px',
           padding: '4px 6px',
-          color: display.success ? 'var(--text-secondary)' : 'var(--error)',
+          color: textColor,
           fontSize: '12px'
         }}
       >
@@ -898,7 +909,7 @@ function SubAgentToolResultCard({
           style={{
             padding: '8px',
             background: 'var(--bg-secondary)',
-            color: display.success ? 'var(--text-secondary)' : 'var(--error)',
+            color: textColor,
             fontSize: '12px',
             lineHeight: 1.5,
             whiteSpace: 'pre-wrap',
@@ -917,46 +928,124 @@ function getSubAgentToolDisplay(
   args: Record<string, unknown> | undefined,
   result: string | undefined,
   success: boolean,
-  locale: AppLocale
+  locale: AppLocale,
+  lookup: SubAgentLookupSources
 ): SubAgentToolDisplay | null {
   if (!isSubAgentToolName(toolName)) return null
+  if (toolName === 'WaitAgent' && result === undefined) return null
   const parsed = parseJsonObject(result)
-  const nickname = getString(parsed, 'agentNickname')
-    ?? getString(parsed, 'nickname')
-    ?? getString(args, 'agentNickname')
-    ?? getString(args, 'agentId')
-    ?? getString(args, 'target')
-    ?? ''
   const profile = getString(parsed, 'profileName') ?? getString(args, 'profile')
+  const runtimeType = getString(parsed, 'runtimeType')
   const childThreadId = getString(parsed, 'childThreadId')
     ?? getString(parsed, 'agentId')
     ?? getString(args, 'agentId')
     ?? getString(args, 'childThreadId')
-  const status = getString(parsed, 'status')
+  const status = getString(parsed, 'status')?.toLowerCase()
   const error = getString(parsed, 'error') ?? getString(parsed, 'message')
   const message = toolName === 'WaitAgent'
     ? getString(parsed, 'message') ?? getString(parsed, 'result')
     : null
-  const label = nickname || childThreadId || translate(locale, 'toolCall.subAgent.agent')
-  const subtitleParts = [profile, childThreadId].filter((part): part is string => !!part)
-  const titleKey = !success || status?.toLowerCase() === 'failed'
-    ? 'toolCall.subAgent.failed'
-    : toolName === 'SpawnAgent'
-      ? 'toolCall.subAgent.spawned'
-      : toolName === 'WaitAgent'
-        ? 'toolCall.subAgent.waited'
-        : toolName === 'SendInput'
-          ? 'toolCall.subAgent.sentInput'
-          : toolName === 'ResumeAgent'
-            ? 'toolCall.subAgent.resumed'
-            : 'toolCall.subAgent.closed'
+  const label = resolveSubAgentDisplayName(parsed, args, childThreadId, locale, lookup)
+  const subtitleParts = [profile, runtimeType]
+    .filter((part): part is string => !!part)
+    .filter((part, index, parts) => parts.indexOf(part) === index)
+  const isTimeout = toolName === 'WaitAgent'
+    && (status === 'timeout' || isTimeoutMessage(error) || isTimeoutMessage(message))
+  const tone: SubAgentToolDisplay['tone'] = isTimeout
+    ? 'warning'
+    : (!success || status === 'failed')
+      ? 'error'
+      : 'normal'
+  const titleKey = isTimeout
+    ? 'toolCall.subAgent.timeout'
+    : !success || status === 'failed'
+      ? 'toolCall.subAgent.failed'
+      : toolName === 'SpawnAgent'
+        ? 'toolCall.subAgent.spawned'
+        : toolName === 'WaitAgent'
+          ? 'toolCall.subAgent.waited'
+          : toolName === 'SendInput'
+            ? 'toolCall.subAgent.sentInput'
+            : toolName === 'ResumeAgent'
+              ? 'toolCall.subAgent.resumed'
+              : 'toolCall.subAgent.closed'
   return {
     title: translate(locale, titleKey, { name: label }),
     subtitle: subtitleParts.length > 0 ? subtitleParts.join(' · ') : '',
     childThreadId,
-    message: !success && error ? error : message,
-    success
+    message: isTimeout
+      ? (message ?? translate(locale, 'toolCall.subAgent.timeoutMessage'))
+      : !success && error
+        ? error
+        : message,
+    success: tone !== 'error',
+    tone
   }
+}
+
+function formatSubAgentRunningLabel(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  locale: AppLocale,
+  lookup: SubAgentLookupSources
+): string | null {
+  if (!isSubAgentToolName(toolName)) return null
+  const childThreadId = getString(args, 'childThreadId') ?? getString(args, 'agentId')
+  const label = resolveSubAgentDisplayName(undefined, args, childThreadId, locale, lookup)
+  const key = toolName === 'SpawnAgent'
+    ? 'toolCall.subAgent.starting'
+    : toolName === 'WaitAgent'
+      ? 'toolCall.subAgent.waiting'
+      : toolName === 'SendInput'
+        ? 'toolCall.subAgent.sendingInput'
+        : toolName === 'ResumeAgent'
+          ? 'toolCall.subAgent.resuming'
+          : 'toolCall.subAgent.closing'
+  return translate(locale, key, { name: label })
+}
+
+function resolveSubAgentDisplayName(
+  parsed: Record<string, unknown> | undefined,
+  args: Record<string, unknown> | undefined,
+  childThreadId: string | null | undefined,
+  locale: AppLocale,
+  lookup: SubAgentLookupSources
+): string {
+  const explicitName = getString(parsed, 'agentNickname')
+    ?? getString(parsed, 'nickname')
+    ?? getString(args, 'agentNickname')
+    ?? getString(args, 'nickname')
+  if (explicitName && !isThreadIdLike(explicitName, childThreadId)) return explicitName
+
+  if (childThreadId) {
+    for (const children of lookup.childrenByParent.values()) {
+      const child = children.find((entry) => entry.childThreadId === childThreadId)
+      if (child?.nickname && !isThreadIdLike(child.nickname, childThreadId)) {
+        return child.nickname
+      }
+    }
+
+    const threads = lookup.activeThread ? [lookup.activeThread, ...lookup.threadList] : lookup.threadList
+    const thread = threads.find((entry) => entry.id === childThreadId)
+    const sourceName = thread?.source?.subAgent?.agentNickname
+    if (sourceName && !isThreadIdLike(sourceName, childThreadId)) return sourceName
+    if (thread?.displayName && !isThreadIdLike(thread.displayName, childThreadId)) return thread.displayName
+  }
+
+  return translate(locale, 'toolCall.subAgent.agent')
+}
+
+function isThreadIdLike(value: string, childThreadId: string | null | undefined): boolean {
+  const normalized = value.trim()
+  return normalized.length === 0
+    || normalized === childThreadId
+    || /^thread[_-]/i.test(normalized)
+}
+
+function isTimeoutMessage(value: string | null): boolean {
+  if (!value) return false
+  const normalized = value.toLowerCase()
+  return normalized.includes('timed out') || normalized.includes('timeout')
 }
 
 function isSubAgentToolName(toolName: string): boolean {

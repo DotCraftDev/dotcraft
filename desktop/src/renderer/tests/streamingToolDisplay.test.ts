@@ -82,6 +82,16 @@ describe('getStreamingToolDisplay', () => {
     expect(display.label).toBe('Spawning agent: tester...')
   })
 
+  it('renders WaitAgent streaming label without exposing child thread ids', () => {
+    const display = getStreamingToolDisplay(
+      'WaitAgent',
+      '{"childThreadId":"thread_20260503_child"',
+      'en'
+    )
+    expect(display.label).toBe('Waiting for agent')
+    expect(display.label).not.toContain('thread_20260503_child')
+  })
+
   it('renders generic builtin label for recognised but unsupported tool', () => {
     const display = getStreamingToolDisplay('CommitSuggest', '{}', 'en')
     expect(display.label).toBe('Preparing commit message...')

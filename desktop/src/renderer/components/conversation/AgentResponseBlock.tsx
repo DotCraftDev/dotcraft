@@ -99,7 +99,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 
         for (const entry of entries) {
           nodes.push(
-            renderAggregatedEntry(entry, turn.id, nodes.length, keyPrefix)
+            renderAggregatedEntry(entry, turn.id, nodes.length, isRunning, keyPrefix)
           )
         }
       } else if (item.type === 'userMessage' && item.deliveryMode === 'guidance') {
@@ -240,6 +240,7 @@ function renderAggregatedEntry(
   entry: AggregatedToolCall,
   turnId: string,
   offset: number,
+  turnRunning: boolean,
   keyPrefix = ''
 ): React.ReactNode {
   if (entry.kind === 'single') {
@@ -248,6 +249,7 @@ function renderAggregatedEntry(
         key={entry.item.id}
         item={entry.item}
         turnId={turnId}
+        turnRunning={turnRunning}
       />
     )
   }
@@ -257,6 +259,7 @@ function renderAggregatedEntry(
       category={entry.category}
       items={entry.items}
       turnId={turnId}
+      turnRunning={turnRunning}
     />
   )
 }
@@ -267,13 +270,14 @@ interface GroupedToolCallRowProps {
   category: ToolGroupCategory
   items: ConversationItem[]
   turnId: string
+  turnRunning: boolean
 }
 
 /**
  * Collapsed summary row for a group of consecutive aggregated tool calls.
  * Expandable to show each individual child tool card.
  */
-function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps): JSX.Element {
+function GroupedToolCallRow({ category, items, turnId, turnRunning }: GroupedToolCallRowProps): JSX.Element {
   const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const label = formatToolGroupLabel(category, items, locale, changedFiles)
@@ -310,7 +314,7 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>
           {items.map((item) => (
-            <ToolCallCard key={item.id} item={item} turnId={turnId} />
+            <ToolCallCard key={item.id} item={item} turnId={turnId} turnRunning={turnRunning} />
           ))}
         </div>
       )}

@@ -24,10 +24,10 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnAgent))]
     [StreamArguments(false)]
     public async Task<string> SpawnAgent(
-        [Description("Required non-empty self-contained task prompt for the child agent thread. Always provide this argument.")] string prompt,
+        [Description("Required non-empty self-contained task prompt for the child agent thread.")] string prompt,
         [Description("Optional short name shown in UI for this child agent.")] string? agentNickname = null,
         [Description("Optional role label such as worker, explorer, or reviewer.")] string? agentRole = null,
-        [Description("Optional named subagent profile. Defaults to native when omitted. Use only profile names listed in the system prompt.")] string? profile = null,
+        [Description("Optional named subagent profile. Defaults to native when omitted.")] string? profile = null,
         [Description("Optional working directory for the child thread. Defaults to the parent thread workspace.")] string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {

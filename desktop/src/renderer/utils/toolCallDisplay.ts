@@ -513,6 +513,34 @@ export function getStreamingToolDisplay(
       }
       return { label: translate(locale, 'toolCall.streaming.spawnAgentGeneric') }
     }
+    case 'WaitAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.waiting', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'SendInput': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.sendingInput', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'ResumeAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.resuming', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'CloseAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.closing', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
     case 'LSP': {
       const op = extractPartialJsonStringValue(rawArgs, 'operation')
       const filePath = extractPartialJsonStringValue(rawArgs, 'filePath')

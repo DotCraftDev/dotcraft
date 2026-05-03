@@ -168,6 +168,37 @@ public sealed class SubAgentSessionControlTests : IDisposable
         Assert.Equal(TurnStatus.Cancelled, child.Turns.Single().Status);
     }
 
+    [Fact]
+    public async Task WaitAgent_WhenTimeoutExpires_ReturnsTimeoutWithoutFailingChild()
+    {
+        var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "unused")
+        {
+            WaitForCancellation = true
+        };
+        var coordinator = CreateCoordinator(runtime, supportsResume: false, resumeEnabled: false);
+        var context = await CreateContextAsync();
+        var spawned = await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions { Prompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
+            waitForCompletion: false,
+            coordinator,
+            CancellationToken.None);
+
+        var waited = await SubAgentSessionControl.WaitAgentAsync(
+            _sessionService,
+            spawned.ChildThreadId,
+            timeoutSeconds: 1,
+            CancellationToken.None);
+        var child = await _sessionService.GetThreadAsync(spawned.ChildThreadId);
+
+        Assert.Equal("timeout", waited.Status);
+        Assert.Contains("Timed out waiting", waited.Message, StringComparison.Ordinal);
+        Assert.Equal("Inspect", waited.AgentNickname);
+        Assert.Equal(TurnStatus.Running, child.Turns.Single().Status);
+
+        await SubAgentSessionControl.CloseAgentAsync(_sessionService, spawned.ChildThreadId, CancellationToken.None);
+    }
+
 
     private async Task<SubAgentSessionContext> CreateContextAsync()
     {

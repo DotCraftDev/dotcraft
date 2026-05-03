@@ -86,8 +86,9 @@ export function isTerminalSubAgentStatus(status: string | null | undefined): boo
 export function isSubAgentChildRunning(child: SubAgentChild): boolean {
   if (child.runtime?.running === true) return true
   if (child.runtime?.running === false) return false
+  if (child.isPlaceholder === true) return !child.isCompleted && !isTerminalSubAgentStatus(child.status)
   if (child.isCompleted || isTerminalSubAgentStatus(child.status)) return false
-  return true
+  return false
 }
 
 function childFromWire(parentThreadId: string, wire: SubAgentChildWire): SubAgentChild | null {
