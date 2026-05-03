@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, MouseEvent } from 'react'
-import { Box, ChevronLeft, ExternalLink, Link, MessageCircle, RefreshCw, Settings, Trash2, Wrench } from 'lucide-react'
+import { Box, ChevronLeft, Ellipsis, ExternalLink, Link, MessageCircle, Settings, Trash2, Wrench } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { usePluginStore, type PluginDiagnosticEntry, type PluginEntry } from '../../stores/pluginStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -16,6 +16,9 @@ import {
   CatalogTabs,
   styles as catalogStyles
 } from '../catalog/CatalogSurface'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { RefreshIcon } from '../ui/AppIcons'
 import { PluginCatalogItem, PluginIcon, pluginSourceLabel, pluginSubtitle, pluginTitle } from './PluginCatalogItem'
 import { PluginInstallDialog } from './PluginInstallDialog'
 
@@ -61,6 +64,7 @@ export function PluginsView(): JSX.Element {
   const [savedSkillName, setSavedSkillName] = useState<string | null>(null)
   const [installTarget, setInstallTarget] = useState<PluginEntry | null>(null)
   const [installingId, setInstallingId] = useState<string | null>(null)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
 
   useEffect(() => {
     if (pluginManagement) void fetchPlugins()
@@ -270,20 +274,20 @@ export function PluginsView(): JSX.Element {
       <SurfaceTabs value={surface} onChange={setSurface} />
       <header style={browseHeader}>
         <div style={topActions}>
-          <button
-            type="button"
-            aria-label={t('plugins.refresh')}
-            title={t('plugins.refresh')}
-            onClick={() => void fetchPlugins()}
-            style={manageButton}
-          >
-            <RefreshCw size={14} aria-hidden />
-            {t('plugins.refresh')}
-          </button>
           <button type="button" onClick={() => setMode('manage')} style={manageButton}>
             <Settings size={14} aria-hidden />
             {t('plugins.manage')}
           </button>
+          <ActionTooltip label={t('plugins.moreActions')} placement="bottom">
+            <button
+              type="button"
+              aria-label={t('plugins.moreActions')}
+              onClick={(event) => setMenuPosition({ x: event.clientX, y: event.clientY })}
+              style={iconButton}
+            >
+              <Ellipsis size={16} aria-hidden />
+            </button>
+          </ActionTooltip>
         </div>
         <h1 style={heroTitle}>{t('plugins.heroTitle')}</h1>
         <div style={searchRow}>
@@ -330,6 +334,19 @@ export function PluginsView(): JSX.Element {
         ))}
         {!loading && !error && browsePlugins.length === 0 && <p style={emptyText}>{t('plugins.empty')}</p>}
       </main>
+      {menuPosition && (
+        <ContextMenu
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          items={[
+            {
+              label: t('plugins.refresh'),
+              icon: <RefreshIcon size={14} />,
+              onClick: () => void fetchPlugins()
+            }
+          ]}
+        />
+      )}
       {installDialog}
     </div>
   )
@@ -883,6 +900,7 @@ const compactItem: CSSProperties = catalogStyles.compactItem
 const rowTitle: CSSProperties = catalogStyles.rowTitle
 const rowDesc: CSSProperties = catalogStyles.rowDesc
 const manageButton: CSSProperties = catalogStyles.manageButton
+const iconButton: CSSProperties = catalogStyles.iconButton
 const manageHeader: CSSProperties = catalogStyles.manageHeader
 const breadcrumb: CSSProperties = catalogStyles.breadcrumb
 const breadcrumbButton: CSSProperties = catalogStyles.breadcrumbButton

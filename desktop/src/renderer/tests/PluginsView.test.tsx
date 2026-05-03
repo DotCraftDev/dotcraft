@@ -181,6 +181,26 @@ describe('PluginsView local plugin visibility', () => {
     expect(await screen.findByText('External Process Echo')).toBeInTheDocument()
   })
 
+  it('refreshes plugins from the more actions menu', async () => {
+    appServerSendRequest.mockResolvedValue({
+      plugins: [browserUsePlugin],
+      diagnostics: []
+    })
+
+    renderPluginsView()
+
+    expect(await screen.findByText('Browser Use')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument()
+    const initialCalls = appServerSendRequest.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Refresh' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest.mock.calls.length).toBeGreaterThan(initialCalls)
+    })
+  })
+
   it('shows remove for removable local plugins and refreshes after confirmation', async () => {
     let removed = false
     appServerSendRequest.mockImplementation(async (method: string) => {
