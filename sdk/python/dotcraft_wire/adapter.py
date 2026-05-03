@@ -569,7 +569,7 @@ class ChannelAdapter(ABC):
                 if not isinstance(item, dict):
                     continue
                 item_type = str(item.get("type", ""))
-                if item_type not in ("toolCall", "externalChannelToolCall"):
+                if item_type not in ("toolCall", "pluginFunctionCall"):
                     continue
 
                 segment_text = "".join(current_segment_parts)

@@ -68,11 +68,10 @@ public static class StreamAdapter
                     if (!hasParams || !@params.TryGetProperty("item", out var item)) break;
                     var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
 
-                    if (type == "toolCall")
+                    if (type is "toolCall" or "pluginFunctionCall")
                     {
                         var payload = item.TryGetProperty("payload", out var p) ? p : default;
-                        var toolName = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("toolName", out var tn)
-                            ? tn.GetString() : null;
+                        var toolName = GetInvocationName(type, payload);
                         var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
                             ? ci.GetString() : null;
                         var icon = ToolRegistry.GetToolIcon(toolName ?? string.Empty);
@@ -114,6 +113,25 @@ public static class StreamAdapter
                         {
                             (icon, name, argsJson, formattedDisplay) = info;
                             callIdMap.Remove(callId!);
+                        }
+                        yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, result, formattedDisplay, callId: callId);
+                    }
+                    else if (type == "pluginFunctionCall")
+                    {
+                        var payload = item.TryGetProperty("payload", out var p) ? p : default;
+                        var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
+                            ? ci.GetString() : null;
+                        var result = FormatPluginFunctionResult(payload);
+                        string? icon = null, name = null, argsJson = null, formattedDisplay = null;
+                        if (!string.IsNullOrEmpty(callId) && callIdMap.TryGetValue(callId!, out var info))
+                        {
+                            (icon, name, argsJson, formattedDisplay) = info;
+                            callIdMap.Remove(callId!);
+                        }
+                        else
+                        {
+                            name = GetInvocationName(type, payload);
+                            icon = ToolRegistry.GetToolIcon(name ?? string.Empty);
                         }
                         yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, result, formattedDisplay, callId: callId);
                     }
@@ -293,5 +311,66 @@ public static class StreamAdapter
                 yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidationFailed);
                 break;
         }
+    }
+
+    private static string? GetInvocationName(string? type, JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object) return null;
+        var propertyName = type == "pluginFunctionCall" ? "functionName" : "toolName";
+        if (payload.TryGetProperty(propertyName, out var name) && name.ValueKind == JsonValueKind.String)
+            return name.GetString();
+        if (payload.TryGetProperty("toolName", out var toolName) && toolName.ValueKind == JsonValueKind.String)
+            return toolName.GetString();
+        if (payload.TryGetProperty("functionName", out var functionName) && functionName.ValueKind == JsonValueKind.String)
+            return functionName.GetString();
+        return null;
+    }
+
+    private static string? FormatPluginFunctionResult(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object) return null;
+
+        if (payload.TryGetProperty("contentItems", out var contentItems)
+            && contentItems.ValueKind == JsonValueKind.Array)
+        {
+            var parts = new List<string>();
+            foreach (var item in contentItems.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var type = item.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String
+                    ? typeEl.GetString()
+                    : "text";
+                if (type == "text")
+                {
+                    if (item.TryGetProperty("text", out var textEl)
+                        && textEl.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrEmpty(textEl.GetString()))
+                    {
+                        parts.Add(textEl.GetString()!);
+                    }
+                }
+                else if (type == "image")
+                {
+                    var mediaType = item.TryGetProperty("mediaType", out var mediaTypeEl)
+                        && mediaTypeEl.ValueKind == JsonValueKind.String
+                            ? mediaTypeEl.GetString()
+                            : "image";
+                    parts.Add($"[image: {mediaType}]");
+                }
+            }
+            if (parts.Count > 0)
+                return string.Join(Environment.NewLine, parts);
+        }
+
+        if (payload.TryGetProperty("structuredResult", out var structured)
+            && structured.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+        {
+            return JsonSerializer.Serialize(structured, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        return payload.TryGetProperty("errorMessage", out var error)
+            && error.ValueKind == JsonValueKind.String
+                ? error.GetString()
+                : null;
     }
 }

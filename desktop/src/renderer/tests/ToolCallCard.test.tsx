@@ -21,6 +21,48 @@ function expectRunningGradientText(text: string | RegExp): HTMLElement {
 
 const collapseAnimationMs = 200
 
+describe('ToolCallCard plugin function rendering', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        },
+        appServer: {
+          sendRequest: vi.fn(async () => ({}))
+        }
+      }
+    })
+  })
+
+  it('renders plugin text and image content when expanded', () => {
+    const item: ConversationItem = {
+      id: 'plugin-tool-1',
+      type: 'pluginFunctionCall',
+      status: 'completed',
+      toolName: 'NodeReplJs',
+      toolCallId: 'plugin-call-1',
+      arguments: { code: 'render()' },
+      result: 'rendered',
+      success: true,
+      contentItems: [
+        { type: 'text', text: 'rendered' },
+        { type: 'image', mediaType: 'image/png', dataBase64: 'abc123' }
+      ],
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByText((content) => content.includes('rendered'))).toBeInTheDocument()
+    const image = screen.getByRole('img', { name: 'Plugin output 1' })
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,abc123')
+  })
+})
+
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
@@ -139,6 +181,48 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.queryByText('src/live.ts')).toBeNull()
     expect(screen.queryByText('streaming')).toBeNull()
     expect(screen.queryByText('Waiting for content...')).toBeNull()
+  })
+
+  it('keeps running EditFile tool labels as Edited even when the streaming diff looks new', () => {
+    const item: ConversationItem = {
+      id: 'tool-edit-streaming',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'EditFile',
+      toolCallId: 'edit-streaming-1',
+      createdAt: new Date().toISOString()
+    }
+    const streamingDiff: FileDiff = {
+      filePath: 'README.md',
+      turnId: 'turn-1',
+      turnIds: ['turn-1'],
+      additions: 2,
+      deletions: 0,
+      diffHunks: [
+        {
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 2,
+          lines: [
+            { type: 'add', content: 'new line one' },
+            { type: 'add', content: 'new line two' }
+          ]
+        }
+      ],
+      status: 'written',
+      isNewFile: true,
+      originalContent: '',
+      currentContent: 'new line one\nnew line two'
+    }
+    useConversationStore.setState({
+      streamingItemDiffs: new Map([[item.id, streamingDiff]])
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Edited README\.md \+2/)).toBeInTheDocument()
+    expect(screen.queryByText(/Created README\.md/)).toBeNull()
   })
 
   it('renders completed file diffs embedded with compact filename and stats', () => {

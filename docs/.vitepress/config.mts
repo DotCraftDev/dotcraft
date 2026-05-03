@@ -25,6 +25,13 @@ const zhSidebar: DefaultTheme.Sidebar = [
     ]
   },
   {
+    text: '插件',
+    items: [
+      { text: '安装和使用插件', link: '/plugins/install' },
+      { text: '创建插件', link: '/plugins/build' }
+    ]
+  },
+  {
     text: '配置与安全',
     items: [
       { text: '配置入门', link: '/config_guide' },
@@ -109,6 +116,13 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Agent Skill Self-Learning', link: '/en/skills/agent-self-learning' },
       { text: 'Search and Install Skills', link: '/en/skills/marketplace' },
       { text: 'Dashboard', link: '/en/dash_board_guide' }
+    ]
+  },
+  {
+    text: 'Plugins',
+    items: [
+      { text: 'Install and Use Plugins', link: '/en/plugins/install' },
+      { text: 'Build Plugins', link: '/en/plugins/build' }
     ]
   },
   {

@@ -1,4 +1,5 @@
 using DotCraft.Agents;
+using DotCraft.Plugins;
 using DotCraft.Tracing;
 using Microsoft.Extensions.AI;
 
@@ -16,7 +17,7 @@ namespace DotCraft.Hooks;
 /// <see cref="HookEvent.PostToolUseFailure"/> (on exception) hooks.
 /// </para>
 /// </summary>
-internal sealed class HookWrappedFunction : DelegatingAIFunction
+internal sealed class HookWrappedFunction : DelegatingAIFunction, IPluginFunctionTool
 {
     private readonly HookRunner _hookRunner;
 
@@ -25,6 +26,11 @@ internal sealed class HookWrappedFunction : DelegatingAIFunction
     {
         _hookRunner = hookRunner;
     }
+
+    public PluginFunctionDescriptor? PluginFunctionDescriptor =>
+        InnerFunction is IPluginFunctionTool pluginFunction
+            ? pluginFunction.PluginFunctionDescriptor
+            : null;
 
     protected override async ValueTask<object?> InvokeCoreAsync(
         AIFunctionArguments arguments,

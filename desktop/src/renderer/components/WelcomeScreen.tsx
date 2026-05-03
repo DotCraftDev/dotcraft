@@ -12,7 +12,7 @@ interface RecentWorkspace {
 
 /**
  * Full-screen welcome view shown on first launch (no workspace configured).
- * Spec §16.1, M7-1, M7-5
+ * Spec §16.1.
  */
 function isLockError(err: unknown): boolean {
   return isWorkspaceLockedSwitchError(err)

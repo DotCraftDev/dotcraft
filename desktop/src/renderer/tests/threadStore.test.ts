@@ -276,7 +276,7 @@ describe('threadStore full CRUD lifecycle', () => {
     s().setActiveThread(full)
     expect(s().activeThread?.id).toBe('lifecycle-1')
 
-    // Rename (client-side only in M2)
+    // Rename is client-side only in this test.
     s().renameThread('lifecycle-1', 'Renamed Thread')
     expect(s().activeThread?.displayName).toBe('Renamed Thread')
     expect(s().threadList[0].displayName).toBe('Renamed Thread')

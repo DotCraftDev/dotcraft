@@ -4,6 +4,7 @@ using DotCraft.ExternalChannel;
 using DotCraft.Gateway;
 using DotCraft.Hosting;
 using DotCraft.Modules;
+using DotCraft.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -28,7 +29,8 @@ public sealed partial class AppServerModule : ModuleBase
         services.TryAddSingleton<IChannelRuntimeRegistry, ChannelRuntimeRegistry>();
         services.TryAddSingleton(sp => new MessageRouter(sp.GetRequiredService<IChannelRuntimeRegistry>()));
         services.TryAddSingleton<ExternalChannelRegistry>();
-        services.TryAddSingleton<IChannelRuntimeToolProvider, ExternalChannelToolProvider>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IThreadPluginFunctionProvider, ExternalChannelToolProvider>());
+        services.TryAddSingleton<IChannelRuntimeToolProvider, ThreadPluginFunctionToolProvider>();
         services.TryAddSingleton<IAppServerChannelRunnerFactory, DefaultAppServerChannelRunnerFactory>();
         services.TryAddSingleton<IAppServerAutomationRuntimeFactory, DefaultAppServerAutomationRuntimeFactory>();
         services.TryAddSingleton<IWorkspaceRuntimeAppServerFeatureFactory, AppServerWorkspaceRuntimeFeatureFactory>();

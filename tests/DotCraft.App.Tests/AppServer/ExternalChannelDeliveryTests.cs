@@ -11,6 +11,7 @@ using DotCraft.ExternalChannel;
 using DotCraft.Memory;
 using DotCraft.Processes;
 using DotCraft.Protocol;
+using DotCraft.Plugins;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
@@ -625,8 +626,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             StartedAt = DateTimeOffset.UtcNow
         };
         var lifecycle = new List<string>();
-        using var scope = ExternalChannelToolExecutionScope.Set(
-            new ExternalChannelToolExecutionContext
+        using var scope = PluginFunctionExecutionScope.Set(
+            new PluginFunctionExecutionContext
             {
                 ThreadId = thread.Id,
                 TurnId = turn.Id,
@@ -656,15 +657,54 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal("chat_123", toolParams.Context.ChannelContext);
         Assert.Equal("user_42", toolParams.Context.SenderId);
         Assert.Single(turn.Items);
-        Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
+        Assert.Equal(ItemType.PluginFunctionCall, turn.Items[0].Type);
         Assert.Equal(["started", "completed"], lifecycle);
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void ExternalChannelToolProvider_WhenPluginDisabled_ReturnsNoTools()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        AttachFakeAdapter(host, new StubTransport(), CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = false,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject()
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var config = new AppConfig();
+        config.Plugins.DisabledPlugins.Add("external-channel");
+        var provider = new ExternalChannelToolProvider(registry, config);
+        provider.ConfigureReservedToolNames([]);
+        var tools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_plugin_disabled",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Empty(tools);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SessionService_ExternalChannelToolCall_DoesNotEmitToolCallOrToolResultItems(bool nullToolNameInFirstDelta)
+    public async Task SessionService_PluginFunctionCall_DoesNotEmitToolCallOrToolResultItems(bool nullToolNameInFirstDelta)
     {
         var registry = new ExternalChannelRegistry();
         var host = CreateHost("telegram");
@@ -740,7 +780,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.NotNull(completed.TurnPayload);
         var turn = completed.TurnPayload!;
 
-        Assert.Single(turn.Items, i => i.Type == ItemType.ExternalChannelToolCall);
+        Assert.Single(turn.Items, i => i.Type == ItemType.PluginFunctionCall);
         Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ToolCall);
         Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ToolResult);
         Assert.DoesNotContain(turn.Items, i =>
@@ -770,7 +810,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task SessionService_ExternalChannelToolCall_InterleavesWithAgentMessages()
+    public async Task SessionService_PluginFunctionCall_InterleavesWithAgentMessages()
     {
         var registry = new ExternalChannelRegistry();
         var host = CreateHost("telegram");
@@ -846,12 +886,12 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         var turn = completed.TurnPayload!;
 
         var ordered = turn.Items
-            .Where(i => i.Type is ItemType.ExternalChannelToolCall or ItemType.AgentMessage)
+            .Where(i => i.Type is ItemType.PluginFunctionCall or ItemType.AgentMessage)
             .ToList();
         Assert.Equal(4, ordered.Count);
-        Assert.Equal(ItemType.ExternalChannelToolCall, ordered[0].Type);
+        Assert.Equal(ItemType.PluginFunctionCall, ordered[0].Type);
         Assert.Equal(ItemType.AgentMessage, ordered[1].Type);
-        Assert.Equal(ItemType.ExternalChannelToolCall, ordered[2].Type);
+        Assert.Equal(ItemType.PluginFunctionCall, ordered[2].Type);
         Assert.Equal(ItemType.AgentMessage, ordered[3].Type);
 
         var firstMessage = Assert.IsType<AgentMessagePayload>(ordered[1].Payload);
@@ -859,7 +899,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal("b", firstMessage.Text);
         Assert.Equal("d", secondMessage.Text);
 
-        Assert.Equal(2, turn.Items.Count(i => i.Type == ItemType.ExternalChannelToolCall));
+        Assert.Equal(2, turn.Items.Count(i => i.Type == ItemType.PluginFunctionCall));
         Assert.Equal(2, turn.Items.Count(i => i.Type == ItemType.AgentMessage));
     }
 
@@ -921,8 +961,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         try
         {
-            using var scope = ExternalChannelToolExecutionScope.Set(
-                new ExternalChannelToolExecutionContext
+            using var scope = PluginFunctionExecutionScope.Set(
+                new PluginFunctionExecutionContext
                 {
                     ThreadId = "thread_approval_reject",
                     TurnId = "turn_approval_reject",
@@ -945,7 +985,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 }),
                 CancellationToken.None);
 
-            var resultText = Assert.IsType<string>(result);
+            var resultText = ExtractResultText(result);
             Assert.Contains("AccessDenied", resultText);
             Assert.Null(transport.LastMethod);
             Assert.Equal("read", approvalService.LastOperation);
@@ -1020,8 +1060,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         try
         {
-            using var scope = ExternalChannelToolExecutionScope.Set(
-                new ExternalChannelToolExecutionContext
+            using var scope = PluginFunctionExecutionScope.Set(
+                new PluginFunctionExecutionContext
                 {
                     ThreadId = "thread_approval_accept",
                     TurnId = "turn_approval_accept",
@@ -1317,8 +1357,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             Status = TurnStatus.Running,
             StartedAt = DateTimeOffset.UtcNow
         };
-        using var scope = ExternalChannelToolExecutionScope.Set(
-            new ExternalChannelToolExecutionContext
+        using var scope = PluginFunctionExecutionScope.Set(
+            new PluginFunctionExecutionContext
             {
                 ThreadId = "thread_020",
                 TurnId = "turn_020",
@@ -1340,11 +1380,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             CancellationToken.None);
 
         Assert.Null(transport.LastMethod);
-        var resultText = Assert.IsType<string>(result);
+        var resultText = ExtractResultText(result);
         Assert.Contains("MissingChatContext", resultText);
         Assert.Single(turn.Items);
         Assert.Equal(ItemStatus.Completed, turn.Items[0].Status);
-        Assert.False(turn.Items[0].AsExternalChannelToolCall?.Success);
+        Assert.False(turn.Items[0].AsPluginFunctionCall?.Success);
     }
 
     [Fact]
@@ -1393,8 +1433,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             Status = TurnStatus.Running,
             StartedAt = DateTimeOffset.UtcNow
         };
-        using var scope = ExternalChannelToolExecutionScope.Set(
-            new ExternalChannelToolExecutionContext
+        using var scope = PluginFunctionExecutionScope.Set(
+            new PluginFunctionExecutionContext
             {
                 ThreadId = "thread_030",
                 TurnId = "turn_030",
@@ -1417,10 +1457,10 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             }),
             CancellationToken.None);
 
-        var resultText = Assert.IsType<string>(result);
+        var resultText = ExtractResultText(result);
         Assert.Contains("ExternalChannelToolTimeout", resultText);
         Assert.Single(turn.Items);
-        var payload = Assert.IsType<ExternalChannelToolCallPayload>(turn.Items[0].Payload);
+        var payload = Assert.IsType<PluginFunctionCallPayload>(turn.Items[0].Payload);
         Assert.False(payload.Success);
         Assert.Equal("ExternalChannelToolTimeout", payload.ErrorCode);
     }
@@ -1698,10 +1738,21 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         IReadOnlySet<string> toolNames)
     {
         var field = typeof(SessionService)
-            .GetField("_threadExternalChannelToolNames", BindingFlags.Instance | BindingFlags.NonPublic);
+            .GetField("_threadPluginFunctionToolNames", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         var cache = Assert.IsType<ConcurrentDictionary<string, IReadOnlySet<string>>>(field!.GetValue(service));
         cache[threadId] = new HashSet<string>(toolNames, StringComparer.Ordinal);
+    }
+
+    private static string ExtractResultText(object? result)
+    {
+        if (result is string text)
+            return text;
+
+        if (result is IReadOnlyList<AIContent> contents)
+            return string.Join("\n", contents.OfType<TextContent>().Select(content => content.Text));
+
+        return result?.ToString() ?? string.Empty;
     }
 
     private sealed class StubTransport(object? result = null, Exception? exception = null) : IAppServerTransport
@@ -1910,3 +1961,4 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         public ContextUsageSnapshot? TryGetContextUsageSnapshot(string threadId) => null;
     }
 }
+

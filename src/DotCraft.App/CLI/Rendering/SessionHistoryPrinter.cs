@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotCraft.Plugins;
 using DotCraft.Protocol;
 using DotCraft.Tools;
 using Spectre.Console;
@@ -84,6 +85,14 @@ public static class SessionHistoryPrinter
                         PrintToolCallWithResult(tc, resultsByCallId);
                         break;
                     }
+                    case ItemType.PluginFunctionCall:
+                    {
+                        var functionName = GetWirePayloadString(item.Payload, "functionName") ?? string.Empty;
+                        var argsNode = ParseJsonObject(GetWirePayloadRaw(item.Payload, "arguments"));
+                        var result = GetPluginFunctionResult(item.Payload);
+                        PrintToolCallInline(functionName, argsNode, result);
+                        break;
+                    }
                 }
             }
         }
@@ -104,6 +113,12 @@ public static class SessionHistoryPrinter
             {
                 "toolName" => tc.ToolName,
                 "callId" => tc.CallId,
+                _ => null
+            },
+            PluginFunctionCallPayload pc => field switch
+            {
+                "functionName" => pc.FunctionName,
+                "callId" => pc.CallId,
                 _ => null
             },
             ToolResultPayload tr => field switch
@@ -127,11 +142,25 @@ public static class SessionHistoryPrinter
         payload switch
         {
             ToolCallPayload tc when field == "arguments" => tc.Arguments?.ToJsonString(),
+            PluginFunctionCallPayload pc when field == "arguments" => pc.Arguments?.ToJsonString(),
             JsonElement je when je.ValueKind == JsonValueKind.Object
                                 && je.TryGetProperty(field, out var v)
                 => v.GetRawText(),
             _ => null
         };
+
+    private static System.Text.Json.Nodes.JsonObject? ParseJsonObject(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static void PrintUserMessageText(string text)
     {
@@ -148,25 +177,113 @@ public static class SessionHistoryPrinter
     private static void PrintToolCallWithResult(
         ToolCallPayload tc, Dictionary<string, string> resultsByCallId)
     {
-        var icon = ToolRegistry.GetToolIcon(tc.ToolName);
-        var display = ToolRegistry.FormatToolCall(tc.ToolName, tc.Arguments) ?? tc.ToolName;
+        string? rawResult = null;
+        if (!string.IsNullOrEmpty(tc.CallId)
+            && resultsByCallId.TryGetValue(tc.CallId, out var matchedResult))
+        {
+            rawResult = matchedResult;
+        }
+        PrintToolCallInline(tc.ToolName, tc.Arguments, rawResult);
+    }
+
+    private static void PrintToolCallInline(
+        string toolName,
+        System.Text.Json.Nodes.JsonObject? arguments,
+        string? rawResult)
+    {
+        var icon = ToolRegistry.GetToolIcon(toolName);
+        var display = ToolRegistry.FormatToolCall(toolName, arguments) ?? toolName;
         AnsiConsole.MarkupLine($"  [yellow]{Markup.Escape($"{icon} {display}")}[/]");
 
-        if (!string.IsNullOrEmpty(tc.CallId)
-            && resultsByCallId.TryGetValue(tc.CallId, out var rawResult))
+        var formatted = rawResult is null ? null : ToolRegistry.FormatToolResult(toolName, rawResult);
+        if (formatted != null)
         {
-            var formatted = ToolRegistry.FormatToolResult(tc.ToolName, rawResult);
-            if (formatted != null)
-            {
-                foreach (var line in formatted)
-                    AnsiConsole.MarkupLine($"    [grey]{Markup.Escape(line)}[/]");
-            }
-            else if (!string.IsNullOrWhiteSpace(rawResult))
-            {
-                AnsiConsole.MarkupLine(
-                    $"    [grey]{Markup.Escape(NormalizeInline(Truncate(rawResult, 200)))}[/]");
-            }
+            foreach (var line in formatted)
+                AnsiConsole.MarkupLine($"    [grey]{Markup.Escape(line)}[/]");
         }
+        else if (!string.IsNullOrWhiteSpace(rawResult))
+        {
+            AnsiConsole.MarkupLine(
+                $"    [grey]{Markup.Escape(NormalizeInline(Truncate(rawResult, 200)))}[/]");
+        }
+    }
+
+    private static string? GetPluginFunctionResult(object? payload)
+    {
+        if (payload is PluginFunctionCallPayload typed)
+            return FormatPluginFunctionResult(typed.ContentItems, typed.StructuredResult, typed.ErrorMessage);
+
+        if (payload is JsonElement je && je.ValueKind == JsonValueKind.Object)
+        {
+            var parts = new List<string>();
+            if (je.TryGetProperty("contentItems", out var contentItems)
+                && contentItems.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in contentItems.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var type = item.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String
+                        ? typeEl.GetString()
+                        : "text";
+                    if (type == "text")
+                    {
+                        if (item.TryGetProperty("text", out var textEl)
+                            && textEl.ValueKind == JsonValueKind.String
+                            && !string.IsNullOrEmpty(textEl.GetString()))
+                        {
+                            parts.Add(textEl.GetString()!);
+                        }
+                    }
+                    else if (type == "image")
+                    {
+                        var mediaType = item.TryGetProperty("mediaType", out var mediaTypeEl)
+                            && mediaTypeEl.ValueKind == JsonValueKind.String
+                                ? mediaTypeEl.GetString()
+                                : "image";
+                        parts.Add($"[image: {mediaType}]");
+                    }
+                }
+            }
+
+            if (parts.Count > 0)
+                return string.Join(Environment.NewLine, parts);
+
+            if (je.TryGetProperty("structuredResult", out var structured)
+                && structured.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+            {
+                return JsonSerializer.Serialize(structured, new JsonSerializerOptions { WriteIndented = true });
+            }
+
+            return je.TryGetProperty("errorMessage", out var error)
+                && error.ValueKind == JsonValueKind.String
+                    ? error.GetString()
+                    : null;
+        }
+
+        return null;
+    }
+
+    private static string? FormatPluginFunctionResult(
+        IReadOnlyList<PluginFunctionContentItem>? contentItems,
+        System.Text.Json.Nodes.JsonNode? structuredResult,
+        string? errorMessage)
+    {
+        var parts = new List<string>();
+        foreach (var item in contentItems ?? [])
+        {
+            if (item.Type == "text" && !string.IsNullOrEmpty(item.Text))
+                parts.Add(item.Text!);
+            else if (item.Type == "image")
+                parts.Add($"[image: {item.MediaType ?? "image"}]");
+        }
+
+        if (parts.Count > 0)
+            return string.Join(Environment.NewLine, parts);
+
+        if (structuredResult != null)
+            return structuredResult.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+
+        return errorMessage;
     }
 
     private static void PrintSeparator()

@@ -9,7 +9,13 @@ import type {
   PendingComposerMessage,
   QueuedTurnInput
 } from '../types/conversation'
-import { wireItemToConversationItem, wireTurnToConversationTurn } from '../types/conversation'
+import {
+  derivePluginFunctionResultText,
+  isToolLikeItemType,
+  normalizePluginFunctionContentItems,
+  wireItemToConversationItem,
+  wireTurnToConversationTurn
+} from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
 import {
@@ -226,7 +232,7 @@ interface ConversationActions {
   upsertChangedFile(diff: FileDiff): void
   /** Store incremental diff for one toolCall item (keyed by ConversationItem.id) */
   upsertItemDiff(itemId: string, diff: FileDiff): void
-  /** Mark all files in a turn as reverted (M4: state-only, actual revert in M6) */
+  /** Mark all files in a turn as reverted in client state. */
   revertFilesForTurn(turnId: string): void
   /** Mark a single file as reverted (state only; caller must write disk via IPC) */
   revertFile(filePath: string): void
@@ -235,22 +241,22 @@ interface ConversationActions {
   /** Replace entire plan state from plan/updated notification */
   onPlanUpdated(plan: Partial<AgentPlan>): void
   /**
-   * Called when AppServer sends item/approval/request (M5).
+   * Called when AppServer sends item/approval/request.
    * Adds an approvalCard item to the current turn and sets waitingApproval state.
    */
   onApprovalRequest(bridgeId: string, params: Record<string, unknown>): void
   /**
-   * Called when the user makes a decision (M5).
+   * Called when the user makes a decision.
    * Updates the approval item state locally; IPC response is sent by the caller.
    */
   onApprovalDecision(decision: ApprovalDecision): void
   /**
-   * Called when item/approval/resolved notification arrives (M5).
+   * Called when item/approval/resolved notification arrives.
    * Clears pendingApproval and restores turnStatus to 'running'.
    */
   onApprovalResolved(): void
   /**
-   * Called when approval timeout error (-32020) is received (M5).
+   * Called when approval timeout error (-32020) is received.
    * Updates the approval item to 'timedOut' state.
    */
   onApprovalTimeout(): void
@@ -351,6 +357,66 @@ function mergeExistingCommandExecutionIntoToolCall(
   if (item.type !== 'toolCall') return item
   const commandExecution = findMatchingCommandExecution(items, item.toolCallId)
   return commandExecution ? mergeCommandExecutionIntoToolCall(item, commandExecution) : item
+}
+
+function buildToolLikeItem(
+  item: Record<string, unknown>,
+  type: 'toolCall' | 'pluginFunctionCall',
+  status: ConversationItem['status']
+): ConversationItem {
+  const payload = (item.payload ?? {}) as Record<string, unknown>
+  const contentItems = type === 'pluginFunctionCall'
+    ? normalizePluginFunctionContentItems(item.contentItems ?? payload.contentItems)
+    : undefined
+  const structuredResult = type === 'pluginFunctionCall'
+    ? ((item.structuredResult as unknown) ?? (payload.structuredResult as unknown))
+    : undefined
+  const errorMessage = type === 'pluginFunctionCall'
+    ? ((item.errorMessage as string | undefined) ?? (payload.errorMessage as string | undefined))
+    : undefined
+  const pluginResult = type === 'pluginFunctionCall'
+    ? derivePluginFunctionResultText(contentItems, structuredResult, errorMessage)
+    : undefined
+
+  return {
+    id: (item.id as string) ?? '',
+    type,
+    status,
+    toolName:
+      (item.toolName as string | undefined)
+      ?? (payload.toolName as string | undefined)
+      ?? (item.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined)
+      ?? (item.name as string | undefined)
+      ?? 'tool',
+    toolCallId:
+      (item.toolCallId as string | undefined)
+      ?? (payload.callId as string | undefined)
+      ?? (item.callId as string | undefined)
+      ?? (item.id as string | undefined)
+      ?? '',
+    arguments:
+      (item.arguments as Record<string, unknown> | undefined)
+      ?? (payload.arguments as Record<string, unknown> | undefined),
+    pluginId: (item.pluginId as string | undefined)
+      ?? (payload.pluginId as string | undefined),
+    pluginNamespace: (item.namespace as string | undefined)
+      ?? (payload.namespace as string | undefined),
+    functionName: (item.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined),
+    contentItems,
+    structuredResult,
+    errorCode: (item.errorCode as string | undefined)
+      ?? (payload.errorCode as string | undefined),
+    errorMessage,
+    result: (item.result as string | undefined)
+      ?? (payload.result as string | undefined)
+      ?? pluginResult,
+    success: (item.success as boolean | undefined)
+      ?? (payload.success as boolean | undefined),
+    createdAt: (item.createdAt as string) ?? new Date().toISOString(),
+    completedAt: (item.completedAt as string | undefined)
+  }
 }
 
 function upsertItemById(items: ConversationItem[], item: ConversationItem): ConversationItem[] {
@@ -795,20 +861,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
-    } else if (type === 'toolCall' || type === 'externalChannelToolCall') {
-      // Extract nested payload for toolCall items (wire protocol: item.payload.{toolName,callId,arguments})
-      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
-      const baseItem: ConversationItem = {
-        id: itemId ?? '',
-        type: type as 'toolCall' | 'externalChannelToolCall',
-        status: 'started',
-        toolName: (item?.toolName as string) ?? (itemPayload.toolName as string) ?? (item?.name as string) ?? 'tool',
-        toolCallId: (item?.toolCallId as string) ?? (itemPayload.callId as string) ?? (item?.callId as string) ?? itemId,
-        arguments: (item?.arguments as Record<string, unknown> | undefined)
-          ?? (itemPayload.arguments as Record<string, unknown> | undefined),
-        toolChannelName: (itemPayload.channelName as string | undefined),
-        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
-      }
+    } else if (isToolLikeItemType(type)) {
+      const baseItem = buildToolLikeItem(item, type, 'started')
       set((state) => ({
         turns: state.turns.map((t) =>
           t.id !== turnId
@@ -1289,8 +1343,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
               }
         )
       }))
-    } else if (type === 'externalChannelToolCall') {
-      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+    } else if (type === 'pluginFunctionCall') {
+      const completedItem = buildToolLikeItem(
+        item,
+        type as 'pluginFunctionCall',
+        'completed'
+      )
       set((s) => ({
         turns: s.turns.map((t) =>
           t.id !== turnId
@@ -1307,9 +1365,18 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                     return {
                       ...i,
                       status: 'completed' as const,
-                      result: (itemPayload.result as string | undefined) ?? i.result,
-                      success: (itemPayload.success as boolean | undefined) ?? true,
-                      toolChannelName: (itemPayload.channelName as string | undefined) ?? i.toolChannelName,
+                      toolName: completedItem.toolName ?? i.toolName,
+                      toolCallId: completedItem.toolCallId ?? i.toolCallId,
+                      arguments: completedItem.arguments ?? i.arguments,
+                      result: completedItem.result ?? i.result,
+                      success: completedItem.success ?? true,
+                      pluginId: completedItem.pluginId ?? i.pluginId,
+                      pluginNamespace: completedItem.pluginNamespace ?? i.pluginNamespace,
+                      functionName: completedItem.functionName ?? i.functionName,
+                      contentItems: completedItem.contentItems ?? i.contentItems,
+                      structuredResult: completedItem.structuredResult ?? i.structuredResult,
+                      errorCode: completedItem.errorCode ?? i.errorCode,
+                      errorMessage: completedItem.errorMessage ?? i.errorMessage,
                       duration: endMs - startMs,
                       completedAt: (item?.completedAt as string) ?? new Date().toISOString()
                     }

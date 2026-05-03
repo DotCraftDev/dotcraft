@@ -1,9 +1,9 @@
 /**
- * Shared types for the Desktop Viewer Panel (M1).
+ * Shared types for the Desktop Viewer Panel.
  * Used by main process (IPC handlers) and renderer (store, components).
  */
 
-/** M1 + M2 + terminal viewer kinds. */
+/** Supported viewer tab kinds. */
 export type ViewerKind = 'file' | 'browser' | 'terminal'
 
 /** Content class resolved for an opened file. */
@@ -29,7 +29,7 @@ interface ViewerTabBase {
   errorMessage?: string
 }
 
-/** File-viewer tab descriptor (M1). */
+/** File-viewer tab descriptor. */
 export interface FileViewerTab extends ViewerTabBase {
   kind: 'file'
   /** Normalized absolute path (realpath-resolved by main). */
@@ -44,7 +44,7 @@ export interface FileViewerTab extends ViewerTabBase {
   navigationHint?: FileNavigationHint
 }
 
-/** Browser-viewer tab descriptor (M2). */
+/** Browser-viewer tab descriptor. */
 export interface BrowserViewerTab extends ViewerTabBase {
   kind: 'browser'
   /**

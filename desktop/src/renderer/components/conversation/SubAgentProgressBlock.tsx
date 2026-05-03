@@ -15,7 +15,7 @@ function formatTokenCount(count: number): string {
  *   - Collapsed summary: when all sub-agents complete
  *
  * Only renders when entries.length > 0.
- * Spec §M4-9 through M4-11.
+ * Renders subagent progress events in the conversation stream.
  */
 export interface SubAgentProgressBlockProps {
   /** SubAgent entries to render for the current turn position. */

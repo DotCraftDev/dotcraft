@@ -1,4 +1,5 @@
 using DotCraft.Tracing;
+using DotCraft.Plugins;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools;
@@ -7,7 +8,7 @@ namespace DotCraft.Tools;
 /// Wraps an <see cref="AIFunction"/> to normalize empty results and enforce per-tool result size limits
 /// (spill-to-disk with preview when exceeded). Intended as the outermost wrapper so hooks see full results.
 /// </summary>
-internal sealed class ResultSizeLimitingFunction : DelegatingAIFunction
+internal sealed class ResultSizeLimitingFunction : DelegatingAIFunction, IPluginFunctionTool
 {
     private readonly int _maxResultChars;
     private readonly string _workspacePath;
@@ -24,6 +25,11 @@ internal sealed class ResultSizeLimitingFunction : DelegatingAIFunction
         _workspacePath = workspacePath;
         _previewLines = previewLines;
     }
+
+    public PluginFunctionDescriptor? PluginFunctionDescriptor =>
+        InnerFunction is IPluginFunctionTool pluginFunction
+            ? pluginFunction.PluginFunctionDescriptor
+            : null;
 
     protected override async ValueTask<object?> InvokeCoreAsync(
         AIFunctionArguments arguments,

@@ -62,7 +62,7 @@ internal sealed class SessionItemConverter : JsonConverter<SessionItem>
             ItemType.ReasoningContent => payload.Deserialize<ReasoningContentPayload>(options),
             ItemType.CommandExecution => payload.Deserialize<CommandExecutionPayload>(options),
             ItemType.ToolCall => payload.Deserialize<ToolCallPayload>(options),
-            ItemType.ExternalChannelToolCall => payload.Deserialize<ExternalChannelToolCallPayload>(options),
+            ItemType.PluginFunctionCall => payload.Deserialize<PluginFunctionCallPayload>(options),
             ItemType.ToolResult => payload.Deserialize<ToolResultPayload>(options),
             ItemType.ApprovalRequest => payload.Deserialize<ApprovalRequestPayload>(options),
             ItemType.ApprovalResponse => payload.Deserialize<ApprovalResponsePayload>(options),

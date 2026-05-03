@@ -19,7 +19,7 @@ interface ThreadHeaderProps {
 /**
  * Fixed header bar at top of the conversation panel.
  * Shows thread name (double-click to rename inline), "Open" and "Commit" buttons.
- * Spec §10.2, M7-10
+ * Spec §10.2.
  */
 export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHeaderProps): JSX.Element {
   const t = useT()

@@ -51,7 +51,7 @@ public sealed class SkillVariantStore(string craftPath)
     }
 
     /// <summary>
-    /// Builds a target signature for M1 variant compatibility.
+    /// Builds a target signature for variant compatibility.
     /// </summary>
     public static SkillVariantTarget CreateTarget(
         string? model,
@@ -175,6 +175,20 @@ public sealed class SkillVariantStore(string craftPath)
         var manifestPath = GetManifestPath(current);
         MarkStatus(current, manifestPath, SkillVariantStatus.Restored);
         return true;
+    }
+
+    /// <summary>
+    /// Deletes all stored variants associated with a source skill.
+    /// </summary>
+    public int DeleteVariantsForSource(SkillsLoader.SkillInfo source)
+    {
+        var sourceDir = Path.Combine(_variantsRoot, GetSourceKey(source));
+        if (!Directory.Exists(sourceDir))
+            return 0;
+
+        var count = Directory.EnumerateFiles(sourceDir, "manifest.json", SearchOption.AllDirectories).Count();
+        Directory.Delete(sourceDir, recursive: true);
+        return count;
     }
 
     /// <summary>

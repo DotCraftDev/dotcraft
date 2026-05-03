@@ -20,8 +20,10 @@ public sealed class SkillsLoaderTests : IDisposable
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "skill-authoring", "skill-installer"], skills);
+        Assert.Equal(["browser-use", "create-hooks", "heartbeat", "memory", "plugin-creator", "skill-authoring", "skill-installer"], skills);
         Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "browser-use", "agents", "openai.yaml")));
+        Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "plugin-creator", "scripts", "create_basic_plugin.py")));
+        Assert.True(File.Exists(Path.Combine(loader.WorkspaceSkillsPath, "plugin-creator", "references", "plugin-json-spec.md")));
     }
 
     [Fact]

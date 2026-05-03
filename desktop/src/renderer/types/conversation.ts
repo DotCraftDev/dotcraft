@@ -1,9 +1,9 @@
 import type { SubAgentEntry } from './toolCall'
 
 /**
- * Conversation-level types for M3.
- * These expand on the minimal Turn/Item stubs used in M2 and map directly
- * to the AppServer Wire Protocol payloads (specs/appserver-protocol.md Section 6).
+ * Conversation-level types.
+ * These map directly to the AppServer Wire Protocol payloads
+ * (specs/appserver-protocol.md Section 6).
  */
 
 export type TurnStatus = 'running' | 'completed' | 'failed' | 'cancelled'
@@ -17,7 +17,7 @@ export type ItemType =
   | 'reasoningContent'
   | 'commandExecution'
   | 'toolCall'
-  | 'externalChannelToolCall'
+  | 'pluginFunctionCall'
   | 'toolResult'
   | 'error'
   | 'approvalCard'
@@ -55,6 +55,13 @@ export type ApprovalState =
   | 'timedOut'
 
 export type ItemStatus = 'started' | 'streaming' | 'completed'
+
+export interface PluginFunctionContentItem {
+  type: string
+  text?: string
+  dataBase64?: string
+  mediaType?: string
+}
 
 /**
  * A single item within a turn.
@@ -101,8 +108,20 @@ export interface ConversationItem {
   argumentsPreview?: string
   /** Extracted partial file content preview while WriteFile/EditFile is streaming */
   streamingFileContent?: string
-  /** External adapter channel name for externalChannelToolCall items */
-  toolChannelName?: string
+  /** Plugin ID for pluginFunctionCall items */
+  pluginId?: string
+  /** Plugin function namespace for pluginFunctionCall items */
+  pluginNamespace?: string
+  /** Canonical function name for pluginFunctionCall items */
+  functionName?: string
+  /** Rich content returned by pluginFunctionCall items */
+  contentItems?: PluginFunctionContentItem[]
+  /** Structured result returned by pluginFunctionCall items */
+  structuredResult?: unknown
+  /** Error code returned by pluginFunctionCall items */
+  errorCode?: string
+  /** Error message returned by pluginFunctionCall items */
+  errorMessage?: string
   /** Tool result text updated on item/completed (toolResult) */
   result?: string
   /** Whether the tool succeeded updated on item/completed (toolResult) */
@@ -186,6 +205,61 @@ export interface UserMessageImageRef {
   fileName?: string
 }
 
+export function isToolLikeItemType(
+  type: string | undefined
+): type is 'toolCall' | 'pluginFunctionCall' {
+  return type === 'toolCall' || type === 'pluginFunctionCall'
+}
+
+export function normalizePluginFunctionContentItems(
+  value: unknown
+): PluginFunctionContentItem[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const items = value
+    .map((entry) => {
+      if (entry == null || typeof entry !== 'object') return null
+      const obj = entry as Record<string, unknown>
+      const type = typeof obj.type === 'string' && obj.type.trim().length > 0
+        ? obj.type.trim()
+        : 'text'
+      const text = typeof obj.text === 'string' ? obj.text : undefined
+      const dataBase64 = typeof obj.dataBase64 === 'string' ? obj.dataBase64 : undefined
+      const mediaType = typeof obj.mediaType === 'string' ? obj.mediaType : undefined
+      return {
+        type,
+        ...(text !== undefined ? { text } : {}),
+        ...(dataBase64 !== undefined ? { dataBase64 } : {}),
+        ...(mediaType !== undefined ? { mediaType } : {})
+      } satisfies PluginFunctionContentItem
+    })
+    .filter((item): item is PluginFunctionContentItem => item != null)
+
+  return items.length > 0 ? items : undefined
+}
+
+export function derivePluginFunctionResultText(
+  contentItems: PluginFunctionContentItem[] | undefined,
+  structuredResult: unknown,
+  errorMessage?: string
+): string | undefined {
+  const textParts = contentItems
+    ?.filter((item) => item.type === 'text' && typeof item.text === 'string' && item.text.length > 0)
+    .map((item) => item.text as string) ?? []
+  if (textParts.length > 0) return textParts.join('\n')
+
+  if (structuredResult !== undefined && structuredResult !== null) {
+    if (typeof structuredResult === 'string') return structuredResult
+    try {
+      return JSON.stringify(structuredResult, null, 2)
+    } catch {
+      return String(structuredResult)
+    }
+  }
+
+  return errorMessage
+}
+
 /** User-attached image in the composer (temp file + preview) */
 export interface ImageAttachment {
   tempPath: string
@@ -261,6 +335,18 @@ function mapInputPart(raw: unknown): InputPart | null {
 export function wireItemToConversationItem(raw: Record<string, unknown>): ConversationItem {
   const type = (raw.type as ItemType) ?? 'agentMessage'
   const payload = (raw.payload ?? {}) as Record<string, unknown>
+  const pluginContentItems = type === 'pluginFunctionCall'
+    ? normalizePluginFunctionContentItems(raw.contentItems ?? payload.contentItems)
+    : undefined
+  const pluginStructuredResult = type === 'pluginFunctionCall'
+    ? ((raw.structuredResult as unknown) ?? (payload.structuredResult as unknown))
+    : undefined
+  const pluginErrorMessage = type === 'pluginFunctionCall'
+    ? ((raw.errorMessage as string | undefined) ?? (payload.errorMessage as string | undefined))
+    : undefined
+  const pluginResult = type === 'pluginFunctionCall'
+    ? derivePluginFunctionResultText(pluginContentItems, pluginStructuredResult, pluginErrorMessage)
+    : undefined
   const payloadImagesRaw = (raw.images ?? payload.images) as unknown
   const payloadNativeInputPartsRaw = (raw.nativeInputParts ?? payload.nativeInputParts) as unknown
   const payloadMaterializedInputPartsRaw =
@@ -306,6 +392,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (raw.content as string | undefined),
     toolName: (raw.toolName as string | undefined)
       ?? (payload.toolName as string | undefined)
+      ?? (raw.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined)
       ?? (raw.name as string | undefined),
     toolCallId: (raw.toolCallId as string | undefined)
       ?? (payload.callId as string | undefined)
@@ -324,8 +412,20 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.status as ConversationItem['executionStatus'] | undefined),
     arguments: (raw.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
+    pluginId: (raw.pluginId as string | undefined)
+      ?? (payload.pluginId as string | undefined),
+    pluginNamespace: (raw.namespace as string | undefined)
+      ?? (payload.namespace as string | undefined),
+    functionName: (raw.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined),
+    contentItems: pluginContentItems,
+    structuredResult: pluginStructuredResult,
+    errorCode: (raw.errorCode as string | undefined)
+      ?? (payload.errorCode as string | undefined),
+    errorMessage: pluginErrorMessage,
     result: (raw.result as string | undefined)
-      ?? (payload.result as string | undefined),
+      ?? (payload.result as string | undefined)
+      ?? pluginResult,
     success: (raw.success as boolean | undefined)
       ?? (payload.success as boolean | undefined),
     images: payloadImages,

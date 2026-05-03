@@ -11,7 +11,7 @@ interface Props {
 }
 
 /**
- * Approve / Reject action bar for tasks in awaiting_review (M8).
+ * Approve / Reject action bar for tasks in awaiting_review.
  */
 export function ApproveRejectBar({ task }: Props): JSX.Element {
   const t = useT()

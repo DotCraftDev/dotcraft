@@ -5,7 +5,9 @@ export interface SkillEntry {
   description: string
   displayName?: string | null
   shortDescription?: string | null
-  source: 'builtin' | 'workspace' | 'user'
+  source: 'builtin' | 'workspace' | 'user' | 'plugin'
+  pluginId?: string | null
+  pluginDisplayName?: string | null
   available: boolean
   unavailableReason?: string | null
   enabled: boolean
@@ -29,6 +31,7 @@ interface SkillsState {
   selectSkill(name: string): Promise<void>
   clearSelection(): void
   toggleSkillEnabled(name: string, enabled: boolean): Promise<void>
+  uninstallSkill(name: string): Promise<void>
 }
 
 export const useSkillsStore = create<SkillsState>((set, get) => ({
@@ -85,6 +88,21 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       }
     } catch (e: unknown) {
       console.error('skills/setEnabled failed:', e)
+      throw e
+    }
+  },
+
+  async uninstallSkill(name: string) {
+    try {
+      await window.api.appServer.sendRequest('skills/uninstall', { name })
+      set((state) => ({
+        skills: state.skills.filter((s) => s.name !== name),
+        selectedSkillName: state.selectedSkillName === name ? null : state.selectedSkillName,
+        skillContent: state.selectedSkillName === name ? null : state.skillContent,
+        contentLoading: state.selectedSkillName === name ? false : state.contentLoading
+      }))
+    } catch (e: unknown) {
+      console.error('skills/uninstall failed:', e)
       throw e
     }
   }

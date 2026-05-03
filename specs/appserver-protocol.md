@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -291,7 +291,7 @@ Each `channelTools` descriptor supports:
 
 Channel tool names should use PascalCase. For cross-runtime icon support, adapters should prefer declaring emoji icons via `channelTools[].display.icon`.
 
-`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
+`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior.
 
 When `approval` is present, it is a descriptive risk declaration rather than an adapter-owned policy block:
 
@@ -332,6 +332,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "cronManagement": true,
     "heartbeatManagement": true,
     "skillsManagement": true,
+    "pluginManagement": true,
     "skillVariants": true,
     "commandManagement": true,
     "modelCatalogManagement": true,
@@ -360,7 +361,8 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
-| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
+| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`). |
+| `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`). |
 | `capabilities.skillVariants` | boolean | Server has skill variants enabled for the current runtime. Clients may use effective skill views and restore source-skill behavior (`skills/view`, `skills/restoreOriginal`) without exposing variant internals. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
@@ -1304,7 +1306,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
-| `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. For adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` → `item/completed` for `externalChannelToolCall` and does not emit companion `toolCall`/`toolResult` items. |
+| `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` -> `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin discovery and manifest architecture are defined in [plugin-architecture.md](plugin-architecture.md). |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1369,7 +1371,7 @@ Streamed arguments delta for a `toolCall` item. Concatenate `delta` values in or
 Server coverage:
 
 - Argument deltas are emitted for non-external tools by default, including built-in, module-contributed, and MCP tools. Individual tools can opt out via a server-side annotation, in which case clients only observe `item/started` followed by `item/completed` with no deltas.
-- Adapter-declared external channel tools do not emit `item/toolCall/argumentsDelta` because they are projected as `externalChannelToolCall` items instead of `toolCall` items.
+- Plugin-backed tools do not emit `item/toolCall/argumentsDelta` because they are projected as `pluginFunctionCall` items instead of `toolCall` items.
 - Clients MUST NOT assume a specific built-in set has streaming enabled. Render UX based on the presence of `argumentsDelta` events for a given `toolCall` item.
 - Clients are expected to render tool-specific UX only for tools they recognise; for unknown tool names (for example MCP tools), render a generic "generating parameters" placeholder without displaying the raw JSON to the user.
 
@@ -2279,7 +2281,7 @@ Behavior rules:
 - When a tool descriptor declares `approval`, the server may gate execution before sending `ext/channel/toolCall`.
 - `approval` metadata identifies approval targets for server interception only; it does not define an adapter-local approval policy.
 - Any gating decision for adapter-declared tools must be resolved from the same server-owned thread/workspace policy surfaces used by built-in tools.
-- For adapter-declared tools, item lifecycle projection is `externalChannelToolCall` only (`item/started` → `item/completed`). The server does not emit companion `toolCall`, `toolResult`, or `item/toolCall/argumentsDelta` events for the same invocation.
+- For adapter-declared tools, item lifecycle projection is `pluginFunctionCall` only (`item/started` → `item/completed`). The server does not emit companion `toolCall`, `toolResult`, or `item/toolCall/argumentsDelta` events for the same invocation.
 
 ### 11.3 ACP Tool Proxy
 
@@ -3061,7 +3063,7 @@ All skills methods that return skill data use the following `SkillInfo` wire obj
 | `description` | string | Human-readable description extracted from frontmatter `description` field. Falls back to `name` if absent. |
 | `displayName` | string? | Optional UI display name from Codex-compatible `agents/openai.yaml` `interface.display_name`. |
 | `shortDescription` | string? | Optional compact UI description from `agents/openai.yaml` `interface.short_description`. |
-| `source` | string | One of `"builtin"`, `"workspace"`, or `"user"`. Indicates where the skill is installed. |
+| `source` | string | One of `"workspace"`, `"plugin"`, `"builtin"`, or `"user"`. Indicates where the skill is installed. |
 | `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
 | `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
 | `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
@@ -3147,7 +3149,7 @@ List all installed skills across all sources.
 }
 ```
 
-**Behavior**: Returns skills from all sources merged by the standard priority rules. Skills are sorted by source priority (`builtin`, then `workspace`, then `user`), then alphabetically within each source group.
+**Behavior**: Returns skills from all sources merged by the standard priority rules. Skills may have source `workspace`, `plugin`, `builtin`, or `user`. Plugin skills include `pluginId` and `pluginDisplayName` attribution. Workspace user-owned skills have highest priority, then enabled plugin skills, compatibility built-ins, and user-global skills.
 
 **Example**:
 
@@ -3347,16 +3349,169 @@ When disabling, the skill is marked unavailable for future agent context resolut
 } }
 ```
 
-### 18.8 Error Codes
+### 18.8 `skills/uninstall`
+
+Uninstall a user-managed source skill.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to uninstall. |
+
+**Result**:
+
+```json
+{
+  "name": "code-review",
+  "uninstalled": true,
+  "source": "user",
+  "removedSourcePath": "/home/user/.craft/skills/code-review",
+  "removedVariantCount": 1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `uninstalled` | boolean | `true` when the source skill directory was removed. |
+| `source` | string | Removed source kind, either `"workspace"` or `"user"`. |
+| `removedSourcePath` | string | Absolute directory path that was removed. |
+| `removedVariantCount` | number | Number of associated workspace variants removed. |
+
+On success, the server removes the skill from `Skills.DisabledSkills`, deletes associated variants for that source skill, and emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "skills/uninstall"` and `regions: ["skills"]`.
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32602` | The resolved skill source is `builtin` or `plugin`, or the source path is outside the expected skill root. |
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Only `workspace` and `user` skills are directly uninstallable. `builtin` skills are managed by DotCraft, and `plugin` skills are managed by their owning plugin lifecycle.
+
+### 18.9 Plugin Management Methods
+
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, built-in backend rules, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
+
+#### `plugin/list`
+
+Returns discovered plugins, including disabled installed plugins and installable built-in catalog plugins when requested.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `includeDisabled` | boolean? | no | When false, disabled plugins are excluded. Default true. |
+
+**Result**:
+
+```json
+{
+  "plugins": [
+    {
+      "id": "browser-use",
+      "displayName": "Browser Use",
+      "description": "Control the in-app browser with DotCraft",
+      "enabled": true,
+      "installed": true,
+      "installable": false,
+      "removable": true,
+      "source": "workspace",
+      "interface": {
+        "displayName": "Browser Use",
+        "shortDescription": "Control the in-app browser with DotCraft",
+        "developerName": "DotHarness",
+        "category": "Coding",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "defaultPrompt": "Test my checkout flow on localhost"
+      },
+      "functions": [{ "name": "NodeReplJs", "namespace": "node_repl" }],
+      "skills": [{ "name": "browser-use", "displayName": "Browser Use", "enabled": true }]
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+#### `plugin/view`
+
+Returns one plugin by id.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Plugin id. Legacy `node-repl` is accepted as an alias for `browser-use` only for compatibility. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+`PluginInfo` includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `installed` | boolean | True when the plugin exists in a discovered local plugin root and can contribute runtime behavior. |
+| `installable` | boolean | True for known built-in catalog entries that are not installed in the workspace. |
+| `removable` | boolean | True for DotCraft-managed built-in plugin directories that carry a `.builtin` marker. |
+
+#### `plugin/install`
+
+Installs a known built-in plugin into the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Canonical plugin id. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+On success, the server deploys the built-in resources to `.craft/plugins/<id>`, removes that id from `Plugins.DisabledPlugins`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/install"` and `regions: ["plugins", "skills"]`.
+
+#### `plugin/remove`
+
+Removes a DotCraft-managed built-in plugin from the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Canonical plugin id. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+The server deletes only workspace plugin directories that carry the `.builtin` marker and are inside `.craft/plugins`. User-owned plugin directories are rejected. On success, the server refreshes plugin-contributed skill sources and emits `workspace/configChanged` with `source: "plugin/remove"` and `regions: ["plugins", "skills"]`.
+
+#### `plugin/setEnabled`
+
+Enables or disables an installed plugin for the workspace.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Plugin id. |
+| `enabled` | boolean | yes | Desired enabled state. |
+
+**Result**: `{ "plugin": PluginInfo }`
+
+`plugin/setEnabled` does not install a built-in catalog entry. If the plugin is not installed, the server rejects the request. On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills"]`.
+
+### 18.9 Error Codes
 
 | Code | Constant | When |
 |------|----------|------|
 | `-32040` | `SkillNotFound` | The requested skill name does not exist in any source (workspace, user, or builtin). |
 
-### 18.9 Capability Advertisement
+### 18.10 Capability Advertisement
 
 Clients must check `capabilities.skillsManagement` before calling any `skills/*` method.
 Clients should additionally check `capabilities.skillVariants` before offering variant-dependent UX such as restoring the original skill. `skills/view` may still be available as a source-only effective view when this capability is absent or false.
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method.
 
 ---
 
@@ -4310,11 +4465,11 @@ Server notification emitted after a successful workspace configuration write.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `skills/uninstall`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
-`regions` taxonomy in this milestone:
+Current `regions` taxonomy:
 
 | Region | Fired by |
 |--------|----------|
@@ -4322,7 +4477,8 @@ Server notification emitted after a successful workspace configuration write.
 | `workspace.apiKey` | `workspace/config/update` |
 | `workspace.endpoint` | `workspace/config/update` |
 | `welcomeSuggestions` | `workspace/config/update` |
-| `skills` | `skills/setEnabled`, `workspace/config/update` |
+| `skills` | `skills/setEnabled`, `skills/uninstall`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`, `workspace/config/update` |
+| `plugins` | `plugin/install`, `plugin/remove`, `plugin/setEnabled` |
 | `memory` | `workspace/config/update` |
 | `workspace.defaultApprovalPolicy` | `workspace/config/update` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
@@ -4338,7 +4494,7 @@ Semantics:
 ### 25.6 Backward Compatibility
 
 - Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
-- Servers that predate M2 may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
+- Older servers may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
 ## 26. GitHub Tracker Config Methods
 

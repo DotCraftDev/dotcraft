@@ -17,6 +17,7 @@ Choose a document by goal. First-time users should start with [Getting Started](
 |------|-----------------|
 | Inspect traces, sessions, tool calls, and visual config | [Dashboard Guide](./dash_board_guide.md) |
 | Understand when settings apply and what requires restart | [Settings Lifecycle Guide](./settings-lifecycle.md) |
+| Install, enable, try, or remove DotCraft plugins | [Install and Use Plugins](./plugins/install.md) |
 | Let Agents create, patch, and maintain workspace skills | [Agent Skill Self-Learning](./skills/agent-self-learning.md) |
 | Search local skills and install third-party skills from SkillHub / ClawHub | [Search and Install Skills](./skills/marketplace.md) |
 | Limit file, shell, network, and sandbox capability | [Security Configuration](./config/security.md) |
@@ -30,6 +31,7 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Automations fields, template variables, and tools | [Automations Reference](./automations/reference.md) |
 | Lifecycle Hooks and shell extension | [Hooks Guide](./hooks_guide.md) |
 | Hook events, payloads, exit codes, and examples | [Hooks Reference](./hooks/reference.md) |
+| Prepare local plugin manifests and plugin-contained skills | [Build Plugins](./plugins/build.md) |
 | Use an external coding agent CLI as a subagent | [External CLI Subagents Guide](./external_cli_subagents_guide.md) |
 
 ## Clients and Editors
@@ -60,6 +62,7 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Goal | Recommended doc |
 |------|-----------------|
 | See every configuration field | [Full Configuration Reference](./reference/config.md) |
+| Read the plugin architecture, manifest, and Plugin Function design | [Plugin Architecture Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/plugin-architecture.md) |
 | Read the Hub local management protocol | [Hub Protocol](./reference/hub-protocol.md) |
 | Read the AppServer protocol developer guide | [AppServer Protocol](./reference/appserver-protocol.md) |
 | See Dashboard API and trace events | [Dashboard API](./reference/dashboard-api.md) |

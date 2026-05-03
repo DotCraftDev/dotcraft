@@ -125,9 +125,9 @@ public sealed class SubAgentManager
     public async Task<string> SpawnAsync(
         string task,
         string? label = null,
-        CancellationToken cancellationToken = default,
         IApprovalService? approvalService = null,
-        ApprovalContext? approvalContext = null)
+        ApprovalContext? approvalContext = null,
+        CancellationToken cancellationToken = default)
     {
         var taskId = Guid.NewGuid().ToString("N")[..8];
         var bridgeKey = NormalizeLabel(label, task);
@@ -144,7 +144,7 @@ public sealed class SubAgentManager
             childSessionKey = $"{parentSessionKey}:sub:{taskId}";
             var rootThreadId = _traceCollector.ResolveRootThreadId(parentSessionKey);
             if (!string.IsNullOrWhiteSpace(rootThreadId))
-                _traceCollector.BindChildSession(childSessionKey, rootThreadId!, parentSessionKey);
+                _traceCollector.BindChildSession(childSessionKey, rootThreadId, parentSessionKey);
         }
 
         try
@@ -262,8 +262,7 @@ public sealed class SubAgentManager
                     progressEntry.LastTool = toolName;
 
                     // Generate human-readable display text via ToolRegistry
-                    var args = context.Arguments as IDictionary<string, object?>
-                               ?? context.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value);
+                    IDictionary<string, object?> args = context.Arguments;
                     var display = ToolRegistry.FormatToolCall(toolName, args);
                     progressEntry.CurrentToolDisplay = display;
                     progressEntry.LastToolDisplay = display;

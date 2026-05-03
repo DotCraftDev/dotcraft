@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DotCraft.Plugins;
 
 namespace DotCraft.Protocol;
 
@@ -290,21 +291,23 @@ public sealed record ToolCallPayload
 }
 
 /// <summary>
-/// Payload for ExternalChannelToolCall items.
+/// Payload for PluginFunctionCall items.
 /// </summary>
-public sealed record ExternalChannelToolCallPayload
+public sealed record PluginFunctionCallPayload
 {
-    public string ToolName { get; init; } = string.Empty;
+    public string PluginId { get; init; } = string.Empty;
+
+    public string? Namespace { get; init; }
+
+    public string FunctionName { get; init; } = string.Empty;
 
     public string CallId { get; init; } = string.Empty;
 
-    public string ChannelName { get; init; } = string.Empty;
-
-    public bool RequiresChatContext { get; init; }
-
     public JsonObject? Arguments { get; init; }
 
-    public string? Result { get; init; }
+    public IReadOnlyList<PluginFunctionContentItem>? ContentItems { get; init; }
+
+    public JsonNode? StructuredResult { get; init; }
 
     public bool Success { get; init; }
 
@@ -383,7 +386,7 @@ public sealed record ApprovalResponsePayload
 }
 
 /// <summary>
-/// Payload for SystemNotice items. Used to mark maintenance milestones such as
+/// Payload for SystemNotice items. Used to mark maintenance events such as
 /// context compaction and long-term memory consolidation so clients can render
 /// persistent dividers in the conversation timeline.
 /// </summary>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronLeft, Download, Ellipsis, ExternalLink, Plus, Search, Settings, Sparkles } from 'lucide-react'
+import { Check, ChevronLeft, Download, Ellipsis, ExternalLink, Plus, Settings, Sparkles } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useSkillsStore, type SkillEntry } from '../../stores/skillsStore'
 import { useSkillMarketStore, type SkillMarketProviderFilter } from '../../stores/skillMarketStore'
@@ -18,6 +18,7 @@ import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { useUIStore } from '../../stores/uiStore'
 import type { ThreadSummary } from '../../types/thread'
+import { CatalogFilterMenu, CatalogSearchBox, styles as catalogStyles } from '../catalog/CatalogSurface'
 
 type ViewMode = 'browse' | 'manage'
 type SourceFilter = 'all' | 'system' | 'personal' | 'market'
@@ -35,7 +36,8 @@ export function SkillsView(): JSX.Element {
     contentLoading,
     selectSkill,
     clearSelection,
-    toggleSkillEnabled
+    toggleSkillEnabled,
+    uninstallSkill
   } = useSkillsStore()
   const {
     query: marketQuery,
@@ -208,6 +210,30 @@ export function SkillsView(): JSX.Element {
     }
   }
 
+  async function handleUninstallSkill(skill: SkillEntry): Promise<void> {
+    if (!isUninstallableSkill(skill)) return
+
+    const ok = await confirm({
+      title: t('skillDetail.uninstallTitle', { name: skill.displayName ?? skill.name }),
+      message: skill.hasVariant
+        ? t('skillDetail.uninstallVariantMessage', { name: skill.displayName ?? skill.name })
+        : t('skillDetail.uninstallMessage', { name: skill.displayName ?? skill.name }),
+      confirmLabel: t('skillDetail.uninstall'),
+      cancelLabel: t('common.cancel'),
+      danger: true
+    })
+    if (!ok) return
+
+    try {
+      await uninstallSkill(skill.name)
+      await fetchSkills()
+      addToast(t('skillDetail.uninstallSuccess', { name: skill.displayName ?? skill.name }), 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('skillDetail.uninstallFailed', { error: msg }), 'error')
+    }
+  }
+
   const dotCraftDisabledReason = dotCraftInstallDisabledReason(
     connectionStatus,
     capabilities,
@@ -260,16 +286,11 @@ export function SkillsView(): JSX.Element {
 
         <h1 style={heroTitle}>{t('skills.heroTitle')}</h1>
         <div style={searchRow}>
-          <div style={searchBox}>
-            <Search size={15} aria-hidden />
-            <input
-              type="search"
-              placeholder={t('skills.searchPlaceholder')}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              style={searchInput}
-            />
-          </div>
+          <CatalogSearchBox
+            value={query}
+            placeholder={t('skills.searchPlaceholder')}
+            onChange={setQuery}
+          />
           <SkillFilterMenu value={sourceFilter} onChange={setSourceFilter} />
         </div>
       </header>
@@ -358,6 +379,7 @@ export function SkillsView(): JSX.Element {
           }}
           onTryInChat={() => handleTrySkillInChat(selected)}
           onRestoreOriginal={() => void handleRestoreOriginalSkill(selected)}
+          onUninstall={isUninstallableSkill(selected) ? () => void handleUninstallSkill(selected) : undefined}
         />
       )}
 
@@ -385,41 +407,18 @@ function SkillFilterMenu({
   onChange: (value: SourceFilter) => void
 }): JSX.Element {
   const t = useT()
-  const [position, setPosition] = useState<ContextMenuPosition | null>(null)
-  const labels: Record<SourceFilter, string> = {
-    all: t('skills.filter.all'),
-    system: t('skills.filter.system'),
-    personal: t('skills.filter.personal'),
-    market: t('skills.filter.market')
-  }
-
   return (
-    <>
-      <button
-        type="button"
-        aria-label={t('skills.filter.label')}
-        aria-haspopup="menu"
-        aria-expanded={position != null}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          setPosition({ x: rect.left, y: rect.bottom + 6 })
-        }}
-        style={filterMenuButton}
-      >
-        <span>{labels[value]}</span>
-        <ChevronDown size={14} aria-hidden />
-      </button>
-      {position && (
-        <ContextMenu
-          position={position}
-          onClose={() => setPosition(null)}
-          items={(Object.keys(labels) as SourceFilter[]).map((key) => ({
-            label: labels[key],
-            onClick: () => onChange(key)
-          }))}
-        />
-      )}
-    </>
+    <CatalogFilterMenu
+      value={value}
+      ariaLabel={t('skills.filter.label')}
+      onChange={onChange}
+      options={[
+        { value: 'all', label: t('skills.filter.all') },
+        { value: 'system', label: t('skills.filter.system') },
+        { value: 'personal', label: t('skills.filter.personal') },
+        { value: 'market', label: t('skills.filter.market') }
+      ]}
+    />
   )
 }
 
@@ -465,16 +464,12 @@ function SkillsManageView({
           <Chip label={t('skills.manage.count.personal', { count: String(personalCount) })} />
           <div style={{ flex: 1 }} />
           {savedSkillName && <span style={savedHint}>{t('settings.savedToast')}</span>}
-          <div style={{ ...searchBox, maxWidth: '280px', flex: '0 1 280px' }}>
-            <Search size={15} aria-hidden />
-            <input
-              type="search"
-              placeholder={t('skills.manage.searchPlaceholder')}
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              style={searchInput}
-            />
-          </div>
+          <CatalogSearchBox
+            value={query}
+            placeholder={t('skills.manage.searchPlaceholder')}
+            onChange={onQueryChange}
+            style={{ maxWidth: '280px', flex: '0 1 280px' }}
+          />
         </div>
       </header>
 
@@ -780,7 +775,12 @@ function skillSubtitle(skill: SkillEntry, t: ReturnType<typeof useT>): string {
 function sourceLabel(skill: SkillEntry, t: ReturnType<typeof useT>): string {
   if (skill.source === 'builtin') return t('skills.source.system')
   if (skill.source === 'workspace') return t('skills.source.workspace')
+  if (skill.source === 'plugin') return skill.pluginDisplayName || t('plugins.source.plugin')
   return t('skills.source.user')
+}
+
+function isUninstallableSkill(skill: SkillEntry): boolean {
+  return skill.source === 'workspace' || skill.source === 'user'
 }
 
 function providerLabel(provider: SkillMarketProviderFilter): string {
@@ -795,170 +795,19 @@ function stripYamlFrontmatter(s: string): string {
   return m ? s.slice(m[0].length).trim() : s
 }
 
-const page: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  minHeight: 0,
-  backgroundColor: 'var(--bg-primary)',
-  color: 'var(--text-primary)'
-}
-
-const browseHeader: React.CSSProperties = {
-  position: 'relative',
-  flexShrink: 0,
-  padding: '28px 64px 16px',
-  borderBottom: '1px solid var(--border-subtle)'
-}
-
-const topActions: React.CSSProperties = {
-  position: 'absolute',
-  top: '16px',
-  right: '24px',
-  display: 'flex',
-  gap: '8px',
-  alignItems: 'center'
-}
-
-const heroTitle: React.CSSProperties = {
-  margin: '0 0 24px',
-  textAlign: 'center',
-  fontSize: '26px',
-  lineHeight: 1.2,
-  fontWeight: 700,
-  letterSpacing: 0
-}
-
-const searchRow: React.CSSProperties = {
-  display: 'flex',
-  gap: '8px',
-  maxWidth: '760px',
-  margin: '0 auto',
-  alignItems: 'center'
-}
-
-const searchBox: React.CSSProperties = {
-  flex: '1 1 320px',
-  minWidth: 0,
-  height: '36px',
-  boxSizing: 'border-box',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  padding: '0 11px',
-  borderRadius: '8px',
-  border: '1px solid var(--border-default)',
-  backgroundColor: 'var(--bg-secondary)',
-  color: 'var(--text-secondary)'
-}
-
-const searchInput: React.CSSProperties = {
-  width: '100%',
-  minWidth: 0,
-  border: 'none',
-  outline: 'none',
-  backgroundColor: 'transparent',
-  color: 'var(--text-primary)',
-  fontSize: '13px'
-}
-
-const filterMenuButton: React.CSSProperties = {
-  height: '36px',
-  minWidth: '74px',
-  boxSizing: 'border-box',
-  borderRadius: '8px',
-  border: '1px solid var(--border-default)',
-  backgroundColor: 'var(--bg-secondary)',
-  color: 'var(--text-primary)',
-  padding: '0 10px',
-  fontSize: '13px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: '6px',
-  cursor: 'pointer',
-  lineHeight: 1,
-  whiteSpace: 'nowrap'
-}
-
-const browseMain: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'auto',
-  padding: '28px 64px 48px'
-}
-
-const sectionTitle: React.CSSProperties = {
-  maxWidth: '760px',
-  margin: '0 auto 12px',
-  paddingTop: '4px',
-  borderTop: '1px solid var(--border-subtle)',
-  fontSize: '16px',
-  lineHeight: 1.3,
-  fontWeight: 700,
-  color: 'var(--text-primary)'
-}
-
-const compactGrid: React.CSSProperties = {
-  maxWidth: '760px',
-  margin: '0 auto',
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  columnGap: '34px',
-  rowGap: '18px'
-}
-
-const compactItem: React.CSSProperties = {
-  width: '100%',
-  minWidth: 0,
-  height: '58px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '12px',
-  padding: '0 8px',
-  border: 'none',
-  borderRadius: '8px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-primary)',
-  cursor: 'pointer',
-  textAlign: 'left'
-}
-
-const rowTitle: React.CSSProperties = {
-  fontSize: '13px',
-  lineHeight: 1.25,
-  fontWeight: 700,
-  color: 'var(--text-primary)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap'
-}
-
-const rowTitleLine: React.CSSProperties = {
-  minWidth: 0,
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px'
-}
-
-const rowDesc: React.CSSProperties = {
-  marginTop: '4px',
-  fontSize: '12px',
-  lineHeight: 1.3,
-  color: 'var(--text-secondary)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap'
-}
-
-const statusIcon: React.CSSProperties = {
-  minWidth: '28px',
-  display: 'inline-flex',
-  justifyContent: 'center',
-  color: 'var(--text-dimmed)',
-  fontSize: '11px',
-  whiteSpace: 'nowrap'
-}
+const page: React.CSSProperties = catalogStyles.page
+const browseHeader: React.CSSProperties = catalogStyles.browseHeader
+const topActions: React.CSSProperties = catalogStyles.topActions
+const heroTitle: React.CSSProperties = catalogStyles.heroTitle
+const searchRow: React.CSSProperties = catalogStyles.searchRow
+const browseMain: React.CSSProperties = catalogStyles.browseMain
+const sectionTitle: React.CSSProperties = catalogStyles.sectionTitle
+const compactGrid: React.CSSProperties = catalogStyles.compactGrid
+const compactItem: React.CSSProperties = catalogStyles.compactItem
+const rowTitle: React.CSSProperties = catalogStyles.rowTitle
+const rowTitleLine: React.CSSProperties = catalogStyles.rowTitleLine
+const rowDesc: React.CSSProperties = catalogStyles.rowDesc
+const statusIcon: React.CSSProperties = catalogStyles.statusIcon
 
 function marketAction(skill: MarketSkillSummary): React.CSSProperties {
   return {
@@ -967,118 +816,19 @@ function marketAction(skill: MarketSkillSummary): React.CSSProperties {
   }
 }
 
-const manageButton: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '6px',
-  height: '32px',
-  padding: '0 12px',
-  borderRadius: '8px',
-  border: '1px solid var(--border-default)',
-  backgroundColor: 'var(--bg-secondary)',
-  color: 'var(--text-primary)',
-  fontSize: '13px',
-  boxSizing: 'border-box',
-  cursor: 'pointer'
-}
-
-const iconButton: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
-  borderRadius: '8px',
-  border: '1px solid var(--border-default)',
-  backgroundColor: 'var(--bg-secondary)',
-  color: 'var(--text-secondary)',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  boxSizing: 'border-box',
-  cursor: 'pointer'
-}
-
-const manageHeader: React.CSSProperties = {
-  flexShrink: 0,
-  padding: '14px 64px 12px',
-  borderBottom: '1px solid var(--border-subtle)'
-}
-
-const breadcrumb: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  color: 'var(--text-secondary)',
-  fontSize: '13px'
-}
-
-const breadcrumbButton: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '4px',
-  border: 'none',
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  cursor: 'pointer',
-  padding: 0,
-  fontSize: '13px'
-}
-
-const breadcrumbSep: React.CSSProperties = {
-  color: 'var(--text-dimmed)'
-}
-
-const breadcrumbCurrent: React.CSSProperties = {
-  color: 'var(--text-primary)',
-  fontWeight: 700
-}
-
-const manageToolbar: React.CSSProperties = {
-  margin: '34px auto 0',
-  maxWidth: '730px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px'
-}
-
-const chip: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  height: '28px',
-  padding: '0 10px',
-  borderRadius: '8px',
-  backgroundColor: 'transparent',
-  color: 'var(--text-secondary)',
-  fontSize: '13px',
-  whiteSpace: 'nowrap'
-}
-
-const chipActive: React.CSSProperties = {
-  ...chip,
-  backgroundColor: 'var(--bg-tertiary)',
-  color: 'var(--text-primary)'
-}
-
-const savedHint: React.CSSProperties = {
-  fontSize: '12px',
-  color: 'var(--success)',
-  whiteSpace: 'nowrap'
-}
-
-const manageMain: React.CSSProperties = {
-  flex: 1,
-  minHeight: 0,
-  overflow: 'auto',
-  padding: '28px 64px 48px'
-}
-
-const manageRow: React.CSSProperties = {
-  maxWidth: '730px',
-  margin: '0 auto',
-  minHeight: '74px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '12px'
-}
+const manageButton: React.CSSProperties = catalogStyles.manageButton
+const iconButton: React.CSSProperties = catalogStyles.iconButton
+const manageHeader: React.CSSProperties = catalogStyles.manageHeader
+const breadcrumb: React.CSSProperties = catalogStyles.breadcrumb
+const breadcrumbButton: React.CSSProperties = catalogStyles.breadcrumbButton
+const breadcrumbSep: React.CSSProperties = catalogStyles.breadcrumbSep
+const breadcrumbCurrent: React.CSSProperties = catalogStyles.breadcrumbCurrent
+const manageToolbar: React.CSSProperties = catalogStyles.manageToolbar
+const chip: React.CSSProperties = catalogStyles.chip
+const chipActive: React.CSSProperties = catalogStyles.chipActive
+const savedHint: React.CSSProperties = catalogStyles.savedHint
+const manageMain: React.CSSProperties = catalogStyles.manageMain
+const manageRow: React.CSSProperties = catalogStyles.manageRow
 
 const manageSource: React.CSSProperties = {
   width: '72px',
@@ -1087,12 +837,7 @@ const manageSource: React.CSSProperties = {
   textAlign: 'left'
 }
 
-const emptyText: React.CSSProperties = {
-  maxWidth: '760px',
-  margin: '0 auto',
-  fontSize: '13px',
-  color: 'var(--text-secondary)'
-}
+const emptyText: React.CSSProperties = catalogStyles.emptyText
 
 const modalScrim: React.CSSProperties = {
   position: 'fixed',

@@ -275,7 +275,7 @@ Structured delivery request for text and media payloads.
 | `message` | object | Structured outbound payload. |
 | `metadata` | object? | Optional channel-specific hints. |
 
-`message.kind` values standardized in M1:
+Standard `message.kind` values:
 
 - `text`
 - `file`
@@ -327,7 +327,7 @@ Runtime rules:
 - Adapters must advertise `deliveryCapabilities.structuredDelivery = true` to participate in unified channel delivery.
 - The server never downgrades `text`, `file`, `audio`, `image`, or `video` to a legacy text-only method.
 
-If an adapter advertises `maxBytes` for a media kind, it should expect the server to reject sources it cannot validate against that limit. In the current milestone, remote `url` media is rejected when `maxBytes` is enforced because the server does not fetch remote bytes for size inspection.
+If an adapter advertises `maxBytes` for a media kind, it should expect the server to reject sources it cannot validate against that limit. Remote `url` media is rejected when `maxBytes` is enforced because the server does not fetch remote bytes for size inspection.
 
 ### 6.2 `ext/channel/toolCall`
 

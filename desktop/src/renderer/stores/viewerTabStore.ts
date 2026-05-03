@@ -1,5 +1,5 @@
 /**
- * Per-thread viewer tab state store (M1).
+ * Per-thread viewer tab state store.
  *
  * Each thread independently manages its own list of viewer tabs.
  * Thread lifecycle:

@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import type { ConversationTurn, ConversationItem, TurnStatus } from '../types/conversation'
-import { wireTurnToConversationTurn } from '../types/conversation'
+import {
+  derivePluginFunctionResultText,
+  isToolLikeItemType,
+  normalizePluginFunctionContentItems,
+  wireTurnToConversationTurn
+} from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
 import type { AutomationTask } from './automationsStore'
 import { useAutomationsStore } from './automationsStore'
@@ -46,6 +51,66 @@ function mergeHistoricalCommandExecutions(turn: ConversationTurn): ConversationT
     }
   }
   return { ...turn, items }
+}
+
+function buildToolLikeItem(
+  item: Record<string, unknown>,
+  type: 'toolCall' | 'pluginFunctionCall',
+  status: ConversationItem['status']
+): ConversationItem {
+  const payload = (item.payload ?? {}) as Record<string, unknown>
+  const contentItems = type === 'pluginFunctionCall'
+    ? normalizePluginFunctionContentItems(item.contentItems ?? payload.contentItems)
+    : undefined
+  const structuredResult = type === 'pluginFunctionCall'
+    ? ((item.structuredResult as unknown) ?? (payload.structuredResult as unknown))
+    : undefined
+  const errorMessage = type === 'pluginFunctionCall'
+    ? ((item.errorMessage as string | undefined) ?? (payload.errorMessage as string | undefined))
+    : undefined
+  const pluginResult = type === 'pluginFunctionCall'
+    ? derivePluginFunctionResultText(contentItems, structuredResult, errorMessage)
+    : undefined
+
+  return {
+    id: (item.id as string) ?? '',
+    type,
+    status,
+    toolName:
+      (item.toolName as string | undefined)
+      ?? (payload.toolName as string | undefined)
+      ?? (item.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined)
+      ?? (item.name as string | undefined)
+      ?? 'tool',
+    toolCallId:
+      (item.toolCallId as string | undefined)
+      ?? (payload.callId as string | undefined)
+      ?? (item.callId as string | undefined)
+      ?? (item.id as string | undefined)
+      ?? '',
+    arguments:
+      (item.arguments as Record<string, unknown> | undefined)
+      ?? (payload.arguments as Record<string, unknown> | undefined),
+    pluginId: (item.pluginId as string | undefined)
+      ?? (payload.pluginId as string | undefined),
+    pluginNamespace: (item.namespace as string | undefined)
+      ?? (payload.namespace as string | undefined),
+    functionName: (item.functionName as string | undefined)
+      ?? (payload.functionName as string | undefined),
+    contentItems,
+    structuredResult,
+    errorCode: (item.errorCode as string | undefined)
+      ?? (payload.errorCode as string | undefined),
+    errorMessage,
+    result: (item.result as string | undefined)
+      ?? (payload.result as string | undefined)
+      ?? pluginResult,
+    success: (item.success as boolean | undefined)
+      ?? (payload.success as boolean | undefined),
+    createdAt: (item.createdAt as string) ?? new Date().toISOString(),
+    completedAt: (item.completedAt as string | undefined)
+  }
 }
 
 export interface ReviewPanelState {
@@ -351,28 +416,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
-    } else if (type === 'toolCall' || type === 'externalChannelToolCall') {
-      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
-      const newItem: ConversationItem = {
-        id: itemId ?? '',
-        type: type as 'toolCall' | 'externalChannelToolCall',
-        status: 'started',
-        toolName:
-          (item?.toolName as string) ??
-          (itemPayload.toolName as string) ??
-          (item?.name as string) ??
-          'tool',
-        toolCallId:
-          (item?.toolCallId as string) ??
-          (itemPayload.callId as string) ??
-          (item?.callId as string) ??
-          itemId,
-        arguments:
-          (item?.arguments as Record<string, unknown> | undefined) ??
-          (itemPayload.arguments as Record<string, unknown> | undefined),
-        toolChannelName: (itemPayload.channelName as string | undefined),
-        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
-      }
+    } else if (isToolLikeItemType(type)) {
+      const newItem = buildToolLikeItem(item, type, 'started')
       set((state) => ({
         turns: state.turns.map((t) =>
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
@@ -644,8 +689,12 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
               }
         )
       }))
-    } else if (type === 'externalChannelToolCall') {
-      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+    } else if (type === 'pluginFunctionCall') {
+      const completedItem = buildToolLikeItem(
+        item,
+        type as 'pluginFunctionCall',
+        'completed'
+      )
       set((s) => ({
         turns: s.turns.map((t) =>
           t.id !== turnId
@@ -662,9 +711,18 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                     return {
                       ...i,
                       status: 'completed' as const,
-                      result: (itemPayload.result as string | undefined) ?? i.result,
-                      success: (itemPayload.success as boolean | undefined) ?? true,
-                      toolChannelName: (itemPayload.channelName as string | undefined) ?? i.toolChannelName,
+                      toolName: completedItem.toolName ?? i.toolName,
+                      toolCallId: completedItem.toolCallId ?? i.toolCallId,
+                      arguments: completedItem.arguments ?? i.arguments,
+                      result: completedItem.result ?? i.result,
+                      success: completedItem.success ?? true,
+                      pluginId: completedItem.pluginId ?? i.pluginId,
+                      pluginNamespace: completedItem.pluginNamespace ?? i.pluginNamespace,
+                      functionName: completedItem.functionName ?? i.functionName,
+                      contentItems: completedItem.contentItems ?? i.contentItems,
+                      structuredResult: completedItem.structuredResult ?? i.structuredResult,
+                      errorCode: completedItem.errorCode ?? i.errorCode,
+                      errorMessage: completedItem.errorMessage ?? i.errorMessage,
                       duration: endMs - startMs,
                       completedAt: (item?.completedAt as string) ?? new Date().toISOString()
                     }

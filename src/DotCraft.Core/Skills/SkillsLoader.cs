@@ -9,11 +9,15 @@ namespace DotCraft.Skills;
 /// Loader for agent skills from Skills/ directory.
 /// Skills are markdown files (SKILL.md) that teach the agent specific capabilities.
 /// </summary>
-public sealed class SkillsLoader(string workspaceRoot)
+public sealed class SkillsLoader(string workspaceRoot, string? userSkillsPath = null)
 {
     private const int MaxIconBytes = 512 * 1024;
 
     private HashSet<string> _disabledSkills = new(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<PluginSkillSource> _pluginSkillSources = [];
+
+    private HashSet<string> _disabledPluginSkillNames = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly SkillVariantStore _variantStore = new(workspaceRoot);
 
@@ -25,7 +29,8 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// <summary>
     /// Gets the user skills path.
     /// </summary>
-    public string UserSkillsPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
+    public string UserSkillsPath { get; } =
+        userSkillsPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
 
     /// <summary>
     /// Gets the workspace-local variant store.
@@ -38,6 +43,19 @@ public sealed class SkillsLoader(string workspaceRoot)
     public void SetDisabledSkills(IEnumerable<string>? names)
     {
         _disabledSkills = new HashSet<string>(names ?? [], StringComparer.OrdinalIgnoreCase);
+    }
+
+    public void SetPluginSkillSources(
+        IEnumerable<PluginSkillSource>? sources,
+        IEnumerable<string>? disabledPluginSkillNames = null)
+    {
+        _pluginSkillSources = (sources ?? [])
+            .Where(source => !string.IsNullOrWhiteSpace(source.PluginId)
+                             && !string.IsNullOrWhiteSpace(source.SkillsPath))
+            .ToArray();
+        _disabledPluginSkillNames = new HashSet<string>(
+            disabledPluginSkillNames ?? [],
+            StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -75,37 +93,54 @@ public sealed class SkillsLoader(string workspaceRoot)
     {
         var skills = new List<SkillInfo>();
 
-        // Workspace skills (highest priority)
+        // User-owned workspace skills have the highest priority.
         if (Directory.Exists(WorkspaceSkillsPath))
         {
             foreach (var dir in Directory.GetDirectories(WorkspaceSkillsPath))
             {
                 var skillFile = Path.Combine(dir, "SKILL.md");
-                if (File.Exists(skillFile))
-                {
-                    var name = Path.GetFileName(dir);
-                    var metadata = GetSkillMetadata(name);
-                    var requirements = GetSkillRequirements(metadata);
+                if (!File.Exists(skillFile) || File.Exists(Path.Combine(dir, ".builtin")))
+                    continue;
 
-                    // Skills deployed by DeployBuiltInSkills() carry a .builtin marker
-                    var isBuiltIn = File.Exists(Path.Combine(dir, ".builtin"));
+                AddSkillInfo(skills, Path.GetFileName(dir), skillFile, "workspace");
+            }
+        }
 
-                    var skillInfo = new SkillInfo
-                    {
-                        Name = name,
-                        Path = skillFile,
-                        Source = isBuiltIn ? "builtin" : "workspace",
-                        Requirements = requirements
-                    };
+        foreach (var source in _pluginSkillSources)
+        {
+            if (!Directory.Exists(source.SkillsPath))
+                continue;
 
-                    // Check availability
-                    CheckRequirements(requirements, out var unavailableReason);
-                    skillInfo.Available = string.IsNullOrEmpty(unavailableReason);
-                    skillInfo.UnavailableReason = unavailableReason;
-                    skillInfo.Enabled = !_disabledSkills.Contains(name);
+            foreach (var dir in Directory.GetDirectories(source.SkillsPath))
+            {
+                var skillFile = Path.Combine(dir, "SKILL.md");
+                if (!File.Exists(skillFile))
+                    continue;
 
-                    skills.Add(skillInfo);
-                }
+                AddSkillInfo(
+                    skills,
+                    Path.GetFileName(dir),
+                    skillFile,
+                    "plugin",
+                    source.PluginId,
+                    source.PluginDisplayName);
+            }
+        }
+
+        // Built-in workspace skills are kept for compatibility and are lower priority than plugin-contained skills.
+        if (Directory.Exists(WorkspaceSkillsPath))
+        {
+            foreach (var dir in Directory.GetDirectories(WorkspaceSkillsPath))
+            {
+                var skillFile = Path.Combine(dir, "SKILL.md");
+                if (!File.Exists(skillFile) || !File.Exists(Path.Combine(dir, ".builtin")))
+                    continue;
+
+                var name = Path.GetFileName(dir);
+                if (_disabledPluginSkillNames.Contains(name))
+                    continue;
+
+                AddSkillInfo(skills, name, skillFile, "builtin");
             }
         }
 
@@ -122,24 +157,7 @@ public sealed class SkillsLoader(string workspaceRoot)
                     if (skills.Any(s => s.Name == name))
                         continue;
 
-                    var metadata = GetSkillMetadata(name);
-                    var requirements = GetSkillRequirements(metadata);
-
-                    var skillInfo = new SkillInfo
-                    {
-                        Name = name,
-                        Path = skillFile,
-                        Source = "user",
-                        Requirements = requirements
-                    };
-
-                    // Check availability
-                    CheckRequirements(requirements, out var unavailableReason);
-                    skillInfo.Available = string.IsNullOrEmpty(unavailableReason);
-                    skillInfo.UnavailableReason = unavailableReason;
-                    skillInfo.Enabled = !_disabledSkills.Contains(name);
-
-                    skills.Add(skillInfo);
+                    AddSkillInfo(skills, name, skillFile, "user");
                 }
             }
         }
@@ -151,12 +169,44 @@ public sealed class SkillsLoader(string workspaceRoot)
         return skills;
     }
 
+    private void AddSkillInfo(
+        List<SkillInfo> skills,
+        string name,
+        string skillFile,
+        string source,
+        string? pluginId = null,
+        string? pluginDisplayName = null)
+    {
+        if (skills.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var metadata = GetSkillMetadataFromFile(skillFile);
+        var requirements = GetSkillRequirements(metadata);
+
+        var skillInfo = new SkillInfo
+        {
+            Name = name,
+            Path = skillFile,
+            Source = source,
+            PluginId = pluginId,
+            PluginDisplayName = pluginDisplayName,
+            Requirements = requirements
+        };
+
+        CheckRequirements(requirements, out var unavailableReason);
+        skillInfo.Available = string.IsNullOrEmpty(unavailableReason);
+        skillInfo.UnavailableReason = unavailableReason;
+        skillInfo.Enabled = !_disabledSkills.Contains(name);
+
+        skills.Add(skillInfo);
+    }
+
     /// <summary>
     /// Load a skill by name.
     /// </summary>
     public string? LoadSkill(string name)
     {
-        var skillFile = ResolveSkillFile(name);
+        var skillFile = ResolveSkillFileDirect(name);
         return skillFile == null ? null : File.ReadAllText(skillFile, Encoding.UTF8);
     }
 
@@ -224,7 +274,7 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// </summary>
     public SkillInterfaceInfo? GetSkillInterface(string name)
     {
-        var skillFile = ResolveSkillFile(name);
+        var skillFile = ResolveSkillFileDirect(name);
         if (skillFile == null)
             return null;
 
@@ -394,6 +444,10 @@ public sealed class SkillsLoader(string workspaceRoot)
             return Path.Combine("agents", fileName["agents.".Length..]);
         if (fileName.StartsWith("assets.", StringComparison.Ordinal))
             return Path.Combine("assets", fileName["assets.".Length..]);
+        if (fileName.StartsWith("scripts.", StringComparison.Ordinal))
+            return Path.Combine("scripts", fileName["scripts.".Length..]);
+        if (fileName.StartsWith("references.", StringComparison.Ordinal))
+            return Path.Combine("references", fileName["references.".Length..]);
         return fileName;
     }
 
@@ -523,7 +577,16 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// </summary>
     public Dictionary<string, string>? GetSkillMetadata(string name)
     {
-        var content = LoadSkill(name);
+        var skillFile = ResolveSkillFileDirect(name);
+        if (skillFile == null)
+            return null;
+
+        return GetSkillMetadataFromFile(skillFile);
+    }
+
+    private static Dictionary<string, string>? GetSkillMetadataFromFile(string skillFile)
+    {
+        var content = File.ReadAllText(skillFile, Encoding.UTF8);
         if (content == null || !content.StartsWith("---"))
             return null;
 
@@ -549,10 +612,20 @@ public sealed class SkillsLoader(string workspaceRoot)
         return metadata;
     }
 
-    private string? ResolveSkillFile(string name)
+    private string? ResolveSkillFileDirect(string name)
     {
         var workspaceSkill = Path.Combine(WorkspaceSkillsPath, name, "SKILL.md");
-        if (File.Exists(workspaceSkill))
+        if (File.Exists(workspaceSkill) && !File.Exists(Path.Combine(WorkspaceSkillsPath, name, ".builtin")))
+            return workspaceSkill;
+
+        foreach (var source in _pluginSkillSources)
+        {
+            var pluginSkill = Path.Combine(source.SkillsPath, name, "SKILL.md");
+            if (File.Exists(pluginSkill))
+                return pluginSkill;
+        }
+
+        if (File.Exists(workspaceSkill) && !_disabledPluginSkillNames.Contains(name))
             return workspaceSkill;
 
         var userSkill = Path.Combine(UserSkillsPath, name, "SKILL.md");
@@ -700,6 +773,10 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         public string Source { get; set; } = string.Empty;
 
+        public string? PluginId { get; set; }
+
+        public string? PluginDisplayName { get; set; }
+
         /// <summary>
         /// Whether the skill is available (all requirements met).
         /// </summary>
@@ -720,6 +797,11 @@ public sealed class SkillsLoader(string workspaceRoot)
         /// </summary>
         public bool Enabled { get; set; } = true;
     }
+
+    public sealed record PluginSkillSource(
+        string PluginId,
+        string PluginDisplayName,
+        string SkillsPath);
 
     public sealed class SkillInterfaceInfo
     {

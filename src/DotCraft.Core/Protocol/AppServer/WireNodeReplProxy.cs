@@ -106,31 +106,6 @@ public sealed class WireNodeReplProxy : INodeReplProxy
         }
     }
 
-    /// <inheritdoc />
-    public async Task<bool> ResetAsync(CancellationToken ct = default)
-    {
-        var threadId = ResolveCurrentThreadId();
-        if (threadId == null || !_byThread.TryGetValue(threadId, out var binding))
-            return false;
-
-        var response = await binding.Transport.SendClientRequestAsync(
-            AppServerMethods.ExtNodeReplReset,
-            new { threadId },
-            ct,
-            TimeSpan.FromSeconds(10));
-        if (!response.Result.HasValue)
-            return false;
-        try
-        {
-            var parsed = response.Result.Value.Deserialize<NodeReplResetResult>(JsonOptions);
-            return parsed?.Ok == true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private NodeReplThreadBinding? GetCurrentBinding()
     {
         var threadId = ResolveCurrentThreadId();
@@ -169,8 +144,4 @@ public sealed class WireNodeReplProxy : INodeReplProxy
         IAppServerTransport Transport,
         AppServerConnection Connection);
 
-    private sealed class NodeReplResetResult
-    {
-        public bool Ok { get; set; }
-    }
 }

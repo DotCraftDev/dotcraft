@@ -130,6 +130,7 @@ The response returns server info and capabilities:
       "threadSubscriptions": true,
       "approvalFlow": true,
       "skillsManagement": true,
+      "pluginManagement": true,
       "skillVariants": true,
       "modelCatalogManagement": true,
       "mcpManagement": true
@@ -353,7 +354,8 @@ The table below covers common method families. The complete method list is in th
 | Turn | `turn/start`, `turn/enqueue`, `turn/interrupt` | User input, queues, and cancellation. |
 | Cron | `cron/list`, `cron/remove`, `cron/enable` | Scheduled task management. |
 | Heartbeat | `heartbeat/trigger` | Manual heartbeat trigger. |
-| Skills | `skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled` | Skill discovery, effective view, restore original, and enablement. |
+| Skills | `skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall` | Skill discovery, effective view, restore original, enablement, and removable skill deletion. |
+| Plugins | `plugin/list`, `plugin/view`, `plugin/install`, `plugin/remove`, `plugin/setEnabled` | Plugin discovery, detail, installation, removal, and enablement management. |
 | Commands | `command/list`, `command/execute` | Custom command discovery and execution. |
 | Models | `model/list` | Model catalog. |
 | MCP | `mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/status/list`, `mcp/test` | MCP configuration and status. |
@@ -364,6 +366,20 @@ The table below covers common method families. The complete method list is in th
 Clients should use `capabilities` from the `initialize` response before showing feature-specific UI.
 
 Skill entries returned by `skills/list` may include `hasVariant: true`, which means the current runtime resolves that skill through a workspace adaptation. `skills/read` still reads the source `SKILL.md`; use `skills/view` when a client needs the effective content.
+
+### Plugin and Skill Management
+
+Clients should check `capabilities.skillsManagement` before calling `skills/*`, and `capabilities.pluginManagement` before calling `plugin/*`.
+
+`skills/uninstall` deletes removable workspace or personal skills only. System skills cannot be uninstalled; plugin-contained skills are managed by the plugin lifecycle and are not uninstalled separately. If the removed source skill has associated variants, the server also removes those workspace-local variants and broadcasts `workspace/configChanged` with `regions: ["skills"]`.
+
+Plugin lifecycle separates installation from enablement:
+
+- `plugin/install`: deploys a DotCraft-managed built-in plugin into the current workspace at `.craft/plugins/<id>/` and enables it by default.
+- `plugin/setEnabled`: only controls whether an installed plugin enters the Agent context. It does not install or delete plugin files.
+- `plugin/remove`: removes only DotCraft-managed built-in plugin directories that carry a `.builtin` marker. It does not delete user-owned local plugin directories.
+
+Plugin install, remove, and enablement changes broadcast `workspace/configChanged` with `regions: ["plugins", "skills"]`. Tools contributed by plugins are projected in conversations as `pluginFunctionCall` items; they do not create companion `toolCall` / `toolResult` items. See the [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md) for full fields and error behavior, and the [Plugin Architecture Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/plugin-architecture.md) for the plugin model.
 
 ## Minimal Node Client
 

@@ -127,6 +127,32 @@ describe('AgentResponseBlock subagent progress placement', () => {
     expect(bubbleIndex).toBeGreaterThan(-1)
     expect(spawnIndex).toBeLessThan(bubbleIndex)
   })
+
+  it('renders pluginFunctionCall items in the tool run', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-plugin',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T10:02:00.000Z',
+      items: [
+        {
+          id: 'plugin-tool-1',
+          type: 'pluginFunctionCall',
+          status: 'completed',
+          toolCallId: 'plugin-call-1',
+          toolName: 'NodeReplJs',
+          arguments: { code: '1 + 1' },
+          result: '2',
+          success: true,
+          createdAt: '2026-04-18T10:02:01.000Z'
+        }
+      ]
+    }
+
+    const text = renderBlock(turn)
+
+    expect(text).toContain('Called NodeReplJs')
+  })
 })
 
 describe('AgentResponseBlock tail tool aggregation timing', () => {

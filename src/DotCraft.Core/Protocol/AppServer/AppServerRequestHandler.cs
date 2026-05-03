@@ -12,6 +12,7 @@ using DotCraft.Heartbeat;
 using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
+using DotCraft.Plugins;
 using DotCraft.Skills;
 using DotCraft.Tools.BackgroundTerminals;
 using Microsoft.Extensions.AI;
@@ -125,6 +126,12 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.SkillsView,
         AppServerMethods.SkillsRestoreOriginal,
         AppServerMethods.SkillsSetEnabled,
+        AppServerMethods.SkillsUninstall,
+        AppServerMethods.PluginList,
+        AppServerMethods.PluginView,
+        AppServerMethods.PluginInstall,
+        AppServerMethods.PluginRemove,
+        AppServerMethods.PluginSetEnabled,
         AppServerMethods.CommandList,
         AppServerMethods.CommandExecute,
         AppServerMethods.AutomationTaskList,
@@ -236,6 +243,12 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsView => HandleSkillsViewAsync(msg, ct),
                 AppServerMethods.SkillsRestoreOriginal => HandleSkillsRestoreOriginalAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.SkillsUninstall => HandleSkillsUninstallAsync(msg, ct),
+                AppServerMethods.PluginList => HandlePluginListAsync(msg, ct),
+                AppServerMethods.PluginView => HandlePluginViewAsync(msg, ct),
+                AppServerMethods.PluginInstall => HandlePluginInstallAsync(msg, ct),
+                AppServerMethods.PluginRemove => HandlePluginRemoveAsync(msg, ct),
+                AppServerMethods.PluginSetEnabled => HandlePluginSetEnabledAsync(msg, ct),
                 AppServerMethods.CommandList => HandleCommandListAsync(msg, ct),
                 AppServerMethods.CommandExecute => HandleCommandExecuteAsync(msg, ct),
                 AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
@@ -295,6 +308,7 @@ public sealed class AppServerRequestHandler(
             CronManagement = cronService != null,
             HeartbeatManagement = heartbeatService != null,
             SkillsManagement = skillsLoader != null,
+            PluginManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SkillVariants = skillsLoader != null && IsSkillVariantModeEnabled(),
             CommandManagement = true,
             Automations = automationsHandler != null,
@@ -2342,6 +2356,245 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
     }
 
+    private Task<object?> HandleSkillsUninstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (skillsLoader == null || string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsUninstall);
+
+        var p = GetParams<SkillsUninstallParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var source = skillsLoader.ResolveSkillInfo(p.Name);
+        if (source == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        if (!string.Equals(source.Source, "workspace", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(source.Source, "user", StringComparison.OrdinalIgnoreCase))
+        {
+            throw AppServerErrors.InvalidParams(
+                $"Skill '{source.Name}' is {source.Source} and cannot be uninstalled directly.");
+        }
+
+        var skillDir = Path.GetDirectoryName(source.Path);
+        if (string.IsNullOrWhiteSpace(skillDir))
+            throw AppServerErrors.InvalidParams($"Skill '{source.Name}' has an invalid path.");
+
+        var allowedRoot = string.Equals(source.Source, "workspace", StringComparison.OrdinalIgnoreCase)
+            ? skillsLoader.WorkspaceSkillsPath
+            : skillsLoader.UserSkillsPath;
+        if (!IsStrictChildPathOf(skillDir, allowedRoot))
+            throw AppServerErrors.InvalidParams($"Skill '{source.Name}' is outside the allowed {source.Source} skill root.");
+
+        var disabled = skillsLoader.ListSkills(filterUnavailable: false)
+            .Where(s => !s.Enabled)
+            .Select(s => s.Name)
+            .ToList();
+        disabled.RemoveAll(n => string.Equals(n, source.Name, StringComparison.OrdinalIgnoreCase));
+
+        var removedVariantCount = skillsLoader.VariantStore.DeleteVariantsForSource(source);
+        Directory.Delete(skillDir, recursive: true);
+
+        SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
+        skillsLoader.SetDisabledSkills(disabled);
+        skillsLoader.RefreshDescriptors();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SkillsUninstall,
+            [ConfigChangeRegions.Skills]);
+
+        return Task.FromResult<object?>(new SkillsUninstallResult
+        {
+            Name = source.Name,
+            Uninstalled = true,
+            Source = source.Source,
+            RemovedSourcePath = skillDir,
+            RemovedVariantCount = removedVariantCount
+        });
+    }
+
+    private Task<object?> HandlePluginListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginList);
+
+        var p = GetParams<PluginListParams>(msg);
+        var discovery = RefreshPluginRuntime();
+        var plugins = discovery.Plugins
+            .Where(plugin => p.IncludeDisabled != false || plugin.Enabled)
+            .Select(plugin => MapPluginToWire(plugin, discovery.Diagnostics))
+            .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Task.FromResult<object?>(new PluginListResult
+        {
+            Plugins = plugins,
+            Diagnostics = discovery.Diagnostics.Select(MapPluginDiagnosticToWire).ToList()
+        });
+    }
+
+    private Task<object?> HandlePluginViewAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginView);
+
+        var p = GetParams<PluginViewParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var discovery = RefreshPluginRuntime();
+        var plugin = discovery.Plugins.FirstOrDefault(
+            candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, p.Id));
+        if (plugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{p.Id}' was not found.");
+
+        return Task.FromResult<object?>(new PluginViewResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginSetEnabled);
+
+        var p = GetParams<PluginSetEnabledParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var before = RefreshPluginRuntime();
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (!beforePlugin.Installed)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' is not installed.");
+
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        if (p.Enabled)
+            disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        else if (!disabled.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            disabled.Add(pluginId);
+
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginSetEnabled,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (plugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+
+        return Task.FromResult<object?>(new PluginSetEnabledResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginInstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginInstall);
+
+        var p = GetParams<PluginInstallParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var before = RefreshPluginRuntime();
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (beforePlugin.Installed)
+            return Task.FromResult<object?>(new PluginInstallResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+        if (!beforePlugin.Installable)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' is not installable.");
+
+        var diagnostics = new BuiltInPluginDeployer(Path.Combine(workspaceCraftPath, "plugins")).DeployPlugin(pluginId);
+        PluginDiagnosticsStore.Shared.Append(diagnostics);
+        PluginDiagnosticsLogger.Write(diagnostics);
+        if (diagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error || d.Code == "BuiltInPluginNotFound"))
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
+
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginInstall,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (plugin == null || !plugin.Installed)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
+
+        return Task.FromResult<object?>(new PluginInstallResult
+        {
+            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
+    private Task<object?> HandlePluginRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.PluginRemove);
+
+        var p = GetParams<PluginRemoveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Id))
+            throw AppServerErrors.InvalidParams("'id' is required.");
+
+        var pluginId = PluginIds.Canonicalize(p.Id.Trim());
+        var before = RefreshPluginRuntime();
+        var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        if (beforePlugin == null)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
+        if (!beforePlugin.Installed)
+            return Task.FromResult<object?>(new PluginRemoveResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+        if (!beforePlugin.Removable)
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
+
+        var pluginRoot = Path.GetFullPath(beforePlugin.Manifest.RootPath);
+        var workspacePluginsRoot = Path.GetFullPath(Path.Combine(workspaceCraftPath, "plugins"));
+        if (beforePlugin.SourceKind != PluginDiscoverySourceKind.Workspace
+            || !IsStrictPathWithin(pluginRoot, workspacePluginsRoot))
+            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
+
+        Directory.Delete(pluginRoot, recursive: true);
+
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
+        disabled.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+        PluginsConfigPersistence.WriteWorkspaceDisabledPlugins(workspaceCraftPath, disabled);
+        current.Plugins.DisabledPlugins = disabled;
+        current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
+
+        var discovery = RefreshPluginRuntime();
+        appConfigMonitor?.NotifyChanged(
+            AppServerMethods.PluginRemove,
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+
+        var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
+        return Task.FromResult<object?>(new PluginRemoveResult
+        {
+            Plugin = plugin == null ? null : MapPluginToWire(plugin, discovery.Diagnostics)
+        });
+    }
+
     private Task<object?> HandleCommandListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = ct;
@@ -2446,6 +2699,157 @@ public sealed class AppServerRequestHandler(
         };
     }
 
+    private PluginDiscoveryResult RefreshPluginRuntime()
+    {
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        return PluginRuntimeConfigurator.ConfigureSkillsLoader(
+            skillsLoader,
+            current,
+            _hostWorkspacePath
+            ?? (workspaceCraftPath == null ? Directory.GetCurrentDirectory() : Directory.GetParent(workspaceCraftPath)?.FullName)
+            ?? Directory.GetCurrentDirectory(),
+            workspaceCraftPath ?? Path.Combine(Directory.GetCurrentDirectory(), ".craft"),
+            PluginDiagnosticsStore.Shared);
+    }
+
+    private PluginInfoWire MapPluginToWire(
+        DiscoveredPlugin plugin,
+        IReadOnlyList<PluginDiagnostic> diagnostics)
+    {
+        var manifest = plugin.Manifest;
+        return new PluginInfoWire
+        {
+            Id = manifest.Id,
+            DisplayName = manifest.Interface?.DisplayName ?? manifest.DisplayName,
+            Description = manifest.Interface?.ShortDescription ?? manifest.Description,
+            Version = manifest.Version,
+            Enabled = plugin.Enabled,
+            Installed = plugin.Installed,
+            Installable = plugin.Installable,
+            Removable = plugin.Removable,
+            Source = plugin.SourceKind.ToString().ToLowerInvariant(),
+            RootPath = manifest.RootPath,
+            Interface = MapPluginInterfaceToWire(manifest.Interface),
+            Functions = manifest.Functions
+                .Select(function => new PluginFunctionInfoWire
+                {
+                    Name = function.Name,
+                    Namespace = function.Namespace,
+                    Description = function.Description
+                })
+                .ToList(),
+            Skills = MapPluginSkillsToWire(plugin),
+            Diagnostics = diagnostics
+                .Where(d => string.Equals(d.PluginId, manifest.Id, StringComparison.OrdinalIgnoreCase))
+                .Select(MapPluginDiagnosticToWire)
+                .ToList()
+        };
+    }
+
+    private static bool IsPathWithin(string path, string root)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return !Path.IsPathRooted(relative)
+               && !relative.Equals("..", StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    private static bool IsStrictPathWithin(string path, string root)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return !string.IsNullOrWhiteSpace(relative)
+               && !relative.Equals(".", StringComparison.Ordinal)
+               && IsPathWithin(path, root);
+    }
+
+    private PluginInterfaceWire? MapPluginInterfaceToWire(PluginInterfaceMetadata? metadata)
+    {
+        if (metadata == null)
+            return null;
+
+        return new PluginInterfaceWire
+        {
+            DisplayName = metadata.DisplayName,
+            ShortDescription = metadata.ShortDescription,
+            LongDescription = metadata.LongDescription,
+            DeveloperName = metadata.DeveloperName,
+            Category = metadata.Category,
+            Capabilities = metadata.Capabilities.ToList(),
+            DefaultPrompt = metadata.DefaultPrompt,
+            BrandColor = metadata.BrandColor,
+            ComposerIconDataUrl = TryReadDataUrl(metadata.ComposerIcon),
+            LogoDataUrl = TryReadDataUrl(metadata.Logo),
+            WebsiteUrl = metadata.WebsiteUrl,
+            PrivacyPolicyUrl = metadata.PrivacyPolicyUrl,
+            TermsOfServiceUrl = metadata.TermsOfServiceUrl
+        };
+    }
+
+    private List<PluginSkillInfoWire> MapPluginSkillsToWire(DiscoveredPlugin plugin)
+    {
+        var manifest = plugin.Manifest;
+        if (string.IsNullOrWhiteSpace(manifest.SkillsPath) || !Directory.Exists(manifest.SkillsPath))
+            return [];
+
+        var allSkills = skillsLoader?.ListSkills(filterUnavailable: false) ?? new List<SkillsLoader.SkillInfo>();
+        return Directory.GetDirectories(manifest.SkillsPath)
+            .Where(dir => File.Exists(Path.Combine(dir, "SKILL.md")))
+            .Select(dir =>
+            {
+                var name = Path.GetFileName(dir);
+                var skill = allSkills.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase));
+                var interfaceInfo = skillsLoader?.GetSkillInterface(name);
+                return new PluginSkillInfoWire
+                {
+                    Name = name,
+                    Description = skillsLoader?.GetSkillDescription(name) ?? name,
+                    DisplayName = interfaceInfo?.DisplayName,
+                    ShortDescription = interfaceInfo?.ShortDescription,
+                    Enabled = plugin.Installed
+                              && plugin.Enabled
+                              && (skill?.Enabled
+                              ?? (!string.Equals(manifest.Id, PluginIds.BrowserUse, StringComparison.OrdinalIgnoreCase)
+                                  || (appConfigMonitor?.Current ?? new AppConfig()).Plugins.IsPluginEnabled(PluginIds.BrowserUse, true)))
+                };
+            })
+            .ToList();
+    }
+
+    private static PluginDiagnosticWire MapPluginDiagnosticToWire(PluginDiagnostic diagnostic) =>
+        new()
+        {
+            Severity = diagnostic.Severity.ToString().ToLowerInvariant(),
+            Code = diagnostic.Code,
+            Message = diagnostic.Message,
+            PluginId = diagnostic.PluginId,
+            Path = diagnostic.Path
+        };
+
+    private static string? TryReadDataUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return null;
+
+        var mimeType = Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".svg" => "image/svg+xml",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => null
+        };
+        if (mimeType == null)
+            return null;
+
+        var info = new FileInfo(path);
+        if (info.Length <= 0 || info.Length > 512 * 1024)
+            return null;
+
+        return $"data:{mimeType};base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+    }
+
     private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
     {
         var metadata = skillsLoader!.GetSkillMetadata(s.Name);
@@ -2457,6 +2861,8 @@ public sealed class AppServerRequestHandler(
             DisplayName = interfaceInfo?.DisplayName,
             ShortDescription = interfaceInfo?.ShortDescription,
             Source = s.Source,
+            PluginId = s.PluginId,
+            PluginDisplayName = s.PluginDisplayName,
             Available = s.Available,
             UnavailableReason = s.UnavailableReason,
             Enabled = s.Enabled,
@@ -2477,6 +2883,17 @@ public sealed class AppServerRequestHandler(
         var effectivePath = skillsLoader.ResolveEffectiveSkillFile(source, true, BuildSkillVariantTarget());
         return effectivePath != null
                && !string.Equals(effectivePath, source.Path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStrictChildPathOf(string path, string root)
+    {
+        var normalizedPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return normalizedPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+               || normalizedPath.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsSkillVariantModeEnabled()

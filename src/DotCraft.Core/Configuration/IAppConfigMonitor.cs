@@ -46,6 +46,7 @@ public static class ConfigChangeRegions
     public const string WelcomeSuggestions = "welcomeSuggestions";
     public const string Memory = "memory";
     public const string Skills = "skills";
+    public const string Plugins = "plugins";
     public const string WorkspaceDefaultApprovalPolicy = "workspace.defaultApprovalPolicy";
     public const string Mcp = "mcp";
     public const string ExternalChannel = "externalChannel";

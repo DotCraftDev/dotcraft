@@ -4,6 +4,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Mcp;
 using DotCraft.Modules;
+using DotCraft.Plugins;
 using DotCraft.Tools.Sandbox;
 
 namespace DotCraft.Tools;
@@ -37,7 +38,7 @@ public static class ToolProviderCollector
         if (includeSystemProviders)
         {
             providers.Add(new CoreToolProvider());
-            providers.Add(new NodeReplToolProvider());
+            providers.Add(new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]));
             providers.Add(new CronToolProvider());
 
             // When deferred loading is enabled, DeferredToolProvider replaces McpToolProvider.

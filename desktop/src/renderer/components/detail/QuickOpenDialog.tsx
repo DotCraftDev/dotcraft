@@ -1,5 +1,5 @@
 /**
- * Quick-Open file finder dialog (M1).
+ * Quick-Open file finder dialog.
  *
  * UX contract:
  *  - Centered modal with backdrop.

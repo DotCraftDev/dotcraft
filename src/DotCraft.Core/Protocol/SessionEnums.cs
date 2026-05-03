@@ -28,7 +28,7 @@ public enum ItemType
     ReasoningContent,
     CommandExecution,
     ToolCall,
-    ExternalChannelToolCall,
+    PluginFunctionCall,
     ToolResult,
     ApprovalRequest,
     ApprovalResponse,

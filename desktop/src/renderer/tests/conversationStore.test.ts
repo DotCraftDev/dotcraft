@@ -1196,68 +1196,63 @@ describe('tool item ordering by createdAt', () => {
   })
 })
 
-describe('externalChannelToolCall items', () => {
-  it('stores started externalChannelToolCall items with payload fields', () => {
+describe('pluginFunctionCall items', () => {
+  it('stores and completes pluginFunctionCall items without a toolResult companion', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({
       turnId: 'turn-1',
       item: {
-        id: 'ext-tool-1',
-        type: 'externalChannelToolCall',
+        id: 'plugin-tool-1',
+        type: 'pluginFunctionCall',
         createdAt: '2025-01-01T00:00:00.000Z',
         payload: {
-          callId: 'ext-call-1',
-          toolName: 'telegramSendDocument',
-          channelName: 'telegram',
-          arguments: { fileName: 'report.pdf' }
+          pluginId: 'browser-use',
+          namespace: 'node_repl',
+          callId: 'plugin-call-1',
+          functionName: 'NodeReplJs',
+          arguments: { code: 'console.log(1)' }
         }
       }
     })
 
-    const item = s().turns[0].items.find((i) => i.id === 'ext-tool-1')
-    expect(item).toBeDefined()
-    expect(item?.type).toBe('externalChannelToolCall')
-    expect(item?.toolName).toBe('telegramSendDocument')
-    expect(item?.toolCallId).toBe('ext-call-1')
-    expect(item?.toolChannelName).toBe('telegram')
-  })
+    let item = s().turns[0].items.find((i) => i.id === 'plugin-tool-1')
+    expect(item?.type).toBe('pluginFunctionCall')
+    expect(item?.toolName).toBe('NodeReplJs')
+    expect(item?.toolCallId).toBe('plugin-call-1')
+    expect(item?.pluginId).toBe('browser-use')
+    expect(item?.pluginNamespace).toBe('node_repl')
 
-  it('completes externalChannelToolCall items with result and success state', () => {
-    s().onTurnStarted(makeTurn())
-    s().onItemStarted({
-      turnId: 'turn-1',
-      item: {
-        id: 'ext-tool-1',
-        type: 'externalChannelToolCall',
-        createdAt: '2025-01-01T00:00:00.000Z',
-        payload: {
-          callId: 'ext-call-1',
-          toolName: 'telegramSendDocument',
-          channelName: 'telegram',
-          arguments: { fileName: 'report.pdf' }
-        }
-      }
-    })
     s().onItemCompleted({
       turnId: 'turn-1',
       item: {
-        id: 'ext-tool-1',
-        type: 'externalChannelToolCall',
+        id: 'plugin-tool-1',
+        type: 'pluginFunctionCall',
         completedAt: '2025-01-01T00:00:01.000Z',
         payload: {
-          callId: 'ext-call-1',
-          toolName: 'telegramSendDocument',
-          channelName: 'telegram',
-          result: 'Document sent.',
+          pluginId: 'browser-use',
+          namespace: 'node_repl',
+          callId: 'plugin-call-1',
+          functionName: 'NodeReplJs',
+          arguments: { code: 'console.log(1)' },
+          contentItems: [
+            { type: 'text', text: '1' },
+            { type: 'image', mediaType: 'image/png', dataBase64: 'abc123' }
+          ],
           success: true
         }
       }
     })
 
-    const item = s().turns[0].items.find((i) => i.id === 'ext-tool-1')
+    item = s().turns[0].items.find((i) => i.id === 'plugin-tool-1')
     expect(item?.status).toBe('completed')
-    expect(item?.result).toBe('Document sent.')
+    expect(item?.result).toBe('1')
     expect(item?.success).toBe(true)
+    expect(item?.contentItems?.[1]).toEqual({
+      type: 'image',
+      mediaType: 'image/png',
+      dataBase64: 'abc123'
+    })
+    expect(s().turns[0].items.some((i) => i.type === 'toolResult')).toBe(false)
   })
 })
 

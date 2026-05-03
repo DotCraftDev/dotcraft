@@ -17,6 +17,7 @@
 |------|----------|
 | 查看 Trace、会话、工具调用和可视化配置 | [Dashboard 指南](./dash_board_guide.md) |
 | 理解设置何时生效、哪些需要重启 | [设置生效层级指南](./settings-lifecycle.md) |
+| 安装、启用、试用或移除 DotCraft 插件 | [安装和使用插件](./plugins/install.md) |
 | 让 Agent 创建、修补和维护工作区 skill | [Agent Skill 自学习](./skills/agent-self-learning.md) |
 | 搜索本地 skills，并从 SkillHub / ClawHub 安装第三方 skills | [Skills 搜索与安装](./skills/marketplace.md) |
 | 限制文件、Shell、网络和沙箱能力 | [安全配置](./config/security.md) |
@@ -30,6 +31,7 @@
 | Automations 字段、模板变量和工具 | [Automations 参考](./automations/reference.md) |
 | 生命周期事件钩子和 Shell 扩展 | [Hooks 指南](./hooks_guide.md) |
 | Hook 事件、payload、退出码和示例 | [Hooks 参考](./hooks/reference.md) |
+| 准备本地 plugin manifest 和 plugin-contained skills | [创建插件](./plugins/build.md) |
 | 用外部 coding agent CLI 作为子代理 | [External CLI 子代理指南](./external_cli_subagents_guide.md) |
 
 ## 我想接入客户端或编辑器
@@ -60,6 +62,7 @@
 | 目标 | 推荐文档 |
 |------|----------|
 | 查看完整配置字段 | [完整配置参考](./reference/config.md) |
+| 查看插件架构、manifest 和 Plugin Function 设计 | [Plugin Architecture Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/plugin-architecture.md) |
 | 查看 Hub 本地管理协议 | [Hub Protocol](./reference/hub-protocol.md) |
 | 查看 AppServer 协议开发指南 | [AppServer Protocol](./reference/appserver-protocol.md) |
 | 查看 Dashboard API 和 Trace 事件 | [Dashboard API](./reference/dashboard-api.md) |

@@ -29,6 +29,7 @@ __pycache__
 *.egg
 .venv
 venv
+tmp
 
 # Ignore Rust dependencies
 

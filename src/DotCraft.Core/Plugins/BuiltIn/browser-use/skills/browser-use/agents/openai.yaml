@@ -1,0 +1,6 @@
+interface:
+  display_name: "Browser Use"
+  short_description: "Control the DotCraft Desktop embedded browser"
+  icon_small: "./assets/browser-use-small.svg"
+  icon_large: "./assets/browser-use.svg"
+  default_prompt: "Use $browser-use to inspect, navigate, or test a local browser target."

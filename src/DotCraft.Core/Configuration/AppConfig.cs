@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using DotCraft.Plugins;
 using System.Text.RegularExpressions;
 using DotCraft.Context;
 using DotCraft.Context.Compaction;
@@ -96,6 +97,9 @@ public sealed class AppConfig
 
     [ConfigField(Ignore = true)]
     public ToolsConfig Tools { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
+    public PluginsConfig Plugins { get; set; } = new();
 
     [ConfigField(Ignore = true)]
     public SecurityConfig Security { get; set; } = new();
@@ -649,6 +653,41 @@ public sealed class AppConfig
         /// Global tool result size limits and spill-to-disk preview settings.
         /// </summary>
         public ToolResultLimitsConfig ResultLimits { get; set; } = new();
+    }
+
+    [ConfigSection("Plugins", DisplayName = "Plugins", Order = 26)]
+    public sealed class PluginsConfig
+    {
+        /// <summary>
+        /// Plugin ids explicitly enabled for this workspace.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of plugin ids. Built-in ids include browser-use and external-channel.")]
+        public List<string> EnabledPlugins { get; set; } = [];
+
+        /// <summary>
+        /// Plugin ids explicitly disabled for this workspace.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of plugin ids. Disabled entries override enabled/default entries.")]
+        public List<string> DisabledPlugins { get; set; } = [];
+
+        /// <summary>
+        /// Additional local plugin roots or plugin container directories.
+        /// Relative paths are resolved against the workspace root.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of local plugin roots or directories containing plugins.")]
+        public List<string> PluginRoots { get; set; } = [];
+
+        public bool IsPluginEnabled(string pluginId, bool defaultEnabled)
+        {
+            var canonicalPluginId = PluginIds.Canonicalize(pluginId);
+            if (DisabledPlugins.Any(id => PluginIds.EqualsCanonical(id, canonicalPluginId)))
+                return false;
+
+            if (EnabledPlugins.Any(id => PluginIds.EqualsCanonical(id, canonicalPluginId)))
+                return true;
+
+            return defaultEnabled;
+        }
     }
 
     [ConfigSection("Tools.ResultLimits", DisplayName = "Tools > Result limits", Order = 24)]

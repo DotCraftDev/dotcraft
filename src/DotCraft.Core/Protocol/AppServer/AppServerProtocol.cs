@@ -490,10 +490,16 @@ public sealed class AppServerServerCapabilities
     public bool HeartbeatManagement { get; set; }
 
     /// <summary>
-    /// Server supports skills management methods (skills/list, skills/read, skills/setEnabled). See spec Section 18.
+    /// Server supports skills management methods (skills/list, skills/read, skills/view, skills/restoreOriginal, skills/setEnabled, skills/uninstall). See spec Section 18.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SkillsManagement { get; set; }
+
+    /// <summary>
+    /// Server supports plugin management methods (plugin/list, plugin/view, plugin/setEnabled).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PluginManagement { get; set; }
 
     /// <summary>
     /// Server has skill variants enabled for effective skill views and restoring source skills from workspace adaptations.
@@ -1162,6 +1168,12 @@ public sealed class SkillInfoWire
 
     public string Source { get; set; } = string.Empty;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginDisplayName { get; set; }
+
     public bool Available { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1241,7 +1253,197 @@ public sealed class SkillsSetEnabledResult
     public SkillInfoWire Skill { get; set; } = new();
 }
 
-// ───── automation/task/* DTOs (M6) ─────
+public sealed class SkillsUninstallParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SkillsUninstallResult
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Uninstalled { get; set; }
+
+    public string Source { get; set; } = string.Empty;
+
+    public string RemovedSourcePath { get; set; } = string.Empty;
+
+    public int RemovedVariantCount { get; set; }
+}
+
+// ───── plugin/* ─────
+
+public sealed class PluginListParams
+{
+    public bool? IncludeDisabled { get; set; }
+}
+
+public sealed class PluginListResult
+{
+    public List<PluginInfoWire> Plugins { get; set; } = [];
+
+    public List<PluginDiagnosticWire> Diagnostics { get; set; } = [];
+}
+
+public sealed class PluginViewParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginViewResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginInstallParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginInstallResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginRemoveParams
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public sealed class PluginRemoveResult
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PluginInfoWire? Plugin { get; set; }
+}
+
+public sealed class PluginSetEnabledParams
+{
+    public string Id { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class PluginSetEnabledResult
+{
+    public PluginInfoWire Plugin { get; set; } = new();
+}
+
+public sealed class PluginInfoWire
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Version { get; set; }
+
+    public bool Enabled { get; set; }
+
+    public bool Installed { get; set; } = true;
+
+    public bool Installable { get; set; }
+
+    public bool Removable { get; set; }
+
+    public string Source { get; set; } = string.Empty;
+
+    public string RootPath { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PluginInterfaceWire? Interface { get; set; }
+
+    public List<PluginFunctionInfoWire> Functions { get; set; } = [];
+
+    public List<PluginSkillInfoWire> Skills { get; set; } = [];
+
+    public List<PluginDiagnosticWire> Diagnostics { get; set; } = [];
+}
+
+public sealed class PluginInterfaceWire
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShortDescription { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LongDescription { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeveloperName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Category { get; set; }
+
+    public List<string> Capabilities { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DefaultPrompt { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BrandColor { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ComposerIconDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LogoDataUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WebsiteUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PrivacyPolicyUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TermsOfServiceUrl { get; set; }
+}
+
+public sealed class PluginFunctionInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; set; }
+
+    public string Description { get; set; } = string.Empty;
+}
+
+public sealed class PluginSkillInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Description { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShortDescription { get; set; }
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class PluginDiagnosticWire
+{
+    public string Severity { get; set; } = string.Empty;
+
+    public string Code { get; set; } = string.Empty;
+
+    public string Message { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; set; }
+}
+
+// ───── automation/task/* DTOs ─────
 
 public sealed class AutomationTaskWire
 {
@@ -2384,7 +2586,6 @@ public static class AppServerMethods
     // Server → Client requests (Desktop Node REPL + IAB browser-use runtime)
     public const string ExtNodeReplEvaluate = "ext/nodeRepl/evaluate";
     public const string ExtNodeReplCancel = "ext/nodeRepl/cancel";
-    public const string ExtNodeReplReset = "ext/nodeRepl/reset";
 
     // Client → Server requests (cron management, spec Section 16)
     public const string CronList = "cron/list";
@@ -2400,12 +2601,20 @@ public static class AppServerMethods
     public const string SkillsView = "skills/view";
     public const string SkillsRestoreOriginal = "skills/restoreOriginal";
     public const string SkillsSetEnabled = "skills/setEnabled";
+    public const string SkillsUninstall = "skills/uninstall";
+
+    // Client → Server requests (plugin management)
+    public const string PluginList = "plugin/list";
+    public const string PluginView = "plugin/view";
+    public const string PluginInstall = "plugin/install";
+    public const string PluginRemove = "plugin/remove";
+    public const string PluginSetEnabled = "plugin/setEnabled";
 
     // Client → Server requests (command management, spec Section 19)
     public const string CommandList = "command/list";
     public const string CommandExecute = "command/execute";
 
-    // Client → Server requests (automations, M6)
+    // Client → Server requests (automations)
     public const string AutomationTaskList = "automation/task/list";
     public const string AutomationTaskRead = "automation/task/read";
     public const string AutomationTaskCreate = "automation/task/create";
@@ -2425,6 +2634,6 @@ public static class AppServerMethods
     /// <summary>Deletes a user-authored automation template. Built-in ids are rejected.</summary>
     public const string AutomationTemplateDelete = "automation/template/delete";
 
-    // Server → Client notification (automations, M6)
+    // Server → Client notification (automations)
     public const string AutomationTaskUpdated = "automation/task/updated";
 }

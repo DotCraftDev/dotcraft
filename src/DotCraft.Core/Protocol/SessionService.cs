@@ -8,6 +8,7 @@ using DotCraft.Context.Compaction;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
+using DotCraft.Plugins;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
@@ -64,8 +65,8 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
     private readonly ConcurrentDictionary<string, int> _turnsSinceConsolidation = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
-    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
-    private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadPluginFunctionToolNames = new();
+    private static readonly IReadOnlySet<string> EmptyPluginFunctionToolNames = new HashSet<string>(StringComparer.Ordinal);
     private static readonly HttpClient QueuedInputHttpClient = new();
     private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
     private volatile bool _forcePerThreadAgents;
@@ -273,7 +274,7 @@ public sealed class SessionService(
         // Release per-thread agent if any
         _threadAgents.TryRemove(threadId, out _);
         _threadModeManagers.TryRemove(threadId, out _);
-        _threadExternalChannelToolNames.TryRemove(threadId, out _);
+        _threadPluginFunctionToolNames.TryRemove(threadId, out _);
         if (backgroundTerminalService != null)
             await backgroundTerminalService.CleanThreadAsync(threadId, ct);
         await PersistThreadStatusAsync(thread, ct);
@@ -328,7 +329,7 @@ public sealed class SessionService(
                 agentLock.Dispose();
             _materializedThreads.TryRemove(normalizedThreadId, out _);
             _turnsSinceConsolidation.TryRemove(normalizedThreadId, out _);
-            _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
+            _threadPluginFunctionToolNames.TryRemove(normalizedThreadId, out _);
             if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
                 await mcpManager.DisposeAsync();
             if (backgroundTerminalService != null)
@@ -943,10 +944,10 @@ public sealed class SessionService(
                     : null;
 
                 // Step 5g: Run agent
-                var externalChannelCallIds = new HashSet<string>(StringComparer.Ordinal);
+                var pluginFunctionCallIds = new HashSet<string>(StringComparer.Ordinal);
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
-                var externalChannelToolNames = GetExternalChannelToolNames(threadId);
+                var pluginFunctionToolNames = GetPluginFunctionToolNames(threadId);
 
                 // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
@@ -964,14 +965,14 @@ public sealed class SessionService(
                 var supportsCommandExecutionStreaming =
                     AppServer.AppServerRequestContext.CurrentConnection?.SupportsCommandExecutionStreaming == true;
 
-                using var externalChannelToolScope = ExternalChannelToolExecutionScope.Set(
-                    new ExternalChannelToolExecutionContext
+                using var pluginFunctionScope = PluginFunctionExecutionScope.Set(
+                    new PluginFunctionExecutionContext
                     {
                         ThreadId = threadId,
                         TurnId = turn.Id,
                         OriginChannel = turnOriginChannel,
-                        ChannelContext = turn.Initiator?.ChannelContext,
-                        SenderId = turn.Initiator?.UserId,
+                        ChannelContext = turn.Initiator?.ChannelContext ?? thread.ChannelContext,
+                        SenderId = turn.Initiator?.UserId ?? thread.UserId,
                         GroupId = turn.Initiator?.GroupId,
                         WorkspacePath = effectiveWorkspacePath,
                         RequireApprovalOutsideWorkspace = requireApprovalOutsideWorkspace,
@@ -1095,7 +1096,7 @@ public sealed class SessionService(
                                             : null;
                                     if (string.IsNullOrWhiteSpace(resolvedToolName))
                                         break;
-                                    if (IsExternalChannelTool(externalChannelToolNames, resolvedToolName))
+                                    if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName))
                                         break;
 
                                     streamingToolCallItemsByIndex ??= [];
@@ -1138,9 +1139,9 @@ public sealed class SessionService(
 
                                 case FunctionCallContent fc:
                                 {
-                                    var isExternalChannelTool = IsExternalChannelTool(externalChannelToolNames, fc.Name);
-                                    if (isExternalChannelTool && !string.IsNullOrWhiteSpace(fc.CallId))
-                                        externalChannelCallIds.Add(fc.CallId);
+                                    var isPluginFunctionTool = IsPluginFunctionTool(pluginFunctionToolNames, fc.Name);
+                                    if (isPluginFunctionTool && !string.IsNullOrWhiteSpace(fc.CallId))
+                                        pluginFunctionCallIds.Add(fc.CallId);
                                     RegisterCommandExecutionIfNeeded(
                                         fc,
                                         turn,
@@ -1148,7 +1149,7 @@ public sealed class SessionService(
                                         eventChannel,
                                         supportsCommandExecutionStreaming,
                                         effectiveWorkspacePath);
-                                    if (isExternalChannelTool)
+                                    if (isPluginFunctionTool)
                                         break;
 
                                     SessionItem? toolCallItem = null;
@@ -1227,10 +1228,10 @@ public sealed class SessionService(
                                 case FunctionResultContent fr:
                                 {
                                     if (!string.IsNullOrWhiteSpace(fr.CallId)
-                                        && externalChannelCallIds.Remove(fr.CallId))
+                                        && pluginFunctionCallIds.Remove(fr.CallId))
                                     {
-                                        // External channel tool calls are represented by
-                                        // externalChannelToolCall items emitted from the runtime adapter.
+                                        // Plugin function calls are represented by pluginFunctionCall
+                                        // items emitted from the plugin function wrapper.
                                         // Even when toolResult is suppressed, keep text segmentation aligned
                                         // with normal tools so post-tool text starts a new agent message item.
                                         FinalizeStreamingAgentMessage();
@@ -2638,32 +2639,35 @@ public sealed class SessionService(
 
     private void AppendChannelTools(List<AITool> tools, SessionThread thread)
     {
-        if (channelRuntimeToolProvider == null)
+        if (channelRuntimeToolProvider != null)
         {
-            _threadExternalChannelToolNames.TryRemove(thread.Id, out _);
-            return;
+            var reservedNames = new HashSet<string>(tools.Select(t => t.Name), StringComparer.Ordinal);
+            var channelTools = channelRuntimeToolProvider.CreateToolsForThread(thread, reservedNames);
+            if (channelTools.Count > 0)
+                tools.AddRange(channelTools);
         }
 
-        var reservedNames = new HashSet<string>(tools.Select(t => t.Name), StringComparer.Ordinal);
-        var channelTools = channelRuntimeToolProvider.CreateToolsForThread(thread, reservedNames);
-        if (channelTools.Count == 0)
-        {
-            _threadExternalChannelToolNames.TryRemove(thread.Id, out _);
-            return;
-        }
-
-        _threadExternalChannelToolNames[thread.Id] = channelTools
-            .Select(tool => tool.Name)
+        var pluginFunctionToolNames = tools
+            .OfType<IPluginFunctionTool>()
+            .Select(tool => tool.PluginFunctionDescriptor?.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
             .ToHashSet(StringComparer.Ordinal);
-        tools.AddRange(channelTools);
+
+        if (pluginFunctionToolNames.Count == 0)
+        {
+            _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
+            return;
+        }
+
+        _threadPluginFunctionToolNames[thread.Id] = pluginFunctionToolNames;
     }
 
-    private IReadOnlySet<string> GetExternalChannelToolNames(string threadId)
-        => _threadExternalChannelToolNames.GetValueOrDefault(threadId, EmptyExternalToolNames);
+    private IReadOnlySet<string> GetPluginFunctionToolNames(string threadId)
+        => _threadPluginFunctionToolNames.GetValueOrDefault(threadId, EmptyPluginFunctionToolNames);
 
-    private static bool IsExternalChannelTool(IReadOnlySet<string> externalToolNames, string? toolName)
-        => !string.IsNullOrWhiteSpace(toolName) && externalToolNames.Contains(toolName);
+    private static bool IsPluginFunctionTool(IReadOnlySet<string> pluginFunctionToolNames, string? toolName)
+        => !string.IsNullOrWhiteSpace(toolName) && pluginFunctionToolNames.Contains(toolName);
 
     private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, string effectiveMainModel) =>
         baseContext.OpenAIClientProvider.TryGetChatClient(baseContext.Config, effectiveMainModel, out var chatClient)

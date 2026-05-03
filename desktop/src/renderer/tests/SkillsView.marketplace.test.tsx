@@ -18,6 +18,8 @@ const skillMarketInstall = vi.fn()
 const skillMarketPrepareDotCraftInstall = vi.fn()
 const workspaceConfigGetCore = vi.fn()
 const openExternal = vi.fn()
+let gitLocalInstalled = true
+let gitLocalHasVariant = false
 
 function renderView(): void {
   render(
@@ -37,6 +39,8 @@ describe('SkillsView marketplace browse and manage modes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    gitLocalInstalled = true
+    gitLocalHasVariant = false
     useSkillsStore.setState({
       skills: [],
       loading: false,
@@ -75,30 +79,34 @@ describe('SkillsView marketplace browse and manage modes', () => {
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'skills/list') {
+        const skills = [
+          {
+            name: 'memory',
+            displayName: 'Memory',
+            shortDescription: 'Remember project facts',
+            description: 'Remember project facts',
+            source: 'builtin',
+            available: true,
+            enabled: true,
+            hasVariant: true,
+            path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+          }
+        ]
+        if (gitLocalInstalled) {
+          skills.push({
+            name: 'git-local',
+            displayName: 'Git Local',
+            shortDescription: 'Local git workflows',
+            description: 'Local git workflows',
+            source: 'workspace',
+            available: true,
+            enabled: true,
+            hasVariant: gitLocalHasVariant,
+            path: 'E:\\Git\\dotcraft\\.craft\\skills\\git-local\\SKILL.md'
+          })
+        }
         return {
-          skills: [
-            {
-              name: 'memory',
-              displayName: 'Memory',
-              shortDescription: 'Remember project facts',
-              description: 'Remember project facts',
-              source: 'builtin',
-              available: true,
-              enabled: true,
-              hasVariant: true,
-              path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
-            },
-            {
-              name: 'git-local',
-              displayName: 'Git Local',
-              shortDescription: 'Local git workflows',
-              description: 'Local git workflows',
-              source: 'workspace',
-              available: true,
-              enabled: true,
-              path: 'E:\\Git\\dotcraft\\.craft\\skills\\git-local\\SKILL.md'
-            }
-          ]
+          skills
         }
       }
       if (method === 'skills/setEnabled') {
@@ -115,6 +123,16 @@ describe('SkillsView marketplace browse and manage modes', () => {
       }
       if (method === 'skills/restoreOriginal') {
         return { restored: true }
+      }
+      if (method === 'skills/uninstall') {
+        gitLocalInstalled = false
+        return {
+          name: 'git-local',
+          uninstalled: true,
+          source: 'workspace',
+          removedSourcePath: 'E:\\Git\\dotcraft\\.craft\\skills\\git-local',
+          removedVariantCount: 0
+        }
       }
       if (method === 'thread/start') {
         return {
@@ -209,7 +227,7 @@ describe('SkillsView marketplace browse and manage modes', () => {
   it('searches local and marketplace skills from the browse page without switches', async () => {
     renderView()
 
-    expect(await screen.findByText('Give DotCraft the skills you need')).toBeInTheDocument()
+    expect(await screen.findByText('Give DotCraft the ability you need')).toBeInTheDocument()
     expect(await screen.findByText('Memory')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
@@ -295,6 +313,81 @@ describe('SkillsView marketplace browse and manage modes', () => {
       })
     })
     expect(useToastStore.getState().toasts.some((toast) => toast.message === 'Restored original skill')).toBe(true)
+  })
+
+  it('uninstalls workspace skills from the detail footer after confirmation', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByText('Git Local'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Uninstall' })).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Uninstall' }))
+    expect(await screen.findByText('Uninstall Git Local?')).toBeInTheDocument()
+    const uninstallButtons = screen.getAllByRole('button', { name: 'Uninstall' })
+    fireEvent.click(uninstallButtons[uninstallButtons.length - 1]!)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/uninstall', {
+        name: 'git-local'
+      })
+    })
+    expect(useToastStore.getState().toasts.some((toast) => toast.message === 'Uninstalled Git Local')).toBe(true)
+  })
+
+  it('hides uninstall for builtin and plugin skills', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'memory',
+              displayName: 'Memory',
+              shortDescription: 'Remember project facts',
+              description: 'Remember project facts',
+              source: 'builtin',
+              available: true,
+              enabled: true,
+              path: 'E:\\Git\\dotcraft\\.craft\\skills\\memory\\SKILL.md'
+            },
+            {
+              name: 'browser-use',
+              displayName: 'Browser Use',
+              shortDescription: 'Control the embedded browser',
+              description: 'Control the embedded browser',
+              source: 'plugin',
+              pluginId: 'browser-use',
+              pluginDisplayName: 'Browser Use',
+              available: true,
+              enabled: true,
+              path: 'E:\\Git\\dotcraft\\.craft\\plugins\\browser-use\\skills\\browser-use\\SKILL.md'
+            }
+          ]
+        }
+      }
+      return { content: '---\nname: skill\n---\n# Skill' }
+    })
+    renderView()
+
+    fireEvent.click(await screen.findByText('Memory'))
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    fireEvent.click(await screen.findByText('Browser Use'))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument()
+  })
+
+  it('warns that uninstalling a variant removes both variant and source', async () => {
+    gitLocalHasVariant = true
+    renderView()
+
+    fireEvent.click(await screen.findByText('Git Local'))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Uninstall' }))
+
+    expect(await screen.findByText(/source skill folder plus associated variants/)).toBeInTheDocument()
   })
 
   it('shows a restore noop toast when the skill has no workspace adaptation', async () => {

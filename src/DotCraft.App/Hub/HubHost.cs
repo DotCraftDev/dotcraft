@@ -335,7 +335,7 @@ public sealed record HubStatusResponse(
     HubCapabilities Capabilities);
 
 /// <summary>
-/// M1 Hub capability flags.
+/// Hub capability flags.
 /// </summary>
 public sealed record HubCapabilities(
     bool AppServerManagement,

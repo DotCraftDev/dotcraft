@@ -9,7 +9,7 @@
 
 Purpose: Define **Skill 2.0**, an experimental extension of DotCraft's self-learning skill system. Skill 2.0 makes skills safer to import and evolve, easier to adapt to the current workspace and runtime environment, and useful as long-lived procedural memory without exposing internal compiler or VM concepts to ordinary users.
 
-This is the single canonical Skill 2.0 design spec. Implementation milestone notes may exist temporarily while work is in progress, but they are not part of the durable design.
+This is the single canonical Skill 2.0 design spec. Temporary implementation planning notes may exist while work is in progress, but they are not part of the durable design.
 
 ## 1. Scope
 

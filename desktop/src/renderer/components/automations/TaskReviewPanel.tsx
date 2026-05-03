@@ -111,7 +111,7 @@ function ReviewTurnBlock({
 }
 
 /**
- * Side panel for automation task review: history, live stream, approve/reject (M8).
+ * Side panel for automation task review: history, live stream, approve/reject.
  */
 export function TaskReviewPanel(): JSX.Element {
   const t = useT()

@@ -14,7 +14,7 @@ import { useUIStore } from './stores/uiStore'
 import { useViewerTabStore } from './stores/viewerTabStore'
 import { QuickOpenDialog } from './components/detail/QuickOpenDialog'
 import { ThreePanel } from './components/layout/ThreePanel'
-import { SkillsView } from './components/skills/SkillsView'
+import { PluginsView } from './components/plugins/PluginsView'
 import { AutomationsView } from './components/automations/AutomationsView'
 import { useAutomationsStore } from './stores/automationsStore'
 import { useCronStore, type CronJobWire } from './stores/cronStore'
@@ -23,6 +23,7 @@ import type { AutomationTask } from './stores/automationsStore'
 import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { useMcpStore, type McpServerStatusWire } from './stores/mcpStore'
 import { useSkillsStore } from './stores/skillsStore'
+import { usePluginStore } from './stores/pluginStore'
 import { usePendingRestartStore } from './stores/pendingRestartStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
@@ -882,6 +883,9 @@ export function App(): JSX.Element {
             if (event.regions.includes('skills')) {
               void useSkillsStore.getState().fetchSkills()
             }
+            if (event.regions.includes('plugins')) {
+              void usePluginStore.getState().fetchPlugins()
+            }
 
             setWorkspaceConfigChange(event)
             setWorkspaceConfigChangeSeq((seq) => seq + 1)
@@ -1141,7 +1145,7 @@ export function App(): JSX.Element {
   )
 
   // Keep viewerTabStore in sync with active thread, and restore/fallback
-  // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
+  // uiStore.activeDetailTab according to the incoming thread's viewer state.
   useEffect(() => {
     const viewerStore = useViewerTabStore.getState()
     useUIStore.getState().resetAutoShowReasons()
@@ -1704,7 +1708,7 @@ export function App(): JSX.Element {
             ) : activeMainView === 'channels' ? (
               <ChannelsView />
             ) : activeMainView === 'skills' ? (
-              <SkillsView />
+              <PluginsView />
             ) : activeMainView === 'automations' ? (
               <AutomationsView />
             ) : (

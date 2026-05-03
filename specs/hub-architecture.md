@@ -9,7 +9,7 @@
 
 Purpose: Define DotCraft Hub as a local coordinator that discovers, starts, reuses, monitors, and stops workspace-bound AppServer processes without changing the AppServer Protocol or replacing DotCraft's per-workspace runtime model.
 
-This specification is the canonical Hub design. Earlier milestone specs have been consolidated here and removed.
+This specification is the canonical Hub design. Earlier interim specs have been consolidated here and removed.
 
 ---
 

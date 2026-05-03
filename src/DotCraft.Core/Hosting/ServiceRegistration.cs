@@ -11,6 +11,7 @@ using DotCraft.Lsp;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
+using DotCraft.Plugins;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Skills;
@@ -67,6 +68,7 @@ public static class ServiceRegistration
             });
         });
         services.AddSingleton(config);
+        services.AddSingleton(PluginDiagnosticsStore.Shared);
         services.AddSingleton<IAppConfigMonitor, AppConfigMonitor>();
         services.AddSingleton<OpenAIClientProvider>();
         services.AddSingleton(new DotCraftPaths
@@ -86,6 +88,12 @@ public static class ServiceRegistration
         var skillsLoader = new SkillsLoader(botPath);
         skillsLoader.DeployBuiltInSkills();
         services.AddSingleton(skillsLoader);
+        PluginRuntimeConfigurator.ConfigureSkillsLoader(
+            skillsLoader,
+            config,
+            workspacePath,
+            botPath,
+            PluginDiagnosticsStore.Shared);
         services.AddSingleton<ISkillMutationApplier>(sp =>
             new WorkspaceFileSkillMutationApplier(sp.GetRequiredService<SkillsLoader>()));
 

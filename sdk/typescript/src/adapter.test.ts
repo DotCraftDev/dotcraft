@@ -55,13 +55,13 @@ class RecordingAdapter extends ChannelAdapter {
   }
 }
 
-test("should flush segments for external channel tool calls", () => {
+test("should flush segments for plugin function calls", () => {
   assert.equal(shouldFlushSegmentOnItemStarted("toolCall"), true);
-  assert.equal(shouldFlushSegmentOnItemStarted("externalChannelToolCall"), true);
+  assert.equal(shouldFlushSegmentOnItemStarted("pluginFunctionCall"), true);
   assert.equal(shouldFlushSegmentOnItemStarted("agentMessage"), false);
 });
 
-test("ChannelAdapter flushes the current segment before external channel tool calls", async () => {
+test("ChannelAdapter flushes the current segment before plugin function calls", async () => {
   const adapter = new RecordingAdapter();
   const client = (adapter as unknown as { client: Record<string, unknown> }).client;
 
@@ -80,7 +80,7 @@ test("ChannelAdapter flushes the current segment before external channel tool ca
         method: "item/started",
         params: {
           threadId: "thread-1",
-          item: { type: "externalChannelToolCall", id: "tool-1" },
+          item: { type: "pluginFunctionCall", id: "tool-1" },
         },
       };
       yield {
@@ -269,7 +269,7 @@ test("approval-gated external tool call keeps final segment as unsent tail only"
         method: "item/started",
         params: {
           threadId: "thread-1",
-          item: { id: "ext-tool", type: "externalChannelToolCall" },
+          item: { id: "ext-tool", type: "pluginFunctionCall" },
         },
       };
       yield {
@@ -284,7 +284,7 @@ test("approval-gated external tool call keeps final segment as unsent tail only"
         method: "item/completed",
         params: {
           threadId: "thread-1",
-          item: { id: "ext-tool", type: "externalChannelToolCall", status: "completed" },
+          item: { id: "ext-tool", type: "pluginFunctionCall", status: "completed" },
         },
       };
       yield {
@@ -363,7 +363,7 @@ test("two approvals and file-send style flow preserves ordered unsent transcript
       };
       yield {
         method: "item/started",
-        params: { threadId: "thread-1", item: { id: "item-009", type: "externalChannelToolCall" } },
+        params: { threadId: "thread-1", item: { id: "item-009", type: "pluginFunctionCall" } },
       };
       yield {
         method: "item/started",
@@ -383,7 +383,7 @@ test("two approvals and file-send style flow preserves ordered unsent transcript
       };
       yield {
         method: "item/completed",
-        params: { threadId: "thread-1", item: { id: "item-009", type: "externalChannelToolCall" } },
+        params: { threadId: "thread-1", item: { id: "item-009", type: "pluginFunctionCall" } },
       };
       yield { method: "item/started", params: { threadId: "thread-1", item: { id: "item-013", type: "agentMessage" } } };
       yield {

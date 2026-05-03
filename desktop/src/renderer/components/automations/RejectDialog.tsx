@@ -7,7 +7,7 @@ interface Props {
 }
 
 /**
- * Optional rejection reason for automation task reject flow (M8).
+ * Optional rejection reason for automation task reject flow.
  */
 export function RejectDialog({ onConfirm, onCancel }: Props): JSX.Element {
   const t = useT()

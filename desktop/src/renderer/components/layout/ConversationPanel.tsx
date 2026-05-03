@@ -21,7 +21,7 @@ interface ConversationPanelProps {
 }
 
 /**
- * Main conversation panel — M3 full implementation.
+ * Main conversation panel.
  * Composes: ThreadHeader, MessageStream, InputComposer.
  * Spec §10
  */

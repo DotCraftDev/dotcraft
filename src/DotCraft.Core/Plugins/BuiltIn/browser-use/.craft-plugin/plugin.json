@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "browser-use",
+  "version": "1.0.0",
+  "displayName": "Browser Use",
+  "description": "Control the DotCraft Desktop embedded browser through the persistent Node REPL runtime.",
+  "capabilities": ["interactive", "read", "write", "browser-use", "javascript", "desktop"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Browser Use",
+    "shortDescription": "Control the in-app browser with DotCraft",
+    "longDescription": "Browser Use lets DotCraft open and control the Desktop embedded browser for local development pages, files, and approved web targets. Use it to navigate, inspect, click, type, and take screenshots while testing pages inside DotCraft.",
+    "developerName": "DotHarness",
+    "category": "Coding",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": "Test my checkout flow on localhost",
+    "brandColor": "#0B63CE",
+    "composerIcon": "./skills/browser-use/assets/browser-use-small.svg",
+    "logo": "./skills/browser-use/assets/browser-use.svg",
+    "websiteUrl": "https://github.com/DotHarness/dotcraft",
+    "privacyPolicyUrl": "https://github.com/DotHarness/dotcraft",
+    "termsOfServiceUrl": "https://github.com/DotHarness/dotcraft"
+  },
+  "functions": [
+    {
+      "namespace": "node_repl",
+      "name": "NodeReplJs",
+      "description": "Evaluate JavaScript in the Desktop persistent Node REPL for the current thread. The runtime supports top-level state, agent.browser, display(), and screenshot image output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "timeoutSeconds": { "type": "integer" }
+        },
+        "required": ["code"]
+      },
+      "backend": {
+        "kind": "builtin",
+        "providerId": "browser-use",
+        "functionName": "NodeReplJs"
+      }
+    }
+  ]
+}

@@ -17,6 +17,85 @@ use crate::{
 // Note: ApprovalState is parsed in lib.rs handle_server_request (needs the JSON-RPC request id).
 // event_mapper only handles the resolved notification here.
 
+fn payload_or_item<'a>(item: &'a serde_json::Value) -> &'a serde_json::Value {
+    item.get("payload").unwrap_or(item)
+}
+
+fn stringify_json_arg(value: &serde_json::Value) -> String {
+    if value.is_string() {
+        value.as_str().unwrap_or("").to_string()
+    } else {
+        serde_json::to_string(value).unwrap_or_default()
+    }
+}
+
+fn tool_started_fields(item: &serde_json::Value, item_type: &str) -> (String, String, String) {
+    let payload = payload_or_item(item);
+    let call_id = payload
+        .get("callId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let tool_name_field = if item_type == "pluginFunctionCall" {
+        "functionName"
+    } else {
+        "toolName"
+    };
+    let tool_name = payload
+        .get(tool_name_field)
+        .or_else(|| payload.get("toolName"))
+        .or_else(|| payload.get("functionName"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let arguments = payload
+        .get("arguments")
+        .map(stringify_json_arg)
+        .unwrap_or_default();
+    (call_id, tool_name, arguments)
+}
+
+fn plugin_function_result_text(payload: &serde_json::Value) -> Option<String> {
+    if let Some(items) = payload.get("contentItems").and_then(|v| v.as_array()) {
+        let mut parts = Vec::new();
+        for item in items {
+            match item.get("type").and_then(|v| v.as_str()).unwrap_or("text") {
+                "text" => {
+                    if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                        if !text.is_empty() {
+                            parts.push(text.to_string());
+                        }
+                    }
+                }
+                "image" => {
+                    let media_type = item
+                        .get("mediaType")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("image");
+                    parts.push(format!("[image: {media_type}]"));
+                }
+                _ => {}
+            }
+        }
+        if !parts.is_empty() {
+            return Some(parts.join("\n"));
+        }
+    }
+
+    if let Some(structured) = payload.get("structuredResult") {
+        if !structured.is_null() {
+            return Some(
+                serde_json::to_string_pretty(structured).unwrap_or_else(|_| structured.to_string()),
+            );
+        }
+    }
+
+    payload
+        .get("errorMessage")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
 /// Process one incoming wire message and mutate AppState accordingly.
 /// Returns true if the message was handled, false if it was unknown/ignored.
 pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
@@ -102,30 +181,8 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     // lib.rs::handle_server_request when item/approval/request arrives.
                     state.turn_status = TurnStatus::WaitingApproval;
                 }
-                "toolCall" => {
-                    // Fields are nested inside item.payload per the wire protocol spec.
-                    // Fall back to item itself to handle both flat and nested formats.
-                    let payload = item.get("payload").unwrap_or(item);
-                    let call_id = payload
-                        .get("callId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let tool_name = payload
-                        .get("toolName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let arguments = payload
-                        .get("arguments")
-                        .map(|v| {
-                            if v.is_string() {
-                                v.as_str().unwrap_or("").to_string()
-                            } else {
-                                serde_json::to_string(v).unwrap_or_default()
-                            }
-                        })
-                        .unwrap_or_default();
+                "toolCall" | "pluginFunctionCall" => {
+                    let (call_id, tool_name, arguments) = tool_started_fields(item, item_type);
                     state.streaming.active_tools.push(ActiveToolCall {
                         call_id,
                         tool_name,
@@ -455,7 +512,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .active_command_executions
                         .retain(|e| e.item_id != item_id);
                 }
-                "toolCall" | "toolResult" => {
+                "toolCall" | "toolResult" | "pluginFunctionCall" => {
                     // The wire protocol sends two separate item/completed events per tool:
                     //   1. type="toolCall"   — the call completed; payload has no result
                     //   2. type="toolResult" — the result arrived; payload has the result text
@@ -464,7 +521,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     //   - toolCall:   update the ActiveToolCall and move it to history
                     //   - toolResult: if the tool is still in active_tools, update it there;
                     //                 if it was already moved to history, patch the history entry
-                    let payload = item.get("payload").unwrap_or(item);
+                    let payload = payload_or_item(item);
                     let call_id = payload
                         .get("callId")
                         .and_then(|v| v.as_str())
@@ -483,6 +540,13 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                                 .get("output")
                                 .and_then(|v| v.as_str())
                                 .map(str::to_string)
+                        })
+                        .or_else(|| {
+                            if item_type == "pluginFunctionCall" {
+                                plugin_function_result_text(payload)
+                            } else {
+                                None
+                            }
                         });
 
                     // Update the ActiveToolCall if it is still in the streaming list.
@@ -502,7 +566,9 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     }
 
                     // toolCall completion: move the entry to committed history.
-                    if item_type == "toolCall" {
+                    if item_type == "toolCall"
+                        || item_type == "pluginFunctionCall"
+                    {
                         if let Some(pos) = state
                             .streaming
                             .active_tools
@@ -590,7 +656,10 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     })
                     .collect();
                 if !state.subagent_entries.is_empty()
-                    && state.subagent_entries.iter().all(|entry| entry.is_completed)
+                    && state
+                        .subagent_entries
+                        .iter()
+                        .all(|entry| entry.is_completed)
                 {
                     state.last_subagent_entries = state.subagent_entries.clone();
                 }
@@ -630,7 +699,11 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         message: message.clone(),
                     });
                 }
-                "compacted" | "compactSkipped" | "consolidated" | "consolidationSkipped" | "consolidationFailed" => {
+                "compacted"
+                | "compactSkipped"
+                | "consolidated"
+                | "consolidationSkipped"
+                | "consolidationFailed" => {
                     state.system_status = None;
                     if kind != "consolidationSkipped" {
                         if let Some(msg) = message {
@@ -780,7 +853,10 @@ mod tests {
             )
         ));
         assert_eq!(
-            state.system_status.as_ref().map(|status| status.kind.as_str()),
+            state
+                .system_status
+                .as_ref()
+                .map(|status| status.kind.as_str()),
             Some("consolidating")
         );
 
@@ -1032,7 +1108,11 @@ mod tests {
         });
         assert_eq!(
             committed_after_completed,
-            Some((Some("live\\nfinal\\n".to_string()), true, Some(std::time::Duration::from_millis(10))))
+            Some((
+                Some("live\\nfinal\\n".to_string()),
+                true,
+                Some(std::time::Duration::from_millis(10))
+            ))
         );
     }
 
@@ -1052,5 +1132,72 @@ mod tests {
             )
         ));
         assert!(state.streaming.active_command_executions.is_empty());
+    }
+
+    #[test]
+    fn plugin_function_call_completes_without_tool_result() {
+        let mut state = AppState::new("workspace".to_string());
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/started",
+                serde_json::json!({
+                    "item": {
+                        "id": "plugin-1",
+                        "type": "pluginFunctionCall",
+                        "payload": {
+                            "pluginId": "node-repl",
+                            "namespace": "node_repl",
+                            "callId": "plugin-call-1",
+                            "functionName": "NodeReplJs",
+                            "arguments": { "code": "1 + 1" }
+                        }
+                    }
+                })
+            )
+        ));
+
+        assert_eq!(state.streaming.active_tools.len(), 1);
+        assert_eq!(state.streaming.active_tools[0].tool_name, "NodeReplJs");
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/completed",
+                serde_json::json!({
+                    "item": {
+                        "id": "plugin-1",
+                        "type": "pluginFunctionCall",
+                        "payload": {
+                            "pluginId": "node-repl",
+                            "namespace": "node_repl",
+                            "callId": "plugin-call-1",
+                            "functionName": "NodeReplJs",
+                            "contentItems": [
+                                { "type": "text", "text": "2" },
+                                { "type": "image", "mediaType": "image/png", "dataBase64": "abc123" }
+                            ],
+                            "success": true
+                        }
+                    }
+                })
+            )
+        ));
+
+        assert!(state.streaming.active_tools.is_empty());
+        assert!(matches!(
+            state.history.last(),
+            Some(HistoryEntry::ToolCall {
+                call_id,
+                name,
+                result,
+                success,
+                ..
+            }) if call_id == "plugin-call-1"
+                && name == "NodeReplJs"
+                && result.as_deref() == Some("2\n[image: image/png]")
+                && *success
+        ));
     }
 }
