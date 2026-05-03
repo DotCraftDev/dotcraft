@@ -27,6 +27,10 @@ public sealed class PluginFunctionToolProvider(
             .OrderBy(provider => provider.Priority)
             .SelectMany(provider => provider.CreateFunctions(context))
             .ToArray();
+        var knownBuiltinBackends = providers
+            .OrderBy(provider => provider.Priority)
+            .SelectMany(provider => provider.CreateKnownFunctions(context))
+            .ToArray();
 
         var discovery = new PluginDiscoveryService().Discover(
             context.Config,
@@ -38,7 +42,8 @@ public sealed class PluginFunctionToolProvider(
             fallbackRegistrations,
             discovery.Plugins,
             diagnostics,
-            processManager);
+            processManager,
+            knownBuiltinBackends);
         var resolved = PluginFunctionConflictResolver.ResolveRegistrations(bound, diagnostics);
         diagnosticsStore ??= PluginDiagnosticsStore.Shared;
         diagnosticsStore.Replace(diagnostics);

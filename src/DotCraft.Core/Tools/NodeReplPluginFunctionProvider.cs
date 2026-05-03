@@ -15,45 +15,55 @@ public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
 
     public int Priority => 120;
 
-    public IEnumerable<PluginFunctionRegistration> CreateFunctions(ToolProviderContext context)
+    public IEnumerable<PluginFunctionDescriptor> CreateKnownFunctions(ToolProviderContext context)
     {
-        if (!context.Config.Plugins.IsPluginEnabled(PluginId, defaultEnabled: true))
+        if (!IsBrowserUsePluginEnabledAndInstalled(context))
             yield break;
 
-        if (!PluginRuntimeConfigurator.IsPluginInstalledAndEnabled(
-                context.Config,
-                context.WorkspacePath,
-                context.BotPath,
-                PluginId))
-        {
+        yield return CreateDescriptor();
+    }
+
+    public IEnumerable<PluginFunctionRegistration> CreateFunctions(ToolProviderContext context)
+    {
+        if (!IsBrowserUsePluginEnabledAndInstalled(context))
             yield break;
-        }
 
         var proxy = context.NodeReplProxy;
         if (proxy?.IsAvailable != true)
             yield break;
 
         yield return new PluginFunctionRegistration(
-            new PluginFunctionDescriptor
-            {
-                PluginId = PluginId,
-                Namespace = "node_repl",
-                Name = "NodeReplJs",
-                Description = "Evaluate JavaScript in the Desktop persistent Node REPL for the current thread. The runtime supports top-level state, agent.browser, display(), and screenshot image output.",
-                InputSchema = new JsonObject
-                {
-                    ["type"] = "object",
-                    ["properties"] = new JsonObject
-                    {
-                        ["code"] = new JsonObject { ["type"] = "string" },
-                        ["timeoutSeconds"] = new JsonObject { ["type"] = "integer" }
-                    },
-                    ["required"] = new JsonArray("code")
-                }
-            },
+            CreateDescriptor(),
             new NodeReplJsInvoker(proxy));
 
     }
+
+    private static bool IsBrowserUsePluginEnabledAndInstalled(ToolProviderContext context) =>
+        context.Config.Plugins.IsPluginEnabled(PluginId, defaultEnabled: true)
+        && PluginRuntimeConfigurator.IsPluginInstalledAndEnabled(
+            context.Config,
+            context.WorkspacePath,
+            context.BotPath,
+            PluginId);
+
+    private static PluginFunctionDescriptor CreateDescriptor() =>
+        new()
+        {
+            PluginId = PluginId,
+            Namespace = "node_repl",
+            Name = "NodeReplJs",
+            Description = "Evaluate JavaScript in the Desktop persistent Node REPL for the current thread. The runtime supports top-level state, agent.browser, display(), and screenshot image output.",
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["code"] = new JsonObject { ["type"] = "string" },
+                    ["timeoutSeconds"] = new JsonObject { ["type"] = "integer" }
+                },
+                ["required"] = new JsonArray("code")
+            }
+        };
 
     private sealed class NodeReplJsInvoker(INodeReplProxy proxy) : IPluginFunctionInvoker
     {

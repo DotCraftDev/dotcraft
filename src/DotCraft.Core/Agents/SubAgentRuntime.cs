@@ -161,9 +161,9 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
         var text = await subAgentManager.SpawnAsync(
             request.Task,
             request.Label,
-            cancellationToken,
             approvalService,
-            approvalContext);
+            approvalContext,
+            cancellationToken);
 
         var afterInput = tokenTracker?.SubAgentInputTokens ?? beforeInput;
         var afterOutput = tokenTracker?.SubAgentOutputTokens ?? beforeOutput;

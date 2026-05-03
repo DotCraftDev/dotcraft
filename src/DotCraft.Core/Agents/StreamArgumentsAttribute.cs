@@ -19,7 +19,7 @@ namespace DotCraft.Agents;
 /// Tools without an <c>UnderlyingMethod</c> (e.g. MCP tools) are always streamable.
 /// </para>
 /// </remarks>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+[AttributeUsage(AttributeTargets.Method)]
 public sealed class StreamArgumentsAttribute(bool enabled = true) : Attribute
 {
     /// <summary>

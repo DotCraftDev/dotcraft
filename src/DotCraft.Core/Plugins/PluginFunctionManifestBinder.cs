@@ -12,7 +12,8 @@ public static class PluginFunctionManifestBinder
         IEnumerable<PluginFunctionRegistration> fallbackRegistrations,
         IReadOnlyList<DiscoveredPlugin> discoveredPlugins,
         List<PluginDiagnostic> diagnostics,
-        PluginDynamicToolProcessManager? processManager = null)
+        PluginDynamicToolProcessManager? processManager = null,
+        IEnumerable<PluginFunctionDescriptor>? knownBuiltinBackends = null)
     {
         var fallbacks = fallbackRegistrations.ToArray();
         var fallbackByBackend = fallbacks
@@ -20,6 +21,15 @@ public static class PluginFunctionManifestBinder
                 registration => BackendKey(registration.Descriptor.PluginId, registration.Descriptor.Name),
                 StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var knownBackendKeys = new HashSet<string>(
+            fallbacks.Select(registration => BackendKey(registration.Descriptor.PluginId, registration.Descriptor.Name)),
+            StringComparer.OrdinalIgnoreCase);
+        if (knownBuiltinBackends != null)
+        {
+            foreach (var descriptor in knownBuiltinBackends)
+                knownBackendKeys.Add(BackendKey(descriptor.PluginId, descriptor.Name));
+        }
+
         var pluginIdsWithManifest = new HashSet<string>(
             discoveredPlugins.Select(plugin => plugin.Manifest.Id),
             StringComparer.OrdinalIgnoreCase);
@@ -113,6 +123,9 @@ public static class PluginFunctionManifestBinder
                 var key = BackendKey(backend.ProviderId, backend.FunctionName);
                 if (!fallbackByBackend.TryGetValue(key, out var fallback))
                 {
+                    if (knownBackendKeys.Contains(key))
+                        continue;
+
                     diagnostics.Add(PluginDiagnostic.Warning(
                         "BuiltinBackendUnavailable",
                         $"Plugin tool '{function.Name}' references unavailable built-in backend '{backend.ProviderId}/{backend.FunctionName}'.",

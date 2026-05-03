@@ -378,11 +378,13 @@ public sealed class PluginDiscoveryTests
     {
         var context = CreateContext(new FakeNodeReplProxy(false));
         WritePlugin(Path.Combine(context.BotPath, "plugins", "browser-use"), id: "browser-use", functionName: "NodeReplJs");
-        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()], new PluginDiagnosticsStore());
+        var diagnostics = new PluginDiagnosticsStore();
+        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()], diagnostics);
 
         var tools = provider.CreateTools(context).ToList();
 
         Assert.Empty(tools);
+        Assert.DoesNotContain(diagnostics.Snapshot(), d => d.Code == "BuiltinBackendUnavailable");
     }
 
     [Fact]
