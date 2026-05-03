@@ -15,11 +15,27 @@ Go to [GitHub Releases](https://github.com/DotHarness/dotcraft/releases) and dow
 
 Desktop is the recommended first entry point because workspace selection, model configuration, sessions, diffs, plans, automation review, and runtime status live in one UI.
 
+![DotCraft Desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.png)
+
+If you prefer building from source, install the [.NET 10 SDK](https://dotnet.microsoft.com/download), Rust toolchain, and Node.js, then run this from the repository root:
+
+```bash
+build.bat
+```
+
+On Linux / macOS, run:
+
+```bash
+bash build_linux.bat
+```
+
 ### 2. Initialize a Workspace
 
 On first launch, choose a real project folder as the workspace. DotCraft keeps that project's configuration, sessions, tasks, skills, and attachments with the project, so Desktop, terminal, and automation entry points can continue from the same context.
 
 Start from a real project folder instead of an empty directory so the agent can read repository structure, existing docs, and build scripts.
+
+![Workspace setup wizard](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
 
 ### 3. Configure a Model
 
@@ -29,6 +45,8 @@ DotCraft supports two common model paths:
 |------|----------|
 | OpenAI-compatible API key | OpenAI API, OpenRouter, DeepSeek, and compatible providers |
 | CLIProxyAPI | Reusing a local coding-agent CLI through an OpenAI-compatible proxy |
+
+![API proxy configuration](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
 
 The minimal configuration usually looks like this:
 
@@ -58,6 +76,21 @@ dotcraft
 
 For a richer terminal UI, continue with the [TUI Guide](./tui_guide.md).
 
+## Understand the Entry Model
+
+DotCraft organizes its entry points around the **Unified Session Core**: CLI, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
+
+| Dimension | Gateway | Unified Session Core |
+|-----------|---------|----------------------|
+| Client customization | Hard to customize once everything is flattened into a message bus | Flexible, native client experiences |
+| Approval / HITL | Cannot express platform-native approval flows | Rendered with native platform UI |
+| Cross-channel resume | Not supported | Conversations can resume across channels |
+| Workspace persistence | Not supported | Designed around the workspace |
+
+![Unified entry model](https://github.com/DotHarness/resources/raw/master/dotcraft/entry.png)
+
+DotCraft connects different entry points to the same project-scoped workspace, while the Unified Session Core handles execution, state, and orchestration.
+
 ## Configuration
 
 First-time setup only needs a few fields:
@@ -72,7 +105,7 @@ First-time setup only needs a few fields:
 
 If unsure, put the API key globally and everything else in the workspace.
 
-## Usage Examples
+## Choose the Next Step by Goal
 
 | Goal | Next step |
 |------|-----------|
@@ -81,15 +114,42 @@ If unsure, put the API key globally and everything else in the workspace.
 | Share a workspace across remote or multiple clients | [AppServer Mode Guide](./appserver_guide.md) |
 | Expose an OpenAI-compatible HTTP API | [API Mode Guide](./api_guide.md) |
 | Connect an IDE or editor | [ACP Mode Guide](./acp_guide.md) |
-| Run local or GitHub automation tasks | [Automations Guide](./automations_guide.md) |
 | Build bots or external adapters | [SDK Overview](./sdk/index.md) |
+| Run local or GitHub automation tasks | [Automations Guide](./automations_guide.md) |
+| Inspect traces, tool calls, and merged configuration | [Dashboard Guide](./dash_board_guide.md) |
+
+## Explore More
+
+### Social Channels
+
+DotCraft integrates with Telegram, WeChat, Feishu/Lark, QQ, WeCom, and other social channels through SDK extensions. Start with the [Python SDK](./sdk/python.md) and [TypeScript SDK](./sdk/typescript.md).
+
+| Telegram (Python SDK) | WeChat (TypeScript SDK) |
+|:---:|:---:|
+| ![Telegram channel example](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg) | ![WeChat channel example](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg) |
+
+### Automations
+
+Automations are for running local tasks and GitHub-driven workflows. Scheduling, review, and retry flows are covered in the [Automations Guide](./automations_guide.md).
+
+| Desktop Automations | GitHub tracker |
+|:---:|:---:|
+| ![Desktop automations panel](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png) | ![GitHub tracker example](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png) |
+
+### Dashboard
+
+Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. See the [Dashboard Guide](./dash_board_guide.md) for the full page overview.
+
+| Usage overview | Session trace |
+|:---:|:---:|
+| ![Dashboard usage overview](https://github.com/DotHarness/resources/raw/master/dotcraft/dashboard.png) | ![Dashboard session trace](https://github.com/DotHarness/resources/raw/master/dotcraft/trace.png) |
 
 ## Advanced Topics
 
-- Use [Dashboard](./dash_board_guide.md) to inspect traces, tool calls, and merged configuration.
 - Use [Hooks](./hooks_guide.md) to run scripts on lifecycle events.
 - Use [sandbox and security settings](./config_guide.md#security-configuration) to constrain file, shell, and network access.
 - Use the [Workspace Sample](./samples/workspace.md) to validate a complete workspace template.
+- Return to the [Documentation Index](./reference.md) and choose by goal.
 
 ## Troubleshooting
 
@@ -104,7 +164,3 @@ Check that `ApiKey`, `Model`, and `EndPoint` belong to the same provider. OpenAI
 ### Workspace configuration does not apply
 
 Confirm the config is in the current workspace's `.craft/config.json`, then restart Desktop or the relevant host. Some AppServer and entry-point settings are read only at startup.
-
-### You are not sure what to read next
-
-Return to the [Documentation Index](./reference.md) and choose by goal.
