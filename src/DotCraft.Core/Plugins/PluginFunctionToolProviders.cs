@@ -9,12 +9,19 @@ namespace DotCraft.Plugins;
 /// </summary>
 public sealed class PluginFunctionToolProvider(
     IEnumerable<IPluginFunctionProvider> providers,
-    PluginDiagnosticsStore? diagnosticsStore = null) : IAgentToolProvider
+    PluginDiagnosticsStore? diagnosticsStore = null,
+    PluginDynamicToolProcessManager? processManager = null) : IAgentToolProvider
 {
+    private int _processManagerRegisteredForDisposal;
+
     public int Priority => 120;
 
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
+        processManager ??= new PluginDynamicToolProcessManager();
+        if (Interlocked.Exchange(ref _processManagerRegisteredForDisposal, 1) == 0)
+            context.DisposableResources.Add(processManager);
+
         var diagnostics = new List<PluginDiagnostic>();
         var fallbackRegistrations = providers
             .OrderBy(provider => provider.Priority)
@@ -30,7 +37,8 @@ public sealed class PluginFunctionToolProvider(
         var bound = PluginFunctionManifestBinder.Bind(
             fallbackRegistrations,
             discovery.Plugins,
-            diagnostics);
+            diagnostics,
+            processManager);
         var resolved = PluginFunctionConflictResolver.ResolveRegistrations(bound, diagnostics);
         diagnosticsStore ??= PluginDiagnosticsStore.Shared;
         diagnosticsStore.Replace(diagnostics);

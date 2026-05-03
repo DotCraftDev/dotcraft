@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
-import { Box, ChevronLeft, ExternalLink, Link, MessageCircle, Settings, Trash2, Wrench } from 'lucide-react'
+import type { CSSProperties, MouseEvent } from 'react'
+import { Box, ChevronLeft, ExternalLink, Link, MessageCircle, RefreshCw, Settings, Trash2, Wrench } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
-import { usePluginStore, type PluginEntry } from '../../stores/pluginStore'
+import { usePluginStore, type PluginDiagnosticEntry, type PluginEntry } from '../../stores/pluginStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useSkillsStore } from '../../stores/skillsStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
 import { PillSwitch } from '../ui/PillSwitch'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SkillsView } from '../skills/SkillsView'
 import {
   CatalogChip,
@@ -27,10 +28,12 @@ const DOTCRAFT_PLUGIN_FALLBACK_URL = 'https://github.com/DotHarness/dotcraft'
 
 export function PluginsView(): JSX.Element {
   const t = useT()
+  const confirm = useConfirmDialog()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const pluginManagement = capabilities?.pluginManagement === true
   const {
     plugins,
+    diagnostics,
     loading,
     error,
     fetchPlugins,
@@ -46,7 +49,7 @@ export function PluginsView(): JSX.Element {
   const [surface, setSurface] = useState<Surface>('plugins')
   const [mode, setMode] = useState<PluginMode>('browse')
   const [query, setQuery] = useState('')
-  const [publisherFilter, setPublisherFilter] = useState<PublisherFilter>('dotcraft')
+  const [publisherFilter, setPublisherFilter] = useState<PublisherFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [savedPluginId, setSavedPluginId] = useState<string | null>(null)
   const [installTarget, setInstallTarget] = useState<PluginEntry | null>(null)
@@ -54,6 +57,15 @@ export function PluginsView(): JSX.Element {
 
   useEffect(() => {
     if (pluginManagement) void fetchPlugins()
+  }, [fetchPlugins, pluginManagement])
+
+  useEffect(() => {
+    if (!pluginManagement) return
+    const handleFocus = (): void => {
+      void fetchPlugins()
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
   }, [fetchPlugins, pluginManagement])
 
   useEffect(() => {
@@ -67,6 +79,7 @@ export function PluginsView(): JSX.Element {
     [plugins, query, publisherFilter, categoryFilter]
   )
   const managePlugins = useMemo(() => filterPlugins(plugins, query, 'all', 'all'), [plugins, query])
+  const visibleDiagnostics = useMemo(() => filterVisibleDiagnostics(diagnostics), [diagnostics])
   const categoryOptions = useMemo(() => buildCategoryOptions(plugins, t), [plugins, t])
   const sections = useMemo(() => buildSections(browsePlugins, categoryFilter, t), [browsePlugins, categoryFilter, t])
   const installDialog = installTarget ? (
@@ -117,8 +130,22 @@ export function PluginsView(): JSX.Element {
           }}
           onInstall={() => setInstallTarget(selectedPlugin)}
           onRemove={async () => {
+            const pluginName = pluginTitle(selectedPlugin)
+            const ok = await confirm({
+              title: t('plugins.removeConfirm.title', { name: pluginName }),
+              message: t('plugins.removeConfirm.message', {
+                name: pluginName,
+                path: selectedPlugin.rootPath || `.craft/plugins/${selectedPlugin.id}`
+              }),
+              confirmLabel: t('plugins.removeFromDotCraft'),
+              cancelLabel: t('common.cancel'),
+              danger: true
+            })
+            if (!ok) return
+
             try {
               await removePlugin(selectedPlugin.id)
+              await fetchPlugins()
               await fetchSkills()
               setSavedPluginId(selectedPlugin.id)
               addToast(t('plugins.removeSuccess'), 'success')
@@ -163,6 +190,15 @@ export function PluginsView(): JSX.Element {
               <CatalogChip label={t('plugins.manage.count.skills', { count: String(plugins.reduce((sum, plugin) => sum + plugin.skills.length, 0)) })} />
               <div style={{ flex: 1 }} />
               {savedPluginId && <span style={savedHint}>{t('settings.savedToast')}</span>}
+              <button
+                type="button"
+                aria-label={t('plugins.refresh')}
+                title={t('plugins.refresh')}
+                onClick={() => void fetchPlugins()}
+                style={iconToolbarButton}
+              >
+                <RefreshCw size={15} aria-hidden />
+              </button>
               <CatalogSearchBox
                 value={query}
                 placeholder={t('plugins.manage.searchPlaceholder')}
@@ -175,6 +211,7 @@ export function PluginsView(): JSX.Element {
             {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
             {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
             {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
+            <PluginDiagnosticsBanner diagnostics={visibleDiagnostics} />
             {managePlugins.map((plugin) => (
               <PluginManageItem
                 key={plugin.id}
@@ -204,6 +241,16 @@ export function PluginsView(): JSX.Element {
       <SurfaceTabs value={surface} onChange={setSurface} />
       <header style={browseHeader}>
         <div style={topActions}>
+          <button
+            type="button"
+            aria-label={t('plugins.refresh')}
+            title={t('plugins.refresh')}
+            onClick={() => void fetchPlugins()}
+            style={manageButton}
+          >
+            <RefreshCw size={14} aria-hidden />
+            {t('plugins.refresh')}
+          </button>
           <button type="button" onClick={() => setMode('manage')} style={manageButton}>
             <Settings size={14} aria-hidden />
             {t('plugins.manage')}
@@ -233,6 +280,7 @@ export function PluginsView(): JSX.Element {
         {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
         {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
         {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
+        <PluginDiagnosticsBanner diagnostics={visibleDiagnostics} />
         {sections.map((section) => (
           <section key={section.key} style={{ marginBottom: '34px' }}>
             <h2 style={sectionTitle}>{section.title}</h2>
@@ -353,7 +401,13 @@ function PluginDetailView({
           </button>
           <div style={{ flex: 1 }} />
           {saved && <span style={savedHint}>{t('settings.savedToast')}</span>}
-          <a href={(info?.websiteUrl ?? '').trim() || DOTCRAFT_PLUGIN_FALLBACK_URL} style={detailIconButton} aria-label={t('plugins.detail.website')}>
+          <a
+            href={resolvePluginExternalUrl(info?.websiteUrl) ?? DOTCRAFT_PLUGIN_FALLBACK_URL}
+            style={detailIconButton}
+            aria-label={t('plugins.detail.website')}
+            title={t('plugins.detail.website')}
+            onClick={(event) => handlePluginExternalLinkClick(event, info?.websiteUrl)}
+          >
             <Link size={15} aria-hidden />
           </a>
           {plugin.installed && plugin.removable && (
@@ -435,15 +489,43 @@ function InfoRow({ label, value }: { label: string; value?: string | null }): JS
 }
 
 function InfoLinkRow({ label, href }: { label: string; href?: string | null }): JSX.Element {
-  const resolvedHref = href?.trim() || DOTCRAFT_PLUGIN_FALLBACK_URL
+  const resolvedHref = resolvePluginExternalUrl(href) ?? DOTCRAFT_PLUGIN_FALLBACK_URL
   return (
     <div style={infoRow}>
       <span style={infoLabel}>{label}</span>
       <span style={infoValue}>
-        <a href={resolvedHref} style={plainLink}><ExternalLink size={14} aria-hidden /></a>
+        <a
+          href={resolvedHref}
+          style={plainLink}
+          aria-label={label}
+          title={label}
+          onClick={(event) => handlePluginExternalLinkClick(event, href)}
+        >
+          <ExternalLink size={14} aria-hidden />
+        </a>
       </span>
     </div>
   )
+}
+
+function handlePluginExternalLinkClick(event: MouseEvent<HTMLAnchorElement>, href?: string | null): void {
+  event.preventDefault()
+  const resolvedHref = resolvePluginExternalUrl(href) ?? DOTCRAFT_PLUGIN_FALLBACK_URL
+  void window.api.shell.openExternal(resolvedHref).catch(() => undefined)
+}
+
+function resolvePluginExternalUrl(href?: string | null): string | null {
+  const value = href?.trim()
+  if (!value) return null
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:' || parsed.protocol === 'tel:') {
+      return parsed.href
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 function filterPlugins(
@@ -493,11 +575,17 @@ function buildSections(
     return plugins.length > 0 ? [{ key: categoryFilter, title: categoryLabel(categoryFilter, t), plugins }] : []
   }
 
-  const featured = plugins.filter(isFeaturedPlugin)
-  const seen = new Set(featured.map((plugin) => plugin.id))
+  const local = plugins.filter(isLocalInstalledPlugin)
+  const seen = new Set(local.map((plugin) => plugin.id))
   const sections: Array<{ key: string; title: string; plugins: PluginEntry[] }> = []
+  if (local.length > 0) {
+    sections.push({ key: 'local', title: t('plugins.section.local'), plugins: local })
+  }
+
+  const featured = plugins.filter((plugin) => isFeaturedPlugin(plugin) && !seen.has(plugin.id))
   if (featured.length > 0) {
     sections.push({ key: 'featured', title: t('plugins.section.featured'), plugins: featured })
+    for (const plugin of featured) seen.add(plugin.id)
   }
 
   const byCategory = new Map<string, PluginEntry[]>()
@@ -518,6 +606,10 @@ function buildSections(
 
 function isFeaturedPlugin(plugin: PluginEntry): boolean {
   return plugin.id === 'browser-use'
+}
+
+function isLocalInstalledPlugin(plugin: PluginEntry): boolean {
+  return plugin.installed && plugin.source.toLowerCase() !== 'builtin'
 }
 
 function isDotHarnessPlugin(plugin: PluginEntry): boolean {
@@ -552,12 +644,13 @@ function displayCategory(category: string | null | undefined, t: ReturnType<type
 
 function tryPluginInChat(plugin: PluginEntry): void {
   const prompt = plugin.interface?.defaultPrompt || ''
-  const text = `$browser-use${prompt ? ` ${prompt}` : ''}`
+  const skillName = plugin.skills.find((skill) => skill.enabled)?.name ?? plugin.skills[0]?.name ?? plugin.id
+  const text = `$${skillName}${prompt ? ` ${prompt}` : ''}`
   const ui = useUIStore.getState()
   const existing = ui.welcomeDraft
   ui.setWelcomeDraft({
     text,
-    segments: [{ type: 'skill', skillName: 'browser-use' }],
+    segments: [{ type: 'skill', skillName }],
     selectionStart: text.length,
     selectionEnd: text.length,
     images: [],
@@ -567,6 +660,35 @@ function tryPluginInChat(plugin: PluginEntry): void {
     approvalPolicy: existing?.approvalPolicy ?? 'default'
   })
   ui.goToNewChat()
+}
+
+function filterVisibleDiagnostics(diagnostics: PluginDiagnosticEntry[]): PluginDiagnosticEntry[] {
+  return diagnostics.filter((diagnostic) => {
+    const severity = diagnostic.severity.toLowerCase()
+    return severity === 'warning' || severity === 'error'
+  })
+}
+
+function PluginDiagnosticsBanner({ diagnostics }: { diagnostics: PluginDiagnosticEntry[] }): JSX.Element | null {
+  const t = useT()
+  if (diagnostics.length === 0) return null
+  return (
+    <div style={diagnosticsPanel} role="status">
+      <strong style={diagnosticsTitle}>{t('plugins.diagnostics.title')}</strong>
+      <div style={diagnosticsList}>
+        {diagnostics.slice(0, 5).map((diagnostic, index) => (
+          <div key={`${diagnostic.code}-${diagnostic.path ?? index}`} style={diagnosticItem}>
+            <span style={diagnosticCode}>{diagnostic.code}</span>
+            <span style={diagnosticMessage}>{diagnostic.message}</span>
+            {diagnostic.path && <span style={diagnosticPath}>{diagnostic.path}</span>}
+          </div>
+        ))}
+        {diagnostics.length > 5 && (
+          <div style={diagnosticMore}>{t('plugins.diagnostics.more', { count: String(diagnostics.length - 5) })}</div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 const page: CSSProperties = catalogStyles.page
@@ -618,3 +740,12 @@ const infoLabel: CSSProperties = { color: 'var(--text-secondary)', fontSize: 13,
 const infoValue: CSSProperties = { fontSize: 13, padding: '18px 16px' }
 const plainLink: CSSProperties = { color: 'var(--accent)', display: 'inline-flex' }
 const detailToggleRow: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, padding: '12px 4px', fontSize: 13 }
+const iconToolbarButton: CSSProperties = { width: 32, height: 32, border: 'none', borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }
+const diagnosticsPanel: CSSProperties = { border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--bg-secondary)', padding: '12px 14px', margin: '0 0 24px' }
+const diagnosticsTitle: CSSProperties = { display: 'block', fontSize: 13, marginBottom: 8, color: 'var(--text-primary)' }
+const diagnosticsList: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 7 }
+const diagnosticItem: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(120px, max-content) minmax(0, 1fr)', columnGap: 10, rowGap: 3, alignItems: 'baseline', fontSize: 12 }
+const diagnosticCode: CSSProperties = { color: 'var(--warning, #A16207)', fontFamily: 'var(--font-mono)' }
+const diagnosticMessage: CSSProperties = { color: 'var(--text-secondary)', minWidth: 0 }
+const diagnosticPath: CSSProperties = { gridColumn: '1 / -1', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const diagnosticMore: CSSProperties = { color: 'var(--text-tertiary)', fontSize: 12 }

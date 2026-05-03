@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "external-process-echo",
+  "version": "0.1.0",
+  "displayName": "External Process Echo",
+  "description": "Echo text through a plugin-owned local process.",
+  "capabilities": ["skill", "tool"],
+  "skills": "./skills/",
+  "tools": [
+    {
+      "namespace": "demo",
+      "name": "EchoText",
+      "description": "Echo text through an external plugin process.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to echo."
+          }
+        },
+        "required": ["text"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "echo": { "type": "string" },
+          "length": { "type": "integer" },
+          "callId": { "type": "string" }
+        }
+      },
+      "display": {
+        "title": "Echo Text",
+        "subtitle": "External process dynamic tool"
+      },
+      "backend": {
+        "kind": "process",
+        "processId": "demo",
+        "toolName": "EchoText"
+      }
+    }
+  ],
+  "processes": {
+    "demo": {
+      "command": "python",
+      "args": ["./tools/demo_tool.py"],
+      "workingDirectory": "./",
+      "startupTimeoutSeconds": 10,
+      "toolTimeoutSeconds": 20
+    }
+  },
+  "interface": {
+    "displayName": "External Process Echo",
+    "shortDescription": "Run an echo tool in a plugin process",
+    "longDescription": "A sample plugin that contributes a skill and a process-backed dynamic tool.",
+    "developerName": "DotHarness",
+    "category": "Coding",
+    "capabilities": ["Skill", "Tool"],
+    "defaultPrompt": "Echo text through the external process plugin.",
+    "brandColor": "#2563EB"
+  }
+}

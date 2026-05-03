@@ -1,0 +1,212 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { LocaleProvider } from '../contexts/LocaleContext'
+import { PluginsView } from '../components/plugins/PluginsView'
+import { useConnectionStore } from '../stores/connectionStore'
+import { usePluginStore, type PluginEntry } from '../stores/pluginStore'
+
+const appServerSendRequest = vi.fn()
+const settingsGet = vi.fn()
+const shellOpenExternal = vi.fn()
+const confirmDialog = vi.fn()
+
+const browserUsePlugin: PluginEntry = {
+  id: 'browser-use',
+  displayName: 'Browser Use',
+  description: 'Control the in-app browser with DotCraft',
+  version: '1.0.0',
+  enabled: false,
+  installed: false,
+  installable: true,
+  removable: false,
+  source: 'builtin',
+  rootPath: '',
+  interface: {
+    displayName: 'Browser Use',
+    shortDescription: 'Control the in-app browser with DotCraft',
+    developerName: 'DotHarness',
+    category: 'Coding'
+  },
+  functions: [{ name: 'NodeReplJs', namespace: 'node_repl', description: 'Evaluate JavaScript.' }],
+  skills: [{ name: 'browser-use', description: 'Browser Use', enabled: false }]
+}
+
+const localPlugin: PluginEntry = {
+  id: 'external-process-echo',
+  displayName: 'External Process Echo',
+  description: 'Echo text through a plugin-owned local process.',
+  version: '0.1.0',
+  enabled: true,
+  installed: true,
+  installable: false,
+  removable: true,
+  source: 'workspace',
+  rootPath: 'F:\\dotcraft\\.craft\\plugins\\external-process-echo',
+  interface: {
+    displayName: 'External Process Echo',
+    shortDescription: 'Run an echo tool in a plugin process',
+    developerName: 'Example Labs',
+    category: 'Coding',
+    websiteUrl: 'https://example.com/external-process-echo',
+    privacyPolicyUrl: 'https://example.com/privacy',
+    termsOfServiceUrl: 'https://example.com/terms'
+  },
+  functions: [{ name: 'EchoText', namespace: 'demo', description: 'Echo text.' }],
+  skills: [{ name: 'external-process-echo', description: 'Echo plugin skill', enabled: true }]
+}
+
+function renderPluginsView(): void {
+  render(
+    <LocaleProvider>
+      <PluginsView />
+    </LocaleProvider>
+  )
+}
+
+describe('PluginsView local plugin visibility', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    settingsGet.mockResolvedValue({ locale: 'en' })
+    useConnectionStore.getState().reset()
+    useConnectionStore.getState().setStatus({
+      status: 'connected',
+      capabilities: {
+        pluginManagement: true
+      }
+    })
+    usePluginStore.setState({
+      plugins: [],
+      diagnostics: [],
+      loading: false,
+      error: null,
+      selectedPluginId: null,
+      selectedPlugin: null,
+      detailLoading: false
+    })
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: { get: settingsGet },
+        appServer: { sendRequest: appServerSendRequest },
+        shell: { openExternal: shellOpenExternal }
+      }
+    })
+    ;(window as Window & { __confirmDialog?: unknown }).__confirmDialog = confirmDialog
+    shellOpenExternal.mockResolvedValue(undefined)
+    confirmDialog.mockResolvedValue(true)
+  })
+
+  it('shows workspace plugins by default under Installed locally', async () => {
+    appServerSendRequest.mockResolvedValue({
+      plugins: [browserUsePlugin, localPlugin],
+      diagnostics: []
+    })
+
+    renderPluginsView()
+
+    expect(await screen.findByText('Installed locally')).toBeInTheDocument()
+    expect(screen.getByText('External Process Echo')).toBeInTheDocument()
+    expect(screen.getByText('Browser Use')).toBeInTheDocument()
+    expect(screen.getByText('All publishers')).toBeInTheDocument()
+  })
+
+  it('renders plugin diagnostics returned by plugin/list', async () => {
+    appServerSendRequest.mockResolvedValue({
+      plugins: [browserUsePlugin],
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'MissingPluginCapabilities',
+          message: 'Plugin manifest must declare a skills path or at least one tool.',
+          pluginId: 'broken-plugin',
+          path: 'F:\\dotcraft\\.craft\\plugins\\broken-plugin\\.craft-plugin\\plugin.json'
+        }
+      ]
+    })
+
+    renderPluginsView()
+
+    expect(await screen.findByText('Plugin diagnostics')).toBeInTheDocument()
+    expect(screen.getByText('MissingPluginCapabilities')).toBeInTheDocument()
+    expect(screen.getByText('Plugin manifest must declare a skills path or at least one tool.')).toBeInTheDocument()
+    expect(usePluginStore.getState().diagnostics).toHaveLength(1)
+  })
+
+  it('refreshes plugins when the window regains focus', async () => {
+    appServerSendRequest
+      .mockResolvedValueOnce({ plugins: [browserUsePlugin], diagnostics: [] })
+      .mockResolvedValueOnce({ plugins: [browserUsePlugin, localPlugin], diagnostics: [] })
+
+    renderPluginsView()
+
+    expect(await screen.findByText('Browser Use')).toBeInTheDocument()
+    expect(screen.queryByText('External Process Echo')).not.toBeInTheDocument()
+
+    fireEvent.focus(window)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledTimes(2)
+    })
+    expect(await screen.findByText('External Process Echo')).toBeInTheDocument()
+  })
+
+  it('shows remove for removable local plugins and refreshes after confirmation', async () => {
+    let removed = false
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') {
+        return { plugins: removed ? [browserUsePlugin] : [browserUsePlugin, localPlugin], diagnostics: [] }
+      }
+      if (method === 'plugin/view') return { plugin: localPlugin }
+      if (method === 'plugin/remove') {
+        removed = true
+        return {}
+      }
+      if (method === 'skills/list') return { skills: [] }
+      return {}
+    })
+
+    renderPluginsView()
+
+    fireEvent.click(await screen.findByText('External Process Echo'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from DotCraft' }))
+
+    await waitFor(() => {
+      expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ danger: true }))
+      expect(appServerSendRequest).toHaveBeenCalledWith('plugin/remove', { id: 'external-process-echo' })
+    })
+    expect(screen.queryByRole('button', { name: 'Remove from DotCraft' })).not.toBeInTheDocument()
+  })
+
+  it('hides remove for installed plugins that are not removable', async () => {
+    const externalRootPlugin = { ...localPlugin, removable: false, source: 'explicit' }
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') return { plugins: [externalRootPlugin], diagnostics: [] }
+      if (method === 'plugin/view') return { plugin: externalRootPlugin }
+      return {}
+    })
+
+    renderPluginsView()
+
+    fireEvent.click(await screen.findByText('External Process Echo'))
+
+    expect(await screen.findByRole('button', { name: 'Try in chat' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove from DotCraft' })).not.toBeInTheDocument()
+  })
+
+  it('opens plugin detail links in the external browser', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') return { plugins: [localPlugin], diagnostics: [] }
+      if (method === 'plugin/view') return { plugin: localPlugin }
+      return {}
+    })
+
+    renderPluginsView()
+
+    fireEvent.click(await screen.findByText('External Process Echo'))
+    fireEvent.click((await screen.findAllByLabelText('Website'))[0]!)
+    fireEvent.click(await screen.findByLabelText('Privacy policy'))
+
+    expect(shellOpenExternal).toHaveBeenCalledWith('https://example.com/external-process-echo')
+    expect(shellOpenExternal).toHaveBeenCalledWith('https://example.com/privacy')
+  })
+})

@@ -2570,7 +2570,8 @@ public sealed class AppServerRequestHandler(
 
         var pluginRoot = Path.GetFullPath(beforePlugin.Manifest.RootPath);
         var workspacePluginsRoot = Path.GetFullPath(Path.Combine(workspaceCraftPath, "plugins"));
-        if (!IsPathWithin(pluginRoot, workspacePluginsRoot) || !BuiltInPluginDeployer.IsManagedBuiltInPluginRoot(pluginRoot))
+        if (beforePlugin.SourceKind != PluginDiscoverySourceKind.Workspace
+            || !IsStrictPathWithin(pluginRoot, workspacePluginsRoot))
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
 
         Directory.Delete(pluginRoot, recursive: true);
@@ -2588,12 +2589,9 @@ public sealed class AppServerRequestHandler(
             [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
 
         var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
-        if (plugin == null)
-            throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found after removal.");
-
         return Task.FromResult<object?>(new PluginRemoveResult
         {
-            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+            Plugin = plugin == null ? null : MapPluginToWire(plugin, discovery.Diagnostics)
         });
     }
 
@@ -2755,6 +2753,14 @@ public sealed class AppServerRequestHandler(
                && !relative.Equals("..", StringComparison.Ordinal)
                && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    private static bool IsStrictPathWithin(string path, string root)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return !string.IsNullOrWhiteSpace(relative)
+               && !relative.Equals(".", StringComparison.Ordinal)
+               && IsPathWithin(path, root);
     }
 
     private PluginInterfaceWire? MapPluginInterfaceToWire(PluginInterfaceMetadata? metadata)

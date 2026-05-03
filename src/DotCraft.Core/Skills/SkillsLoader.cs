@@ -444,6 +444,10 @@ public sealed class SkillsLoader(string workspaceRoot, string? userSkillsPath = 
             return Path.Combine("agents", fileName["agents.".Length..]);
         if (fileName.StartsWith("assets.", StringComparison.Ordinal))
             return Path.Combine("assets", fileName["assets.".Length..]);
+        if (fileName.StartsWith("scripts.", StringComparison.Ordinal))
+            return Path.Combine("scripts", fileName["scripts.".Length..]);
+        if (fileName.StartsWith("references.", StringComparison.Ordinal))
+            return Path.Combine("references", fileName["references.".Length..]);
         return fileName;
     }
 

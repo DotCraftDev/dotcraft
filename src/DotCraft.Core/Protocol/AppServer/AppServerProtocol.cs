@@ -1312,7 +1312,8 @@ public sealed class PluginRemoveParams
 
 public sealed class PluginRemoveResult
 {
-    public PluginInfoWire Plugin { get; set; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PluginInfoWire? Plugin { get; set; }
 }
 
 public sealed class PluginSetEnabledParams

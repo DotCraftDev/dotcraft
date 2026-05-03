@@ -98,7 +98,7 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
             }
 
             var removable = candidate.SourceKind == PluginDiscoverySourceKind.Workspace
-                            && BuiltInPluginDeployer.IsManagedBuiltInPluginRoot(manifest.RootPath);
+                            && IsStrictPathWithinDirectory(manifest.RootPath, candidate.SourceRoot);
             discovered.Add(new DiscoveredPlugin(
                 manifest,
                 candidate.SourceKind,
@@ -191,6 +191,17 @@ public sealed class PluginDiscoveryService(string? userGlobalPluginsPath = null)
             if (PluginManifestParser.IsValidPluginRoot(child))
                 yield return child;
         }
+    }
+
+    private static bool IsStrictPathWithinDirectory(string path, string root)
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(root), Path.GetFullPath(path));
+        return !string.IsNullOrWhiteSpace(relative)
+               && !relative.Equals(".", StringComparison.Ordinal)
+               && !Path.IsPathRooted(relative)
+               && !relative.Equals("..", StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+               && !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
     }
 
     private sealed record PluginCandidate(

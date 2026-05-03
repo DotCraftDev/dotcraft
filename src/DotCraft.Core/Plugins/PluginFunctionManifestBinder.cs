@@ -11,7 +11,8 @@ public static class PluginFunctionManifestBinder
     public static IReadOnlyList<PluginFunctionRegistration> Bind(
         IEnumerable<PluginFunctionRegistration> fallbackRegistrations,
         IReadOnlyList<DiscoveredPlugin> discoveredPlugins,
-        List<PluginDiagnostic> diagnostics)
+        List<PluginDiagnostic> diagnostics,
+        PluginDynamicToolProcessManager? processManager = null)
     {
         var fallbacks = fallbackRegistrations.ToArray();
         var fallbackByBackend = fallbacks
@@ -30,11 +31,56 @@ public static class PluginFunctionManifestBinder
             foreach (var function in plugin.Manifest.Functions)
             {
                 var backend = function.Backend;
+                if (backend.Kind.Equals("process", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (processManager == null)
+                    {
+                        diagnostics.Add(PluginDiagnostic.Warning(
+                            "PluginProcessBackendUnavailable",
+                            $"Plugin tool '{function.Name}' uses a process backend, but process dynamic tools are not available.",
+                            plugin.Manifest.Id,
+                            function.Name,
+                            plugin.Manifest.ManifestPath));
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(backend.ProcessId))
+                    {
+                        diagnostics.Add(PluginDiagnostic.Warning(
+                            "InvalidPluginProcessBackend",
+                            $"Plugin tool '{function.Name}' must declare backend.processId.",
+                            plugin.Manifest.Id,
+                            function.Name,
+                            plugin.Manifest.ManifestPath));
+                        continue;
+                    }
+
+                    if (!plugin.Manifest.Processes.TryGetValue(backend.ProcessId, out var process))
+                    {
+                        diagnostics.Add(PluginDiagnostic.Warning(
+                            "PluginProcessUnavailable",
+                            $"Plugin tool '{function.Name}' references unavailable process '{backend.ProcessId}'.",
+                            plugin.Manifest.Id,
+                            function.Name,
+                            plugin.Manifest.ManifestPath));
+                        continue;
+                    }
+
+                    bound.Add(new PluginFunctionRegistration(
+                        function.ToDescriptor(plugin.Manifest.Id),
+                        new PluginDynamicToolProcessInvoker(
+                            processManager,
+                            plugin.Manifest,
+                            process,
+                            backend.ToolName ?? function.Name)));
+                    continue;
+                }
+
                 if (!backend.Kind.Equals("builtin", StringComparison.OrdinalIgnoreCase))
                 {
                     diagnostics.Add(PluginDiagnostic.Warning(
                         "UnsupportedPluginBackend",
-                        $"Plugin function '{function.Name}' uses unsupported backend kind '{backend.Kind}'.",
+                        $"Plugin tool '{function.Name}' uses unsupported backend kind '{backend.Kind}'.",
                         plugin.Manifest.Id,
                         function.Name,
                         plugin.Manifest.ManifestPath));
@@ -46,7 +92,7 @@ public static class PluginFunctionManifestBinder
                 {
                     diagnostics.Add(PluginDiagnostic.Warning(
                         "InvalidBuiltinBackend",
-                        $"Plugin function '{function.Name}' must declare backend.providerId and backend.functionName.",
+                        $"Plugin tool '{function.Name}' must declare backend.providerId and backend.functionName.",
                         plugin.Manifest.Id,
                         function.Name,
                         plugin.Manifest.ManifestPath));
@@ -57,7 +103,7 @@ public static class PluginFunctionManifestBinder
                 {
                     diagnostics.Add(PluginDiagnostic.Warning(
                         "InvalidBuiltinBackendProvider",
-                        $"Plugin function '{function.Name}' cannot bind to provider '{backend.ProviderId}' because providerId must match plugin id '{plugin.Manifest.Id}'.",
+                        $"Plugin tool '{function.Name}' cannot bind to provider '{backend.ProviderId}' because providerId must match plugin id '{plugin.Manifest.Id}'.",
                         plugin.Manifest.Id,
                         function.Name,
                         plugin.Manifest.ManifestPath));
@@ -69,7 +115,7 @@ public static class PluginFunctionManifestBinder
                 {
                     diagnostics.Add(PluginDiagnostic.Warning(
                         "BuiltinBackendUnavailable",
-                        $"Plugin function '{function.Name}' references unavailable built-in backend '{backend.ProviderId}/{backend.FunctionName}'.",
+                        $"Plugin tool '{function.Name}' references unavailable built-in backend '{backend.ProviderId}/{backend.FunctionName}'.",
                         plugin.Manifest.Id,
                         function.Name,
                         plugin.Manifest.ManifestPath));

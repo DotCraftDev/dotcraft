@@ -47,8 +47,17 @@ export interface PluginEntry {
   diagnostics?: Array<{ severity: string; code: string; message: string; pluginId?: string; path?: string }>
 }
 
+export interface PluginDiagnosticEntry {
+  severity: string
+  code: string
+  message: string
+  pluginId?: string | null
+  path?: string | null
+}
+
 interface PluginState {
   plugins: PluginEntry[]
+  diagnostics: PluginDiagnosticEntry[]
   loading: boolean
   error: string | null
   selectedPluginId: string | null
@@ -65,6 +74,7 @@ interface PluginState {
 
 export const usePluginStore = create<PluginState>((set, get) => ({
   plugins: [],
+  diagnostics: [],
   loading: false,
   error: null,
   selectedPluginId: null,
@@ -76,13 +86,18 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     try {
       const result = (await window.api.appServer.sendRequest('plugin/list', {
         includeDisabled: true
-      })) as { plugins?: PluginEntry[] }
+      })) as { plugins?: PluginEntry[]; diagnostics?: PluginDiagnosticEntry[] }
       const plugins = result.plugins ?? []
+      const diagnostics = result.diagnostics ?? []
       set((state) => ({
         plugins,
+        diagnostics,
         selectedPlugin: state.selectedPluginId
-          ? plugins.find((plugin) => plugin.id === state.selectedPluginId) ?? state.selectedPlugin
+          ? plugins.find((plugin) => plugin.id === state.selectedPluginId) ?? null
           : state.selectedPlugin,
+        selectedPluginId: state.selectedPluginId && !plugins.some((plugin) => plugin.id === state.selectedPluginId)
+          ? null
+          : state.selectedPluginId,
         loading: false
       }))
     } catch (e: unknown) {
@@ -136,6 +151,9 @@ export const usePluginStore = create<PluginState>((set, get) => ({
         }))
       } else {
         await get().fetchPlugins()
+        if (get().selectedPluginId === id) {
+          set({ selectedPluginId: null, selectedPlugin: null, detailLoading: false })
+        }
       }
     } catch (e: unknown) {
       console.error('plugin/remove failed:', e)

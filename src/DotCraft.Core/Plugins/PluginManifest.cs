@@ -24,6 +24,9 @@ public sealed record PluginManifest
 
     public IReadOnlyList<PluginManifestFunction> Functions { get; init; } = [];
 
+    public IReadOnlyDictionary<string, PluginManifestProcess> Processes { get; init; } =
+        new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
+
     public IReadOnlyDictionary<string, string> Paths { get; init; } = new Dictionary<string, string>();
 
     [JsonPropertyName("interface")]
@@ -87,6 +90,30 @@ public sealed record PluginManifestBackend
     public string? ProviderId { get; init; }
 
     public string? FunctionName { get; init; }
+
+    public string? ProcessId { get; init; }
+
+    public string? ToolName { get; init; }
+}
+
+/// <summary>
+/// External process declaration for plugin dynamic tools.
+/// </summary>
+public sealed record PluginManifestProcess
+{
+    public required string Id { get; init; }
+
+    public required string Command { get; init; }
+
+    public IReadOnlyList<string> Args { get; init; } = [];
+
+    public string? WorkingDirectory { get; init; }
+
+    public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
+
+    public double? StartupTimeoutSeconds { get; init; }
+
+    public double? ToolTimeoutSeconds { get; init; }
 }
 
 public sealed record PluginInterfaceMetadata
@@ -224,7 +251,16 @@ public static partial class PluginManifestParser
             raw.Id,
             manifestPath,
             diagnostics);
+        var processes = ParseProcesses(pluginRoot, raw, manifestPath, diagnostics);
         var functions = ParseFunctions(raw, manifestPath, diagnostics);
+        if (skillsPath == null && functions.Count == 0)
+        {
+            diagnostics.Add(PluginDiagnostic.Error(
+                "MissingPluginCapabilities",
+                "Plugin manifest must declare a skills path or at least one tool.",
+                raw.Id,
+                path: manifestPath));
+        }
 
         if (diagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error))
             return new PluginManifestParseResult(null, diagnostics);
@@ -242,6 +278,7 @@ public static partial class PluginManifestParser
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             Functions = functions,
+            Processes = processes,
             Paths = resolvedPaths,
             Interface = interfaceMetadata,
             SkillsPath = skillsPath,
@@ -270,23 +307,28 @@ public static partial class PluginManifestParser
     public static bool IsValidFunctionName(string? value) =>
         !string.IsNullOrWhiteSpace(value) && FunctionNameRegex().IsMatch(value);
 
+    /// <summary>
+    /// Returns whether a string is a valid plugin process id.
+    /// </summary>
+    public static bool IsValidProcessId(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && ProcessIdRegex().IsMatch(value);
+
     private static IReadOnlyList<PluginManifestFunction> ParseFunctions(
         RawPluginManifest raw,
         string manifestPath,
         List<PluginDiagnostic> diagnostics)
     {
-        if (raw.Functions == null || raw.Functions.Count == 0)
-        {
-            diagnostics.Add(PluginDiagnostic.Error(
-                "MissingPluginFunctions",
-                "Plugin manifest must declare at least one function.",
-                raw.Id,
-                path: manifestPath));
+        var rawFunctions = new List<RawPluginFunction>();
+        if (raw.Functions is { Count: > 0 })
+            rawFunctions.AddRange(raw.Functions);
+        if (raw.Tools is { Count: > 0 })
+            rawFunctions.AddRange(raw.Tools);
+
+        if (rawFunctions.Count == 0)
             return [];
-        }
 
         var functions = new List<PluginManifestFunction>();
-        foreach (var function in raw.Functions)
+        foreach (var function in rawFunctions)
         {
             if (!IsValidFunctionName(function.Name))
             {
@@ -360,12 +402,102 @@ public static partial class PluginManifestParser
                 {
                     Kind = function.Backend.Kind.Trim(),
                     ProviderId = NormalizeOptional(function.Backend.ProviderId),
-                    FunctionName = NormalizeOptional(function.Backend.FunctionName)
+                    FunctionName = NormalizeOptional(function.Backend.FunctionName),
+                    ProcessId = NormalizeOptional(function.Backend.ProcessId),
+                    ToolName = NormalizeOptional(function.Backend.ToolName)
                 }
             });
         }
 
         return functions;
+    }
+
+    private static IReadOnlyDictionary<string, PluginManifestProcess> ParseProcesses(
+        string pluginRoot,
+        RawPluginManifest raw,
+        string manifestPath,
+        List<PluginDiagnostic> diagnostics)
+    {
+        if (raw.Processes == null || raw.Processes.Count == 0)
+            return new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
+
+        var processes = new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawId, process) in raw.Processes)
+        {
+            var id = NormalizeOptional(rawId);
+            if (!IsValidProcessId(id))
+            {
+                diagnostics.Add(PluginDiagnostic.Error(
+                    "InvalidPluginProcessId",
+                    "Plugin process id is required and may contain only ASCII letters, digits, '.', '_', or '-'.",
+                    raw.Id,
+                    path: manifestPath));
+                continue;
+            }
+
+            if (process == null || string.IsNullOrWhiteSpace(process.Command))
+            {
+                diagnostics.Add(PluginDiagnostic.Error(
+                    "InvalidPluginProcess",
+                    $"Plugin process '{id}' must declare a command.",
+                    raw.Id,
+                    path: manifestPath));
+                continue;
+            }
+
+            if (process.WorkingDirectory != null
+                && ResolveManifestPath(pluginRoot, process.WorkingDirectory, out var workingDirectoryError) == null)
+            {
+                diagnostics.Add(PluginDiagnostic.Error(
+                    "InvalidPluginProcessWorkingDirectory",
+                    $"Plugin process '{id}' has invalid workingDirectory: {workingDirectoryError}",
+                    raw.Id,
+                    path: manifestPath));
+                continue;
+            }
+
+            if (process.Command.StartsWith("./", StringComparison.Ordinal)
+                && ResolveManifestPath(pluginRoot, process.Command, out var commandError) == null)
+            {
+                diagnostics.Add(PluginDiagnostic.Error(
+                    "InvalidPluginProcessCommand",
+                    $"Plugin process '{id}' has invalid command path: {commandError}",
+                    raw.Id,
+                    path: manifestPath));
+                continue;
+            }
+
+            var args = process.Args
+                .Where(arg => !string.IsNullOrWhiteSpace(arg))
+                .Select(arg => arg.Trim())
+                .ToArray();
+            var invalidArg = args.FirstOrDefault(arg =>
+                arg.StartsWith("./", StringComparison.Ordinal)
+                && ResolveManifestPath(pluginRoot, arg, out _) == null);
+            if (invalidArg != null)
+            {
+                _ = ResolveManifestPath(pluginRoot, invalidArg, out var argError);
+                diagnostics.Add(PluginDiagnostic.Error(
+                    "InvalidPluginProcessArgument",
+                    $"Plugin process '{id}' has invalid manifest-relative argument '{invalidArg}': {argError}",
+                    raw.Id,
+                    path: manifestPath));
+                continue;
+            }
+
+            processes[id!] = new PluginManifestProcess
+            {
+                Id = id!,
+                Command = process.Command.Trim(),
+                Args = args,
+                WorkingDirectory = NormalizeOptional(process.WorkingDirectory),
+                Env = process.Env ?? new Dictionary<string, string>(StringComparer.Ordinal),
+                StartupTimeoutSeconds = process.StartupTimeoutSeconds,
+                ToolTimeoutSeconds = process.ToolTimeoutSeconds
+            };
+        }
+
+        return processes;
     }
 
     private static IReadOnlyDictionary<string, string> ResolvePaths(
@@ -482,10 +614,7 @@ public static partial class PluginManifestParser
 
         var relative = value[2..];
         if (string.IsNullOrWhiteSpace(relative))
-        {
-            error = "path must not be './'";
-            return null;
-        }
+            return Path.GetFullPath(pluginRoot);
 
         if (relative
             .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
@@ -498,8 +627,7 @@ public static partial class PluginManifestParser
         var candidate = Path.GetFullPath(Path.Combine(pluginRoot, relative));
         var root = Path.GetFullPath(pluginRoot);
         var relativeBack = Path.GetRelativePath(root, candidate);
-        if (relativeBack == "."
-            || relativeBack.StartsWith("..", StringComparison.Ordinal)
+        if (relativeBack.StartsWith("..", StringComparison.Ordinal)
             || Path.IsPathRooted(relativeBack))
         {
             error = "path must stay within the plugin root";
@@ -520,6 +648,9 @@ public static partial class PluginManifestParser
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex FunctionNameRegex();
+
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]*$")]
+    private static partial Regex ProcessIdRegex();
 
     private sealed class RawPluginManifest
     {
@@ -543,6 +674,10 @@ public static partial class PluginManifestParser
         public RawPluginInterface? Interface { get; set; }
 
         public List<RawPluginFunction>? Functions { get; set; }
+
+        public List<RawPluginFunction>? Tools { get; set; }
+
+        public Dictionary<string, RawPluginProcess>? Processes { get; set; }
     }
 
     private sealed class RawPluginInterface
@@ -597,6 +732,21 @@ public static partial class PluginManifestParser
         public RawPluginBackend? Backend { get; set; }
     }
 
+    private sealed class RawPluginProcess
+    {
+        public string? Command { get; set; }
+
+        public List<string> Args { get; set; } = [];
+
+        public string? WorkingDirectory { get; set; }
+
+        public Dictionary<string, string>? Env { get; set; }
+
+        public double? StartupTimeoutSeconds { get; set; }
+
+        public double? ToolTimeoutSeconds { get; set; }
+    }
+
     private sealed class RawPluginBackend
     {
         public string? Kind { get; set; }
@@ -604,5 +754,9 @@ public static partial class PluginManifestParser
         public string? ProviderId { get; set; }
 
         public string? FunctionName { get; set; }
+
+        public string? ProcessId { get; set; }
+
+        public string? ToolName { get; set; }
     }
 }
