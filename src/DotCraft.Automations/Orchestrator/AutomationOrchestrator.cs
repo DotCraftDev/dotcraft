@@ -311,6 +311,15 @@ public sealed class AutomationOrchestrator
                         continue;
                     }
 
+                    if (_sessionClient == null)
+                    {
+                        _logger.LogDebug(
+                            "Task {TaskId} deferred because automation session client is not configured (source: {SourceName})",
+                            task.Id,
+                            source.Name);
+                        continue;
+                    }
+
                     var taskKey = TaskKey(task);
 
                     // Check if task is eligible for retry (respects backoff delay)
