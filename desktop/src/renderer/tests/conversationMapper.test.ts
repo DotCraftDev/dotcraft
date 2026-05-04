@@ -114,6 +114,47 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
     // text may also be set via the text chain; the key assertion is reasoning
   })
 
+  it('computes reasoning elapsedSeconds from createdAt and completedAt', () => {
+    const item = wireItemToConversationItem({
+      id: 'i3-elapsed',
+      type: 'reasoningContent',
+      status: 'completed',
+      payloadKind: 'reasoningContent',
+      payload: { text: 'thinking with timestamps' },
+      createdAt: '2025-01-01T00:00:00.000Z',
+      completedAt: '2025-01-01T00:00:02.400Z'
+    })
+
+    expect(item.elapsedSeconds).toBe(2)
+  })
+
+  it('shows sub-second completed reasoning as at least one elapsed second', () => {
+    const item = wireItemToConversationItem({
+      id: 'i3-elapsed-min',
+      type: 'reasoningContent',
+      status: 'completed',
+      payload: { text: 'fast thought' },
+      createdAt: '2025-01-01T00:00:00.000Z',
+      completedAt: '2025-01-01T00:00:00.100Z'
+    })
+
+    expect(item.elapsedSeconds).toBe(1)
+  })
+
+  it('keeps explicit reasoning elapsedSeconds when provided', () => {
+    const item = wireItemToConversationItem({
+      id: 'i3-elapsed-explicit',
+      type: 'reasoningContent',
+      status: 'completed',
+      payload: { text: 'thinking with explicit elapsed' },
+      elapsedSeconds: 7,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      completedAt: '2025-01-01T00:00:02.000Z'
+    })
+
+    expect(item.elapsedSeconds).toBe(7)
+  })
+
   it('does NOT put reasoningContent payload.text into text field', () => {
     const item = wireItemToConversationItem({
       id: 'i3',

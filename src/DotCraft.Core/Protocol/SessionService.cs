@@ -1344,6 +1344,7 @@ public sealed class SessionService(
                             {
                                 case TextContent tc:
                                     // Agent message text
+                                    FinalizeStreamingReasoning();
                                     var chunk = tc.Text ?? string.Empty;
                                     if (agentMessageItem == null)
                                     {
@@ -1383,6 +1384,7 @@ public sealed class SessionService(
                                 case TextReasoningContent reasoning:
                                     if (ReasoningContentHelper.TryGetText(reasoning, out var rText))
                                     {
+                                        FinalizeStreamingAgentMessage();
                                         if (reasoningItem == null)
                                         {
                                             reasoningItem = new SessionItem
@@ -1425,6 +1427,7 @@ public sealed class SessionService(
                                     if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName))
                                         break;
 
+                                    FinalizeStreamingReasoning();
                                     streamingToolCallItemsByIndex ??= [];
                                     if (!streamingToolCallItemsByIndex.TryGetValue(toolCallIndex, out var streamingToolCallItem))
                                     {
@@ -1468,6 +1471,7 @@ public sealed class SessionService(
                                     var isPluginFunctionTool = IsPluginFunctionTool(pluginFunctionToolNames, fc.Name);
                                     if (isPluginFunctionTool && !string.IsNullOrWhiteSpace(fc.CallId))
                                         pluginFunctionCallIds.Add(fc.CallId);
+                                    FinalizeStreamingReasoning();
                                     RegisterCommandExecutionIfNeeded(
                                         fc,
                                         turn,
@@ -1553,6 +1557,7 @@ public sealed class SessionService(
 
                                 case FunctionResultContent fr:
                                 {
+                                    FinalizeStreamingReasoning();
                                     if (!string.IsNullOrWhiteSpace(fr.CallId)
                                         && pluginFunctionCallIds.Remove(fr.CallId))
                                     {
@@ -1636,22 +1641,9 @@ public sealed class SessionService(
                     approvalContextDisposable?.Dispose();
                 }
 
-                // Step 5h: Finalize any still-streaming items (agentMessageItem is null if
-                // it was already finalized after the last tool result).
-                if (agentMessageItem != null)
-                {
-                    agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
-                    agentMessageItem.Status = ItemStatus.Completed;
-                    agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
-                    eventChannel.EmitItemCompleted(agentMessageItem);
-                }
-                if (reasoningItem != null)
-                {
-                    reasoningItem.Payload = new ReasoningContentPayload { Text = reasoningText };
-                    reasoningItem.Status = ItemStatus.Completed;
-                    reasoningItem.CompletedAt = DateTimeOffset.UtcNow;
-                    eventChannel.EmitItemCompleted(reasoningItem);
-                }
+                // Step 5h: Finalize any still-streaming items.
+                FinalizeStreamingAgentMessage();
+                FinalizeStreamingReasoning();
 
                 // Step 5i: Accumulate token usage (include SubAgent tokens)
                 var totalInput = inputTokens + tokenTracker.SubAgentInputTokens;

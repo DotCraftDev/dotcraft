@@ -26,8 +26,8 @@ public static class ReasoningContentHelper
     /// </summary>
     public static bool TryGetText(TextReasoningContent content, [NotNullWhen(true)] out string? text)
     {
-        text = Normalize(content.Text);
-        return !string.IsNullOrWhiteSpace(text);
+        text = content.Text;
+        return !string.IsNullOrEmpty(text);
     }
 
     /// <summary>
@@ -64,11 +64,4 @@ public static class ReasoningContentHelper
             : normalized;
     }
 
-    private static string? Normalize(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-
-        return text.Trim();
-    }
 }

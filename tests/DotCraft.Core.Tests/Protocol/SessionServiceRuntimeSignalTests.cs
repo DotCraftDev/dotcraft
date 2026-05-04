@@ -101,6 +101,80 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitInputAsync_ReasoningAroundTool_PersistsSeparateReasoningItems()
+    {
+        IChatClient chatClient = new FakeChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("I need ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("a tool")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new ToolCallArgumentsDeltaContent
+            {
+                ToolCallIndex = 0,
+                ToolName = "ExampleTool",
+                CallId = "call-1",
+                ArgumentsDelta = "{\"path\":\"a.txt\"}"
+            }]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent(
+                callId: "call-1",
+                name: "ExampleTool",
+                arguments: new Dictionary<string, object?> { ["path"] = "a.txt" })]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent("call-1", "tool result")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("Now ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("answer")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("done")])
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        var turn = Assert.Single(loaded!.Turns);
+        var assistantItems = turn.Items.Where(item => item.Type != ItemType.UserMessage).ToList();
+
+        Assert.Equal(
+            [
+                ItemType.ReasoningContent,
+                ItemType.ToolCall,
+                ItemType.ToolResult,
+                ItemType.ReasoningContent,
+                ItemType.AgentMessage
+            ],
+            assistantItems.Select(item => item.Type));
+
+        Assert.Equal("I need a tool", Assert.IsType<ReasoningContentPayload>(assistantItems[0].Payload).Text);
+        Assert.Equal("Now answer", Assert.IsType<ReasoningContentPayload>(assistantItems[3].Payload).Text);
+        Assert.Equal("done", Assert.IsType<AgentMessagePayload>(assistantItems[4].Payload).Text);
+        Assert.All(
+            assistantItems.Where(item => item.Type == ItemType.ReasoningContent),
+            item => Assert.NotNull(item.CompletedAt));
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ReasoningBeforeAgentMessage_FinalizesBeforeMessage()
+    {
+        IChatClient chatClient = new FakeChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("First ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("thought")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("answer")])
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        var turn = Assert.Single(loaded!.Turns);
+        var assistantItems = turn.Items.Where(item => item.Type != ItemType.UserMessage).ToList();
+
+        Assert.Equal([ItemType.ReasoningContent, ItemType.AgentMessage], assistantItems.Select(item => item.Type));
+        Assert.Equal("First thought", Assert.IsType<ReasoningContentPayload>(assistantItems[0].Payload).Text);
+        Assert.Equal("answer", Assert.IsType<AgentMessagePayload>(assistantItems[1].Payload).Text);
+        Assert.NotNull(assistantItems[0].CompletedAt);
+    }
+
+    [Fact]
     public async Task SubAgentEdgeChanges_InvokeGraphChangedBroadcastHook()
     {
         IChatClient chatClient = new FakeChatClient([new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")])]);

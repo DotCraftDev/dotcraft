@@ -52,6 +52,17 @@ function renderBlock(turn: ConversationTurn, options: { isRunning?: boolean } = 
   return container.textContent ?? ''
 }
 
+function expectDisclosureInsideTitleGroup(container: HTMLElement): HTMLElement {
+  const titleGroup = container.querySelector('[data-testid="tool-row-title-group"]') as HTMLElement
+  const disclosureIcon = container.querySelector('[data-testid="tool-disclosure-icon"]') as HTMLElement
+  expect(titleGroup).toBeTruthy()
+  expect(disclosureIcon).toBeTruthy()
+  expect(titleGroup).toContainElement(disclosureIcon)
+  expect(titleGroup.style.display).toBe('inline-flex')
+  expect(titleGroup.style.flex).toBe('0 1 auto')
+  return disclosureIcon
+}
+
 describe('AgentResponseBlock subagent transcript rendering', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'api', {
@@ -283,6 +294,56 @@ describe('AgentResponseBlock tail tool aggregation timing', () => {
     expect(screen.getByText('Explored 2 files')).toBeInTheDocument()
   })
 
+  it('renders completed parallel tool results as settled while unmatched tools stay running', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-parallel-mixed',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:12:00.000Z',
+      items: [
+        {
+          id: 'tool-done',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-done',
+          toolName: 'FollowupTool',
+          arguments: {},
+          createdAt: '2026-04-18T11:12:01.000Z'
+        },
+        {
+          id: 'tool-pending',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-pending',
+          toolName: 'PendingTool',
+          arguments: {},
+          createdAt: '2026-04-18T11:12:02.000Z'
+        },
+        {
+          id: 'result-done',
+          type: 'toolResult',
+          status: 'completed',
+          toolCallId: 'call-done',
+          result: 'done',
+          success: true,
+          createdAt: '2026-04-18T11:12:03.000Z',
+          completedAt: '2026-04-18T11:12:03.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} isRunning />
+      </LocaleProvider>
+    )
+
+    const completedLabel = screen.getByText('Called FollowupTool')
+    expect(completedLabel).not.toHaveClass('tool-running-gradient-text')
+    expect(screen.getByText(/PendingTool/)).toHaveClass('tool-running-gradient-text')
+    expect(screen.queryByText('done')).toBeNull()
+  })
+
   it('keeps WebSearch child tool headers but removes duplicate expanded copy above the table', () => {
     const makeSearchItem = (
       id: string,
@@ -339,6 +400,157 @@ describe('AgentResponseBlock tail tool aggregation timing', () => {
   })
 })
 
+describe('AgentResponseBlock reasoning timeline rendering', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('renders reasoning items as separate timeline rows around tool output', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-reasoning-timeline',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:18:00.000Z',
+      items: [
+        {
+          id: 'reasoning-before',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'first thought',
+          elapsedSeconds: 3,
+          createdAt: '2026-04-18T11:18:01.000Z'
+        },
+        {
+          id: 'tool-between',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-between',
+          toolName: 'ReadFile',
+          arguments: { path: 'src/main.ts' },
+          success: true,
+          createdAt: '2026-04-18T11:18:02.000Z'
+        },
+        {
+          id: 'reasoning-after',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'second thought',
+          elapsedSeconds: 5,
+          createdAt: '2026-04-18T11:18:03.000Z'
+        },
+        {
+          id: 'assistant-after',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final response',
+          createdAt: '2026-04-18T11:18:04.000Z'
+        }
+      ]
+    }
+
+    const text = renderBlock(turn, { isRunning: true })
+    const firstThought = text.indexOf('Thought 3s')
+    const tool = text.indexOf('Read main.ts')
+    const secondThought = text.indexOf('Thought 5s')
+    const finalMessage = text.indexOf('final response')
+
+    expect(firstThought).toBeGreaterThan(-1)
+    expect(tool).toBeGreaterThan(-1)
+    expect(secondThought).toBeGreaterThan(-1)
+    expect(finalMessage).toBeGreaterThan(-1)
+    expect(firstThought).toBeLessThan(tool)
+    expect(tool).toBeLessThan(secondThought)
+    expect(secondThought).toBeLessThan(finalMessage)
+  })
+
+  it('uses the shared disclosure icon and keeps expanded reasoning as italic quote content', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-reasoning-style',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:19:00.000Z',
+      items: [
+        {
+          id: 'reasoning-style',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'quoted reasoning',
+          elapsedSeconds: 7,
+          createdAt: '2026-04-18T11:19:01.000Z'
+        }
+      ]
+    }
+
+    const { container } = render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} isRunning />
+      </LocaleProvider>
+    )
+    const button = screen.getByRole('button', { name: 'Thought 7s' })
+    const disclosureIcon = expectDisclosureInsideTitleGroup(container)
+
+    expect(screen.getByText('Thought 7s')).not.toHaveClass('tool-running-gradient-text')
+    expect(button).toHaveStyle({ color: 'var(--text-dimmed)' })
+    expect(disclosureIcon).toHaveStyle({ opacity: '0' })
+    fireEvent.mouseEnter(button)
+    expect(button).toHaveStyle({ color: 'var(--text-secondary)' })
+    expect(disclosureIcon).toHaveStyle({ opacity: '1' })
+
+    fireEvent.click(button)
+
+    const expanded = screen.getByText('quoted reasoning')
+    expect(expanded).toHaveStyle({
+      fontStyle: 'italic',
+      whiteSpace: 'pre-wrap',
+      background: 'transparent'
+    })
+    expect(expanded.style.borderLeft).toBe('2px solid var(--border-default)')
+  })
+
+  it('allows streaming reasoning with text to expand using the same row layout', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-reasoning-streaming',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:19:30.000Z',
+      items: [
+        {
+          id: 'reasoning-streaming',
+          type: 'reasoningContent',
+          status: 'streaming',
+          reasoning: '',
+          createdAt: '2026-04-18T11:19:31.000Z'
+        }
+      ]
+    }
+
+    const { container } = render(
+      <LocaleProvider>
+        <AgentResponseBlock
+          turn={turn}
+          isRunning
+          activeItemIdOverride="reasoning-streaming"
+          streamingReasoning="live reasoning"
+        />
+      </LocaleProvider>
+    )
+
+    const button = screen.getByRole('button', { name: 'Thinking...' })
+    expect(screen.getByText('Thinking...')).toHaveClass('tool-running-gradient-text')
+    expectDisclosureInsideTitleGroup(container)
+    fireEvent.click(button)
+
+    expect(screen.getByText('live reasoning')).toBeInTheDocument()
+  })
+})
+
 describe('AgentResponseBlock completed turn folding', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'api', {
@@ -387,7 +599,7 @@ describe('AgentResponseBlock completed turn folding', () => {
       ]
     }
 
-    render(
+    const { container } = render(
       <LocaleProvider>
         <AgentResponseBlock turn={turn} />
       </LocaleProvider>
@@ -399,7 +611,10 @@ describe('AgentResponseBlock completed turn folding', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Processed in 5s/ }))
 
+    expect(screen.getByText('Thought 2s')).toBeInTheDocument()
     expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+    const expandedText = container.textContent ?? ''
+    expect(expandedText.indexOf('Thought 2s')).toBeLessThan(expandedText.indexOf('Read main.ts'))
   })
 
   it('keeps the final CreatePlan visible while folding earlier intermediate work', () => {

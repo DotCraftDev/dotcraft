@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ActionTooltip } from '../ui/ActionTooltip'
+import { ToolCollapseChevron } from './ToolCollapseChevron'
 
 interface ThinkingIndicatorProps {
   /** Elapsed reasoning time in seconds */
@@ -22,60 +23,60 @@ export function ThinkingIndicator({
 }: ThinkingIndicatorProps): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const canExpand = !!reasoning
 
   const label = streaming
     ? 'Thinking...'
     : `Thought ${elapsedSeconds ?? 0}s`
+  const rowColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div style={{ marginBottom: '6px' }}>
       {/* Summary line */}
-      <ActionTooltip label={streaming ? 'Agent is thinking...' : 'Click to expand reasoning'} placement="top">
+      <ActionTooltip label={canExpand ? 'Click to expand reasoning' : 'Agent is thinking...'} placement="top">
         <button
-          onClick={() => !streaming && setExpanded((v) => !v)}
+          onClick={() => canExpand && setExpanded((v) => !v)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '6px',
+            width: '100%',
             background: 'none',
             border: 'none',
-            cursor: streaming ? 'default' : 'pointer',
-            padding: '2px 0',
-            color: 'var(--text-dimmed)',
-            fontSize: '12px'
+            borderRadius: '4px',
+            cursor: canExpand ? 'pointer' : 'default',
+            padding: '3px 6px',
+            color: rowColor,
+            fontSize: '12px',
+            textAlign: 'left'
           }}
           aria-expanded={expanded}
         >
-        <span
-          style={{
-            display: 'inline-block',
-            fontSize: '10px',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 150ms ease',
-            opacity: !streaming && (expanded || hovered) ? 1 : 0
-          }}
-          aria-hidden="true"
-        >
-          ▾
-        </span>
-        <span>{label}</span>
-        {streaming && (
           <span
+            data-testid="tool-row-title-group"
             style={{
-              display: 'inline-block',
-              width: '12px',
-              height: '12px',
-              border: '2px solid var(--text-dimmed)',
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              marginLeft: '4px'
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              flex: '0 1 auto',
+              minWidth: 0,
+              maxWidth: '100%'
             }}
-            aria-hidden="true"
-          />
-        )}
+          >
+            <span
+              className={streaming ? 'tool-running-gradient-text' : undefined}
+              style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {label}
+            </span>
+            {canExpand && (
+              <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+            )}
+          </span>
         </button>
       </ActionTooltip>
 
@@ -86,6 +87,7 @@ export function ThinkingIndicator({
             marginTop: '4px',
             padding: '8px 12px',
             borderLeft: '2px solid var(--border-default)',
+            background: 'transparent',
             color: 'var(--text-dimmed)',
             fontStyle: 'italic',
             fontSize: '13px',

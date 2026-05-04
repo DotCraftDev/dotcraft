@@ -66,9 +66,11 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
 
+  const hydratedItems = hydrateToolCallItems(turn.items)
+
   // Exclude user messages and toolResult items (toolResults are merged into their
-  // parent toolCall items by the store, not rendered independently)
-  const renderableItems = turn.items.filter(
+  // parent toolCall items before rendering, not rendered independently)
+  const renderableItems = hydratedItems.filter(
     (i) =>
       (i.type !== 'userMessage' || i.deliveryMode === 'guidance')
       && i.type !== 'toolResult'
@@ -373,6 +375,68 @@ function findLastCreatePlanIndexBefore(items: ConversationItem[], beforeIndex: n
 
 function isGuidanceUserMessage(item: ConversationItem): boolean {
   return item.type === 'userMessage' && item.deliveryMode === 'guidance'
+}
+
+function hydrateToolCallItems(items: ConversationItem[]): ConversationItem[] {
+  const resultByCallId = new Map<string, ConversationItem>()
+  const commandExecutionByCallId = new Map<string, ConversationItem>()
+
+  for (const item of items) {
+    if (item.type === 'toolResult' && item.toolCallId) {
+      resultByCallId.set(item.toolCallId, item)
+    } else if (item.type === 'commandExecution' && item.toolCallId) {
+      commandExecutionByCallId.set(item.toolCallId, item)
+    }
+  }
+
+  return items.map((item) => {
+    if (item.type !== 'toolCall' || !item.toolCallId) return item
+
+    const resultItem = resultByCallId.get(item.toolCallId)
+    const commandExecution = commandExecutionByCallId.get(item.toolCallId)
+    let hydrated = item
+
+    if (resultItem) {
+      hydrated = {
+        ...hydrated,
+        status: 'completed',
+        result: resultItem.result ?? hydrated.result,
+        success: resultItem.success ?? hydrated.success ?? true,
+        duration: hydrated.duration ?? computeItemDurationMs(hydrated.createdAt, resultItem.completedAt),
+        completedAt: resultItem.completedAt ?? hydrated.completedAt
+      }
+    }
+
+    if (commandExecution) {
+      hydrated = {
+        ...hydrated,
+        status: commandExecution.status === 'completed' ? 'completed' : hydrated.status,
+        command: commandExecution.command ?? hydrated.command,
+        workingDirectory: commandExecution.workingDirectory ?? hydrated.workingDirectory,
+        commandSource: commandExecution.commandSource ?? hydrated.commandSource,
+        aggregatedOutput: commandExecution.aggregatedOutput ?? hydrated.aggregatedOutput,
+        exitCode: commandExecution.exitCode ?? hydrated.exitCode,
+        executionStatus: commandExecution.executionStatus ?? hydrated.executionStatus,
+        duration: commandExecution.duration
+          ?? hydrated.duration
+          ?? computeItemDurationMs(hydrated.createdAt, commandExecution.completedAt),
+        completedAt: commandExecution.completedAt ?? hydrated.completedAt
+      }
+    }
+
+    return hydrated
+  })
+}
+
+function computeItemDurationMs(
+  createdAt: string | undefined,
+  completedAt: string | undefined
+): number | undefined {
+  if (!createdAt || !completedAt) return undefined
+  const startMs = Date.parse(createdAt)
+  const endMs = Date.parse(completedAt)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return undefined
+  return endMs - startMs
 }
 
 function getIntermediateElapsedMs(
