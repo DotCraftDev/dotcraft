@@ -161,6 +161,38 @@ public sealed partial class AutomationsRequestHandler(
         return new AutomationTaskUpdateBindingResult { Task = ToWireDetailed(task) };
     }
 
+    public async Task<object?> HandleTaskRunAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<AutomationTaskRunParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.TaskId))
+            throw AppServerErrors.InvalidParams("'taskId' is required.");
+        if (!string.Equals(p.SourceName, "local", StringComparison.OrdinalIgnoreCase))
+            throw AppServerErrors.InvalidParams("Manual runs are only supported for local tasks.");
+
+        var tasks = await orchestrator.GetAllTasksAsync(ct);
+        var task = tasks.FirstOrDefault(t =>
+            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal)
+            && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase))
+            as LocalAutomationTask;
+
+        if (task == null)
+            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+
+        if (task.Status == AutomationTaskStatus.Running)
+            throw AppServerErrors.TaskInvalidStatus(
+                "Cannot run a task that is already running.");
+
+        task.Status = AutomationTaskStatus.Pending;
+        task.NextRunAt = task.Schedule == null
+            ? null
+            : DateTimeOffset.UtcNow.AddMilliseconds(-1);
+        await fileStore.SaveAsync(task, ct);
+
+        _ = orchestrator.TriggerImmediatePollAsync(CancellationToken.None);
+
+        return new AutomationTaskRunResult { Task = ToWireDetailed(task) };
+    }
+
     public async Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<AutomationTemplateListParams>(msg);

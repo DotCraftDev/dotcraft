@@ -482,7 +482,7 @@ public sealed class AppServerServerCapabilities
     public bool BackgroundTerminals { get; set; }
 
     /// <summary>
-    /// Server supports cron management methods (cron/list, cron/remove, cron/enable).
+    /// Server supports cron management methods (cron/list, cron/remove, cron/enable, cron/run).
     /// False when the cron service is not configured. See spec Section 16.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -1070,6 +1070,21 @@ public sealed class CronEnableResult
     public CronJobWireInfo Job { get; set; } = new();
 }
 
+// ───── cron/run ─────
+
+public sealed class CronRunParams
+{
+    public string JobId { get; set; } = string.Empty;
+}
+
+public sealed class CronRunResult
+{
+    public bool Queued { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CronJobWireInfo? Job { get; set; }
+}
+
 // ───── heartbeat/trigger (spec Section 17.2) ─────
 
 public sealed class HeartbeatTriggerResult
@@ -1646,6 +1661,18 @@ public sealed class AutomationTaskDeleteParams
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
     public string SourceName { get; set; } = string.Empty;
+}
+
+public sealed class AutomationTaskRunParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+}
+
+public sealed class AutomationTaskRunResult
+{
+    public AutomationTaskWire Task { get; set; } = new();
 }
 
 /// <summary>
@@ -2604,6 +2631,7 @@ public static class AppServerMethods
     public const string CronList = "cron/list";
     public const string CronRemove = "cron/remove";
     public const string CronEnable = "cron/enable";
+    public const string CronRun = "cron/run";
 
     // Client → Server requests (heartbeat management, spec Section 17)
     public const string HeartbeatTrigger = "heartbeat/trigger";
@@ -2631,6 +2659,7 @@ public static class AppServerMethods
     public const string AutomationTaskList = "automation/task/list";
     public const string AutomationTaskRead = "automation/task/read";
     public const string AutomationTaskCreate = "automation/task/create";
+    public const string AutomationTaskRun = "automation/task/run";
     public const string AutomationTaskDelete = "automation/task/delete";
 
     /// <summary>Replaces or clears a task's thread binding without rewriting other fields.</summary>

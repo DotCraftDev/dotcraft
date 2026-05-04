@@ -442,6 +442,7 @@ Local task success maps directly to `completed` for one-shot tasks, or to `pendi
 | `automation/task/list` | Client -> Server | `{ sourceName? }` | `{ tasks: AutomationTaskWire[] }` |
 | `automation/task/read` | Client -> Server | `{ taskId, sourceName }` | `{ task: AutomationTaskWire }` |
 | `automation/task/create` | Client -> Server | `{ title, description?, workflowTemplate?, approvalPolicy?, workspaceMode?: "project" \| "isolated", schedule?: AutomationScheduleWire, threadBinding?: AutomationThreadBindingWire, templateId?: string }` | `{ task: AutomationTaskWire }` |
+| `automation/task/run` | Client -> Server | `{ taskId, sourceName }` | `{ task: AutomationTaskWire }` |
 | `automation/task/updateBinding` | Client -> Server | `{ taskId, sourceName, threadBinding?: AutomationThreadBindingWire \| null }` | `{ task: AutomationTaskWire }` |
 | `automation/task/delete` | Client -> Server | `{ taskId, sourceName }` | `{ ok: true }` |
 | `automation/template/list` | Client -> Server | `{ locale? }` | `{ templates: AutomationTemplateWire[] }` |
@@ -449,6 +450,8 @@ Local task success maps directly to `completed` for one-shot tasks, or to `pendi
 | `automation/template/delete` | Client -> Server | `{ id }` | `{ ok: true }` |
 
 Task-level review endpoints are not part of built-in Automations.
+
+`automation/task/run` is a manual dispatch affordance for Desktop and other operators. In v1 it supports local tasks only. A running task is rejected; a pending, completed, or failed local task is made pending, then the orchestrator is asked to poll immediately. For unscheduled tasks, `nextRunAt` is cleared. For scheduled tasks, `nextRunAt` is set to a due-now timestamp so the manual run bypasses the future schedule gate once without changing the task's recurring schedule. The request returns after queuing/triggering dispatch and does not wait for the agent run to finish.
 
 ### 13.2 Notifications
 
@@ -500,7 +503,6 @@ Desktop shows built-in automation tasks as an operational activity board.
 
 ```text
 Automations
-[All] [Pending] [Running] [Completed] [Failed]
 
 task-001  Refactor auth module       Completed
 task-042  Fix login redirect         Running
@@ -538,7 +540,6 @@ The panel has no approve, request-changes, or reject actions. Full multi-round r
 | Field | Type | Updated by |
 |-------|------|------------|
 | `tasks` | `AutomationTaskWire[]` | `automation/task/list`, `automation/task/updated` |
-| `activeFilter` | `"all" \| "pending" \| "running" \| "completed" \| "failed"` | User tab selection |
 | `selectedTaskId` | `string \| null` | User task selection |
 
 ---

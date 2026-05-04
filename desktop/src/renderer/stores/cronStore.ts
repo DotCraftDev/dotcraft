@@ -69,6 +69,7 @@ interface CronStoreState {
   stopPolling(): void
   removeJob(jobId: string): Promise<void>
   enableJob(jobId: string, enabled: boolean): Promise<void>
+  runJobNow(jobId: string): Promise<void>
   selectCronJob(jobId: string | null): void
   upsertJob(job: CronJobWire): void
   removeJobLocal(jobId: string): void
@@ -126,6 +127,11 @@ export const useCronStore = create<CronStoreState>((set, get) => ({
 
   async enableJob(jobId: string, enabled: boolean) {
     await window.api.appServer.sendRequest('cron/enable', { jobId, enabled })
+    await get().fetchJobs({ silent: true })
+  },
+
+  async runJobNow(jobId: string) {
+    await window.api.appServer.sendRequest('cron/run', { jobId })
     await get().fetchJobs({ silent: true })
   },
 

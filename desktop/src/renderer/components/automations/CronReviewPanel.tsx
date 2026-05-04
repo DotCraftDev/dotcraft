@@ -5,8 +5,6 @@ import type { ConversationTurn } from '../../types/conversation'
 import { useCronStore, type CronJobWire } from '../../stores/cronStore'
 import { AgentResponseBlock } from '../conversation/AgentResponseBlock'
 
-const PANEL_WIDTH = 480
-
 /**
  * Read-only review of a cron execution thread (thread/read by lastThreadId).
  */
@@ -73,8 +71,8 @@ export function CronReviewPanel(): JSX.Element {
   return (
     <div
       style={{
-        width: PANEL_WIDTH,
-        minWidth: PANEL_WIDTH,
+        width: '100%',
+        minWidth: 0,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',

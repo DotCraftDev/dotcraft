@@ -72,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Session-backed SubAgent child-thread listing/close/resume with the `subAgentSessions` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`, `cron/run`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`) with the `skillsManagement` / `skillVariants` capability flags. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Session-backed SubAgent child-thread listing/close/resume with the `subAgentSessions` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -360,7 +360,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.approvalFlow` | boolean | Server may send approval requests. |
 | `capabilities.modeSwitch` | boolean | Server supports `thread/mode/set`. |
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
-| `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
+| `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`, `cron/run`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/view`, `skills/restoreOriginal`, `skills/setEnabled`, `skills/uninstall`). |
 | `capabilities.pluginManagement` | boolean | Server supports plugin management methods (`plugin/list`, `plugin/view`, `plugin/install`, `plugin/remove`, `plugin/setEnabled`). |
@@ -2915,16 +2915,36 @@ The `job` field contains the updated `CronJobInfo` object reflecting the new `en
 } }
 ```
 
-### 16.6 Notification Opt-Out
+### 16.6 `cron/run`
 
-Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/response pairs. The `cron/stateChanged` notification (Section 16.7) is the real-time push for cron job state. The `system/jobResult` notification (Section 6.9) remains the full result delivery mechanism. Clients that do not need either can opt out:
+Manually queue one immediate run of a cron job.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jobId` | string | yes | ID of the cron job to run now. |
+
+**Result**:
+
+```json
+{ "queued": true, "job": { "...": "CronJobInfo" } }
+```
+
+**Behavior**: Queues one manual execution on the server's existing serialized cron execution queue and returns immediately. This does not change the job's `enabled` state; disabled jobs can still be run manually. The job state is updated when execution completes and is surfaced via `cron/stateChanged` / `system/jobResult` when those notifications are enabled.
+
+### 16.7 Notification Opt-Out
+
+Cron management methods (`cron/list`, `cron/remove`, `cron/enable`, `cron/run`) are request/response pairs. The `cron/stateChanged` notification (Section 16.8) is the real-time push for cron job state. The `system/jobResult` notification (Section 6.9) remains the full result delivery mechanism. Clients that do not need either can opt out:
 
 | Method | When to opt out |
 |--------|-----------------|
 | `cron/stateChanged` | Client polls `cron/list` instead of reacting to push updates. |
 | `system/jobResult` | Client does not need cron/heartbeat result notifications. |
 
-### 16.7 `cron/stateChanged` Notification
+### 16.8 `cron/stateChanged` Notification
 
 **Direction**: server → client (notification)
 
@@ -2936,6 +2956,7 @@ Emitted when a cron job's state changes.
 |---------|-------------|
 | Job execution completes (success or error) | `state.lastRunAtMs`, `state.lastStatus`, `state.lastError`, `state.lastThreadId`, `state.lastResult`, `state.nextRunAtMs` updated. |
 | `cron/enable` called | `enabled` updated; `state.nextRunAtMs` may change when enabling only if the previous next run was missing or in the past (otherwise unchanged). |
+| `cron/run` called | No immediate persisted field changes; completion later emits the normal execution update. |
 | `cron/remove` called | Notifies clients the job no longer exists (see `removed` field). |
 
 **Params**:

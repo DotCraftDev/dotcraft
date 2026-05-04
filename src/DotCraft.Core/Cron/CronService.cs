@@ -134,6 +134,41 @@ public sealed class CronService : IDisposable
         return job;
     }
 
+    /// <summary>
+    /// Queues a job for one immediate manual execution without changing its enabled state.
+    /// Returns null when the job does not exist.
+    /// </summary>
+    public CronJob? RunJobNow(string jobId)
+    {
+        CronJob? job;
+        lock (_storeLock)
+        {
+            job = _store.Jobs.Find(j => j.Id == jobId);
+        }
+
+        if (job == null)
+            return null;
+
+        _ = Task.Run(async () =>
+        {
+            await _execLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await ExecuteJobAsync(jobId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Manual cron job {JobId} execution failed", jobId);
+            }
+            finally
+            {
+                _execLock.Release();
+            }
+        });
+
+        return job;
+    }
+
     public List<CronJob> ListJobs(bool includeDisabled = false)
     {
         lock (_storeLock)

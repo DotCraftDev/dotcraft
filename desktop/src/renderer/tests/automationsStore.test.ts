@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAutomationsStore } from '../stores/automationsStore'
+import { useCronStore } from '../stores/cronStore'
 
 describe('automationsStore templates', () => {
   const sendRequest = vi.fn()
@@ -24,10 +25,16 @@ describe('automationsStore templates', () => {
       loading: false,
       error: null,
       selectedTaskId: null,
-      statusFilter: 'all',
       templates: [],
       templatesLoaded: false,
       templatesLocale: undefined
+    })
+    useCronStore.setState({
+      jobs: [],
+      loading: false,
+      listLoadedOnce: false,
+      error: null,
+      selectedCronJobId: null
     })
   })
 
@@ -100,6 +107,51 @@ describe('automationsStore templates', () => {
 
     expect('approveTask' in state).toBe(false)
     expect('rejectTask' in state).toBe(false)
+    expect('statusFilter' in state).toBe(false)
+  })
+
+  it('runs a local automation task now and refreshes silently', async () => {
+    sendRequest
+      .mockResolvedValueOnce({
+        task: {
+          id: 'weekly-report',
+          title: 'Weekly report',
+          sourceName: 'local',
+          status: 'pending',
+          threadId: null,
+          createdAt: '2026-05-04T00:00:00Z',
+          updatedAt: '2026-05-04T00:00:00Z',
+          nextRunAt: null
+        }
+      })
+      .mockResolvedValueOnce({ tasks: [] })
+
+    await useAutomationsStore.getState().runTaskNow({
+      id: 'weekly-report',
+      title: 'Weekly report',
+      sourceName: 'local',
+      status: 'completed',
+      threadId: null,
+      createdAt: '2026-05-04T00:00:00Z',
+      updatedAt: '2026-05-04T00:00:00Z'
+    })
+
+    expect(sendRequest).toHaveBeenNthCalledWith(1, 'automation/task/run', {
+      taskId: 'weekly-report',
+      sourceName: 'local'
+    })
+    expect(sendRequest).toHaveBeenNthCalledWith(2, 'automation/task/list', {})
+  })
+
+  it('runs a cron job now and refreshes silently', async () => {
+    sendRequest.mockResolvedValueOnce({ queued: true }).mockResolvedValueOnce({ jobs: [] })
+
+    await useCronStore.getState().runJobNow('job-1')
+
+    expect(sendRequest).toHaveBeenNthCalledWith(1, 'cron/run', { jobId: 'job-1' })
+    expect(sendRequest).toHaveBeenNthCalledWith(2, 'cron/list', {
+      includeDisabled: true
+    })
   })
 
   it('does not send template-level default review fields when saving templates', async () => {

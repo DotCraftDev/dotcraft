@@ -140,6 +140,25 @@ public sealed class AutomationOrchestratorBoundChannelReadinessTests
         Assert.Equal(0, source.StatusChangeCalls);
     }
 
+    [Fact]
+    public async Task PollOnceAsync_BeginsScheduledTask_WhenNextRunAtIsDueNow()
+    {
+        var registry = new ChannelRuntimeRegistry();
+        registry.Register(new FakeChannelRuntime(OriginChannel, isReady: true));
+
+        var source = new RecordingBoundTaskSource(
+            MakeBoundTask("task-bound-due-now", scheduleDueNow: true));
+
+        var orchestrator = CreateOrchestrator(registry, [source]);
+        orchestrator.SetSessionClient(CreateSessionClient(new StubSessionService(MakeThread(OriginChannel))));
+
+        await orchestrator.TriggerImmediatePollAsync(CancellationToken.None);
+        await source.WaitForRunningAsync(TimeSpan.FromSeconds(3));
+
+        Assert.Equal(1, source.PendingCalls);
+        Assert.True(source.SawRunningStatus);
+    }
+
     private static AutomationOrchestrator CreateOrchestrator(
         IChannelRuntimeRegistry? channelRuntimeRegistry,
         IEnumerable<IAutomationSource>? sources = null)
@@ -226,6 +245,9 @@ public sealed class AutomationOrchestratorBoundChannelReadinessTests
         public string ToolProfileName => "default";
         public int PendingCalls { get; private set; }
         public int StatusChangeCalls { get; private set; }
+        public bool SawRunningStatus { get; private set; }
+        private readonly TaskCompletionSource _running =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void RegisterToolProfile(IToolProfileRegistry registry) { }
 
@@ -247,11 +269,18 @@ public sealed class AutomationOrchestratorBoundChannelReadinessTests
         public Task OnStatusChangedAsync(AutomationTask task, AutomationTaskStatus newStatus, CancellationToken ct)
         {
             StatusChangeCalls++;
+            if (newStatus == AutomationTaskStatus.Running)
+            {
+                SawRunningStatus = true;
+                _running.TrySetResult();
+            }
             return Task.CompletedTask;
         }
 
         public Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct) =>
             Task.CompletedTask;
+
+        public Task WaitForRunningAsync(TimeSpan timeout) => _running.Task.WaitAsync(timeout);
     }
 
     private sealed class StubSessionService(SessionThread? threadToReturn) : ISessionService
