@@ -36,23 +36,48 @@ public sealed class ToolSchemaSanitizerTests
     }
 
     [Fact]
-    public void SanitizeTool_DoesNotRewriteNullableNonStringTypes()
+    public void SanitizeTool_RewritesNullablePrimitiveTypesAndRemovesNullDefaults()
     {
         var function = AIFunctionFactory.Create(NullableStringTool);
         var sanitized = Assert.IsType<ToolSchemaSanitizingFunction>(ToolSchemaSanitizer.SanitizeTool(function));
 
         var count = GetPropertySchema(sanitized.JsonSchema, "count");
         var enabled = GetPropertySchema(sanitized.JsonSchema, "enabled");
+        var ratio = GetPropertySchema(sanitized.JsonSchema, "ratio");
 
-        Assert.Equal(JsonValueKind.Array, count.GetProperty("type").ValueKind);
-        Assert.Contains("integer", EnumerateTypeValues(count));
-        Assert.Contains("null", EnumerateTypeValues(count));
-        Assert.True(count.TryGetProperty("default", out var countDefault));
-        Assert.Equal(JsonValueKind.Null, countDefault.ValueKind);
+        Assert.Equal(JsonValueKind.String, count.GetProperty("type").ValueKind);
+        Assert.Equal("integer", count.GetProperty("type").GetString());
+        Assert.False(count.TryGetProperty("default", out _));
 
-        Assert.Equal(JsonValueKind.Array, enabled.GetProperty("type").ValueKind);
-        Assert.Contains("boolean", EnumerateTypeValues(enabled));
-        Assert.Contains("null", EnumerateTypeValues(enabled));
+        Assert.Equal(JsonValueKind.String, enabled.GetProperty("type").ValueKind);
+        Assert.Equal("boolean", enabled.GetProperty("type").GetString());
+        Assert.False(enabled.TryGetProperty("default", out _));
+
+        Assert.Equal(JsonValueKind.String, ratio.GetProperty("type").ValueKind);
+        Assert.Equal("number", ratio.GetProperty("type").GetString());
+        Assert.False(ratio.TryGetProperty("default", out _));
+    }
+
+    [Fact]
+    public void SanitizeTool_DoesNotRewriteNullableObjectOrArrayTypes()
+    {
+        var function = AIFunctionFactory.Create(NullableObjectAndArrayTool);
+        var sanitized = Assert.IsType<ToolSchemaSanitizingFunction>(ToolSchemaSanitizer.SanitizeTool(function));
+
+        var metadata = GetPropertySchema(sanitized.JsonSchema, "metadata");
+        var tags = GetPropertySchema(sanitized.JsonSchema, "tags");
+
+        Assert.Equal(JsonValueKind.Array, metadata.GetProperty("type").ValueKind);
+        Assert.Contains("object", EnumerateTypeValues(metadata));
+        Assert.Contains("null", EnumerateTypeValues(metadata));
+        Assert.True(metadata.TryGetProperty("default", out var metadataDefault));
+        Assert.Equal(JsonValueKind.Null, metadataDefault.ValueKind);
+
+        Assert.Equal(JsonValueKind.Array, tags.GetProperty("type").ValueKind);
+        Assert.Contains("array", EnumerateTypeValues(tags));
+        Assert.Contains("null", EnumerateTypeValues(tags));
+        Assert.True(tags.TryGetProperty("default", out var tagsDefault));
+        Assert.Equal(JsonValueKind.Null, tagsDefault.ValueKind);
     }
 
     [Fact]
@@ -120,8 +145,14 @@ public sealed class ToolSchemaSanitizerTests
         [System.ComponentModel.Description("Optional nullable string.")] string? optional = null,
         [System.ComponentModel.Description("Non-nullable string with default.")] string nonNullableDefault = "",
         int? count = null,
-        bool? enabled = null) =>
+        bool? enabled = null,
+        double? ratio = null) =>
         $"{required}:{optional ?? "null"}";
+
+    private static string NullableObjectAndArrayTool(
+        Dictionary<string, string>? metadata = null,
+        string[]? tags = null) =>
+        $"{metadata?.Count ?? 0}:{tags?.Length ?? 0}";
 
     private static JsonElement GetPropertySchema(JsonElement schema, string propertyName) =>
         schema.GetProperty("properties").GetProperty(propertyName);

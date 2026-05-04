@@ -32,8 +32,8 @@ internal static class ToolSchemaSanitizer
     {
         if (node is JsonObject obj)
         {
-            // Some LLM providers do not support nullable string parameters, so the application filters parameter schemas before sending them.
-            if (TryNormalizeNullableStringType(obj) &&
+            // Some LLM providers do not support nullable primitive parameters, so the application filters parameter schemas before sending them.
+            if (TryNormalizeNullablePrimitiveType(obj) &&
                 obj.TryGetPropertyValue("default", out var defaultNode) &&
                 defaultNode is null)
             {
@@ -50,7 +50,7 @@ internal static class ToolSchemaSanitizer
         }
     }
 
-    private static bool TryNormalizeNullableStringType(JsonObject obj)
+    private static bool TryNormalizeNullablePrimitiveType(JsonObject obj)
     {
         if (!obj.TryGetPropertyValue("type", out var typeNode) || typeNode is not JsonArray typeArray)
             return false;
@@ -61,15 +61,28 @@ internal static class ToolSchemaSanitizer
             .ToArray();
 
         if (values.Length != 2 ||
-            !values.Contains("string", StringComparer.OrdinalIgnoreCase) ||
             !values.Contains("null", StringComparer.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        obj["type"] = "string";
+        var nonNullType = values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value) &&
+            !string.Equals(value, "null", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(nonNullType))
+            return false;
+
+        if (!IsPrimitiveSchemaType(nonNullType))
+            return false;
+
+        obj["type"] = nonNullType;
         return true;
     }
+
+    private static bool IsPrimitiveSchemaType(string type) =>
+        type.Equals("string", StringComparison.OrdinalIgnoreCase) ||
+        type.Equals("integer", StringComparison.OrdinalIgnoreCase) ||
+        type.Equals("number", StringComparison.OrdinalIgnoreCase) ||
+        type.Equals("boolean", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
