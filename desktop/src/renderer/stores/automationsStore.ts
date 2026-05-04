@@ -105,14 +105,11 @@ export interface CreateTaskInput {
   templateId?: string
 }
 
-export type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed'
-
 interface AutomationsState {
   tasks: AutomationTask[]
   loading: boolean
   error: string | null
   selectedTaskId: string | null
-  statusFilter: StatusFilter
   /** Cached built-in templates (lazy-loaded on first fetchTemplates call). */
   templates: AutomationTemplate[]
   templatesLoaded: boolean
@@ -125,6 +122,7 @@ interface AutomationsState {
   /** Stops periodic refresh; call on unmount. */
   stopPolling(): void
   createTask(input: CreateTaskInput): Promise<void>
+  runTaskNow(task: AutomationTask): Promise<void>
   deleteTask(task: AutomationTask): Promise<void>
   /** Updates the task's thread binding. Pass null to unbind. */
   updateBinding(
@@ -138,7 +136,6 @@ interface AutomationsState {
   /** Deletes a user-authored template. Built-in ids are rejected by the server. */
   deleteTemplate(id: string): Promise<void>
   selectTask(taskId: string | null): void
-  setStatusFilter(filter: StatusFilter): void
   upsertTask(task: AutomationTask): void
   removeTask(taskId: string, sourceName: string): void
 }
@@ -148,7 +145,6 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   loading: false,
   error: null,
   selectedTaskId: null,
-  statusFilter: 'all',
   templates: [],
   templatesLoaded: false,
   templatesLocale: undefined,
@@ -195,6 +191,15 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     if (input.templateId) params.templateId = input.templateId
     await window.api.appServer.sendRequest('automation/task/create', params)
     await get().fetchTasks()
+  },
+
+  async runTaskNow(task: AutomationTask) {
+    const result = (await window.api.appServer.sendRequest('automation/task/run', {
+      taskId: task.id,
+      sourceName: task.sourceName
+    })) as { task?: AutomationTask }
+    if (result.task) get().upsertTask(result.task)
+    await get().fetchTasks({ silent: true })
   },
 
   async updateBinding(task: AutomationTask, binding: AutomationThreadBinding | null) {
@@ -314,10 +319,6 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
 
   selectTask(taskId: string | null) {
     set({ selectedTaskId: taskId })
-  },
-
-  setStatusFilter(filter: StatusFilter) {
-    set({ statusFilter: filter })
   },
 
   upsertTask(task: AutomationTask) {

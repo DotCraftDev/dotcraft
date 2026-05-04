@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Ellipsis, Eye, Play, Trash2 } from 'lucide-react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import type {
@@ -11,7 +12,10 @@ import { useCronStore } from '../../stores/cronStore'
 import { useDragDropStore } from '../../stores/dragDropStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { ActionTooltip } from '../ui/ActionTooltip'
 import { StatusBadge } from './StatusBadge'
+import { addToast } from '../../stores/toastStore'
 
 /** MIME key for drag-and-drop binding a task to a thread entry. */
 export const AUTOMATION_TASK_DRAG_MIME = 'application/x-dotcraft-automation-task'
@@ -86,12 +90,16 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
   const [hovered, setHovered] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [runningNow, setRunningNow] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const selectTask = useAutomationsStore((s) => s.selectTask)
   const selectCronJob = useCronStore((s) => s.selectCronJob)
   const deleteTask = useAutomationsStore((s) => s.deleteTask)
+  const runTaskNow = useAutomationsStore((s) => s.runTaskNow)
   const threadList = useThreadStore((s) => s.threadList)
   const deletable = isTaskDeletable(task.status)
   const draggable = task.sourceName === 'local'
+  const runnable = task.sourceName === 'local' && task.status !== 'running'
 
   const boundThreadName = useMemo(() => {
     const id = task.threadBinding?.threadId
@@ -129,39 +137,6 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
     selectTask(task.id)
   }
 
-  const actionButton = (() => {
-    switch (task.status) {
-      case 'running':
-        return (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              focusThisTask()
-            }}
-            style={{
-              padding: '4px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'transparent',
-              color: 'var(--text-secondary)',
-              fontSize: '12px',
-              fontWeight: 500,
-              cursor: 'pointer'
-            }}
-          >
-            {t('auto.task.view')}
-          </button>
-        )
-      case 'completed':
-        return (
-          <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 500 }}>{t('auto.task.done')}</span>
-        )
-      default:
-        return null
-    }
-  })()
-
   async function handleDeleteConfirm(): Promise<void> {
     setDeleting(true)
     try {
@@ -169,6 +144,20 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
       setShowDeleteConfirm(false)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleRunNow(): Promise<void> {
+    if (!runnable || runningNow) return
+    setRunningNow(true)
+    try {
+      await runTaskNow(task)
+      addToast(t('auto.runNowQueued'), 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('auto.runNowFailed', { error: msg }), 'error')
+    } finally {
+      setRunningNow(false)
     }
   }
 
@@ -271,35 +260,70 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: '8px'
+          gap: '6px'
         }}
       >
-        {deletable && (
+        <ActionTooltip
+          label={runningNow ? t('auto.runningNow') : t('auto.runNow')}
+          disabledReason={
+            task.status === 'running'
+              ? t('auto.runNowAlreadyRunning')
+              : task.sourceName !== 'local'
+                ? t('auto.runNowLocalOnly')
+                : undefined
+          }
+          placement="top"
+        >
           <button
             type="button"
-            disabled={deleting}
+            disabled={!runnable || runningNow}
             onClick={(e) => {
               e.stopPropagation()
-              setShowDeleteConfirm(true)
+              void handleRunNow()
             }}
-            style={{
-              padding: '4px 10px',
-              borderRadius: '6px',
-              border: '1px solid color-mix(in srgb, var(--error) 35%, var(--border-default))',
-              backgroundColor: 'transparent',
-              color: 'var(--error)',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: deleting ? 'default' : 'pointer',
-              opacity: deleting ? 0.6 : 1
-            }}
+            style={iconButtonStyle(!runnable || runningNow)}
+            aria-label={runningNow ? t('auto.runningNow') : t('auto.runNow')}
           >
-            {deleting ? t('auto.deleting') : t('auto.delete')}
+            <Play size={14} aria-hidden fill="currentColor" />
           </button>
-        )}
-        {actionButton}
+        </ActionTooltip>
+        <ActionTooltip label={t('auto.moreActions')} placement="top">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMenuPosition({ x: rect.left, y: rect.bottom + 6 })
+            }}
+            style={iconButtonStyle(false)}
+            aria-label={t('auto.moreActions')}
+          >
+            <Ellipsis size={16} aria-hidden />
+          </button>
+        </ActionTooltip>
       </div>
     </div>
+
+    {menuPosition && (
+      <ContextMenu
+        position={menuPosition}
+        onClose={() => setMenuPosition(null)}
+        items={[
+          {
+            label: t('auto.task.view'),
+            icon: <Eye size={14} />,
+            onClick: focusThisTask
+          },
+          {
+            label: deleting ? t('auto.deleting') : t('auto.delete'),
+            icon: <Trash2 size={14} />,
+            danger: true,
+            disabled: !deletable || deleting,
+            onClick: () => setShowDeleteConfirm(true)
+          }
+        ]}
+      />
+    )}
 
     {showDeleteConfirm && (
       <ConfirmDialog
@@ -315,4 +339,21 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
     )}
     </>
   )
+}
+
+function iconButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    width: '30px',
+    height: '30px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '8px',
+    border: '1px solid var(--border-default)',
+    backgroundColor: 'transparent',
+    color: disabled ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+    padding: 0
+  }
 }

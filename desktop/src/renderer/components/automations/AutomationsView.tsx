@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Ellipsis, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
-  type AutomationTemplate,
-  type StatusFilter
+  type AutomationTemplate
 } from '../../stores/automationsStore'
 import { useCronStore } from '../../stores/cronStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -17,46 +17,22 @@ import { CronReviewPanel } from './CronReviewPanel'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { RefreshIcon } from '../ui/AppIcons'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import {
+  CatalogCompactGrid,
+  CatalogSection,
+  CatalogTabs,
+  styles as catalogStyles
+} from '../catalog/CatalogSurface'
 
 function SkeletonCard(): JSX.Element {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        padding: '10px 14px',
-        borderRadius: '8px'
-      }}
-    >
-      <div
-        style={{
-          width: '60px',
-          height: '16px',
-          borderRadius: '4px',
-          backgroundColor: 'var(--bg-tertiary)',
-          animation: 'pulse 1.5s ease-in-out infinite'
-        }}
-      />
+    <div style={skeletonRow}>
+      <div style={{ ...skeletonBlock, width: '42px', height: '16px' }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div
-          style={{
-            width: '70%',
-            height: '14px',
-            borderRadius: '4px',
-            backgroundColor: 'var(--bg-tertiary)',
-            animation: 'pulse 1.5s ease-in-out infinite'
-          }}
-        />
-        <div
-          style={{
-            width: '40%',
-            height: '12px',
-            borderRadius: '4px',
-            backgroundColor: 'var(--bg-tertiary)',
-            animation: 'pulse 1.5s ease-in-out infinite'
-          }}
-        />
+        <div style={{ ...skeletonBlock, width: '70%', height: '14px' }} />
+        <div style={{ ...skeletonBlock, width: '40%', height: '12px' }} />
       </div>
     </div>
   )
@@ -72,8 +48,7 @@ export function AutomationsView(): JSX.Element {
   const automationsTab = useUIStore((s) => s.automationsTab)
   const setAutomationsTab = useUIStore((s) => s.setAutomationsTab)
 
-  const { tasks, loading, error, statusFilter, setStatusFilter, fetchTasks } =
-    useAutomationsStore()
+  const { tasks, loading, error, fetchTasks } = useAutomationsStore()
   const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
   const startPolling = useAutomationsStore((s) => s.startPolling)
   const stopPolling = useAutomationsStore((s) => s.stopPolling)
@@ -91,20 +66,9 @@ export function AutomationsView(): JSX.Element {
   const [newDialogTab, setNewDialogTab] = useState<'task' | 'template'>('task')
   const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const templates = useAutomationsStore((s) => s.templates)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
-  const [templatesCollapsed, setTemplatesCollapsed] = useState(false)
-
-  const filterTabs: { key: StatusFilter; label: string }[] = useMemo(
-    () => [
-      { key: 'all', label: t('auto.filterAll') },
-      { key: 'pending', label: t('status.pending') },
-      { key: 'running', label: t('status.running') },
-      { key: 'completed', label: t('status.completed') },
-      { key: 'failed', label: t('status.failed') }
-    ],
-    [t]
-  )
 
   const activePanel: 'tasks' | 'cron' =
     automationsTab === 'tasks' && hasTasks
@@ -115,14 +79,13 @@ export function AutomationsView(): JSX.Element {
           ? 'tasks'
           : 'cron'
 
-  const showTabBar = hasTasks || hasCron
+  const showTabBar = hasTasks && hasCron
 
   useEffect(() => {
     if (hasTasks && !hasCron) setAutomationsTab('tasks')
     else if (!hasTasks && hasCron) setAutomationsTab('cron')
   }, [hasTasks, hasCron, setAutomationsTab])
 
-  // Only poll automation/task/list when the server advertises automations (cron-only workspaces have no handler).
   useEffect(() => {
     if (!hasTasks) {
       stopPolling()
@@ -158,468 +121,128 @@ export function AutomationsView(): JSX.Element {
     }
   }, [activePanel, hasCron, fetchCronJobs, startCronPolling, stopCronPolling])
 
-  const filteredTasks = useMemo(() => {
-    let list = tasks
-    if (statusFilter !== 'all') list = list.filter((t) => t.status === statusFilter)
-    return [...list].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
-  }, [tasks, statusFilter])
+  const sortedTasks = useMemo(
+    () =>
+      [...tasks].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      ),
+    [tasks]
+  )
 
-  const refreshCron = () => void fetchCronJobs()
+  const templateSections = useMemo(() => buildTemplateSections(templates, t), [templates, t])
+
+  function openNewTask(template?: AutomationTemplate): void {
+    setNewTaskTemplate(template)
+    setEditingTemplate(undefined)
+    setNewDialogTab('task')
+    setShowNewTask(true)
+  }
+
+  function openTemplateEditor(template?: AutomationTemplate): void {
+    setEditingTemplate(template)
+    setNewTaskTemplate(undefined)
+    setNewDialogTab('template')
+    setShowNewTask(true)
+  }
+
+  const refreshCurrent = (): void => {
+    if (activePanel === 'tasks') void fetchTasks()
+    else void fetchCronJobs()
+  }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        height: '100%',
-        minHeight: 0,
-        backgroundColor: 'var(--bg-primary)'
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          minWidth: 0,
-          minHeight: 0
-        }}
-      >
-        <div
-          style={{
-            padding: '16px 20px 12px',
-            borderBottom: '1px solid var(--border-default)',
-            flexShrink: 0
+    <div style={page}>
+      {showTabBar && (
+        <CatalogTabs
+          value={activePanel}
+          onChange={(next) => {
+            if (next === 'tasks' && hasTasks) setAutomationsTab('tasks')
+            if (next === 'cron' && hasCron) setAutomationsTab('cron')
           }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '12px',
-              gap: '8px'
-            }}
-          >
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {t('auto.viewTitle')}
-            </h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-              {hasGitHubTrackerConfig && (
-                <ActionTooltip label={t('auto.githubConfig.open')} placement="bottom">
-                  <button
-                    type="button"
-                    onClick={() => setShowGitHubConfig((v) => !v)}
-                    aria-label={t('auto.githubConfig.open')}
-                    aria-pressed={showGitHubConfig}
-                    style={toolbarIconButtonStyle(showGitHubConfig)}
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      width="16"
-                      height="16"
-                      aria-hidden="true"
-                      fill="currentColor"
-                    >
-                      <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
-                    </svg>
-                  </button>
-                </ActionTooltip>
-              )}
-              {activePanel === 'tasks' && (
-                <ActionTooltip label={t('auto.refreshTasks')} placement="bottom">
-                  <button
-                    type="button"
-                    onClick={() => void fetchTasks()}
-                    aria-label={t('auto.refreshTasks')}
-                    style={refreshToolbarButtonStyle}
-                  >
-                    <RefreshIcon size={14} />
-                    {t('common.refresh')}
-                  </button>
-                </ActionTooltip>
-              )}
-              {activePanel === 'cron' && hasCron && (
-                <ActionTooltip label={t('auto.refreshCron')} placement="bottom">
-                  <button
-                    type="button"
-                    onClick={refreshCron}
-                    aria-label={t('auto.refreshCron')}
-                    style={refreshToolbarButtonStyle}
-                  >
-                    <RefreshIcon size={14} />
-                    {t('common.refresh')}
-                  </button>
-                </ActionTooltip>
-              )}
-              {activePanel === 'tasks' && (
-                <button
-                  type="button"
-                  aria-label={t('auto.createTask')}
-                  onClick={() => {
-                    setNewTaskTemplate(undefined)
-                    setEditingTemplate(undefined)
-                    setNewDialogTab('task')
-                    setShowNewTask(true)
-                  }}
-                  style={primaryToolbarButtonStyle}
-                >
-                  {t('auto.newTaskButtonLabel')}
-                </button>
-              )}
-            </div>
-          </div>
+          items={[
+            { value: 'tasks', label: t('auto.tabTasks') },
+            { value: 'cron', label: t('auto.tabCron') }
+          ]}
+        />
+      )}
 
-          {showTabBar && (
-            <div role="tablist" aria-label={t('auto.tablistAria')} style={{ display: 'flex', gap: '2px' }}>
-              <ActionTooltip
-                label={t('auto.tabTasks')}
-                disabledReason={!hasTasks ? t('auto.tabTasksUnavailable') : undefined}
-                placement="bottom"
+      <header style={browseHeader}>
+        <div style={topActions}>
+          {hasGitHubTrackerConfig && activePanel === 'tasks' && (
+            <ActionTooltip label={t('auto.githubConfig.open')} placement="bottom">
+              <button
+                type="button"
+                onClick={() => setShowGitHubConfig((v) => !v)}
+                aria-label={t('auto.githubConfig.open')}
+                aria-pressed={showGitHubConfig}
+                style={showGitHubConfig ? iconButtonActive : iconButton}
               >
-                <button
-                  type="button"
-                  role="tab"
-                  disabled={!hasTasks}
-                  aria-disabled={!hasTasks}
-                  aria-selected={activePanel === 'tasks'}
-                  onClick={() => {
-                    if (hasTasks) setAutomationsTab('tasks')
-                  }}
-                  style={{
-                  padding: '4px 12px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  backgroundColor: activePanel === 'tasks' ? 'var(--bg-tertiary)' : 'transparent',
-                  color: activePanel === 'tasks' ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  cursor: hasTasks ? 'pointer' : 'not-allowed',
-                  opacity: hasTasks ? 1 : 0.55
-                }}
-              >
-                {t('auto.tabTasks')}
-                </button>
-              </ActionTooltip>
-              <ActionTooltip
-                label={t('auto.tabCron')}
-                disabledReason={!hasCron ? t('auto.tabCronUnavailable') : undefined}
-                placement="bottom"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  disabled={!hasCron}
-                  aria-disabled={!hasCron}
-                  aria-selected={activePanel === 'cron'}
-                  onClick={() => {
-                    if (hasCron) setAutomationsTab('cron')
-                  }}
-                  style={{
-                  padding: '4px 12px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  backgroundColor: activePanel === 'cron' ? 'var(--bg-tertiary)' : 'transparent',
-                  color: activePanel === 'cron' ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  cursor: hasCron ? 'pointer' : 'not-allowed',
-                  opacity: hasCron ? 1 : 0.55
-                }}
-              >
-                {t('auto.tabCron')}
-                </button>
-              </ActionTooltip>
-            </div>
+                <GitHubMark />
+              </button>
+            </ActionTooltip>
           )}
-
           {activePanel === 'tasks' && (
-            <div
-              role="tablist"
-              aria-label={t('auto.filterStatus')}
-              style={{ display: 'flex', gap: '2px', marginTop: activePanel === 'tasks' ? '10px' : '0' }}
+            <button
+              type="button"
+              aria-label={t('auto.createTask')}
+              onClick={() => openNewTask()}
+              style={manageButton}
             >
-              {filterTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={statusFilter === tab.key}
-                  aria-controls="automations-task-list"
-                  id={`status-filter-tab-${tab.key}`}
-                  tabIndex={statusFilter === tab.key ? 0 : -1}
-                  onClick={() => setStatusFilter(tab.key)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    backgroundColor: statusFilter === tab.key ? 'var(--bg-tertiary)' : 'transparent',
-                    color: statusFilter === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+              <Plus size={14} aria-hidden />
+              {t('auto.newTaskButtonLabel')}
+            </button>
           )}
+          <ActionTooltip label={t('auto.moreActions')} placement="bottom">
+            <button
+              type="button"
+              aria-label={t('auto.moreActions')}
+              onClick={(event) => setMenuPosition({ x: event.clientX, y: event.clientY })}
+              style={iconButton}
+            >
+              <Ellipsis size={16} aria-hidden />
+            </button>
+          </ActionTooltip>
         </div>
+        <h1 style={heroTitle}>{t('auto.viewTitle')}</h1>
+      </header>
 
-        {showGitHubConfig && hasGitHubTrackerConfig && (
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              padding: '20px'
-            }}
-          >
-            <div style={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
-            </div>
+      {showGitHubConfig && hasGitHubTrackerConfig && (
+        <main style={browseMain}>
+          <div style={panelConstrained}>
+            <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
           </div>
-        )}
+        </main>
+      )}
 
-        {!showGitHubConfig && activePanel === 'tasks' && (
-          <div
-            id="automations-task-list"
-            role="tabpanel"
-            style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
-          >
-            <div style={{ padding: '6px 10px 10px' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '8px'
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em'
-                    }}
-                  >
-                    {t('auto.templates.title')}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setTemplatesCollapsed((v) => !v)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-tertiary)',
-                      fontSize: '11px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {templatesCollapsed ? t('auto.templates.show') : t('auto.templates.hide')}
-                  </button>
-                </div>
-                {!templatesCollapsed && (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '8px',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))'
-                    }}
-                  >
-                    {templates.map((tpl) => (
-                      <div
-                        key={tpl.id}
-                        style={{ position: 'relative' }}
-                        onMouseEnter={(e) => {
-                          const card = e.currentTarget.querySelector(
-                            '[data-card]'
-                          ) as HTMLElement | null
-                          if (card) card.style.borderColor = 'var(--accent)'
-                          const actions = e.currentTarget.querySelector(
-                            '[data-actions]'
-                          ) as HTMLElement | null
-                          if (actions) actions.style.opacity = '1'
-                        }}
-                        onMouseLeave={(e) => {
-                          const card = e.currentTarget.querySelector(
-                            '[data-card]'
-                          ) as HTMLElement | null
-                          if (card) card.style.borderColor = 'var(--border-default)'
-                          const actions = e.currentTarget.querySelector(
-                            '[data-actions]'
-                          ) as HTMLElement | null
-                          if (actions) actions.style.opacity = '0'
-                        }}
-                      >
-                        <button
-                          type="button"
-                          data-card
-                          onClick={() => {
-                            setNewTaskTemplate(tpl)
-                            setEditingTemplate(undefined)
-                            setNewDialogTab('task')
-                            setShowNewTask(true)
-                          }}
-                          style={{
-                            width: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'flex-start',
-                            gap: '4px',
-                            padding: '10px 12px',
-                            borderRadius: '10px',
-                            border: '1px solid var(--border-default)',
-                            backgroundColor: 'var(--bg-secondary)',
-                            color: 'var(--text-primary)',
-                            textAlign: 'left',
-                            cursor: 'pointer',
-                            minHeight: '80px',
-                            transition: 'border-color 0.15s'
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              width: '100%'
-                            }}
-                          >
-                            <span style={{ fontSize: '18px' }}>{tpl.icon ?? '✦'}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>
-                              {tpl.title}
-                            </span>
-                            {tpl.isUser && (
-                              <span
-                                style={{
-                                  padding: '1px 5px',
-                                  borderRadius: '999px',
-                                  fontSize: '9px',
-                                  fontWeight: 500,
-                                  color: 'var(--accent)',
-                                  backgroundColor:
-                                    'color-mix(in srgb, var(--accent) 12%, transparent)',
-                                  border:
-                                    '1px solid color-mix(in srgb, var(--accent) 30%, transparent)'
-                                }}
-                              >
-                                {t('auto.gallery.my.badge')}
-                              </span>
-                            )}
-                          </div>
-                          {tpl.description && (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-secondary)',
-                                lineHeight: 1.4,
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden'
-                              }}
-                            >
-                              {tpl.description}
-                            </span>
-                          )}
-                        </button>
-                        {tpl.isUser && (
-                          <div
-                            data-actions
-                            style={{
-                              position: 'absolute',
-                              top: '6px',
-                              right: '6px',
-                              display: 'flex',
-                              gap: '4px',
-                              opacity: 0,
-                              transition: 'opacity 0.15s'
-                            }}
-                          >
-                            <ActionTooltip label={t('auto.gallery.my.edit')} placement="top">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditingTemplate(tpl)
-                                setNewTaskTemplate(undefined)
-                                setNewDialogTab('template')
-                                setShowNewTask(true)
-                              }}
-                              aria-label={t('auto.gallery.my.edit')}
-                              style={{
-                                width: '22px',
-                                height: '22px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-default)',
-                                backgroundColor: 'var(--bg-primary)',
-                                color: 'var(--text-secondary)',
-                                fontSize: '11px',
-                                cursor: 'pointer',
-                                padding: 0
-                              }}
-                            >
-                              ✎
-                            </button>
-                            </ActionTooltip>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingTemplate(undefined)
-                        setNewTaskTemplate(undefined)
-                        setNewDialogTab('template')
-                        setShowNewTask(true)
-                      }}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '4px',
-                        padding: '10px 12px',
-                        borderRadius: '10px',
-                        border: '1px dashed var(--border-default)',
-                        backgroundColor: 'transparent',
-                        color: 'var(--text-secondary)',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        minHeight: '80px',
-                        fontSize: '12px',
-                        fontWeight: 500
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--accent)'
-                        e.currentTarget.style.color = 'var(--accent)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--border-default)'
-                        e.currentTarget.style.color = 'var(--text-secondary)'
-                      }}
-                    >
-                      <span style={{ fontSize: '18px', lineHeight: 1 }}>＋</span>
-                      <span>{t('auto.gallery.my.create')}</span>
-                    </button>
-                  </div>
+      {!showGitHubConfig && activePanel === 'tasks' && (
+        <main id="automations-task-list" role="tabpanel" style={browseMain}>
+          {templateSections.map((section) => (
+            <CatalogSection key={section.key} title={section.title}>
+              <CatalogCompactGrid>
+                {section.templates.map((tpl) => (
+                  <TemplateCard
+                    key={tpl.id}
+                    template={tpl}
+                    onSelect={() => openNewTask(tpl)}
+                    onEdit={() => openTemplateEditor(tpl)}
+                  />
+                ))}
+                {section.key === 'user' && (
+                  <CreateTemplateCard onClick={() => openTemplateEditor()} />
                 )}
-            </div>
+              </CatalogCompactGrid>
+            </CatalogSection>
+          ))}
+
+          {templateSections.length === 0 && (
+            <CatalogSection title={t('auto.templates.title')}>
+              <p style={emptyText}>{t('auto.templates.empty')}</p>
+            </CatalogSection>
+          )}
+
+          <CatalogSection title={t('auto.tasks.title')}>
             {loading && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={listConstrained}>
                 <SkeletonCard />
                 <SkeletonCard />
                 <SkeletonCard />
@@ -627,132 +250,64 @@ export function AutomationsView(): JSX.Element {
             )}
 
             {!loading && error && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '48px 20px',
-                  gap: '12px',
-                  color: 'var(--text-secondary)',
-                  fontSize: '13px',
-                  textAlign: 'center'
-                }}
-              >
-                <p style={{ margin: 0, color: 'var(--error)' }}>{error}</p>
-                <button
-                  type="button"
-                  onClick={() => void fetchTasks()}
-                  style={{
-                    padding: '5px 14px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: '12px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {t('common.retry')}
-                </button>
-              </div>
+              <RetryState message={error} onRetry={() => void fetchTasks()} />
             )}
 
-            {!loading && !error && filteredTasks.length === 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '48px 20px',
-                  color: 'var(--text-tertiary)',
-                  fontSize: '13px',
-                  textAlign: 'center'
-                }}
-              >
-                <p style={{ margin: 0 }}>{t('auto.emptyTasks')}</p>
-                <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyTasksHint')}</p>
-              </div>
+            {!loading && !error && sortedTasks.length === 0 && (
+              <EmptyState title={t('auto.emptyTasks')} hint={t('auto.emptyTasksHint')} />
             )}
 
-            {!loading &&
-              !error &&
-              filteredTasks.map((task) => (
-                <TaskCard key={`${task.sourceName}::${task.id}`} task={task} />
-              ))}
-          </div>
-        )}
+            {!loading && !error && sortedTasks.length > 0 && (
+              <div style={listConstrained}>
+                {sortedTasks.map((task) => (
+                  <TaskCard key={`${task.sourceName}::${task.id}`} task={task} />
+                ))}
+              </div>
+            )}
+          </CatalogSection>
+        </main>
+      )}
 
-        {!showGitHubConfig && activePanel === 'cron' && hasCron && (
-          <div
-            id="automations-cron-list"
-            role="tabpanel"
-            style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
-          >
+      {!showGitHubConfig && activePanel === 'cron' && hasCron && (
+        <main id="automations-cron-list" role="tabpanel" style={browseMain}>
+          <CatalogSection title={t('auto.cron.title')}>
             {cronLoading && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={listConstrained}>
                 <SkeletonCard />
                 <SkeletonCard />
               </div>
             )}
 
             {!cronLoading && cronError && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  padding: '48px 20px',
-                  gap: '12px',
-                  color: 'var(--text-secondary)',
-                  fontSize: '13px',
-                  textAlign: 'center'
-                }}
-              >
-                <p style={{ margin: 0, color: 'var(--error)' }}>{cronError}</p>
-                <button
-                  type="button"
-                  onClick={refreshCron}
-                  style={{
-                    padding: '5px 14px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: '12px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {t('common.retry')}
-                </button>
-              </div>
+              <RetryState message={cronError} onRetry={() => void fetchCronJobs()} />
             )}
 
             {!cronLoading && !cronError && cronJobs.length === 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  padding: '48px 20px',
-                  color: 'var(--text-tertiary)',
-                  fontSize: '13px',
-                  textAlign: 'center'
-                }}
-              >
-                <p style={{ margin: 0 }}>{t('auto.emptyCron')}</p>
-                <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyCronHint')}</p>
-              </div>
+              <EmptyState title={t('auto.emptyCron')} hint={t('auto.emptyCronHint')} />
             )}
 
-            {!cronLoading &&
-              !cronError &&
-              cronJobs.map((job) => <CronJobCard key={job.id} job={job} />)}
-          </div>
-        )}
-      </div>
+            {!cronLoading && !cronError && cronJobs.length > 0 && (
+              <div style={listConstrained}>
+                {cronJobs.map((job) => <CronJobCard key={job.id} job={job} />)}
+              </div>
+            )}
+          </CatalogSection>
+        </main>
+      )}
+
+      {menuPosition && (
+        <ContextMenu
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          items={[
+            {
+              label: activePanel === 'tasks' ? t('auto.refreshTasks') : t('auto.refreshCron'),
+              icon: <RefreshIcon size={14} />,
+              onClick: refreshCurrent
+            }
+          ]}
+        />
+      )}
 
       {showNewTask && (
         <NewTaskDialog
@@ -774,56 +329,335 @@ export function AutomationsView(): JSX.Element {
   )
 }
 
-const refreshToolbarButtonStyle: CSSProperties = {
+function buildTemplateSections(
+  templates: AutomationTemplate[],
+  t: ReturnType<typeof useT>
+): Array<{ key: string; title: string; templates: AutomationTemplate[] }> {
+  const sections: Array<{ key: string; title: string; templates: AutomationTemplate[] }> = []
+  const userTemplates = templates.filter((tpl) => tpl.isUser)
+  sections.push({ key: 'user', title: t('auto.gallery.my.heading'), templates: userTemplates })
+
+  const grouped = new Map<string, AutomationTemplate[]>()
+  for (const template of templates.filter((tpl) => !tpl.isUser)) {
+    const key = template.category?.trim() || 'general'
+    grouped.set(key, [...(grouped.get(key) ?? []), template])
+  }
+
+  for (const [key, group] of grouped) {
+    sections.push({ key, title: templateCategoryTitle(key, t), templates: group })
+  }
+
+  return sections
+}
+
+function templateCategoryTitle(category: string, t: ReturnType<typeof useT>): string {
+  const key = `auto.templates.category.${category}`
+  const translated = t(key)
+  if (translated !== key) return translated
+  return category
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function TemplateCard({
+  template,
+  onSelect,
+  onEdit
+}: {
+  template: AutomationTemplate
+  onSelect(): void
+  onEdit(): void
+}): JSX.Element {
+  const t = useT()
+  const [hovered, setHovered] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const deleteTemplate = useAutomationsStore((s) => s.deleteTemplate)
+
+  async function handleDelete(): Promise<void> {
+    setDeleting(true)
+    try {
+      await deleteTemplate(template.id)
+      setConfirmDelete(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <>
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{ position: 'relative', minWidth: 0 }}
+      >
+        <button
+          type="button"
+          onClick={onSelect}
+          style={{
+            ...templateButton,
+            backgroundColor: hovered ? 'var(--bg-secondary)' : 'transparent'
+          }}
+        >
+          <span style={templateIcon}>{template.icon ?? <Play size={17} aria-hidden />}</span>
+          <span style={templateText}>
+            <span style={templateTitle}>{template.title}</span>
+            {template.description && <span style={templateDescription}>{template.description}</span>}
+          </span>
+        </button>
+
+        {template.isUser && (
+          <ActionTooltip label={t('auto.moreActions')} placement="top">
+            <button
+              type="button"
+              aria-label={t('auto.moreActions')}
+              onClick={(event) => {
+                event.stopPropagation()
+                const rect = event.currentTarget.getBoundingClientRect()
+                setMenuPosition({ x: rect.left, y: rect.bottom + 6 })
+              }}
+              style={{
+                ...smallIconButton,
+                opacity: hovered || menuPosition ? 1 : 0
+              }}
+            >
+              <Ellipsis size={15} aria-hidden />
+            </button>
+          </ActionTooltip>
+        )}
+      </div>
+
+      {menuPosition && (
+        <ContextMenu
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          items={[
+            {
+              label: t('auto.gallery.my.edit'),
+              icon: <Pencil size={14} />,
+              onClick: onEdit
+            },
+            {
+              label: deleting ? t('auto.newTemplate.deleting') : t('auto.gallery.my.delete'),
+              icon: <Trash2 size={14} />,
+              danger: true,
+              disabled: deleting,
+              onClick: () => setConfirmDelete(true)
+            }
+          ]}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={t('auto.gallery.my.delete')}
+          message={t('auto.gallery.my.deleteConfirm')}
+          confirmLabel={deleting ? t('auto.newTemplate.deleting') : t('auto.newTemplate.deleteConfirmBtn')}
+          danger
+          onConfirm={() => void handleDelete()}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function CreateTemplateCard({ onClick }: { onClick(): void }): JSX.Element {
+  const t = useT()
+  return (
+    <button type="button" onClick={onClick} style={createTemplateButton}>
+      <span style={createTemplateIcon}>
+        <Plus size={18} aria-hidden />
+      </span>
+      <span style={templateText}>
+        <span style={templateTitle}>{t('auto.gallery.my.create')}</span>
+        <span style={templateDescription}>{t('auto.gallery.my.empty')}</span>
+      </span>
+    </button>
+  )
+}
+
+function EmptyState({ title, hint }: { title: string; hint: string }): JSX.Element {
+  return (
+    <div style={emptyState}>
+      <p style={{ margin: 0 }}>{title}</p>
+      <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{hint}</p>
+    </div>
+  )
+}
+
+function RetryState({ message, onRetry }: { message: string; onRetry(): void }): JSX.Element {
+  const t = useT()
+  return (
+    <div style={emptyState}>
+      <p style={{ margin: 0, color: 'var(--error)' }}>{message}</p>
+      <button type="button" onClick={onRetry} style={retryButton}>
+        {t('common.retry')}
+      </button>
+    </div>
+  )
+}
+
+function GitHubMark(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor">
+      <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
+    </svg>
+  )
+}
+
+const page: CSSProperties = catalogStyles.page
+const browseHeader: CSSProperties = catalogStyles.browseHeader
+const topActions: CSSProperties = catalogStyles.topActions
+const heroTitle: CSSProperties = catalogStyles.heroTitle
+const browseMain: CSSProperties = catalogStyles.browseMain
+const manageButton: CSSProperties = catalogStyles.manageButton
+const iconButton: CSSProperties = catalogStyles.iconButton
+const emptyText: CSSProperties = catalogStyles.emptyText
+
+const iconButtonActive: CSSProperties = {
+  ...iconButton,
+  borderColor: 'var(--accent)',
+  backgroundColor: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)'
+}
+
+const listConstrained: CSSProperties = {
+  maxWidth: '760px',
+  margin: '0 auto'
+}
+
+const panelConstrained: CSSProperties = {
+  maxWidth: '760px',
+  margin: '0 auto'
+}
+
+const skeletonRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  minHeight: '58px',
+  padding: '0 8px',
+  borderRadius: '8px'
+}
+
+const skeletonBlock: CSSProperties = {
+  borderRadius: '4px',
+  backgroundColor: 'var(--bg-tertiary)',
+  animation: 'pulse 1.5s ease-in-out infinite'
+}
+
+const templateButton: CSSProperties = {
+  width: '100%',
+  minWidth: 0,
+  minHeight: '72px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  padding: '8px',
+  border: 'none',
+  borderRadius: '8px',
+  backgroundColor: 'transparent',
+  color: 'var(--text-primary)',
+  cursor: 'pointer',
+  textAlign: 'left'
+}
+
+const templateText: CSSProperties = {
+  minWidth: 0,
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  overflow: 'hidden'
+}
+
+const templateTitle: CSSProperties = {
+  fontSize: '13px',
+  lineHeight: 1.25,
+  fontWeight: 700,
+  color: 'var(--text-primary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap'
+}
+
+const templateDescription: CSSProperties = {
+  fontSize: '12px',
+  lineHeight: 1.35,
+  color: 'var(--text-secondary)',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  wordBreak: 'break-word'
+}
+
+const templateIcon: CSSProperties = {
+  width: '38px',
+  height: '38px',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: '6px',
-  height: '32px',
-  padding: '0 12px',
-  boxSizing: 'border-box',
+  flexShrink: 0,
   borderRadius: '8px',
+  backgroundColor: 'var(--bg-secondary)',
+  fontSize: '19px'
+}
+
+const smallIconButton: CSSProperties = {
+  position: 'absolute',
+  top: '8px',
+  right: '8px',
+  width: '28px',
+  height: '28px',
+  borderRadius: '8px',
+  border: '1px solid var(--border-default)',
+  backgroundColor: 'var(--bg-primary)',
+  color: 'var(--text-secondary)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  padding: 0,
+  transition: 'opacity 0.15s'
+}
+
+const createTemplateButton: CSSProperties = {
+  ...templateButton,
+  border: '1px dashed var(--border-default)'
+}
+
+const createTemplateIcon: CSSProperties = {
+  ...templateIcon,
+  backgroundColor: 'transparent',
+  border: '1px solid var(--border-default)',
+  color: 'var(--text-secondary)'
+}
+
+const emptyState: CSSProperties = {
+  maxWidth: '760px',
+  margin: '0 auto',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '34px 20px',
+  color: 'var(--text-tertiary)',
+  fontSize: '13px',
+  textAlign: 'center'
+}
+
+const retryButton: CSSProperties = {
+  marginTop: '12px',
+  padding: '5px 14px',
+  borderRadius: '6px',
   border: '1px solid var(--border-default)',
   backgroundColor: 'transparent',
   color: 'var(--text-secondary)',
   fontSize: '12px',
-  fontWeight: 500,
-  lineHeight: 1,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap'
-}
-
-function toolbarIconButtonStyle(active: boolean): CSSProperties {
-  return {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '32px',
-    height: '32px',
-    boxSizing: 'border-box',
-    padding: 0,
-    borderRadius: '8px',
-    border: active ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-    backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer'
-  }
-}
-
-const primaryToolbarButtonStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: '32px',
-  padding: '0 14px',
-  boxSizing: 'border-box',
-  borderRadius: '8px',
-  border: '1px solid var(--accent)',
-  backgroundColor: 'var(--accent)',
-  color: 'var(--on-accent)',
-  fontSize: '12px',
-  fontWeight: 600,
-  lineHeight: 1,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap'
+  cursor: 'pointer'
 }

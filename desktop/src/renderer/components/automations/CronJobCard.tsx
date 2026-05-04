@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Ellipsis, Eye, Pause, Play, Trash2 } from 'lucide-react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import type { CronJobWire } from '../../stores/cronStore'
 import { useCronStore } from '../../stores/cronStore'
@@ -6,6 +7,9 @@ import { useAutomationsStore } from '../../stores/automationsStore'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { formatNextRun } from '../../utils/cronNextRunDisplay'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { addToast } from '../../stores/toastStore'
 
 function formatSchedule(job: CronJobWire): string {
   const s = job.schedule
@@ -65,10 +69,13 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
   const [hovered, setHovered] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [runningNow, setRunningNow] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const selectCronJob = useCronStore((s) => s.selectCronJob)
   const clearTaskSelection = useAutomationsStore((s) => s.selectTask)
   const removeJob = useCronStore((s) => s.removeJob)
   const enableJob = useCronStore((s) => s.enableJob)
+  const runJobNow = useCronStore((s) => s.runJobNow)
   const selectedId = useCronStore((s) => s.selectedCronJobId)
 
   const st = job.state
@@ -97,6 +104,20 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
       setShowDelete(false)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleRunNow(): Promise<void> {
+    if (runningNow) return
+    setRunningNow(true)
+    try {
+      await runJobNow(job.id)
+      addToast(t('cron.runNowQueued'), 'success')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addToast(t('cron.runNowFailed', { error: msg }), 'error')
+    } finally {
+      setRunningNow(false)
     }
   }
 
@@ -197,76 +218,70 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
           style={{
             flexShrink: 0,
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'flex-end',
             gap: '6px'
           }}
         >
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {st.lastThreadId && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  clearTaskSelection(null)
-                  selectCronJob(job.id)
-                }}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-default)',
-                  backgroundColor: 'transparent',
-                  color: 'var(--text-secondary)',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  cursor: 'pointer'
-                }}
-              >
-                {t('cron.card.view')}
-              </button>
-            )}
+          <ActionTooltip label={runningNow ? t('cron.runningNow') : t('cron.runNow')} placement="top">
+            <button
+              type="button"
+              disabled={runningNow}
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleRunNow()
+              }}
+              style={iconButtonStyle(runningNow)}
+              aria-label={runningNow ? t('cron.runningNow') : t('cron.runNow')}
+            >
+              <Play size={14} aria-hidden fill="currentColor" />
+            </button>
+          </ActionTooltip>
+          <ActionTooltip label={t('cron.moreActions')} placement="top">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                void enableJob(job.id, !job.enabled)
+                const rect = e.currentTarget.getBoundingClientRect()
+                setMenuPosition({ x: rect.left, y: rect.bottom + 6 })
               }}
-              style={{
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                backgroundColor: 'transparent',
-                color: 'var(--text-secondary)',
-                fontSize: '11px',
-                cursor: 'pointer'
-              }}
+              style={iconButtonStyle(false)}
+              aria-label={t('cron.moreActions')}
             >
-              {job.enabled ? t('cron.disable') : t('cron.enable')}
+              <Ellipsis size={16} aria-hidden />
             </button>
-            <button
-              type="button"
-              disabled={deleting}
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowDelete(true)
-              }}
-              style={{
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: '1px solid color-mix(in srgb, var(--error) 35%, var(--border-default))',
-                backgroundColor: 'transparent',
-                color: 'var(--error)',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: deleting ? 'default' : 'pointer',
-                opacity: deleting ? 0.6 : 1
-              }}
-            >
-              {deleting ? t('cron.deleting') : t('cron.delete')}
-            </button>
-          </div>
+          </ActionTooltip>
         </div>
       </div>
+
+      {menuPosition && (
+        <ContextMenu
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          items={[
+            {
+              label: t('cron.card.view'),
+              icon: <Eye size={14} />,
+              disabled: !st.lastThreadId,
+              onClick: () => {
+                clearTaskSelection(null)
+                selectCronJob(job.id)
+              }
+            },
+            {
+              label: job.enabled ? t('cron.disable') : t('cron.enable'),
+              icon: <Pause size={14} />,
+              onClick: () => void enableJob(job.id, !job.enabled)
+            },
+            {
+              label: deleting ? t('cron.deleting') : t('cron.delete'),
+              icon: <Trash2 size={14} />,
+              danger: true,
+              disabled: deleting,
+              onClick: () => setShowDelete(true)
+            }
+          ]}
+        />
+      )}
 
       {showDelete && (
         <ConfirmDialog
@@ -280,4 +295,21 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
       )}
     </>
   )
+}
+
+function iconButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    width: '30px',
+    height: '30px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '8px',
+    border: '1px solid var(--border-default)',
+    backgroundColor: 'transparent',
+    color: disabled ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+    padding: 0
+  }
 }

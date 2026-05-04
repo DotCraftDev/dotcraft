@@ -51,4 +51,37 @@ public class CronServiceEnableTests : IDisposable
         Assert.NotNull(next);
         Assert.InRange(next.Value, before + 59_000, before + 120_000);
     }
+
+    [Fact]
+    public async Task RunJobNow_QueuesDisabledJobWithoutEnablingIt()
+    {
+        using var svc = new CronService(_path);
+        var job = svc.AddJob(
+            "manual",
+            new CronSchedule { Kind = "every", EveryMs = 60_000 },
+            new CronPayload { Message = "run" });
+        svc.EnableJob(job.Id, false);
+
+        var ran = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnJob = _ =>
+        {
+            ran.SetResult();
+            return Task.FromResult(new CronOnJobResult(
+                LastThreadId: "thread-1",
+                LastResult: "ok",
+                LastError: null,
+                Ok: true,
+                InputTokens: null,
+                OutputTokens: null));
+        };
+
+        var queued = svc.RunJobNow(job.Id);
+
+        Assert.NotNull(queued);
+        await ran.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var reloaded = svc.ListJobs(includeDisabled: true).Single();
+        Assert.False(reloaded.Enabled);
+        Assert.Equal("ok", reloaded.State.LastStatus);
+        Assert.Equal("thread-1", reloaded.State.LastThreadId);
+    }
 }

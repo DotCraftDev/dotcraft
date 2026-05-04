@@ -120,6 +120,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.CronList,
         AppServerMethods.CronRemove,
         AppServerMethods.CronEnable,
+        AppServerMethods.CronRun,
         AppServerMethods.HeartbeatTrigger,
         AppServerMethods.SkillsList,
         AppServerMethods.SkillsRead,
@@ -137,6 +138,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.AutomationTaskList,
         AppServerMethods.AutomationTaskRead,
         AppServerMethods.AutomationTaskCreate,
+        AppServerMethods.AutomationTaskRun,
         AppServerMethods.AutomationTaskDelete,
         AppServerMethods.AutomationTaskUpdateBinding,
         AppServerMethods.AutomationTemplateList,
@@ -241,6 +243,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.CronList => HandleCronListAsync(msg, ct),
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
                 AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
+                AppServerMethods.CronRun => HandleCronRunAsync(msg, ct),
                 AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
                 AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
                 AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
@@ -258,6 +261,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
                 AppServerMethods.AutomationTaskRead => RouteAutomation(h => h.HandleTaskReadAsync(msg, ct)),
                 AppServerMethods.AutomationTaskCreate => RouteAutomation(h => h.HandleTaskCreateAsync(msg, ct)),
+                AppServerMethods.AutomationTaskRun => RouteAutomation(h => h.HandleTaskRunAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.AutomationTaskUpdateBinding => RouteAutomation(h => h.HandleTaskUpdateBindingAsync(msg, ct)),
                 AppServerMethods.AutomationTemplateList => RouteAutomation(h => h.HandleTemplateListAsync(msg, ct)),
@@ -2287,6 +2291,21 @@ public sealed class AppServerRequestHandler(
         if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
         broadcastCronStateChanged?.Invoke(MapCronJob(job), false);
         return Task.FromResult<object?>(new CronEnableResult { Job = MapCronJob(job) });
+    }
+
+    private Task<object?> HandleCronRunAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronRun);
+        var p = GetParams<CronRunParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.JobId))
+            throw AppServerErrors.InvalidParams("'jobId' is required.");
+        var job = cronService.RunJobNow(p.JobId);
+        if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
+        return Task.FromResult<object?>(new CronRunResult
+        {
+            Queued = true,
+            Job = MapCronJob(job)
+        });
     }
 
     private static CronJobWireInfo MapCronJob(CronJob job) => CronJobWireMapping.ToWire(job);
