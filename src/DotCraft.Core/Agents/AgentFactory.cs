@@ -399,7 +399,9 @@ public sealed class AgentFactory : IAsyncDisposable
                     deferredMcpServerNames: deferredServerNames,
                     subAgentProfilesSection: subAgentProfilesSection,
                     skillVariantModeEnabled: skillVariantModeEnabled,
-                    skillVariantTarget: skillVariantTarget)
+                    skillVariantTarget: skillVariantTarget,
+                    promptProfile: ctx.PromptProfile,
+                    roleInstructions: ctx.RoleInstructions)
             ];
         }
 

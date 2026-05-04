@@ -21,6 +21,17 @@ function expectRunningGradientText(text: string | RegExp): HTMLElement {
   return label
 }
 
+function expectDisclosureInsideTitleGroup(container: HTMLElement): HTMLElement {
+  const titleGroup = container.querySelector('[data-testid="tool-row-title-group"]') as HTMLElement
+  const disclosureIcon = container.querySelector('[data-testid="tool-disclosure-icon"]') as HTMLElement
+  expect(titleGroup).toBeTruthy()
+  expect(disclosureIcon).toBeTruthy()
+  expect(titleGroup).toContainElement(disclosureIcon)
+  expect(titleGroup.style.display).toBe('inline-flex')
+  expect(titleGroup.style.flex).toBe('0 1 auto')
+  return disclosureIcon
+}
+
 const collapseAnimationMs = 200
 
 describe('ToolCallCard plugin function rendering', () => {
@@ -90,7 +101,7 @@ describe('ToolCallCard subagent result rendering', () => {
       status: 'completed',
       toolName: 'SpawnAgent',
       toolCallId: 'call-1',
-      arguments: { prompt: 'Create hatch pet', agentNickname: 'Popper', profile: 'native' },
+      arguments: { agentPrompt: 'Create hatch pet', agentNickname: 'Popper', profile: 'native' },
       result: JSON.stringify({
         childThreadId: 'thread_child',
         agentNickname: 'Popper',
@@ -106,6 +117,7 @@ describe('ToolCallCard subagent result rendering', () => {
 
     expect(screen.getByText('Started Popper')).toBeInTheDocument()
     expect(screen.getByText(/native/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull()
     expect(screen.queryByText(/childThreadId/)).toBeNull()
     expect(screen.queryByText(/thread_child/)).toBeNull()
   })
@@ -129,13 +141,18 @@ describe('ToolCallCard subagent result rendering', () => {
       createdAt: '2026-05-03T10:00:00.000Z'
     }
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Received result from Reviewer')).toBeInTheDocument()
     expect(screen.queryByText('Reviewer completed')).toBeNull()
     expect(screen.queryByText(/thread_child/)).toBeNull()
     expect(screen.queryByText('Detailed child agent result')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand subagent result' }))
+    const disclosureIcon = expectDisclosureInsideTitleGroup(container)
+    const button = screen.getByRole('button', { name: 'Expand subagent result' })
+    expect(disclosureIcon).toHaveStyle({ opacity: '0' })
+    fireEvent.mouseEnter(button)
+    expect(disclosureIcon).toHaveStyle({ opacity: '1' })
+    fireEvent.click(button)
     expect(screen.getByText('Detailed child agent result')).toBeInTheDocument()
   })
 
@@ -153,6 +170,7 @@ describe('ToolCallCard subagent result rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expectRunningGradientText('Waiting for Reviewer')
+    expect(document.querySelector('.animate-spin-custom')).toBeNull()
     expect(screen.queryByText(/thread_child/)).toBeNull()
   })
 
@@ -254,6 +272,7 @@ describe('ToolCallCard subagent result rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Timed out waiting for Reviewer')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull()
     expect(screen.queryByText(/failed/i)).toBeNull()
     expect(screen.queryByText(/thread_child/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Expand subagent result' }))
@@ -304,10 +323,12 @@ describe('ToolCallCard shell rendering', () => {
       createdAt: new Date().toISOString()
     }
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.queryByText('line 1')).toBeNull()
     expectRunningGradientText(/Ran npm test/)
+    expect(document.querySelector('.animate-spin-custom')).toBeNull()
+    expectDisclosureInsideTitleGroup(container)
 
     fireEvent.click(screen.getByRole('button'))
 
@@ -738,7 +759,7 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
     const row = screen.getByRole('button', { name: /Fetched https:\/\/dotcraft\.ai/ })
 
-    expect(screen.queryByText('▼')).toBeNull()
+    expect(document.querySelector('[data-testid="tool-disclosure-icon"]')).toBeNull()
     fireEvent.click(row)
 
     expect(screen.queryByText('200 · 12,345 chars · readability · truncated')).toBeNull()
@@ -896,7 +917,7 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
     const row = screen.getByRole('button', { name: /Deleted skill old-skill/ })
 
-    expect(screen.queryByText('▼')).toBeNull()
+    expect(document.querySelector('[data-testid="tool-disclosure-icon"]')).toBeNull()
     fireEvent.click(row)
 
     expect(screen.queryByText(/Skill 'old-skill' deleted/)).toBeNull()
@@ -1015,7 +1036,7 @@ describe('ToolCallCard shell rendering', () => {
 
     expect(screen.getByText(/Failed: Loaded skill missing-skill/)).toBeInTheDocument()
     expect(screen.getByText(/Skill 'missing-skill' not found/)).toBeInTheDocument()
-    expect(screen.queryByText('▼')).toBeNull()
+    expect(document.querySelector('[data-testid="tool-disclosure-icon"]')).toBeNull()
     expect(screen.queryByTestId('tool-expanded-content')).toBeNull()
   })
 
@@ -1064,19 +1085,22 @@ describe('ToolCallCard shell rendering', () => {
       createdAt: '2026-04-13T10:00:00.000Z'
     }
 
-    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    const { container } = renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
-    expect(screen.getByText('Read main.ts')).toBeInTheDocument()
+    const label = screen.getByText('Read main.ts')
+    expect(label).toBeInTheDocument()
     expect(document.querySelector('.tool-running-gradient-text')).toBeNull()
     expect(screen.queryByText('✓')).toBeNull()
     expect(screen.queryByText('350ms')).toBeNull()
 
     const button = screen.getByRole('button')
     const wrapper = button.parentElement as HTMLElement
-    const chevron = screen.getByText('▼')
+    const chevron = expectDisclosureInsideTitleGroup(container)
+    expect(label).toHaveStyle({ color: 'var(--text-dimmed)' })
     expect(chevron).toHaveStyle({ opacity: '0' })
 
     fireEvent.mouseEnter(wrapper)
+    expect(label).toHaveStyle({ color: 'var(--text-secondary)' })
     expect(chevron).toHaveStyle({ opacity: '1' })
   })
 

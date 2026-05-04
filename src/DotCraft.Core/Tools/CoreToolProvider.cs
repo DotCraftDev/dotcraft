@@ -52,7 +52,12 @@ public sealed class CoreToolProvider : IAgentToolProvider
                 context.Config.SubAgent.DisabledProfiles,
                 context.ExternalCliSessionStore,
                 context.Config.SubAgent.EnableExternalCliSessionResume);
-            AgentControlToolRegistrar.AddTools(tools, context, subAgentCoordinator);
+            AgentControlToolRegistrar.AddTools(
+                tools,
+                context,
+                subAgentCoordinator,
+                context.Config.SubAgent.Roles,
+                context.Config.SubAgent.MaxDepth);
         }
 
         // File tools

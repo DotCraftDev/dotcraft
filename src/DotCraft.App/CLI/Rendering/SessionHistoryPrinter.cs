@@ -311,7 +311,7 @@ public static class SessionHistoryPrinter
     private static string StripRuntimeContext(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        var idx = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
+        var idx = text.IndexOf("\n[Runtime Context]", StringComparison.Ordinal);
         return idx >= 0 ? text[..idx] : text;
     }
 

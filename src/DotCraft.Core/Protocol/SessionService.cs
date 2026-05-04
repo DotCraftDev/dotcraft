@@ -571,9 +571,10 @@ public sealed class SessionService(
         || string.Equals(thread.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
 
     private static AgentControlToolAccess ResolveAgentControlToolAccess(SessionThread thread) =>
-        IsSubAgentThread(thread)
+        thread.Configuration?.AgentControlToolAccess
+        ?? (IsSubAgentThread(thread)
             ? AgentControlToolAccess.Disabled
-            : AgentControlToolAccess.Full;
+            : AgentControlToolAccess.Full);
 
     private static string? GetSubAgentParentThreadId(SessionThread thread)
     {
@@ -1534,7 +1535,7 @@ public sealed class SessionService(
                                         var rawLabel = fc.Arguments.TryGetValue("agentNickname", out var labelObj)
                                             ? labelObj?.ToString()
                                             : null;
-                                        var rawTask = fc.Arguments.TryGetValue("prompt", out var taskObj)
+                                        var rawTask = fc.Arguments.TryGetValue("agentPrompt", out var taskObj)
                                             ? taskObj?.ToString()
                                             : null;
 
@@ -2873,7 +2874,12 @@ public sealed class SessionService(
                 CurrentThreadSource = thread.Source,
                 CurrentOriginChannel = thread.OriginChannel,
                 CurrentChannelContext = thread.ChannelContext,
-                AgentControlToolAccess = agentControlToolAccess
+                AgentControlToolAccess = agentControlToolAccess,
+                AllowedAgentControlTools = ToSet(config.AllowedAgentControlTools),
+                ToolAllowList = ToSet(config.ToolAllowList),
+                ToolDenyList = ToSet(config.ToolDenyList),
+                PromptProfile = config.PromptProfile,
+                RoleInstructions = config.RoleInstructions
             };
         }
 
@@ -2896,6 +2902,7 @@ public sealed class SessionService(
             if (profileTools is not { Count: > 0 })
                 throw new InvalidOperationException("UseToolProfileOnly requires a registered ToolProfile with at least one tool.");
             var toolCtx2 = scopedContext ?? threadBaseContext;
+            ApplyThreadToolFilters(profileTools, config);
             return agentFactory.CreateAgentWithTools(profileTools, mm, toolCtx2, config.AgentInstructions);
         }
 
@@ -2907,6 +2914,7 @@ public sealed class SessionService(
                 if (profileTools != null)
                     tools.AddRange(profileTools);
                 AppendChannelTools(tools, thread);
+                ApplyThreadToolFilters(tools, config);
                 return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
             }
 
@@ -2915,11 +2923,13 @@ public sealed class SessionService(
                 var tools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
                 tools.AddRange(profileTools);
                 AppendChannelTools(tools, thread);
+                ApplyThreadToolFilters(tools, config);
                 return agentFactory.CreateAgentWithTools(tools, mm, threadBaseContext);
             }
 
             var modeTools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
             AppendChannelTools(modeTools, thread);
+            ApplyThreadToolFilters(modeTools, config);
             return agentFactory.CreateAgentWithTools(modeTools, mm, threadBaseContext);
         }
 
@@ -2961,7 +2971,11 @@ public sealed class SessionService(
                 CurrentOriginChannel = scopedContext.CurrentOriginChannel,
                 CurrentChannelContext = scopedContext.CurrentChannelContext,
                 AgentControlToolAccess = scopedContext.AgentControlToolAccess,
-                AllowedAgentControlTools = scopedContext.AllowedAgentControlTools
+                AllowedAgentControlTools = scopedContext.AllowedAgentControlTools,
+                ToolAllowList = scopedContext.ToolAllowList,
+                ToolDenyList = scopedContext.ToolDenyList,
+                PromptProfile = scopedContext.PromptProfile,
+                RoleInstructions = scopedContext.RoleInstructions
             };
 
             var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
@@ -2969,6 +2983,7 @@ public sealed class SessionService(
                 modeTools.AddRange(profileTools);
             modeTools.AddRange(mcpManager.Tools);
             AppendChannelTools(modeTools, thread);
+            ApplyThreadToolFilters(modeTools, config);
             return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
         }
 
@@ -2977,7 +2992,24 @@ public sealed class SessionService(
             toolsWithMcp.AddRange(profileTools);
         toolsWithMcp.AddRange(mcpManager.Tools);
         AppendChannelTools(toolsWithMcp, thread);
+        ApplyThreadToolFilters(toolsWithMcp, config);
         return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, threadBaseContext);
+    }
+
+    private static void ApplyThreadToolFilters(List<AITool> tools, ThreadConfiguration config)
+    {
+        var allow = config.ToolAllowList?
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.Ordinal);
+        var deny = config.ToolDenyList?
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (allow is { Count: > 0 })
+            tools.RemoveAll(tool => !allow.Contains(tool.Name));
+
+        if (deny is { Count: > 0 })
+            tools.RemoveAll(tool => deny.Contains(tool.Name));
     }
 
     private void AppendChannelTools(List<AITool> tools, SessionThread thread)
@@ -3055,9 +3087,24 @@ public sealed class SessionService(
             AgentControlToolAccess = thread == null
                 ? source.AgentControlToolAccess
                 : ResolveAgentControlToolAccess(thread),
-            AllowedAgentControlTools = thread == null ? source.AllowedAgentControlTools : null
+            AllowedAgentControlTools = thread == null ? source.AllowedAgentControlTools : ToSet(thread.Configuration?.AllowedAgentControlTools),
+            ToolAllowList = thread == null ? source.ToolAllowList : ToSet(thread.Configuration?.ToolAllowList),
+            ToolDenyList = thread == null ? source.ToolDenyList : ToSet(thread.Configuration?.ToolDenyList),
+            PromptProfile = thread?.Configuration?.PromptProfile ?? source.PromptProfile,
+            RoleInstructions = thread?.Configuration?.RoleInstructions ?? source.RoleInstructions
         };
         return cloned;
+    }
+
+    private static IReadOnlySet<string>? ToSet(IEnumerable<string>? values)
+    {
+        if (values == null)
+            return null;
+
+        var set = values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.Ordinal);
+        return set.Count == 0 ? null : set;
     }
 
     internal static bool TryRemoveStreamingToolCallIndexByItemReference(

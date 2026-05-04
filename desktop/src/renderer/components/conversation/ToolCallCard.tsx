@@ -56,7 +56,6 @@ import {
   getSkillViewDisplay
 } from '../../utils/skillViewToolDisplay'
 import { useThreadStore } from '../../stores/threadStore'
-import { useUIStore } from '../../stores/uiStore'
 import { useSubAgentStore, type SubAgentChild } from '../../stores/subAgentStore'
 import { isToolItemLive } from '../../utils/toolCallAggregation'
 
@@ -326,6 +325,8 @@ export const ToolCallCard = memo(function ToolCallCard({
       >
         <button
           onClick={toggleExpand}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -336,29 +337,41 @@ export const ToolCallCard = memo(function ToolCallCard({
             border: 'none',
             borderBottom: expanded ? '1px solid var(--border-default)' : 'none',
             borderRadius: expanded ? '4px 4px 0 0' : '4px',
-            color: 'var(--text-secondary)',
+            color: hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)',
             fontSize: '13px',
             textAlign: 'left',
             cursor: canExpandWhileRunning ? 'pointer' : 'default'
           }}
         >
-          <Spinner />
           <span
-            className="tool-running-gradient-text"
+            data-testid="tool-row-title-group"
             style={{
-              flex: 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              flex: '0 1 auto',
               minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
+              maxWidth: '100%'
             }}
           >
-            {runningLabel}
+            <span
+              className="tool-running-gradient-text"
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {runningLabel}
+            </span>
+            {canExpandWhileRunning && (
+              <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+            )}
           </span>
-          <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
+          <span style={{ color: 'var(--text-dimmed)', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} visible />}
         </button>
 
         <CollapsibleContent
@@ -434,6 +447,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     && parseWebSearchResultDisplay(item.result)?.kind === 'results'
   const hasInlineFileDiff = FILE_WRITE_TOOLS.has(toolName) && !!fileDiff
   const completedExpanded = canExpandCompleted && expanded
+  const completedRowColor = hovered || completedExpanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div
@@ -447,6 +461,8 @@ export const ToolCallCard = memo(function ToolCallCard({
     >
       <button
         onClick={toggleExpand}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -457,23 +473,36 @@ export const ToolCallCard = memo(function ToolCallCard({
           border: 'none',
           borderBottom: completedExpanded ? '1px solid var(--border-default)' : 'none',
           cursor: canExpandCompleted ? 'pointer' : 'default',
-          color: 'var(--text-secondary)',
+          color: success ? completedRowColor : 'var(--error)',
           fontSize: '12px',
           textAlign: 'left',
           borderRadius: completedExpanded ? '4px 4px 0 0' : '4px'
         }}
       >
-        <span style={{ flex: 1, color: success ? 'var(--text-secondary)' : 'var(--error)' }}>
-          {success ? label : translate(locale, 'toolCall.failed', { label })}
-          {!success && (item.result || shellOutput) && (
-            <span style={{ color: 'var(--error)', marginLeft: '6px' }}>
-              - {failedPreview.slice(0, 80)}{failedPreview.length > 80 ? '…' : ''}
-            </span>
+        <span
+          data-testid="tool-row-title-group"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            flex: '0 1 auto',
+            minWidth: 0,
+            maxWidth: '100%',
+            color: success ? completedRowColor : 'var(--error)'
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {success ? label : translate(locale, 'toolCall.failed', { label })}
+            {!success && (item.result || shellOutput) && (
+              <span style={{ color: 'var(--error)', marginLeft: '6px' }}>
+                - {failedPreview.slice(0, 80)}{failedPreview.length > 80 ? '…' : ''}
+              </span>
+            )}
+          </span>
+          {canExpandCompleted && (
+            <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
           )}
         </span>
-        {canExpandCompleted && (
-          <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
-        )}
       </button>
 
       {canExpandCompleted && (
@@ -849,17 +878,50 @@ function SubAgentToolResultCard({
   locale: AppLocale
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const hasMessage = !!display.message
+  const normalTextColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
   const textColor = display.tone === 'error'
     ? 'var(--error)'
     : display.tone === 'warning'
       ? 'var(--warning)'
-      : 'var(--text-secondary)'
-
-  const openThread = (): void => {
-    if (!display.childThreadId) return
-    useThreadStore.getState().setActiveThreadId(display.childThreadId)
-    useUIStore.getState().setActiveMainView('conversation')
+      : normalTextColor
+  const rowContent = (
+    <span
+      data-testid="tool-row-title-group"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '3px',
+        flex: '0 1 auto',
+        minWidth: 0,
+        maxWidth: '100%'
+      }}
+    >
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {display.title}
+        {display.subtitle && (
+          <span style={{ color: 'var(--text-dimmed)', marginLeft: 6 }}>{display.subtitle}</span>
+        )}
+      </span>
+      {hasMessage && (
+        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+      )}
+    </span>
+  )
+  const rowStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    padding: '4px 6px',
+    background: expanded ? 'var(--bg-tertiary)' : 'transparent',
+    border: 'none',
+    borderBottom: expanded ? '1px solid var(--border-default)' : 'none',
+    borderRadius: expanded ? '4px 4px 0 0' : '4px',
+    color: textColor,
+    fontSize: '12px',
+    textAlign: 'left'
   }
 
   return (
@@ -870,39 +932,28 @@ function SubAgentToolResultCard({
         border: expanded ? '1px solid var(--border-default)' : 'none'
       }}
     >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto auto',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '4px 6px',
-          color: textColor,
-          fontSize: '12px'
-        }}
-      >
-        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {display.title}
-          {display.subtitle && (
-            <span style={{ color: 'var(--text-dimmed)', marginLeft: 6 }}>{display.subtitle}</span>
-          )}
-        </span>
-        {display.childThreadId && (
-          <button type="button" onClick={openThread} style={subAgentOpenButtonStyle}>
-            {translate(locale, 'toolCall.subAgent.open')}
-          </button>
-        )}
-        {hasMessage && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            style={subAgentChevronButtonStyle}
-            aria-label={expanded ? translate(locale, 'toolCall.subAgent.collapse') : translate(locale, 'toolCall.subAgent.expand')}
-          >
-            <ToolCollapseChevron expanded={expanded} visible />
-          </button>
-        )}
-      </div>
+      {hasMessage ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          style={{ ...rowStyle, cursor: 'pointer' }}
+          aria-label={expanded ? translate(locale, 'toolCall.subAgent.collapse') : translate(locale, 'toolCall.subAgent.expand')}
+        >
+          {rowContent}
+        </button>
+      ) : (
+        <div
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={rowStyle}
+        >
+          {rowContent}
+        </div>
+      )}
       {expanded && hasMessage && (
         <div
           className="selectable"
@@ -1075,29 +1126,6 @@ function getString(source: Record<string, unknown> | undefined, key: string): st
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-const subAgentOpenButtonStyle: CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  color: 'var(--text-dimmed)',
-  fontSize: '12px',
-  padding: '2px 4px',
-  cursor: 'pointer'
-}
-
-const subAgentChevronButtonStyle: CSSProperties = {
-  width: 22,
-  height: 22,
-  padding: 0,
-  border: 'none',
-  borderRadius: 4,
-  background: 'transparent',
-  color: 'var(--text-dimmed)',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  cursor: 'pointer'
-}
-
 function parseCompletedCreatePlanArgs(args: Record<string, unknown> | undefined): {
   title: string
   overview: string
@@ -1126,23 +1154,6 @@ function normalizeTodoStatus(value: unknown): 'pending' | 'in_progress' | 'compl
     return value
   }
   return 'pending'
-}
-
-function Spinner(): JSX.Element {
-  return (
-    <span
-      className="animate-spin-custom"
-      style={{
-        display: 'inline-block',
-        width: '12px',
-        height: '12px',
-        borderRadius: '50%',
-        border: '2px solid var(--border-active)',
-        borderTopColor: 'var(--accent)',
-        flexShrink: 0
-      }}
-    />
-  )
 }
 
 function RunningFileToolPreview(

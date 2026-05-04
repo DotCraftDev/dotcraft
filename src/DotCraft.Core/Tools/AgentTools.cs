@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using DotCraft.Agents;
+using DotCraft.Configuration;
 using DotCraft.Protocol;
 
 namespace DotCraft.Tools;
@@ -8,25 +9,20 @@ namespace DotCraft.Tools;
 /// <summary>
 /// Core tools for DotCraft agent.
 /// </summary>
-public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
+public sealed class AgentTools(
+    SubAgentCoordinator? subAgentManager = null,
+    IEnumerable<SubAgentRoleConfig>? subAgentRoles = null,
+    int maxSubAgentDepth = 1)
 {
     private static readonly JsonSerializerOptions ResultJsonOptions = new(JsonSerializerOptions.Web);
 
-    [Description("""
-        Spawn a session-backed subagent as a child thread.
-        Use this for collaborative background work when the parent agent can continue while the child thread runs.
-        Returns a compact JSON string. The returned childThreadId can be passed to SendInput, WaitAgent, ResumeAgent, and CloseAgent.
-        Available profile names are listed in the system prompt. The default profile is native.
-        External CLI profiles provide a persisted synthetic child turn with stage-level progress and a final result.
-        SendInput works for native profiles and for external CLI profiles only when the profile supports resume and workspace resume is enabled.
-        Child agent output is trusted for broad findings; the main agent owns synthesis and should inspect critical files when needed before finalizing a plan.
-    """)]
+    [Description("Spawn a subagent as a child thread. Use this for collaborative background work when the parent agent can continue while the child thread runs.")]
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnAgent))]
     [StreamArguments(false)]
     public async Task<string> SpawnAgent(
-        [Description("Required non-empty self-contained task prompt for the child agent thread.")] string prompt,
+        [Description("Task prompt for the child agent thread.")] string agentPrompt,
         [Description("Optional short name shown in UI for this child agent.")] string? agentNickname = null,
-        [Description("Optional role label such as worker, explorer, or reviewer.")] string? agentRole = null,
+        [Description("Optional role label. Built-in roles: default, worker, explorer. Defaults to default when omitted.")] string? agentRole = null,
         [Description("Optional named subagent profile. Defaults to native when omitted.")] string? profile = null,
         [Description("Optional working directory for the child thread. Defaults to the parent thread workspace.")] string? workingDirectory = null,
         CancellationToken cancellationToken = default)
@@ -38,11 +34,13 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
             sessionContext,
             new SubAgentSpawnOptions
             {
-                Prompt = prompt,
+                AgentPrompt = agentPrompt,
                 AgentNickname = agentNickname,
                 AgentRole = agentRole,
                 ProfileName = profile,
-                WorkingDirectory = workingDirectory
+                WorkingDirectory = workingDirectory,
+                RoleConfigs = subAgentRoles?.ToArray(),
+                MaxDepth = maxSubAgentDepth
             },
             waitForCompletion: false,
             subAgentManager,
@@ -50,7 +48,8 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
         return SerializeResult(result);
     }
 
-    [Description("Send another user message to a session-backed child agent thread.")]
+    [Description("Send another user message to a session-backed child agent thread. " +
+                 "Work for native profiles and for external CLI profiles only when the profile supports resume and workspace resume is enabled.")]
     [Tool(Icon = "💬")]
     [StreamArguments(false)]
     public async Task<string> SendInput(

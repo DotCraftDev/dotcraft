@@ -488,7 +488,7 @@ export function getStreamingToolDisplay(
     }
     case 'SpawnAgent': {
       const label = extractPartialJsonStringValue(rawArgs, 'agentNickname')
-      const task = extractPartialJsonStringValue(rawArgs, 'prompt')
+      const task = extractPartialJsonStringValue(rawArgs, 'agentPrompt')
       const profile = extractPartialJsonStringValue(rawArgs, 'profile')
       if (label) {
         return {

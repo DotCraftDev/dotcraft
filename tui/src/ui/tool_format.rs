@@ -286,7 +286,7 @@ fn format_web_fetch_running_label(args: &str) -> String {
 
 fn format_spawn_agent_running_label(args: &str) -> String {
     let label = extract_partial_json_string_value(args, "agentNickname").filter(|s| !s.is_empty());
-    let task = extract_partial_json_string_value(args, "prompt").filter(|s| !s.is_empty());
+    let task = extract_partial_json_string_value(args, "agentPrompt").filter(|s| !s.is_empty());
     let profile = extract_partial_json_string_value(args, "profile").filter(|s| !s.is_empty());
     match (label, task, profile) {
         (Some(l), _, _) => {
@@ -934,7 +934,7 @@ mod tests {
 
     #[test]
     fn active_invocation_spawn_agent_prefers_nickname() {
-        let partial = r#"{"prompt":"Write tests","agentNickname":"tester","profile":"native""#;
+        let partial = r#"{"agentPrompt":"Write tests","agentNickname":"tester","profile":"native""#;
         assert_eq!(
             format_active_invocation_display("SpawnAgent", partial, None),
             "Spawning agent: tester..."
@@ -943,7 +943,7 @@ mod tests {
 
     #[test]
     fn active_invocation_spawn_agent_falls_back_to_prompt() {
-        let partial = r#"{"prompt":"Write the compatibility tests","profile":"codex""#;
+        let partial = r#"{"agentPrompt":"Write the compatibility tests","profile":"codex""#;
         assert_eq!(
             format_active_invocation_display("SpawnAgent", partial, None),
             "Spawning agent for: Write the compatibility tests..."

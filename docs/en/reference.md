@@ -21,6 +21,7 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Let Agents create, patch, and maintain workspace skills | [Agent Skill Self-Learning](./skills/agent-self-learning.md) |
 | Search local skills and install third-party skills from SkillHub / ClawHub | [Search and Install Skills](./skills/marketplace.md) |
 | Limit file, shell, network, and sandbox capability | [Security Configuration](./config/security.md) |
+| Configure SubAgent roles, profiles, and recursion depth | [SubAgent Configuration Guide](./subagents_guide.md) |
 
 ## Automation and Workflow Extension
 

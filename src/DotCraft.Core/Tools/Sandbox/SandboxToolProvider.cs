@@ -79,7 +79,12 @@ public sealed class SandboxToolProvider : IAgentToolProvider
                 context.Config.SubAgent.DisabledProfiles,
                 context.ExternalCliSessionStore,
                 context.Config.SubAgent.EnableExternalCliSessionResume);
-            AgentControlToolRegistrar.AddTools(tools, context, subAgentCoordinator);
+            AgentControlToolRegistrar.AddTools(
+                tools,
+                context,
+                subAgentCoordinator,
+                context.Config.SubAgent.Roles,
+                context.Config.SubAgent.MaxDepth);
         }
 
         // Web tools — no isolation needed, reuse as-is

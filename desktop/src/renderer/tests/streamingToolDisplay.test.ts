@@ -76,7 +76,7 @@ describe('getStreamingToolDisplay', () => {
   it('renders SpawnAgent streaming label from the new argument names', () => {
     const display = getStreamingToolDisplay(
       'SpawnAgent',
-      '{"prompt":"Build tests","agentNickname":"tester","profile":"native"',
+      '{"agentPrompt":"Build tests","agentNickname":"tester","profile":"native"',
       'en'
     )
     expect(display.label).toBe('Spawning agent: tester...')

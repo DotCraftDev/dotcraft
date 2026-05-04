@@ -2,6 +2,8 @@
 
 External CLI subagents let you run an existing coding-agent CLI as a DotCraft one-shot subagent. Compared with `native`, external CLIs typically expose stage-level progress rather than tool-by-tool execution details.
 
+This page covers SubAgent runtime profiles. For `agentRole`, tool policy, and recursion depth, read [SubAgent Configuration Guide](./subagents_guide.md).
+
 ## Built-in Profiles
 
 | Name | Runtime | Default `bin` | Headless entry point |

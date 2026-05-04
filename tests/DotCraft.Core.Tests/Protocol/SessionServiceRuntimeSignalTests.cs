@@ -77,36 +77,6 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     }
 
     [Fact]
-    public async Task SubmitInputAsync_InvalidToolArgumentsResult_PersistsFailedToolResult()
-    {
-        var invalidResult = new FunctionResultContent(
-            "call-1",
-            "Error: SpawnAgent requires a non-empty \"prompt\" argument.")
-        {
-            AdditionalProperties = new AdditionalPropertiesDictionary
-            {
-                [StreamingFunctionInvokingChatClient.InvalidToolArgumentsMetadataKey] = true
-            }
-        };
-        IChatClient chatClient = new FakeChatClient([
-            new ChatResponseUpdate(ChatRole.Assistant, [invalidResult])
-        ]);
-        await using var agentFactory = CreateAgentFactory(chatClient);
-        var svc = CreateService(agentFactory, chatClient);
-        var thread = await svc.CreateThreadAsync(MakeIdentity());
-
-        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
-
-        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
-        var turn = Assert.Single(loaded!.Turns);
-        var resultItem = Assert.Single(turn.Items, item => item.Type == ItemType.ToolResult);
-        var payload = Assert.IsType<ToolResultPayload>(resultItem.Payload);
-        Assert.False(payload.Success);
-        Assert.Equal("call-1", payload.CallId);
-        Assert.Contains("SpawnAgent requires", payload.Result, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task SubmitInputAsync_SubAgentJsonStringResult_PersistsSuccessfulToolResult()
     {
         const string resultJson = "{\"childThreadId\":\"thread_child\",\"status\":\"running\",\"profileName\":\"native\"}";
@@ -531,7 +501,7 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     private static string FormatMessage(ChatMessage message)
     {
         var text = string.Concat(message.Contents.OfType<TextContent>().Select(content => content.Text));
-        var runtimeContextIndex = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
+        var runtimeContextIndex = text.IndexOf("\n[Runtime Context]", StringComparison.Ordinal);
         if (runtimeContextIndex >= 0)
             text = text[..runtimeContextIndex];
         return $"{message.Role}:{text.Trim()}";

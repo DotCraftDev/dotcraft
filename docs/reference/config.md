@@ -112,6 +112,34 @@
 | `LspServers` | LSP 服务配置集合 | `{}` |
 | `Tools.Lsp.Enabled` | 是否启用内置 LSP 工具 | `false` |
 
+## SubAgent
+
+入门说明和示例见 [SubAgent 配置指南](../subagents_guide.md)。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `SubAgent.MaxDepth` | session-backed SubAgent 最大生成深度；第一级子代理深度为 `1` | `1` |
+| `SubAgent.Model` | DotCraft 原生 SubAgent 使用的模型；空值继承当前线程的有效主模型 | 空 |
+| `SubAgent.EnableExternalCliSessionResume` | 是否允许支持 resume 的 external CLI profile 复用已保存外部会话 | `false` |
+| `SubAgent.DisabledProfiles` | 当前工作区隐藏和禁用的 SubAgent profile 名称列表 | `[]` |
+| `SubAgent.Roles` | 工作区自定义 SubAgent role；同名条目覆盖内置 role | `[]` |
+
+`SubAgent.Roles` 的条目字段：
+
+| 字段 | 说明 |
+|------|------|
+| `Name` | role 名称，也是 `SpawnAgent.agentRole` 使用的值 |
+| `Description` | role 简短说明，会暴露给主 Agent |
+| `ToolAllowList` | 精确工具允许列表；为空表示不额外限制候选工具 |
+| `ToolDenyList` | 精确工具拒绝列表，会在工具集合构建完成后移除 |
+| `AgentControlToolAccess` | AgentTools 策略：`Disabled` / `Full` / `AllowList` |
+| `AllowedAgentControlTools` | `AgentControlToolAccess` 为 `AllowList` 时允许的 AgentTools 名称 |
+| `PromptProfile` | 原生 SubAgent 提示词 profile：`subagent-light` / `full` |
+| `Instructions` | 追加到 SubAgent prompt 的 role instructions |
+| `Mode` | 可选 mode 覆盖 |
+| `Model` | 可选 model 覆盖 |
+| `OverrideBasePrompt` | 是否用 `Instructions` 覆盖基础 prompt；默认追加而不是覆盖 |
+
 ## 外部渠道
 
 QQ、企业微信等 TypeScript 外部渠道通过 `ExternalChannels` 注册：

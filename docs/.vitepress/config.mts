@@ -36,6 +36,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
     items: [
       { text: '配置入门', link: '/config_guide' },
       { text: '安全配置', link: '/config/security' },
+      { text: 'SubAgent 配置', link: '/subagents_guide' },
       { text: '设置生效层级', link: '/settings-lifecycle' },
       { text: '完整配置参考', link: '/reference/config' }
     ]
@@ -130,6 +131,7 @@ const enSidebar: DefaultTheme.Sidebar = [
     items: [
       { text: 'Configuration Basics', link: '/en/config_guide' },
       { text: 'Security Configuration', link: '/en/config/security' },
+      { text: 'SubAgent Configuration', link: '/en/subagents_guide' },
       { text: 'Settings Lifecycle', link: '/en/settings-lifecycle' },
       { text: 'Full Configuration Reference', link: '/en/reference/config' }
     ]

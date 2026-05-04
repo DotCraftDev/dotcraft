@@ -225,7 +225,9 @@ A QueuedTurnInput is a durable snapshot of user input waiting to become a future
 
 Profile-backed SubAgents are represented as ordinary `SessionThread` instances with `Source.kind = "subagent"` and `OriginChannel = "subagent"`. Native profiles use the same turn, item, approval, persistence, and resume path as main agent threads. External CLI profiles persist synthetic turns containing the submitted prompt, final output or error, and token metadata when available.
 
-SubAgent child threads use normal session tool construction with `AgentControlToolAccess.Disabled`, so DotCraft SubAgent control tools (`SpawnAgent`, `SendInput`, `WaitAgent`, `ResumeAgent`, `CloseAgent`) are not exposed to child agents. This prevents recursive background-agent orchestration from a child thread while preserving ordinary file, shell, web, skill, MCP, and external tools.
+SubAgent child threads use normal session tool construction with a role-resolved tool policy. `agentRole` is a role selector, not just display metadata. The built-in `default` role disables DotCraft SubAgent control tools, `explorer` exposes a read-only exploration surface, and `worker` may expose write/shell/web tools plus Agent control when the depth policy allows it. Workspace configuration may override or add roles.
+
+`SubAgent.MaxDepth` defaults to `1`. The first child spawned by a root thread has depth `1`; by default, that child cannot call `SpawnAgent` again even when its role would otherwise allow Agent control. Raising `SubAgent.MaxDepth` is the advanced opt-in for recursive SubAgent orchestration.
 
 Session Core persists a `ThreadSpawnEdge` graph row for each parent/child relationship: `parentThreadId`, `childThreadId`, `parentTurnId`, `depth`, `agentNickname`, `agentRole`, `profileName`, `runtimeType`, `supportsSendInput`, `supportsResume`, `supportsClose`, `status` (`open` or `closed`), `createdAt`, and `updatedAt`.
 

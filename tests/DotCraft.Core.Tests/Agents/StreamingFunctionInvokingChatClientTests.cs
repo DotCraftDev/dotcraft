@@ -213,67 +213,6 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
-    public async Task GetStreamingResponseAsync_SpawnAgentWithoutPrompt_ReturnsActionableInvalidArgumentsResult()
-    {
-        var inner = new ToolCallFakeChatClient(
-            "SpawnAgent",
-            new Dictionary<string, object?>());
-        var invoked = false;
-        var client = new StreamingFunctionInvokingChatClient(inner)
-        {
-            AdditionalTools = [AIFunctionFactory.Create(() =>
-            {
-                invoked = true;
-                return "should not run";
-            }, name: "SpawnAgent")]
-        };
-
-        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
-        {
-        }
-
-        Assert.False(invoked);
-        Assert.Equal(2, inner.Calls.Count);
-        var result = Assert.Single(inner.Calls[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>());
-        Assert.Contains("SpawnAgent requires a non-empty \"prompt\" argument", result.Result?.ToString(), StringComparison.Ordinal);
-        Assert.Contains("\"prompt\":\"...\"", result.Result?.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("Function failed", result.Result?.ToString(), StringComparison.Ordinal);
-        Assert.True(StreamingFunctionInvokingChatClient.IsInvalidToolArgumentsResult(result));
-    }
-
-    [Theory]
-    [InlineData("task")]
-    [InlineData("message")]
-    [InlineData("input")]
-    public async Task GetStreamingResponseAsync_SpawnAgentAliases_AreMappedToPrompt(string alias)
-    {
-        var inner = new ToolCallFakeChatClient(
-            "SpawnAgent",
-            new Dictionary<string, object?> { [alias] = "inspect code" });
-        string? capturedPrompt = null;
-        var client = new StreamingFunctionInvokingChatClient(inner)
-        {
-            AdditionalTools = [AIFunctionFactory.Create(() => "ok", name: "SpawnAgent")],
-            FunctionInvoker = (context, _) =>
-            {
-                capturedPrompt = context.Arguments.TryGetValue("prompt", out var value)
-                    ? value?.ToString()
-                    : null;
-                return ValueTask.FromResult<object?>("ok");
-            }
-        };
-
-        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
-        {
-        }
-
-        Assert.Equal("inspect code", capturedPrompt);
-        var result = Assert.Single(inner.Calls[1].SelectMany(message => message.Contents).OfType<FunctionResultContent>());
-        Assert.Equal("ok", result.Result);
-        Assert.False(StreamingFunctionInvokingChatClient.IsInvalidToolArgumentsResult(result));
-    }
-
-    [Fact]
     public async Task GetStreamingResponseAsync_ExposesCurrentInvocationContext()
     {
         var inner = new RoundTripFakeChatClient();

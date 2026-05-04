@@ -88,6 +88,7 @@ DotCraft's base identity is built in. To customize project instructions, working
 | Configure API key and default model | Edit global `~/.craft/config.json` |
 | Use a different model for one project | Edit that project's `.craft/config.json` |
 | Limit file, shell, or network capability | Read [Security Configuration](./config/security.md) |
+| Configure SubAgent roles, profiles, and recursion depth | Read [SubAgent Configuration Guide](./subagents_guide.md) |
 | See every configuration field | Read [Full Configuration Reference](./reference/config.md) |
 | Inspect merged configuration in the UI | Open the Settings page in [Dashboard](./dash_board_guide.md) |
 

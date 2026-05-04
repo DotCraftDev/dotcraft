@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using DotCraft.Agents;
 using DotCraft.Configuration;
 using DotCraft.Security;
+using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
@@ -40,7 +41,7 @@ public static class SubAgentSessionScope
 
 public sealed class SubAgentSpawnOptions
 {
-    public string Prompt { get; set; } = string.Empty;
+    public string AgentPrompt { get; set; } = string.Empty;
 
     public string? AgentNickname { get; set; }
 
@@ -49,6 +50,10 @@ public sealed class SubAgentSpawnOptions
     public string? ProfileName { get; set; }
 
     public string? WorkingDirectory { get; set; }
+
+    public IReadOnlyList<SubAgentRoleConfig>? RoleConfigs { get; set; }
+
+    public int MaxDepth { get; set; } = 1;
 }
 
 public sealed class SubAgentControlResult
@@ -99,10 +104,17 @@ public static class SubAgentSessionControl
         SubAgentCoordinator? coordinator,
         CancellationToken ct)
     {
-        var prompt = NormalizeRequired(options.Prompt, nameof(options.Prompt));
+        var prompt = NormalizeRequired(options.AgentPrompt, nameof(options.AgentPrompt));
         var childThreadId = SessionIdGenerator.NewThreadId();
         var nickname = NormalizeNickname(options.AgentNickname, prompt);
-        var role = NormalizeOptional(options.AgentRole) ?? "worker";
+        var roleRegistry = new SubAgentRoleRegistry(options.RoleConfigs);
+        if (!roleRegistry.TryGet(options.AgentRole, out var roleConfig))
+        {
+            var unknownRole = NormalizeOptional(options.AgentRole) ?? SubAgentRoleNames.Default;
+            throw new InvalidOperationException($"Unknown subagent role '{unknownRole}'.");
+        }
+
+        var role = roleConfig.Name;
         var requestedProfileName = NormalizeOptional(options.ProfileName);
         var requestedWorkingDirectory = NormalizeOptional(options.WorkingDirectory);
         var request = new SubAgentTaskRequest
@@ -115,12 +127,32 @@ public static class SubAgentSessionControl
         var prepared = PrepareRun(coordinator, request, requestedProfileName, context.ParentThread.WorkspacePath);
         var profileName = prepared?.Profile.Name ?? SubAgentCoordinator.DefaultProfileName;
         var runtimeType = prepared?.Runtime.RuntimeType ?? NativeSubAgentRuntime.RuntimeTypeName;
+        if (prepared != null
+            && !string.Equals(runtimeType, NativeSubAgentRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            prepared = prepared with
+            {
+                Request = prepared.Request with
+                {
+                    Task = BuildExternalRolePrompt(prompt, roleConfig)
+                }
+            };
+        }
+
         var workspace = prepared?.LaunchContext.WorkingDirectory
             ?? requestedWorkingDirectory
             ?? context.ParentThread.WorkspacePath;
         var capabilities = ResolveCapabilities(runtimeType, prepared?.Profile, coordinator);
         var depth = context.Depth + 1;
+        var maxDepth = Math.Max(1, options.MaxDepth);
+        if (depth > maxDepth)
+            throw new InvalidOperationException($"Subagent depth limit reached. Maximum depth is {maxDepth}.");
         var now = DateTimeOffset.UtcNow;
+        var childConfiguration = ApplyRoleToChildConfiguration(
+            context.ParentThread.Configuration,
+            roleConfig,
+            depth,
+            maxDepth);
 
         var source = ThreadSource.ForSubAgent(new SubAgentThreadSource
         {
@@ -147,7 +179,7 @@ public static class SubAgentSessionControl
 
         var childThread = await context.SessionService.CreateThreadAsync(
             identity,
-            context.ParentThread.Configuration,
+            childConfiguration,
             HistoryMode.Server,
             childThreadId,
             nickname,
@@ -573,6 +605,130 @@ public static class SubAgentSessionControl
             SupportsSendInput: native || externalResume,
             SupportsResume: native || externalResume,
             SupportsClose: true);
+    }
+
+    private static ThreadConfiguration ApplyRoleToChildConfiguration(
+        ThreadConfiguration? parentConfiguration,
+        SubAgentRoleConfig role,
+        int childDepth,
+        int maxDepth)
+    {
+        var child = CloneConfiguration(parentConfiguration);
+        if (!string.IsNullOrWhiteSpace(role.Mode))
+            child.Mode = role.Mode.Trim();
+        if (!string.IsNullOrWhiteSpace(role.Model))
+            child.Model = role.Model.Trim();
+
+        child.ToolAllowList = MergeAllowLists(parentConfiguration?.ToolAllowList, role.ToolAllowList);
+        child.ToolDenyList = MergeDenyLists(parentConfiguration?.ToolDenyList, role.ToolDenyList);
+        child.PromptProfile = NormalizeOptional(role.PromptProfile) ?? SubAgentPromptProfiles.Light;
+        child.RoleInstructions = NormalizeOptional(role.Instructions);
+        child.OverrideBasePrompt = role.OverrideBasePrompt;
+        if (role.OverrideBasePrompt && !string.IsNullOrWhiteSpace(role.Instructions))
+            child.AgentInstructions = role.Instructions;
+
+        ApplyAgentControlPolicy(child, role, childDepth, maxDepth);
+        return child;
+    }
+
+    private static void ApplyAgentControlPolicy(
+        ThreadConfiguration child,
+        SubAgentRoleConfig role,
+        int childDepth,
+        int maxDepth)
+    {
+        var requestedAccess = role.AgentControlToolAccess;
+        var requestedAllowed = role.AllowedAgentControlTools
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (requestedAccess == AgentControlToolAccess.Full)
+            requestedAllowed = AgentControlToolPolicy.AllToolNames.ToHashSet(StringComparer.Ordinal);
+
+        if (childDepth >= maxDepth)
+            requestedAllowed.Remove(nameof(AgentTools.SpawnAgent));
+
+        if (requestedAccess == AgentControlToolAccess.Disabled || requestedAllowed.Count == 0)
+        {
+            child.AgentControlToolAccess = AgentControlToolAccess.Disabled;
+            child.AllowedAgentControlTools = null;
+            return;
+        }
+
+        child.AgentControlToolAccess = requestedAccess == AgentControlToolAccess.AllowList || childDepth >= maxDepth
+            ? AgentControlToolAccess.AllowList
+            : AgentControlToolAccess.Full;
+        child.AllowedAgentControlTools = child.AgentControlToolAccess == AgentControlToolAccess.AllowList
+            ? requestedAllowed.ToArray()
+            : null;
+    }
+
+    private static ThreadConfiguration CloneConfiguration(ThreadConfiguration? source)
+    {
+        if (source == null)
+            return new ThreadConfiguration();
+
+        return new ThreadConfiguration
+        {
+            McpServers = source.McpServers?.ToArray(),
+            Mode = source.Mode,
+            Extensions = source.Extensions?.ToArray(),
+            CustomTools = source.CustomTools?.ToArray(),
+            Model = source.Model,
+            WorkspaceOverride = source.WorkspaceOverride,
+            ToolProfile = source.ToolProfile,
+            UseToolProfileOnly = source.UseToolProfileOnly,
+            AgentInstructions = source.AgentInstructions,
+            ToolAllowList = source.ToolAllowList?.ToArray(),
+            ToolDenyList = source.ToolDenyList?.ToArray(),
+            AgentControlToolAccess = source.AgentControlToolAccess,
+            AllowedAgentControlTools = source.AllowedAgentControlTools?.ToArray(),
+            PromptProfile = source.PromptProfile,
+            RoleInstructions = source.RoleInstructions,
+            OverrideBasePrompt = source.OverrideBasePrompt,
+            ApprovalPolicy = source.ApprovalPolicy,
+            AutomationTaskDirectory = source.AutomationTaskDirectory,
+            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace
+        };
+    }
+
+    private static string[]? MergeAllowLists(string[]? parent, IReadOnlyList<string> role)
+    {
+        var parentSet = parent?.Where(v => !string.IsNullOrWhiteSpace(v)).ToHashSet(StringComparer.Ordinal);
+        var roleSet = role.Where(v => !string.IsNullOrWhiteSpace(v)).ToHashSet(StringComparer.Ordinal);
+        if (parentSet is not { Count: > 0 })
+            return roleSet.Count == 0 ? null : roleSet.ToArray();
+        if (roleSet.Count == 0)
+            return parentSet.ToArray();
+
+        parentSet.IntersectWith(roleSet);
+        return parentSet.Count == 0 ? [] : parentSet.ToArray();
+    }
+
+    private static string[]? MergeDenyLists(string[]? parent, IReadOnlyList<string> role)
+    {
+        var deny = parent?.Where(v => !string.IsNullOrWhiteSpace(v)).ToHashSet(StringComparer.Ordinal)
+            ?? new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in role.Where(v => !string.IsNullOrWhiteSpace(v)))
+            deny.Add(item);
+        return deny.Count == 0 ? null : deny.ToArray();
+    }
+
+    private static string BuildExternalRolePrompt(string prompt, SubAgentRoleConfig role)
+    {
+        if (string.IsNullOrWhiteSpace(role.Instructions))
+            return prompt;
+
+        return
+$$"""
+## SubAgent Role: {{role.Name}}
+
+{{role.Instructions.Trim()}}
+
+## Task
+
+{{prompt}}
+""";
     }
 
     private static string NormalizeRequired(string value, string name)

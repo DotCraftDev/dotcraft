@@ -807,6 +807,18 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "Model for native SubAgents. Empty = use the current thread's effective MainAgent model.", Reload = ReloadBehavior.Hot, HasReload = true)]
         public string Model { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Maximum allowed depth for session-backed SubAgent spawning. The first child has depth 1.
+        /// </summary>
+        [ConfigField(Min = 1, Hint = "Maximum SubAgent spawn depth. Default 1 allows root -> SubAgent only.", Reload = ReloadBehavior.Hot, HasReload = true)]
+        public int MaxDepth { get; set; } = 1;
+
+        /// <summary>
+        /// Workspace-configured SubAgent roles. Entries override built-in roles by name.
+        /// </summary>
+        [ConfigField(Ignore = true)]
+        public List<SubAgentRoleConfig> Roles { get; set; } = [];
     }
 
     [ConfigSection("WelcomeSuggestions", DisplayName = "Welcome Suggestions", Order = 59)]

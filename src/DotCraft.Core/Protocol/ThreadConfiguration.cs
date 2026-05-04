@@ -1,4 +1,5 @@
 using DotCraft.Mcp;
+using DotCraft.Tools;
 
 namespace DotCraft.Protocol;
 
@@ -61,6 +62,48 @@ public sealed class ThreadConfiguration
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? AgentInstructions { get; set; }
+
+    /// <summary>
+    /// Optional exact tool allow-list resolved from a SubAgent role.
+    /// Empty or null means all assembled tools remain eligible unless denied.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? ToolAllowList { get; set; }
+
+    /// <summary>
+    /// Optional exact tool deny-list resolved from a SubAgent role.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? ToolDenyList { get; set; }
+
+    /// <summary>
+    /// Optional per-thread override for DotCraft agent-control tools.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AgentControlToolAccess? AgentControlToolAccess { get; set; }
+
+    /// <summary>
+    /// Optional exact agent-control allow-list used when <see cref="AgentControlToolAccess"/> is allow-list.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? AllowedAgentControlTools { get; set; }
+
+    /// <summary>
+    /// Optional prompt profile. Session-backed SubAgents default to a lightweight profile.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PromptProfile { get; set; }
+
+    /// <summary>
+    /// Role-specific instructions appended to the generated system prompt.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RoleInstructions { get; set; }
+
+    /// <summary>
+    /// When true, <see cref="RoleInstructions"/> replaces the generated prompt for this thread.
+    /// </summary>
+    public bool OverrideBasePrompt { get; set; }
 
     /// <summary>
     /// Overrides the process-level approval service for this thread only.

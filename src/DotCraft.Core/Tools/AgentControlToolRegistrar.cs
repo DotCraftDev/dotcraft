@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
+using DotCraft.Configuration;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools;
@@ -15,9 +16,11 @@ public static class AgentControlToolRegistrar
     public static void AddTools(
         ICollection<AITool> tools,
         ToolProviderContext context,
-        SubAgentCoordinator subAgentCoordinator)
+        SubAgentCoordinator subAgentCoordinator,
+        IEnumerable<SubAgentRoleConfig>? subAgentRoles = null,
+        int maxSubAgentDepth = 1)
     {
-        var agentTools = new AgentTools(subAgentCoordinator);
+        var agentTools = new AgentTools(subAgentCoordinator, subAgentRoles, maxSubAgentDepth);
         AddIfAllowed(tools, context, nameof(AgentTools.SpawnAgent), () => AIFunctionFactory.Create(agentTools.SpawnAgent));
         AddIfAllowed(tools, context, nameof(AgentTools.SendInput), () => AIFunctionFactory.Create(agentTools.SendInput));
         AddIfAllowed(tools, context, nameof(AgentTools.WaitAgent), () => AIFunctionFactory.Create(agentTools.WaitAgent));

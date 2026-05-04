@@ -160,6 +160,26 @@ public sealed class ToolProviderContext
     public IReadOnlySet<string>? AllowedAgentControlTools { get; init; }
 
     /// <summary>
+    /// Optional exact tool allow-list resolved for the current thread.
+    /// </summary>
+    public IReadOnlySet<string>? ToolAllowList { get; init; }
+
+    /// <summary>
+    /// Optional exact tool deny-list resolved for the current thread.
+    /// </summary>
+    public IReadOnlySet<string>? ToolDenyList { get; init; }
+
+    /// <summary>
+    /// Optional prompt profile for the current thread.
+    /// </summary>
+    public string? PromptProfile { get; init; }
+
+    /// <summary>
+    /// Optional role-specific instructions appended to the current thread prompt.
+    /// </summary>
+    public string? RoleInstructions { get; init; }
+
+    /// <summary>
     /// Origin channel of the current session-backed thread.
     /// </summary>
     public string? CurrentOriginChannel { get; init; }

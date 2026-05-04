@@ -1,5 +1,6 @@
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
+using DotCraft.Configuration;
 using DotCraft.Memory;
 using DotCraft.Skills;
 
@@ -22,7 +23,9 @@ public sealed class PromptBuilder(
     string? subAgentProfilesSection = null,
     Func<IReadOnlyList<string>>? toolNamesProvider = null,
     bool skillVariantModeEnabled = false,
-    SkillVariantTarget? skillVariantTarget = null)
+    SkillVariantTarget? skillVariantTarget = null,
+    string? promptProfile = null,
+    string? roleInstructions = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -45,6 +48,10 @@ public sealed class PromptBuilder(
     /// </summary>
     public string BuildSystemPrompt()
     {
+        var subAgentLight = string.Equals(
+            promptProfile,
+            SubAgentPromptProfiles.Light,
+            StringComparison.OrdinalIgnoreCase);
         var parts = new List<string>
         {
             // Core identity and built-in operating guidance
@@ -59,21 +66,24 @@ public sealed class PromptBuilder(
         parts.Add(GetFileReferenceFormatPrompt());
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
-        var bootstrapContent = LoadBootstrapFiles();
+        var bootstrapContent = LoadBootstrapFiles(agentsOnly: subAgentLight);
         if (!string.IsNullOrWhiteSpace(bootstrapContent))
         {
             parts.Add(bootstrapContent);
         }
 
         // Memory context
-        var memory = memoryStore.GetMemoryContext();
-        if (!string.IsNullOrWhiteSpace(memory))
-            parts.Add($"# Memory\n\n{memory}");
+        if (!subAgentLight)
+        {
+            var memory = memoryStore.GetMemoryContext();
+            if (!string.IsNullOrWhiteSpace(memory))
+                parts.Add($"# Memory\n\n{memory}");
+        }
 
         // Skills - Progressive loading approach:
         // 1. Always-loaded skills: include full content
         var availableToolNames = toolNamesProvider?.Invoke();
-        if (IsToolAvailable(availableToolNames, "SkillManage"))
+        if (!subAgentLight && IsToolAvailable(availableToolNames, "SkillManage"))
             parts.Add(GetSelfLearningPrompt());
 
         var alwaysSkills = skillsLoader.GetAlwaysSkills(availableToolNames);
@@ -113,7 +123,7 @@ Only proceed without loading a skill if genuinely none of the listed skills are 
         }
 
         // Custom commands summary
-        if (customCommandLoader != null)
+        if (!subAgentLight && customCommandLoader != null)
         {
             var commandsSummary = customCommandLoader.BuildCommandsSummary();
             if (!string.IsNullOrWhiteSpace(commandsSummary))
@@ -128,11 +138,17 @@ Only proceed without loading a skill if genuinely none of the listed skills are 
         }
 
         // Deferred MCP tool discovery guidance (injected when deferred loading is active)
-        if (deferredMcpServerNames is { Count: > 0 })
+        if (!subAgentLight && deferredMcpServerNames is { Count: > 0 })
             parts.Add(BuildDeferredToolsSection(deferredMcpServerNames));
 
+        if (subAgentLight)
+            parts.Add(GetSubAgentLightPrompt(availableToolNames));
+
+        if (!string.IsNullOrWhiteSpace(roleInstructions))
+            parts.Add($"## Role Instructions\n\n{roleInstructions.Trim()}");
+
         // Mode-aware prompt injection (must be last so it takes highest priority)
-        if (modeManager != null)
+        if (!subAgentLight && modeManager != null)
         {
             var modeSection = GetModePromptSection(modeManager);
             if (!string.IsNullOrWhiteSpace(modeSection))
@@ -192,12 +208,15 @@ Currently connected external services: {{servers}}
     /// Bootstrap files provide additional context and instructions.
     /// </summary>
     /// <returns>Combined content of all bootstrap files, or empty string if none exist.</returns>
-    private string LoadBootstrapFiles()
+    private string LoadBootstrapFiles(bool agentsOnly = false)
     {
         var parts = new List<string>();
 
         foreach (var filename in BootstrapFiles)
         {
+            if (agentsOnly && !string.Equals(filename, "AGENTS.md", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var filePath = Path.Combine(_craftPath, filename);
             if (File.Exists(filePath))
             {
@@ -218,6 +237,28 @@ Currently connected external services: {{servers}}
         }
 
         return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    private static string GetSubAgentLightPrompt(IReadOnlyList<string>? availableToolNames)
+    {
+        var tools = availableToolNames is { Count: > 0 }
+            ? string.Join(", ", availableToolNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            : "No tools are currently exposed.";
+
+        return
+$$"""
+## SubAgent Context
+
+You are running as a session-backed SubAgent. The parent agent owns final synthesis; your job is to complete the assigned task and return concise, concrete results.
+
+Available tools for this role: {{tools}}
+
+Rules:
+- Stay within the assigned task and role.
+- Use only tools that are actually available in this thread.
+- Do not assume write, shell, web, or agent-control access unless the tool is listed.
+- Final response should summarize findings, actions, changed files if any, and validation performed.
+""";
     }
 
     private string GetIdentity()
@@ -253,7 +294,7 @@ This contains:
 ## Tool Usage Policy
 - When doing open-ended file search or codebase exploration that requires multiple rounds of searching, prefer to use SpawnAgent to reduce context usage and keep the main conversation focused.
 - You should proactively use SpawnAgent when a research task requires many search rounds, or when independent investigations can run in parallel.
-- Launch multiple subagents concurrently whenever possible — include multiple SpawnAgent calls in a single response to maximize performance, and give each call a different self-contained `prompt`.
+- Launch multiple subagents concurrently whenever possible — include multiple SpawnAgent calls in a single response to maximize performance, and give each call a different self-contained `agentPrompt`.
 - When you are not confident you can find what you need in 1-2 tool calls, use SpawnAgent instead.
 """;
     }
@@ -522,7 +563,7 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
 
 **IMPORTANT — Parallel Exploration with SpawnAgent**: When the task touches multiple independent areas of the codebase, launch multiple SpawnAgent calls in a single response instead of exploring sequentially. This dramatically reduces planning time.
 
-Example: if the task involves both a data model and a UI component, send one response with two complete SpawnAgent calls — one with `prompt` focused on the model layer and one with a different `prompt` focused on the UI layer — rather than doing them one after the other.
+Example: if the task involves both a data model and a UI component, send one response with two complete SpawnAgent calls — one with `agentPrompt` focused on the model layer and one with a different `agentPrompt` focused on the UI layer — rather than doing them one after the other.
 
 ### Subagent Result Synthesis
 - After subagents return, identify which findings can be used directly and

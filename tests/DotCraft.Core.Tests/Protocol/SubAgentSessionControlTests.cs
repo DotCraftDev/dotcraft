@@ -43,7 +43,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
             context,
             new SubAgentSpawnOptions
             {
-                Prompt = "inspect code",
+                AgentPrompt = "inspect code",
                 AgentNickname = "Inspect",
                 ProfileName = "cli-run"
             },
@@ -79,6 +79,31 @@ public sealed class SubAgentSessionControlTests : IDisposable
     }
 
     [Fact]
+    public async Task SpawnAgent_WithExternalProfile_PrependsRoleInstructionsToRuntimePrompt()
+    {
+        var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "cli ok");
+        var coordinator = CreateCoordinator(runtime, supportsResume: false, resumeEnabled: false);
+        var context = await CreateContextAsync();
+
+        await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions
+            {
+                AgentPrompt = "inspect code",
+                AgentRole = "explorer",
+                ProfileName = "cli-run"
+            },
+            waitForCompletion: true,
+            coordinator,
+            CancellationToken.None);
+
+        Assert.Contains("## SubAgent Role: explorer", runtime.LastRequest?.Task, StringComparison.Ordinal);
+        Assert.Contains("You are an explorer SubAgent", runtime.LastRequest?.Task, StringComparison.Ordinal);
+        Assert.Contains("## Task", runtime.LastRequest?.Task, StringComparison.Ordinal);
+        Assert.Contains("inspect code", runtime.LastRequest?.Task, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SendInput_WithExternalProfileWithoutResume_ReturnsUnsupported()
     {
         var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "cli ok");
@@ -86,7 +111,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
         var context = await CreateContextAsync();
         var spawned = await SubAgentSessionControl.SpawnAgentAsync(
             context,
-            new SubAgentSpawnOptions { Prompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
+            new SubAgentSpawnOptions { AgentPrompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
             waitForCompletion: true,
             coordinator,
             CancellationToken.None);
@@ -111,7 +136,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
         var context = await CreateContextAsync();
         var spawned = await SubAgentSessionControl.SpawnAgentAsync(
             context,
-            new SubAgentSpawnOptions { Prompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
+            new SubAgentSpawnOptions { AgentPrompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
             waitForCompletion: true,
             coordinator,
             CancellationToken.None);
@@ -150,7 +175,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
         var context = await CreateContextAsync();
         var spawned = await SubAgentSessionControl.SpawnAgentAsync(
             context,
-            new SubAgentSpawnOptions { Prompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
+            new SubAgentSpawnOptions { AgentPrompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
             waitForCompletion: false,
             coordinator,
             CancellationToken.None);
@@ -179,7 +204,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
         var context = await CreateContextAsync();
         var spawned = await SubAgentSessionControl.SpawnAgentAsync(
             context,
-            new SubAgentSpawnOptions { Prompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
+            new SubAgentSpawnOptions { AgentPrompt = "inspect code", AgentNickname = "Inspect", ProfileName = "cli-run" },
             waitForCompletion: false,
             coordinator,
             CancellationToken.None);
@@ -199,8 +224,148 @@ public sealed class SubAgentSessionControlTests : IDisposable
         await SubAgentSessionControl.CloseAgentAsync(_sessionService, spawned.ChildThreadId, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task SpawnAgent_DefaultRole_DisablesAgentControlAndUsesLightPrompt()
+    {
+        var context = await CreateContextAsync();
 
-    private async Task<SubAgentSessionContext> CreateContextAsync()
+        var result = await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions
+            {
+                AgentPrompt = "inspect code",
+                MaxDepth = 1
+            },
+            waitForCompletion: false,
+            coordinator: null,
+            CancellationToken.None);
+
+        var child = await _sessionService.GetThreadAsync(result.ChildThreadId);
+
+        Assert.Equal("default", result.AgentRole);
+        Assert.Equal("default", child.Source.SubAgent?.AgentRole);
+        Assert.Equal("subagent-light", child.Configuration?.PromptProfile);
+        Assert.Equal(DotCraft.Tools.AgentControlToolAccess.Disabled, child.Configuration?.AgentControlToolAccess);
+        Assert.Contains("Do not spawn additional agents", child.Configuration?.RoleInstructions, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SpawnAgent_WorkerRole_DefaultMaxDepth_RemovesSpawnAgent()
+    {
+        var context = await CreateContextAsync();
+
+        var result = await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions
+            {
+                AgentPrompt = "implement change",
+                AgentRole = "worker",
+                MaxDepth = 1
+            },
+            waitForCompletion: false,
+            coordinator: null,
+            CancellationToken.None);
+
+        var child = await _sessionService.GetThreadAsync(result.ChildThreadId);
+
+        Assert.Equal("worker", result.AgentRole);
+        Assert.Equal(DotCraft.Tools.AgentControlToolAccess.AllowList, child.Configuration?.AgentControlToolAccess);
+        Assert.DoesNotContain(nameof(DotCraft.Tools.AgentTools.SpawnAgent), child.Configuration?.AllowedAgentControlTools ?? []);
+        Assert.Contains(nameof(DotCraft.Tools.AgentTools.WaitAgent), child.Configuration?.AllowedAgentControlTools ?? []);
+    }
+
+    [Fact]
+    public async Task SpawnAgent_WorkerRole_WhenDepthAllows_KeepsFullAgentControl()
+    {
+        var context = await CreateContextAsync();
+
+        var result = await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions
+            {
+                AgentPrompt = "implement change",
+                AgentRole = "worker",
+                MaxDepth = 2
+            },
+            waitForCompletion: false,
+            coordinator: null,
+            CancellationToken.None);
+
+        var child = await _sessionService.GetThreadAsync(result.ChildThreadId);
+
+        Assert.Equal(DotCraft.Tools.AgentControlToolAccess.Full, child.Configuration?.AgentControlToolAccess);
+        Assert.Null(child.Configuration?.AllowedAgentControlTools);
+    }
+
+    [Fact]
+    public async Task SpawnAgent_ExplorerRole_UsesReadOnlyToolAllowList()
+    {
+        var context = await CreateContextAsync();
+
+        var result = await SubAgentSessionControl.SpawnAgentAsync(
+            context,
+            new SubAgentSpawnOptions
+            {
+                AgentPrompt = "map the code",
+                AgentRole = "explorer"
+            },
+            waitForCompletion: false,
+            coordinator: null,
+            CancellationToken.None);
+
+        var child = await _sessionService.GetThreadAsync(result.ChildThreadId);
+        var allowList = child.Configuration?.ToolAllowList ?? [];
+
+        Assert.Contains("ReadFile", allowList);
+        Assert.Contains("WebSearch", allowList);
+        Assert.DoesNotContain("WriteFile", allowList);
+        Assert.DoesNotContain("Exec", allowList);
+        Assert.Equal(DotCraft.Tools.AgentControlToolAccess.Disabled, child.Configuration?.AgentControlToolAccess);
+    }
+
+    [Fact]
+    public async Task SpawnAgent_UnknownRole_FailsBeforeCreatingChildThread()
+    {
+        var context = await CreateContextAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            SubAgentSessionControl.SpawnAgentAsync(
+                context,
+                new SubAgentSpawnOptions
+                {
+                    AgentPrompt = "inspect code",
+                    AgentRole = "reviewer"
+                },
+                waitForCompletion: false,
+                coordinator: null,
+                CancellationToken.None));
+
+        Assert.Contains("Unknown subagent role 'reviewer'", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(await _sessionService.ListSubAgentChildrenAsync(context.ParentThread.Id, includeClosed: true));
+    }
+
+    [Fact]
+    public async Task SpawnAgent_RejectsDepthBeyondLimit()
+    {
+        var context = await CreateContextAsync(depth: 1);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            SubAgentSessionControl.SpawnAgentAsync(
+                context,
+                new SubAgentSpawnOptions
+                {
+                    AgentPrompt = "spawn deeper",
+                    AgentRole = "worker",
+                    MaxDepth = 1
+                },
+                waitForCompletion: false,
+                coordinator: null,
+                CancellationToken.None));
+
+        Assert.Contains("Subagent depth limit reached", ex.Message, StringComparison.Ordinal);
+    }
+
+    private async Task<SubAgentSessionContext> CreateContextAsync(int depth = 0)
     {
         var parent = await _sessionService.CreateThreadAsync(new SessionIdentity
         {
@@ -215,7 +380,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
             ParentThread = parent,
             ParentTurnId = "turn_001",
             RootThreadId = parent.Id,
-            Depth = 0
+            Depth = depth
         };
     }
 
@@ -262,6 +427,8 @@ public sealed class SubAgentSessionControlTests : IDisposable
 
         public SubAgentLaunchContext? LastLaunchContext { get; private set; }
 
+        public SubAgentTaskRequest? LastRequest { get; private set; }
+
         public Task<SubAgentSessionHandle> CreateSessionAsync(
             SubAgentProfile profile,
             SubAgentLaunchContext context,
@@ -277,6 +444,7 @@ public sealed class SubAgentSessionControlTests : IDisposable
             ISubAgentEventSink sink,
             CancellationToken cancellationToken)
         {
+            LastRequest = request;
             if (WaitForCancellation)
                 return WaitForCancellationAsync(cancellationToken);
 

@@ -474,7 +474,7 @@ public static class CoreToolDisplays
     public static string SpawnAgent(IDictionary<string, object?>? args)
     {
         var nickname = ToolDisplayHelpers.GetString(args, "agentNickname");
-        var prompt = ToolDisplayHelpers.GetString(args, "prompt") ?? "task";
+        var prompt = ToolDisplayHelpers.GetString(args, "agentPrompt") ?? "task";
         return $"Spawned subagent: {SubAgentManager.NormalizeLabel(nickname, prompt)}";
     }
 

@@ -1531,7 +1531,8 @@ Server                                          Client
   | item/started (notification)                   |
   |  item: { type: "toolCall",                    |
   |    toolName: "SpawnAgent",                    |
-  |    arguments: { agentNickname: "code-explorer" } } |
+  |    arguments: { agentPrompt: "inspect code",  |
+  |      agentNickname: "code-explorer" } }        |
   |---------------------------------------------->|
   |                                               |
   | subagent/progress (notification)              |
@@ -2496,7 +2497,8 @@ Client                                          Server
   | item/started (notification)                   |
   |  item: { type: "toolCall",                    |
   |    toolName: "SpawnAgent",                    |
-  |    arguments: { agentNickname: "analyzer" } } |
+  |    arguments: { agentPrompt: "analyze data",  |
+  |      agentNickname: "analyzer" } }             |
   |<----------------------------------------------|
   |                                               |
   | subagent/progress (notification)              |
@@ -4249,6 +4251,7 @@ Returns all builtin profiles plus workspace-defined custom profiles for the curr
 
 `settings.externalCliSessionResumeEnabled` is the workspace-scoped toggle that controls whether supported external CLI profiles may reuse saved external session ids.
 `settings.model` is the optional workspace-scoped default model for DotCraft-managed SubAgents. `null` or an empty string means the server uses the effective MainAgent model for the current thread.
+`SubAgent.MaxDepth` defaults to `1`, so root threads can spawn first-level SubAgents but child SubAgents cannot recursively call `SpawnAgent` unless the workspace explicitly raises the depth limit and the selected role exposes Agent control.
 
 ### 24.5 `subagent/settings/update`
 
@@ -4353,6 +4356,8 @@ Remove one workspace-managed SubAgent definition.
 ### 24.10 Session-Backed SubAgent Child Threads
 
 Servers advertising `capabilities.subAgentSessions = true` expose profile-backed SubAgents as ordinary child threads plus a lightweight parent/child graph. Native profiles run real child agent turns; external CLI profiles persist synthetic child turns containing the submitted prompt, final output or error, and token metadata when available.
+
+`agentRole` selects the child thread role. Built-in roles are `default`, `worker`, and `explorer`; workspace configuration may override or add roles. The resolved role determines the child thread's tool allow/deny policy, Agent control exposure, prompt profile, and role instructions. External CLI profiles receive role instructions as prompt context, but the server cannot enforce tool filtering inside a third-party CLI runtime.
 
 `thread/list` hides subagent child threads unless `includeSubAgents` is true. Children follow the parent lifecycle: parent archive/unarchive/delete recursively applies to descendants, and direct child archive/delete calls are invalid. Clients rendering a composer-adjacent background-agent widget should use `subagent/children/list` for the active parent thread, then call `thread/read` for a child when the user expands or jumps into it.
 

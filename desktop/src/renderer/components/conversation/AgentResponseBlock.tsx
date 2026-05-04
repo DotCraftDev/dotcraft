@@ -284,6 +284,7 @@ function GroupedToolCallRow({ category, items, turnId, turnRunning }: GroupedToo
   const hasFailedItems = items.some(isGroupedItemFailed)
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const rowColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div>
@@ -291,6 +292,8 @@ function GroupedToolCallRow({ category, items, turnId, turnRunning }: GroupedToo
         onClick={() => setExpanded((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -300,16 +303,29 @@ function GroupedToolCallRow({ category, items, turnId, turnRunning }: GroupedToo
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          color: 'var(--text-secondary)',
+          color: hasFailedItems ? 'var(--error)' : rowColor,
           fontSize: '12px',
           textAlign: 'left',
           borderRadius: '4px'
         }}
       >
-        <span style={{ flex: 1, color: hasFailedItems ? 'var(--error)' : 'var(--text-secondary)' }}>
-          {label}
+        <span
+          data-testid="tool-row-title-group"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            flex: '0 1 auto',
+            minWidth: 0,
+            maxWidth: '100%',
+            color: hasFailedItems ? 'var(--error)' : rowColor
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+          <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
         </span>
-        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
       </button>
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>

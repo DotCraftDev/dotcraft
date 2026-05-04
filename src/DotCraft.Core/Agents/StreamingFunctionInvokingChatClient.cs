@@ -2,10 +2,8 @@
 // The .NET Foundation licenses the referenced Microsoft.Extensions.AI source to you under the MIT license.
 // DotCraft adaptation: owns a compact streaming tool loop so same-turn guidance can be inserted at safe boundaries.
 
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
-using System.Text.Json;
 using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 using OpenAiStreamingUpdate = OpenAI.Chat.StreamingChatCompletionUpdate;
@@ -22,10 +20,8 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
     : DelegatingChatClient(innerClient)
 {
     private static readonly AsyncLocal<FunctionInvocationContext?> CurrentInvocationContext = new();
-    internal const string InvalidToolArgumentsMetadataKey = "dotcraft.toolResult.invalidArguments";
-    private const string SpawnAgentToolName = "SpawnAgent";
-    private const string SpawnAgentMissingPromptMessage =
-        "Error: SpawnAgent requires a non-empty \"prompt\" argument. Retry with {\"prompt\":\"...\",\"agentNickname\":\"...\",\"profile\":\"native\"}.";
+
+    private const string InvalidToolArgumentsMetadataKey = "dotcraft.toolResult.invalidArguments";
 
     /// <summary>
     /// Gets the function invocation context currently flowing through this client.
@@ -143,7 +139,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         var lastIterationHadConversationId = false;
         var guidanceContinuationCount = 0;
         var toolMessageId = Guid.NewGuid().ToString("N");
-        var invalidArgumentCounts = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
 
         for (var iteration = 0; ; iteration++)
         {
@@ -243,7 +238,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                 functionCalls,
                 iteration,
                 consecutiveErrorCount,
-                invalidArgumentCounts,
                 cancellationToken);
 
             var anyTerminated = false;
@@ -496,7 +490,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         List<FunctionCallContent> functionCalls,
         int iteration,
         int consecutiveErrorCount,
-        ConcurrentDictionary<string, int> invalidArgumentCounts,
         CancellationToken cancellationToken)
     {
         var captureExceptions = consecutiveErrorCount < MaximumConsecutiveErrorsPerRequest;
@@ -509,7 +502,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                 index,
                 functionCalls.Count,
                 captureExceptions,
-                invalidArgumentCounts,
                 cancellationToken)))
             : await InvokeFunctionsSeriallyAsync(
                 messages,
@@ -517,7 +509,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                 functionCalls,
                 iteration,
                 consecutiveErrorCount,
-                invalidArgumentCounts,
                 cancellationToken);
 
         var contents = new List<AIContent>();
@@ -564,7 +555,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         List<FunctionCallContent> functionCalls,
         int iteration,
         int consecutiveErrorCount,
-        ConcurrentDictionary<string, int> invalidArgumentCounts,
         CancellationToken cancellationToken)
     {
         var outcomes = new List<FunctionInvocationOutcome>(functionCalls.Count);
@@ -578,7 +568,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                 index,
                 functionCalls.Count,
                 captureExceptions: consecutiveErrorCount < MaximumConsecutiveErrorsPerRequest,
-                invalidArgumentCounts: invalidArgumentCounts,
                 cancellationToken);
             outcomes.Add(outcome);
             if (outcome.ShouldTerminate)
@@ -596,15 +585,11 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         int index,
         int count,
         bool captureExceptions,
-        ConcurrentDictionary<string, int> invalidArgumentCounts,
         CancellationToken cancellationToken)
     {
         var tool = FindTool(call.Name, options);
         if (tool is not AIFunction function)
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.NotFound, null, null, false);
-
-        if (TryValidateAndNormalizeSpawnAgentArguments(call, invalidArgumentCounts, out var invalidResult))
-            return invalidResult;
 
         var arguments = new AIFunctionArguments(call.Arguments)
         {
@@ -691,67 +676,6 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             }
         };
         return content;
-    }
-
-    private static bool TryValidateAndNormalizeSpawnAgentArguments(
-        FunctionCallContent call,
-        ConcurrentDictionary<string, int> invalidArgumentCounts,
-        out FunctionInvocationOutcome invalidResult)
-    {
-        invalidResult = default!;
-        if (!string.Equals(call.Name, SpawnAgentToolName, StringComparison.Ordinal))
-            return false;
-
-        var arguments = call.Arguments != null
-            ? new Dictionary<string, object?>(call.Arguments, StringComparer.Ordinal)
-            : new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        if (!TryGetNonEmptyString(arguments, "prompt", out _))
-        {
-            foreach (var alias in new[] { "task", "message", "input" })
-            {
-                if (!TryGetNonEmptyString(arguments, alias, out var aliasValue))
-                    continue;
-
-                arguments["prompt"] = aliasValue;
-                call.Arguments = arguments;
-                return false;
-            }
-
-            var invalidCount = invalidArgumentCounts.AddOrUpdate(SpawnAgentToolName, 1, (_, count) => count + 1);
-            var message = invalidCount > 1
-                ? $"{SpawnAgentMissingPromptMessage} This is invalid SpawnAgent call #{invalidCount} in the current turn; no child thread was created."
-                : $"{SpawnAgentMissingPromptMessage} No child thread was created.";
-            invalidResult = new FunctionInvocationOutcome(
-                call,
-                FunctionInvocationStatus.InvalidArguments,
-                message,
-                null,
-                false);
-            return true;
-        }
-
-        call.Arguments = arguments;
-        return false;
-    }
-
-    private static bool TryGetNonEmptyString(
-        IReadOnlyDictionary<string, object?> arguments,
-        string key,
-        out string value)
-    {
-        value = string.Empty;
-        if (!arguments.TryGetValue(key, out var raw))
-            return false;
-
-        value = raw switch
-        {
-            string s => s,
-            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString() ?? string.Empty,
-            _ => raw?.ToString() ?? string.Empty
-        };
-        value = value.Trim();
-        return value.Length > 0;
     }
 
     private AITool? FindTool(string name, ChatOptions? options)
