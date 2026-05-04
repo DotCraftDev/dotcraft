@@ -112,6 +112,34 @@ This page collects configuration fields in one place. For first-time setup, read
 | `LspServers` | LSP server configuration map | `{}` |
 | `Tools.Lsp.Enabled` | Enables the built-in LSP tool | `false` |
 
+## SubAgent
+
+For the beginner path and examples, read [SubAgent Configuration Guide](../subagents_guide.md).
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `SubAgent.MaxDepth` | Maximum session-backed SubAgent spawn depth; the first child is depth `1` | `1` |
+| `SubAgent.Model` | Model used by DotCraft native SubAgents; empty inherits the current thread's effective main model | Empty |
+| `SubAgent.EnableExternalCliSessionResume` | Allows external CLI profiles that support resume to reuse saved external sessions | `false` |
+| `SubAgent.DisabledProfiles` | SubAgent profile names hidden and disabled for this workspace | `[]` |
+| `SubAgent.Roles` | Workspace-defined SubAgent roles; entries with built-in names override built-in roles | `[]` |
+
+Fields inside each `SubAgent.Roles` entry:
+
+| Field | Description |
+|-------|-------------|
+| `Name` | Role name, also the value used by `SpawnAgent.agentRole` |
+| `Description` | Short role description exposed to the main Agent |
+| `ToolAllowList` | Exact tool allow-list; empty means no additional restriction on eligible tools |
+| `ToolDenyList` | Exact tool deny-list removed after the tool set is assembled |
+| `AgentControlToolAccess` | AgentTools policy: `Disabled` / `Full` / `AllowList` |
+| `AllowedAgentControlTools` | AgentTools names allowed when `AgentControlToolAccess` is `AllowList` |
+| `PromptProfile` | Native SubAgent prompt profile: `subagent-light` / `full` |
+| `Instructions` | Role instructions appended to the SubAgent prompt |
+| `Mode` | Optional mode override |
+| `Model` | Optional model override |
+| `OverrideBasePrompt` | Replaces the base prompt with `Instructions`; by default instructions are appended |
+
 ## External Channels
 
 TypeScript external channels such as QQ and WeCom are registered with `ExternalChannels`:

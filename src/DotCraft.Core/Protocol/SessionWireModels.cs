@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text;
+using DotCraft.Protocol.AppServer;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
@@ -145,6 +146,8 @@ public sealed record SessionWireThread
 
     public string? DisplayName { get; init; }
 
+    public ThreadSource Source { get; init; } = ThreadSource.User();
+
     public ThreadStatus Status { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; }
@@ -156,6 +159,11 @@ public sealed record SessionWireThread
     public ThreadConfiguration? Configuration { get; init; }
 
     public Dictionary<string, string> Metadata { get; init; } = [];
+
+    /// <summary>
+    /// Best-effort runtime snapshot derived from persisted turns.
+    /// </summary>
+    public ThreadRuntimeState Runtime { get; init; } = new();
 
     /// <summary>
     /// FIFO inputs queued behind the currently active turn.
@@ -335,15 +343,55 @@ public static class SessionWireMapper
             OriginChannel = thread.OriginChannel,
             ChannelContext = thread.ChannelContext,
             DisplayName = thread.DisplayName,
+            Source = thread.Source,
             Status = thread.Status,
             CreatedAt = thread.CreatedAt,
             LastActiveAt = thread.LastActiveAt,
             HistoryMode = thread.HistoryMode,
             Configuration = thread.Configuration,
             Metadata = new Dictionary<string, string>(thread.Metadata),
+            Runtime = ToRuntimeState(thread),
             QueuedInputs = thread.QueuedInputs.ToList(),
             Turns = includeTurns ? thread.Turns.Select(t => t.ToWire(includeItems: true)).ToList() : null
         };
+
+    private static ThreadRuntimeState ToRuntimeState(SessionThread thread)
+    {
+        var runningTurn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval);
+        var lastTurn = runningTurn ?? thread.Turns.LastOrDefault();
+        return new ThreadRuntimeState
+        {
+            Running = runningTurn != null,
+            WaitingOnApproval = runningTurn?.Status == TurnStatus.WaitingApproval,
+            WaitingOnPlanConfirmation = lastTurn?.Status == TurnStatus.Completed
+                && EndsWithSuccessfulCreatePlanInPlanMode(thread, lastTurn)
+        };
+    }
+
+    private static bool EndsWithSuccessfulCreatePlanInPlanMode(SessionThread thread, SessionTurn turn)
+    {
+        if (!string.Equals(thread.Configuration?.Mode, "plan", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        for (var idx = turn.Items.Count - 1; idx >= 0; idx--)
+        {
+            if (turn.Items[idx].Payload is not ToolCallPayload toolCall)
+                continue;
+
+            if (!string.Equals(toolCall.ToolName, "CreatePlan", StringComparison.Ordinal))
+                return false;
+
+            return turn.Items
+                .Where(item => item.Payload is ToolResultPayload)
+                .Select(item => item.Payload as ToolResultPayload)
+                .Any(result =>
+                    result != null
+                    && string.Equals(result.CallId, toolCall.CallId, StringComparison.Ordinal)
+                    && result.Success);
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Maps a turn into the wire DTO without item list.
@@ -585,6 +633,7 @@ public static class SessionWireMapper
             CommandExecutionOutputDelta => "commandExecutionOutputDelta",
             ToolCallArgumentsDelta => "toolCallArgumentsDelta",
             CommandExecutionPayload => "commandExecution",
+            ToolExecutionPayload => "toolExecution",
             ApprovalRequestPayload => "approvalRequest",
             ApprovalResponsePayload => "approvalResponse",
             ErrorPayload => "error",

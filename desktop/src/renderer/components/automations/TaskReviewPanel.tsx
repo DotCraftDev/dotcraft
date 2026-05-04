@@ -9,7 +9,6 @@ import { StatusBadge } from './StatusBadge'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import { AgentResponseBlock } from '../conversation/AgentResponseBlock'
 import type { SubAgentEntry } from '../../types/toolCall'
-import { ApproveRejectBar } from './ApproveRejectBar'
 import { ThreadPickerOverlay } from './ThreadPickerOverlay'
 import { addToast } from '../../stores/toastStore'
 
@@ -111,7 +110,7 @@ function ReviewTurnBlock({
 }
 
 /**
- * Side panel for automation task review: history, live stream, approve/reject.
+ * Side panel for automation task activity: history, live stream, and summary.
  */
 export function TaskReviewPanel(): JSX.Element {
   const t = useT()
@@ -182,11 +181,6 @@ export function TaskReviewPanel(): JSX.Element {
   }, [displayTask?.threadBinding, threadList])
 
   const isBound = !!displayTask?.threadBinding?.threadId
-  // When a bound task doesn't require approval (default), hide the approve/reject bar —
-  // the task is designed to loop silently on schedule.
-  const showAwaitingActions =
-    displayTask?.status === 'awaiting_review' &&
-    (!isBound || displayTask.requireApproval !== false)
 
   async function handleUnbind(): Promise<void> {
     if (!displayTask) return
@@ -205,14 +199,13 @@ export function TaskReviewPanel(): JSX.Element {
     !!displayTask &&
     !displayTask.threadId &&
     (displayTask.status === 'pending' ||
-      displayTask.status === 'dispatched' ||
-      displayTask.status === 'agent_running')
+      displayTask.status === 'running')
 
   const showNoActivity =
     !!displayTask &&
     !reviewThreadId &&
     !showWaitingThread &&
-    ['awaiting_review', 'approved', 'rejected', 'failed', 'agent_completed'].includes(
+    ['completed', 'failed'].includes(
       displayTask.status
     )
 
@@ -472,7 +465,6 @@ export function TaskReviewPanel(): JSX.Element {
         ))}
       </div>
 
-      {showAwaitingActions && displayTask && <ApproveRejectBar task={displayTask} />}
     </div>
   )
 }

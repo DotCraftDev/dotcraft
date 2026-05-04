@@ -28,7 +28,7 @@ public sealed class DeferredToolProvider : IAgentToolProvider
         if (context.McpClientManager == null)
             return [];
 
-        var allMcpTools = context.McpClientManager.Tools;
+        var allMcpTools = ToolSchemaSanitizer.SanitizeTools(context.McpClientManager.Tools);
         var cfg = context.Config.Tools.DeferredLoading;
 
         // Fall back to full loading when deferred loading is disabled or tool count

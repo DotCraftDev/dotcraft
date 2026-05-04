@@ -3,7 +3,7 @@ import { useLocale, useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type AutomationTemplate,
-  type SourceFilter
+  type StatusFilter
 } from '../../stores/automationsStore'
 import { useCronStore } from '../../stores/cronStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -72,7 +72,7 @@ export function AutomationsView(): JSX.Element {
   const automationsTab = useUIStore((s) => s.automationsTab)
   const setAutomationsTab = useUIStore((s) => s.setAutomationsTab)
 
-  const { tasks, loading, error, filterSource, setFilterSource, fetchTasks } =
+  const { tasks, loading, error, statusFilter, setStatusFilter, fetchTasks } =
     useAutomationsStore()
   const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
   const startPolling = useAutomationsStore((s) => s.startPolling)
@@ -95,11 +95,13 @@ export function AutomationsView(): JSX.Element {
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
   const [templatesCollapsed, setTemplatesCollapsed] = useState(false)
 
-  const filterTabs: { key: SourceFilter; label: string }[] = useMemo(
+  const filterTabs: { key: StatusFilter; label: string }[] = useMemo(
     () => [
       { key: 'all', label: t('auto.filterAll') },
-      { key: 'local', label: t('auto.source.local') },
-      { key: 'github', label: t('auto.source.github') }
+      { key: 'pending', label: t('status.pending') },
+      { key: 'running', label: t('status.running') },
+      { key: 'completed', label: t('status.completed') },
+      { key: 'failed', label: t('status.failed') }
     ],
     [t]
   )
@@ -133,10 +135,10 @@ export function AutomationsView(): JSX.Element {
   }, [hasTasks, startPolling, stopPolling])
 
   useEffect(() => {
-    if (hasTasks && filterSource !== 'github') {
+    if (hasTasks) {
       void fetchTemplates(locale)
     }
-  }, [hasTasks, filterSource, locale, fetchTemplates])
+  }, [hasTasks, locale, fetchTemplates])
 
   useEffect(() => {
     return () => {
@@ -158,14 +160,11 @@ export function AutomationsView(): JSX.Element {
 
   const filteredTasks = useMemo(() => {
     let list = tasks
-    if (filterSource === 'local') list = list.filter((t) => t.sourceName === 'local')
-    else if (filterSource === 'github') list = list.filter((t) => t.sourceName === 'github')
+    if (statusFilter !== 'all') list = list.filter((t) => t.status === statusFilter)
     return [...list].sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     )
-  }, [tasks, filterSource])
-
-  const showNewButton = filterSource !== 'github'
+  }, [tasks, statusFilter])
 
   const refreshCron = () => void fetchCronJobs()
 
@@ -255,7 +254,7 @@ export function AutomationsView(): JSX.Element {
                   </button>
                 </ActionTooltip>
               )}
-              {activePanel === 'tasks' && showNewButton && (
+              {activePanel === 'tasks' && (
                 <button
                   type="button"
                   aria-label={t('auto.createTask')}
@@ -339,7 +338,7 @@ export function AutomationsView(): JSX.Element {
           {activePanel === 'tasks' && (
             <div
               role="tablist"
-              aria-label={t('auto.filterSource')}
+              aria-label={t('auto.filterStatus')}
               style={{ display: 'flex', gap: '2px', marginTop: activePanel === 'tasks' ? '10px' : '0' }}
             >
               {filterTabs.map((tab) => (
@@ -347,17 +346,17 @@ export function AutomationsView(): JSX.Element {
                   key={tab.key}
                   type="button"
                   role="tab"
-                  aria-selected={filterSource === tab.key}
+                  aria-selected={statusFilter === tab.key}
                   aria-controls="automations-task-list"
-                  id={`filter-tab-${tab.key}`}
-                  tabIndex={filterSource === tab.key ? 0 : -1}
-                  onClick={() => setFilterSource(tab.key)}
+                  id={`status-filter-tab-${tab.key}`}
+                  tabIndex={statusFilter === tab.key ? 0 : -1}
+                  onClick={() => setStatusFilter(tab.key)}
                   style={{
                     padding: '4px 12px',
                     borderRadius: '6px',
                     border: 'none',
-                    backgroundColor: filterSource === tab.key ? 'var(--bg-tertiary)' : 'transparent',
-                    color: filterSource === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    backgroundColor: statusFilter === tab.key ? 'var(--bg-tertiary)' : 'transparent',
+                    color: statusFilter === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
                     fontSize: '12px',
                     fontWeight: 500,
                     cursor: 'pointer',
@@ -394,8 +393,7 @@ export function AutomationsView(): JSX.Element {
             role="tabpanel"
             style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
           >
-            {filterSource !== 'github' && (
-              <div style={{ padding: '6px 10px 10px' }}>
+            <div style={{ padding: '6px 10px 10px' }}>
                 <div
                   style={{
                     display: 'flex',
@@ -619,8 +617,7 @@ export function AutomationsView(): JSX.Element {
                     </button>
                   </div>
                 )}
-              </div>
-            )}
+            </div>
             {loading && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <SkeletonCard />
@@ -676,9 +673,7 @@ export function AutomationsView(): JSX.Element {
                 }}
               >
                 <p style={{ margin: 0 }}>{t('auto.emptyTasks')}</p>
-                {showNewButton && (
-                  <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyTasksHint')}</p>
-                )}
+                <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyTasksHint')}</p>
               </div>
             )}
 

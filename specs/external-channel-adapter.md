@@ -553,7 +553,7 @@ This section describes how the Wire Protocol's bidirectional `item/approval/requ
 
 ### 11.1 Sequence
 
-The approval sequence for an external channel adapter is identical to the sequence for the CLI wire mode. The adapter plays the role that `WireApprovalHandler` plays in the CLI:
+The approval sequence for an external channel adapter is identical to the AppServer approval flow used by out-of-process clients. The adapter plays the client-side approval role:
 
 ```
 Platform User           Adapter                  DotCraft (AppServer)

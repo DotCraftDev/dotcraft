@@ -14,10 +14,10 @@
 
 ```bash
 cd /path/to/your-project
-dotcraft
+dotcraft setup --language Chinese --model <model> --endpoint <endpoint> --api-key <key> --profile developer
 ```
 
-当 DotCraft 在一个全新的 workspace 中启动时，它可以帮你初始化 `.craft/`，并在配置缺失时自动打开 setup-only Dashboard。
+完成 setup 后，`.craft/` 会包含工作区配置和基础说明文件。
 
 只有当你明确想要一个可复用的源码工作区，或者希望在服务器上保留一套长期运行的 workspace 时，才更适合使用 `samples/workspace`。
 
@@ -25,7 +25,7 @@ dotcraft
 
 | 文件 | 用途 |
 |------|------|
-| `start.sh` | 从当前仓库构建 DotCraft，并在 `samples/workspace` 中启动 CLI |
+| `start.sh` | 从当前仓库构建 DotCraft，并在 `samples/workspace` 中启动 Gateway |
 | `start-sandbox.sh` | 在 Linux / macOS 上启动 OpenSandbox |
 | `start-sandbox.ps1` | 在 Windows PowerShell 上启动 OpenSandbox |
 | `config.template.json` | 可作为起点复制到你自己 workspace 中的安全示例配置 |
@@ -59,11 +59,11 @@ dotcraft
 
 ### 方式一：推荐给新用户
 
-在你的真实项目目录里运行 DotCraft，并让初始化流程自动创建 `.craft/`：
+在你的真实项目目录里运行 setup，创建 `.craft/`：
 
 ```bash
 cd /path/to/your-project
-dotcraft
+dotcraft setup --language Chinese --model <model> --endpoint <endpoint> --api-key <key> --profile developer
 ```
 
 ### 方式二：直接运行本示例 workspace
@@ -75,7 +75,7 @@ cp config.template.json .craft/config.json
 bash start.sh
 ```
 
-如果你不想先复制模板，也可以直接运行 `bash start.sh`，让 DotCraft 首次启动时自行初始化 `.craft/`。但如果你想复用这个 sample 里推荐的 Dashboard / Sandbox 示例字段，还是应该先从 `config.template.json` 复制。
+如果你想复用这个 sample 里推荐的 Dashboard / Sandbox 示例字段，应该先从 `config.template.json` 复制。
 
 如果你在 Linux 服务器上运行，也可以配合 `screen` 后台启动：
 
@@ -115,7 +115,7 @@ DotCraft 会先读取全局配置 `~/.craft/config.json`，再叠加 `<workspace
 
 ### 不使用 sandbox
 
-1. 用 `dotcraft` 或 `bash start.sh` 启动 DotCraft
+1. 用 `dotcraft gateway` 或 `bash start.sh` 启动 DotCraft
 2. 如果 DotCraft 提示进入 Dashboard，先完成初始化配置
 3. 保存配置后，重新正常启动 DotCraft
 
@@ -124,12 +124,12 @@ DotCraft 会先读取全局配置 `~/.craft/config.json`，再叠加 `<workspace
 1. 先确认 Docker 和 OpenSandbox 前置条件满足
 2. 启动对应平台的 sandbox 脚本
 3. 从 `config.template.json` 中复制需要的 sandbox 字段到你自己的 `.craft/config.json`
-4. 再启动 DotCraft
+4. 再运行 `dotcraft gateway`
 
 ### 使用 QQ / NapCat
 
 1. 先启动 NapCat
-2. 再启动 DotCraft
+2. 再运行 `dotcraft gateway`
 3. 确认 QQ 外部渠道配置已启用，并且服务地址正确
 
 ## 可选：QQ / NapCat

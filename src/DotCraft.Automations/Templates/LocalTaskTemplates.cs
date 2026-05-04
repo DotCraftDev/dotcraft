@@ -58,7 +58,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Daily(9, 0),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -82,7 +81,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Daily(9, 0),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -106,7 +104,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Every(7L * 24 * 60 * 60 * 1000),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -130,7 +127,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Every(7L * 24 * 60 * 60 * 1000),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -154,7 +150,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Daily(10, 0),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -178,7 +173,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Every(60L * 60 * 1000),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -202,7 +196,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Every(60L * 60 * 1000),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: false),
 
         new(
@@ -226,7 +219,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: Every(5L * 60 * 1000),
             DefaultWorkspaceMode: "project",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: false,
             NeedsThreadBinding: true),
 
         new(
@@ -250,7 +242,6 @@ public static class LocalTaskTemplates
             DefaultSchedule: null,
             DefaultWorkspaceMode: "isolated",
             DefaultApprovalPolicy: "workspaceScope",
-            DefaultRequireApproval: true,
             NeedsThreadBinding: false)
     ];
     }
@@ -327,7 +318,6 @@ public sealed record LocalTaskTemplate(
     CronSchedule? DefaultSchedule,
     string? DefaultWorkspaceMode,
     string? DefaultApprovalPolicy,
-    bool DefaultRequireApproval,
     bool NeedsThreadBinding,
     string? DefaultTitle = null,
     string? DefaultDescription = null,

@@ -39,6 +39,11 @@ public sealed class SessionThread
     /// </summary>
     public string? DisplayName { get; set; }
 
+    /// <summary>
+    /// Describes whether this is a top-level user thread or a subagent child thread.
+    /// </summary>
+    public ThreadSource Source { get; set; } = ThreadSource.User();
+
     public ThreadStatus Status { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }

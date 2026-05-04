@@ -5,6 +5,7 @@ import { addToast } from '../../stores/toastStore'
 import { useThreadStore } from '../../stores/threadStore'
 import type { SessionIdentity, ThreadSummary } from '../../types/thread'
 import { formatRelativeTime } from '../../utils/relativeTime'
+import { isSubAgentThread } from '../../utils/subAgentThreads'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -70,7 +71,7 @@ export function ArchivedThreadsSettingsView({
         crossChannelOrigins
       })
       const archivedThreads = ((result as { data?: ThreadSummary[] }).data ?? []).filter(
-        (thread) => thread.status === 'archived'
+        (thread) => thread.status === 'archived' && !isSubAgentThread(thread)
       )
       setThreads(archivedThreads)
     } catch (err) {
@@ -130,7 +131,7 @@ export function ArchivedThreadsSettingsView({
     try {
       await window.api.appServer.sendRequest('thread/delete', { threadId })
       setThreads((current) => current.filter((thread) => thread.id !== threadId))
-      useThreadStore.getState().removeThread(threadId)
+      useThreadStore.getState().removeThreadTree(threadId)
       onThreadListRefreshRequested?.()
       addToast(t('archivedThreads.deleteSuccess'), 'success')
     } catch (err) {
@@ -164,7 +165,7 @@ export function ArchivedThreadsSettingsView({
       try {
         await window.api.appServer.sendRequest('thread/delete', { threadId: thread.id })
         setThreads((current) => current.filter((item) => item.id !== thread.id))
-        useThreadStore.getState().removeThread(thread.id)
+        useThreadStore.getState().removeThreadTree(thread.id)
       } catch (err) {
         failures.push(thread.displayName?.trim() || thread.id)
         console.error('thread/delete failed:', err)

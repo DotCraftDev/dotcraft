@@ -9,8 +9,6 @@ public interface IAutomationsRequestHandler
     Task<object?> HandleTaskListAsync(AppServerIncomingMessage msg, CancellationToken ct);
     Task<object?> HandleTaskReadAsync(AppServerIncomingMessage msg, CancellationToken ct);
     Task<object?> HandleTaskCreateAsync(AppServerIncomingMessage msg, CancellationToken ct);
-    Task<object?> HandleTaskApproveAsync(AppServerIncomingMessage msg, CancellationToken ct);
-    Task<object?> HandleTaskRejectAsync(AppServerIncomingMessage msg, CancellationToken ct);
     Task<object?> HandleTaskDeleteAsync(AppServerIncomingMessage msg, CancellationToken ct);
     Task<object?> HandleTaskUpdateBindingAsync(AppServerIncomingMessage msg, CancellationToken ct);
     Task<object?> HandleTemplateListAsync(AppServerIncomingMessage msg, CancellationToken ct);

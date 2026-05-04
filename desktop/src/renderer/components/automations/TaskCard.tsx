@@ -19,8 +19,7 @@ export const AUTOMATION_TASK_DRAG_MIME = 'application/x-dotcraft-automation-task
 function isTaskDeletable(status: AutomationTaskStatus): boolean {
   return (
     status === 'pending' ||
-    status === 'approved' ||
-    status === 'rejected' ||
+    status === 'completed' ||
     status === 'failed'
   )
 }
@@ -132,30 +131,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
 
   const actionButton = (() => {
     switch (task.status) {
-      case 'awaiting_review':
-        return (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              focusThisTask()
-            }}
-            style={{
-              padding: '4px 12px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: 'var(--accent)',
-              color: '#fff',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            {t('auto.task.review')}
-          </button>
-        )
-      case 'agent_running':
-      case 'dispatched':
+      case 'running':
         return (
           <button
             type="button"
@@ -177,13 +153,9 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
             {t('auto.task.view')}
           </button>
         )
-      case 'approved':
+      case 'completed':
         return (
           <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 500 }}>{t('auto.task.done')}</span>
-        )
-      case 'rejected':
-        return (
-          <span style={{ fontSize: '12px', color: 'var(--error)', fontWeight: 500 }}>{t('auto.task.rejected')}</span>
         )
       default:
         return null

@@ -2,6 +2,8 @@
 
 External CLI 子代理用于把已有 coding agent CLI 以短进程方式接入 DotCraft。相比 `native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
 
+本文讲的是 SubAgent runtime profile。`agentRole`、工具策略和递归深度配置见 [SubAgent 配置指南](./subagents_guide.md)。
+
 在 2026-04-22 的更新后，DotCraft 还可以在同一线程里保存外部 CLI 的 session/chat/thread id，并在后续用户反馈时继续同一个外部会话。这个能力默认关闭，需要在 Desktop 的 SubAgents 设置里手动打开。
 
 ## 内置 Profile

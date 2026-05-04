@@ -163,7 +163,7 @@ public sealed record SubAgentProgressPayload
 public sealed record SubAgentProgressEntry
 {
     /// <summary>
-    /// SubAgent identifier/label (matches the label argument passed to SpawnSubagent).
+    /// SubAgent identifier/label (matches the agentNickname argument passed to SpawnAgent).
     /// </summary>
     public required string Label { get; init; }
 

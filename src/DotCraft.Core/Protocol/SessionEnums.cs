@@ -27,6 +27,7 @@ public enum ItemType
     AgentMessage,
     ReasoningContent,
     CommandExecution,
+    ToolExecution,
     ToolCall,
     PluginFunctionCall,
     ToolResult,

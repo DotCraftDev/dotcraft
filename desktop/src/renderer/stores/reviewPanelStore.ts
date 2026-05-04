@@ -4,6 +4,7 @@ import {
   derivePluginFunctionResultText,
   isToolLikeItemType,
   normalizePluginFunctionContentItems,
+  wireItemToConversationItem,
   wireTurnToConversationTurn
 } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
@@ -43,14 +44,42 @@ function mergeCommandExecutionAcrossItems(
   return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
 }
 
+function mergeToolExecutionIntoToolCall(
+  item: ConversationItem,
+  toolExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if (!toolExecution.toolCallId || item.toolCallId !== toolExecution.toolCallId) return item
+
+  return {
+    ...item,
+    status: 'completed',
+    success: toolExecution.success ?? item.success,
+    duration: toolExecution.duration ?? item.duration,
+    resultPreview: toolExecution.resultPreview ?? item.resultPreview,
+    result: item.result ?? toolExecution.resultPreview,
+    executionStatus: toolExecution.executionStatus ?? item.executionStatus,
+    completedAt: toolExecution.completedAt ?? item.completedAt
+  }
+}
+
+function mergeToolExecutionAcrossItems(
+  items: ConversationItem[],
+  toolExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeToolExecutionIntoToolCall(i, toolExecution))
+}
+
 function mergeHistoricalCommandExecutions(turn: ConversationTurn): ConversationTurn {
   let items = turn.items
   for (const item of turn.items) {
     if (item.type === 'commandExecution' && item.toolCallId) {
       items = mergeCommandExecutionAcrossItems(items, item)
+    } else if (item.type === 'toolExecution' && item.toolCallId) {
+      items = mergeToolExecutionAcrossItems(items, item)
     }
   }
-  return { ...turn, items }
+  return { ...turn, items: items.filter((item) => item.type !== 'toolExecution') }
 }
 
 function buildToolLikeItem(
@@ -130,9 +159,6 @@ export interface ReviewPanelState {
   streamingActive: boolean
   loading: boolean
   loadError: string | null
-  approving: boolean
-  rejecting: boolean
-  actionError: string | null
   /** SubAgent progress rows for the thread being reviewed (isolated from main conversation). */
   subAgentEntries: SubAgentEntry[]
   /** Sequence number to prevent race conditions from stale async operations. */
@@ -180,9 +206,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
   ...emptyTurnFields(),
   loading: false,
   loadError: null,
-  approving: false,
-  rejecting: false,
-  actionError: null,
   _seq: 0,
 
   async openReviewPanel(taskId: string) {
@@ -207,7 +230,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: true,
       loadError: null,
-      actionError: null,
       _seq: newSeq
     })
 
@@ -285,12 +307,12 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       return
     }
 
-    if (task.status === 'agent_running' || task.status === 'dispatched') {
+    if (task.status === 'running') {
       try {
         await window.api.appServer.sendRequest('thread/subscribe', { threadId })
         // Check if still valid before setting subscription
         if (get()._seq === seqAtStart) {
-          set({ subscriptionActive: true, streamingActive: task.status === 'agent_running' })
+          set({ subscriptionActive: true, streamingActive: true })
         } else {
           // Stale - unsubscribe immediately
           void window.api.appServer
@@ -336,7 +358,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: false,
       loadError: null,
-      actionError: null,
       _seq: _seq + 1
     })
   },
@@ -686,6 +707,22 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                     ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
                     : updatedItems
                 })())
+            }
+        )
+      }))
+    } else if (type === 'toolExecution') {
+      const toolExecution = wireItemToConversationItem(item)
+      if (!toolExecution.toolCallId) return
+
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeToolExecutionAcrossItems(t.items, toolExecution)
+                )
               }
         )
       }))
@@ -844,12 +881,8 @@ function mapWireTaskToAutomationTask(raw: Record<string, unknown>): AutomationTa
   const statusRaw = String(raw.status ?? raw.Status ?? 'pending')
   const statusMap: Record<string, AutomationTask['status']> = {
     pending: 'pending',
-    dispatched: 'dispatched',
-    agent_running: 'agent_running',
-    agent_completed: 'agent_completed',
-    awaiting_review: 'awaiting_review',
-    approved: 'approved',
-    rejected: 'rejected',
+    running: 'running',
+    completed: 'completed',
     failed: 'failed'
   }
   const status = statusMap[statusRaw] ?? 'pending'

@@ -86,7 +86,7 @@ public sealed class AutomationOrchestrator
 
     /// <summary>
     /// Returns a snapshot of all tasks across all sources, merging the in-memory cache
-    /// (dispatched/completed tasks) with each source's full task list (includes pending).
+    /// (running/completed tasks) with each source's full task list (includes pending).
     /// </summary>
     public async Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct)
     {
@@ -117,30 +117,6 @@ public sealed class AutomationOrchestrator
     /// </summary>
     public Task TriggerImmediatePollAsync(CancellationToken cancellationToken = default) =>
         PollOnceAsync(cancellationToken);
-
-    /// <summary>
-    /// Approves a task via its source.
-    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
-    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Approved"/>.
-    /// </summary>
-    public async Task ApproveTaskAsync(string sourceName, string taskId, CancellationToken ct)
-    {
-        var source = ResolveSource(sourceName);
-        await source.ApproveTaskAsync(taskId, ct);
-        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Approved, ct);
-    }
-
-    /// <summary>
-    /// Rejects a task via its source.
-    /// Scheduled tasks re-enter <see cref="AutomationTaskStatus.Pending"/> after rearming their next run;
-    /// one-shot tasks settle into <see cref="AutomationTaskStatus.Rejected"/>.
-    /// </summary>
-    public async Task RejectTaskAsync(string sourceName, string taskId, string? reason, CancellationToken ct)
-    {
-        var source = ResolveSource(sourceName);
-        await source.RejectTaskAsync(taskId, reason, ct);
-        await FinalizeReviewedTaskAsync(source, taskId, AutomationTaskStatus.Rejected, ct);
-    }
 
     /// <summary>
     /// Deletes the task via its source and removes it from the orchestrator cache.
@@ -525,12 +501,12 @@ public sealed class AutomationOrchestrator
             source.Name,
             task.ThreadBinding != null);
 
-        task.Status = AutomationTaskStatus.Dispatched;
+        task.Status = AutomationTaskStatus.Running;
         TrackTask(task);
-        await source.OnStatusChangedAsync(task, AutomationTaskStatus.Dispatched, ct);
-        await RaiseStatusChangedAsync(task, AutomationTaskStatus.Dispatched);
+        await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.Running);
         _logger.LogInformation(
-            "Task {TaskId} status: Dispatched (source: {SourceName})",
+            "Task {TaskId} status: Running (source: {SourceName})",
             task.Id,
             source.Name);
 
@@ -629,12 +605,11 @@ public sealed class AutomationOrchestrator
             threadId);
 
         task.ThreadId = threadId;
-        task.Status = AutomationTaskStatus.AgentRunning;
         TrackTask(task);
-        await source.OnStatusChangedAsync(task, AutomationTaskStatus.AgentRunning, ct);
-        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AgentRunning);
+        await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.Running);
         _logger.LogInformation(
-            "Task {TaskId} status: AgentRunning (source: {SourceName})",
+            "Task {TaskId} thread bound while running (source: {SourceName})",
             task.Id,
             source.Name);
 
@@ -749,7 +724,7 @@ public sealed class AutomationOrchestrator
             return;
         }
 
-        if (turnCancelled && task.Status != AutomationTaskStatus.AgentCompleted)
+        if (turnCancelled && task.Status != AutomationTaskStatus.Completed)
         {
             _logger.LogInformation(
                 "Task {TaskId} workflow stopped: turn cancelled (source: {SourceName}, threadId: {ThreadId})",
@@ -763,32 +738,13 @@ public sealed class AutomationOrchestrator
             return;
         }
 
-        task.Status = AutomationTaskStatus.AgentCompleted;
-        TrackTask(task);
         await source.OnAgentCompletedAsync(task, summary ?? string.Empty, ct);
-        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AgentCompleted);
         _logger.LogInformation(
-            "Task {TaskId} status: AgentCompleted (source: {SourceName}, summaryLength: {SummaryLength})",
+            "Task {TaskId} agent completed (source: {SourceName}, summaryLength: {SummaryLength})",
             task.Id,
             source.Name,
             summary?.Length ?? 0);
 
-        if (task.RequireApproval)
-        {
-            task.Status = AutomationTaskStatus.AwaitingReview;
-            TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, ct);
-            await RaiseStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview);
-            _logger.LogInformation(
-                "Task {TaskId} status: AwaitingReview (source: {SourceName}, threadId: {ThreadId})",
-                task.Id,
-                source.Name,
-                threadId);
-            return;
-        }
-
-        // Review skipped (require_approval=false): if a schedule is present, rearm and loop back to Pending;
-        // otherwise settle into Approved (treating silent completion as an implicit approval for one-shot tasks).
         if (task.Schedule != null)
         {
             RearmSchedule(task);
@@ -804,12 +760,12 @@ public sealed class AutomationOrchestrator
         }
         else
         {
-            task.Status = AutomationTaskStatus.Approved;
+            task.Status = AutomationTaskStatus.Completed;
             TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Approved, ct);
-            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Approved);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Completed, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Completed);
             _logger.LogInformation(
-                "Task {TaskId} auto-completed (no approval required, no schedule) — source: {SourceName}",
+                "Task {TaskId} completed (source: {SourceName})",
                 task.Id,
                 source.Name);
         }
@@ -883,44 +839,6 @@ public sealed class AutomationOrchestrator
         return source;
     }
 
-    private async Task FinalizeReviewedTaskAsync(
-        IAutomationSource source,
-        string taskId,
-        AutomationTaskStatus terminalStatus,
-        CancellationToken ct)
-    {
-        var task = await ReloadTaskAfterReviewAsync(source, taskId, ct);
-        if (task.Schedule != null)
-        {
-            RearmSchedule(task);
-            task.Status = AutomationTaskStatus.Pending;
-            TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
-            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
-            return;
-        }
-
-        task.Status = terminalStatus;
-        TrackTask(task);
-        await RaiseStatusChangedAsync(task, terminalStatus);
-    }
-
-    private async Task<AutomationTask> ReloadTaskAfterReviewAsync(
-        IAutomationSource source,
-        string taskId,
-        CancellationToken ct)
-    {
-        var sourceTask = (await source.GetAllTasksAsync(ct))
-            .FirstOrDefault(t => string.Equals(t.Id, taskId, StringComparison.Ordinal));
-        if (sourceTask != null)
-            return sourceTask;
-
-        if (_allTasks.TryGetValue(TaskKey(source.Name, taskId), out var cached))
-            return cached;
-
-        throw new KeyNotFoundException($"Task '{taskId}' was not found in source '{source.Name}' after review.");
-    }
-
     private static string TaskKey(AutomationTask task) => TaskKey(task.SourceName, task.Id);
     private static string TaskKey(string sourceName, string taskId) => $"{sourceName}::{taskId}";
 
@@ -970,7 +888,7 @@ public sealed class AutomationOrchestrator
     /// Recomputes <see cref="AutomationTask.NextRunAt"/> after a run completed, using the just-finished run time
     /// as <c>lastRunAtMs</c>.
     /// </summary>
-    private static void RearmSchedule(AutomationTask task)
+    internal static void RearmSchedule(AutomationTask task)
     {
         if (task.Schedule == null)
         {

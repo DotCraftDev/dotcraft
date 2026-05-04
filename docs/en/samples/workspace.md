@@ -14,10 +14,10 @@ For most first-time users, the safer default path is still:
 
 ```bash
 cd /path/to/your-project
-dotcraft
+dotcraft setup --language English --model <model> --endpoint <endpoint> --api-key <key> --profile developer
 ```
 
-When DotCraft starts in a fresh workspace, it can initialize `.craft/` for you and open the setup-only Dashboard if configuration is still missing.
+After setup, `.craft/` contains the workspace config and base instruction files.
 
 Use this `samples/workspace` directory when you specifically want a reusable source checkout workspace or a server-style helper environment.
 
@@ -25,7 +25,7 @@ Use this `samples/workspace` directory when you specifically want a reusable sou
 
 | File | Purpose |
 |------|---------|
-| `start.sh` | Build DotCraft from this repo and start the CLI from `samples/workspace` |
+| `start.sh` | Build DotCraft from this repo and start Gateway from `samples/workspace` |
 | `start-sandbox.sh` | Start OpenSandbox on Linux / macOS |
 | `start-sandbox.ps1` | Start OpenSandbox on Windows PowerShell |
 | `config.template.json` | Safe example config you can copy into your own workspace as a starting point |
@@ -59,11 +59,11 @@ Use this `samples/workspace` directory when you specifically want a reusable sou
 
 ### Option 1: Recommended for new users
 
-Use DotCraft in your real project directory and let the setup flow create `.craft/`:
+Run setup in your real project directory to create `.craft/`:
 
 ```bash
 cd /path/to/your-project
-dotcraft
+dotcraft setup --language English --model <model> --endpoint <endpoint> --api-key <key> --profile developer
 ```
 
 ### Option 2: Run this sample workspace from source
@@ -75,7 +75,7 @@ cp config.template.json .craft/config.json
 bash start.sh
 ```
 
-If you prefer, you can also run `bash start.sh` first and let DotCraft initialize `.craft/` on first launch. But if you want the recommended Dashboard / Sandbox example fields from this sample, copy them from `config.template.json` before starting.
+If you want the recommended Dashboard / Sandbox example fields from this sample, copy them from `config.template.json` before starting.
 
 On a Linux server, you can keep it running in the background with `screen`:
 
@@ -115,7 +115,7 @@ Fields you will most likely want to change in the template:
 
 ### Without sandbox
 
-1. Start DotCraft with `dotcraft` or `bash start.sh`
+1. Start DotCraft with `dotcraft gateway` or `bash start.sh`
 2. Complete setup in the Dashboard if DotCraft prompts for it
 3. Re-run DotCraft normally after saving config
 
@@ -124,12 +124,12 @@ Fields you will most likely want to change in the template:
 1. Confirm Docker and OpenSandbox prerequisites first
 2. Start the sandbox helper for your platform
 3. Copy the sandbox fields you need from `config.template.json` into your own `.craft/config.json`
-4. Start DotCraft
+4. Run `dotcraft gateway`
 
 ### With QQ / NapCat
 
 1. Start NapCat first
-2. Start DotCraft
+2. Run `dotcraft gateway`
 3. Make sure your QQ external channel config is enabled and points at the correct service endpoints
 
 ## Optional: QQ / NapCat

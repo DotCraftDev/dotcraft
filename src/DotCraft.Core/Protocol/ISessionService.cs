@@ -1,3 +1,4 @@
+using DotCraft.Agents;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
@@ -32,7 +33,8 @@ public interface ISessionService
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
         string? displayName = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        ThreadSource? source = null);
 
     /// <summary>
     /// Archives reusable threads for the identity and creates a fresh thread.
@@ -81,6 +83,20 @@ public interface ISessionService
         SessionIdentity identity,
         bool includeArchived = false,
         IReadOnlyList<string>? crossChannelOrigins = null,
+        CancellationToken ct = default,
+        bool includeSubAgents = false);
+
+    Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default);
+
+    Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -238,6 +254,12 @@ public interface ISessionService
     Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
     /// <summary>
+    /// Optional hook invoked after a thread's lifecycle status changes in Session Core. Hosts broadcast
+    /// <c>thread/statusChanged</c> on AppServer so UIs keep thread lists synchronized.
+    /// </summary>
+    Action<string, ThreadStatus, ThreadStatus>? ThreadStatusChangedForBroadcast { get; set; }
+
+    /// <summary>
     /// Optional hook invoked when a thread's aggregated runtime state changes in a way that may
     /// affect workspace-level activity indicators (running, waiting approval, waiting plan confirmation).
     /// Hosts may aggregate these signals and broadcast lightweight snapshots such as
@@ -262,4 +284,32 @@ public interface IThreadAgentRefreshService
     /// Invalidates cached thread agents so they are rebuilt before their next turn.
     /// </summary>
     void InvalidateThreadAgents();
+}
+
+/// <summary>
+/// Internal Session Core extension used by profile-backed SubAgents whose runtime
+/// is not the native agent loop but still needs persisted turn/item history.
+/// </summary>
+public interface ISubAgentSyntheticTurnService
+{
+    Task<SessionTurn> StartSubAgentSyntheticTurnAsync(
+        string threadId,
+        IList<AIContent> content,
+        string runtimeType,
+        string? profileName,
+        CancellationToken ct = default);
+
+    Task<SessionTurn> CompleteSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string text,
+        bool isError,
+        SubAgentTokenUsage? tokensUsed,
+        CancellationToken ct = default);
+
+    Task<SessionTurn> CancelSubAgentSyntheticTurnAsync(
+        string threadId,
+        string turnId,
+        string reason,
+        CancellationToken ct = default);
 }

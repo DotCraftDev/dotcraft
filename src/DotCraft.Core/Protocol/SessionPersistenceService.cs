@@ -73,6 +73,22 @@ public sealed class SessionPersistenceService(
     public Task SaveContextUsageTokensAsync(string threadId, long tokens, CancellationToken ct = default)
         => threadStore.SaveContextUsageTokensAsync(threadId, tokens, ct);
 
+    public Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default)
+        => threadStore.UpsertThreadSpawnEdgeAsync(edge, ct);
+
+    public Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default)
+        => threadStore.SetThreadSpawnEdgeStatusAsync(parentThreadId, childThreadId, status, ct);
+
+    public Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
+        CancellationToken ct = default)
+        => threadStore.ListSubAgentChildrenAsync(parentThreadId, includeClosed, ct);
+
     public TraceSessionDeletionDescriptor DescribeSessionDeletion(string sessionKey)
         => _traceStore.DescribeSessionDeletion(sessionKey);
 

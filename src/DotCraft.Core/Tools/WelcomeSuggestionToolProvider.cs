@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Memory;
 using DotCraft.Protocol;
@@ -101,12 +102,14 @@ internal sealed class WelcomeSuggestionToolMethods(
     private const int HistoryTailCharsLimit = 3_000;
     private const int TotalMemoryCharsLimit = 8_000;
 
+    private static readonly JsonSerializerOptions JsonOptions = JsonSerializerOptions.Web;
+
     [Tool(
         Icon = "🧵",
         DisplayType = typeof(WelcomeSuggestionToolDisplays),
         DisplayMethod = nameof(WelcomeSuggestionToolDisplays.ListRecentWorkspaceThreads))]
-    [Description("List recent non-archived workspace threads that may provide context for welcome suggestions.")]
-    public async Task<IReadOnlyList<WelcomeSuggestionThreadSummary>> ListRecentWorkspaceThreads(
+    [Description("List recent non-archived workspace threads that may provide context for welcome suggestions. Returns a compact JSON string.")]
+    public async Task<string> ListRecentWorkspaceThreads(
         [Description("Maximum number of recent threads to return. Defaults to 12.")] int limit = DefaultRecentThreadLimit)
     {
         var normalizedWorkspace = WelcomeSuggestionService.NormalizeWorkspacePath(workspaceRoot);
@@ -136,56 +139,56 @@ internal sealed class WelcomeSuggestionToolMethods(
             });
         }
 
-        return results;
+        return Serialize(results);
     }
 
     [Tool(
         Icon = "📜",
         DisplayType = typeof(WelcomeSuggestionToolDisplays),
         DisplayMethod = nameof(WelcomeSuggestionToolDisplays.ReadWelcomeThreadHistory))]
-    [Description("Read filtered user-message history for a workspace thread to understand likely next tasks.")]
-    public async Task<WelcomeThreadHistoryResult> ReadWelcomeThreadHistory(
+    [Description("Read filtered user-message history for a workspace thread to understand likely next tasks. Returns a compact JSON string.")]
+    public async Task<string> ReadWelcomeThreadHistory(
         [Description("Thread id returned by ListRecentWorkspaceThreads.")] string threadId)
     {
         if (string.IsNullOrWhiteSpace(threadId))
-            return new WelcomeThreadHistoryResult();
+            return Serialize(new WelcomeThreadHistoryResult());
 
         var thread = await persistence.LoadThreadAsync(threadId.Trim(), CancellationToken.None).ConfigureAwait(false);
         if (thread == null)
-            return new WelcomeThreadHistoryResult { ThreadId = threadId.Trim() };
+            return Serialize(new WelcomeThreadHistoryResult { ThreadId = threadId.Trim() });
 
         var snippets = WelcomeSuggestionService.ExtractUserSnippets(thread)
             .Take(MaxThreadSnippetCount)
             .ToArray();
 
-        return new WelcomeThreadHistoryResult
+        return Serialize(new WelcomeThreadHistoryResult
         {
             ThreadId = thread.Id,
             DisplayName = string.IsNullOrWhiteSpace(thread.DisplayName) ? thread.Id : thread.DisplayName.Trim(),
             UserSnippets = snippets,
             AgentSummary = WelcomeSuggestionService.ExtractAgentSummary(thread),
             DominantIntents = WelcomeSuggestionService.ExtractDominantIntents(snippets)
-        };
+        });
     }
 
     [Tool(
         Icon = "🧠",
         DisplayType = typeof(WelcomeSuggestionToolDisplays),
         DisplayMethod = nameof(WelcomeSuggestionToolDisplays.ReadWelcomeWorkspaceMemory))]
-    [Description("Read workspace MEMORY.md and the recent tail of HISTORY.md for welcome suggestion grounding.")]
-    public Task<WelcomeWorkspaceMemoryResult> ReadWelcomeWorkspaceMemory()
+    [Description("Read workspace MEMORY.md and the recent tail of HISTORY.md for welcome suggestion grounding. Returns a compact JSON string.")]
+    public Task<string> ReadWelcomeWorkspaceMemory()
     {
         var memoryText = WelcomeSuggestionService.TrimToLimit(memoryStore.ReadLongTerm(), MemoryCharsLimit);
         var historyTail = WelcomeSuggestionService.ReadHistoryTailFromFile(memoryStore.HistoryFilePath, HistoryTailCharsLimit);
         var combined = WelcomeSuggestionService.CombineMemory(memoryText, historyTail, TotalMemoryCharsLimit);
 
-        return Task.FromResult(new WelcomeWorkspaceMemoryResult
+        return Task.FromResult(Serialize(new WelcomeWorkspaceMemoryResult
         {
             Memory = memoryText,
             HistoryTail = historyTail,
             Combined = combined,
             MemoryHighlights = WelcomeSuggestionService.ExtractMemoryHighlights(memoryText, historyTail)
-        });
+        }));
     }
 
     [Tool(
@@ -200,6 +203,9 @@ internal sealed class WelcomeSuggestionToolMethods(
         _ = items;
         return "Recorded.";
     }
+
+    private static string Serialize<T>(T value) =>
+        JsonSerializer.Serialize(value, JsonOptions);
 }
 
 public static class WelcomeSuggestionMethods

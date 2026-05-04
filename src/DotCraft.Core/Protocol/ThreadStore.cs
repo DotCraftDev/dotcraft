@@ -175,6 +175,33 @@ public sealed class ThreadStore
         return Task.FromResult(_metadataStore.LoadIndex());
     }
 
+    public Task UpsertThreadSpawnEdgeAsync(ThreadSpawnEdge edge, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        _metadataStore.UpsertThreadSpawnEdge(edge);
+        return Task.CompletedTask;
+    }
+
+    public Task SetThreadSpawnEdgeStatusAsync(
+        string parentThreadId,
+        string childThreadId,
+        string status,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        _metadataStore.SetThreadSpawnEdgeStatus(parentThreadId, childThreadId, status);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<ThreadSpawnEdge>> ListSubAgentChildrenAsync(
+        string parentThreadId,
+        bool includeClosed = false,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyList<ThreadSpawnEdge>>(_metadataStore.ListSubAgentChildren(parentThreadId, includeClosed));
+    }
+
     private static SessionThread CloneThreadSnapshot(SessionThread thread)
     {
         var json = JsonSerializer.Serialize(thread, SessionJsonOptions.Default);

@@ -51,7 +51,7 @@ DotCraft Desktop --workspace /path/to/project
 
 ## 进阶
 
-- Desktop 消费 AppServer Wire Protocol，因此可与 CLI、TUI、ACP、外部渠道共享同一会话核心。
+- Desktop 消费 AppServer Wire Protocol，因此可与 TUI、ACP、外部渠道共享同一会话核心。
 - 图片附件会保存到工作区 `.craft/attachments/images/`，重启后仍可恢复缩略图。
 - 打包安装包可运行 `npm run dist`，产物位于 `desktop/dist/`。
 

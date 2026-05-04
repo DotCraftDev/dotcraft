@@ -12,23 +12,15 @@ namespace DotCraft.Context;
 public static class RuntimeContextBuilder
 {
     /// <summary>
-    /// Appends a [Runtime Context] <see cref="TextContent"/> to a multimodal content list.
-    /// </summary>
-    public static IList<AIContent> AppendRuntimeContext(this IList<AIContent> contents)
-    {
-        return contents.AppendRuntimeContext(initiator: null);
-    }
-
-    /// <summary>
     /// Appends a [Runtime Context] <see cref="TextContent"/> with optional turn initiator metadata.
     /// </summary>
-    public static IList<AIContent> AppendRuntimeContext(this IList<AIContent> contents, TurnInitiatorContext? initiator)
+    public static IList<AIContent> AppendRuntimeContext(this IList<AIContent> contents, TurnInitiatorContext? initiator = null)
     {
-        contents.Add(new TextContent($"\n\n{BuildBlock(initiator)}"));
+        contents.Add(new TextContent($"\n{BuildBlock(initiator)}"));
         return contents;
     }
 
-    internal static string BuildBlock(TurnInitiatorContext? initiator = null)
+    private static string BuildBlock(TurnInitiatorContext? initiator = null)
     {
         var lines = new List<string>();
 

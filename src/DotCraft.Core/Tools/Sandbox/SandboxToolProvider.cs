@@ -52,32 +52,40 @@ public sealed class SandboxToolProvider : IAgentToolProvider
         tools.Add(AIFunctionFactory.Create(fileTools.GrepFiles));
         tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
 
-        // Agent tools (subagent spawning) — still needed, uses sandbox-aware manager
-        var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
-            context.Config,
-            context.EffectiveMainModel);
-        var subAgentManager = new SubAgentManager(
-            subAgentChatClient,
-            context.WorkspacePath,
-            context.Config.SubagentMaxToolCallRounds,
-            maxConcurrency: context.Config.SubagentMaxConcurrency,
-            shellTimeout: context.Config.Tools.Shell.Timeout,
-            requireApprovalOutsideWorkspace: requireOutside,
-            reasoningConfig: context.Config.Reasoning,
-            blacklist: context.PathBlacklist,
-            sandboxManager: sandboxManager,
-            approvalService: context.ApprovalService,
-            traceCollector: context.TraceCollector);
-        var subAgentCoordinator = new SubAgentCoordinator(
-            context.WorkspacePath,
-            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
-            context.Config.SubAgentProfiles,
-            context.ApprovalService,
-            context.Config.SubAgent.DisabledProfiles,
-            context.ExternalCliSessionStore,
-            context.Config.SubAgent.EnableExternalCliSessionResume);
-        var agentTools = new AgentTools(subAgentCoordinator);
-        tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
+        // Agent-control tools are gated by the context policy so sandbox and
+        // non-sandbox tool sets expose the same SubAgent permissions.
+        if (AgentControlToolPolicy.AllowsAny(context))
+        {
+            var subAgentChatClient = context.OpenAIClientProvider.GetSubAgentChatClient(
+                context.Config,
+                context.EffectiveMainModel);
+            var subAgentManager = new SubAgentManager(
+                subAgentChatClient,
+                context.WorkspacePath,
+                context.Config.SubagentMaxToolCallRounds,
+                maxConcurrency: context.Config.SubagentMaxConcurrency,
+                shellTimeout: context.Config.Tools.Shell.Timeout,
+                requireApprovalOutsideWorkspace: requireOutside,
+                reasoningConfig: context.Config.Reasoning,
+                blacklist: context.PathBlacklist,
+                sandboxManager: sandboxManager,
+                approvalService: context.ApprovalService,
+                traceCollector: context.TraceCollector);
+            var subAgentCoordinator = new SubAgentCoordinator(
+                context.WorkspacePath,
+                [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+                context.Config.SubAgentProfiles,
+                context.ApprovalService,
+                context.Config.SubAgent.DisabledProfiles,
+                context.ExternalCliSessionStore,
+                context.Config.SubAgent.EnableExternalCliSessionResume);
+            AgentControlToolRegistrar.AddTools(
+                tools,
+                context,
+                subAgentCoordinator,
+                context.Config.SubAgent.Roles,
+                context.Config.SubAgent.MaxDepth);
+        }
 
         // Web tools — no isolation needed, reuse as-is
         var webTools = new WebTools(

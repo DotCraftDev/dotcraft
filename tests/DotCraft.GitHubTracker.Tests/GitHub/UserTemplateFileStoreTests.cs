@@ -32,7 +32,6 @@ public sealed class UserTemplateFileStoreTests
                 defaultSchedule: schedule,
                 defaultWorkspaceMode: "project",
                 defaultApprovalPolicy: "workspaceScope",
-                defaultRequireApproval: true,
                 needsThreadBinding: false,
                 defaultTitle: "Weekly sync",
                 defaultDescription: "Weekly sync description",
@@ -57,7 +56,6 @@ public sealed class UserTemplateFileStoreTests
             Assert.Equal(30, loaded.DefaultSchedule.DailyMinute);
             Assert.Equal("project", loaded.DefaultWorkspaceMode);
             Assert.Equal("workspaceScope", loaded.DefaultApprovalPolicy);
-            Assert.True(loaded.DefaultRequireApproval);
             Assert.False(loaded.NeedsThreadBinding);
             Assert.Equal("Weekly sync", loaded.DefaultTitle);
             Assert.Equal("Weekly sync description", loaded.DefaultDescription);
@@ -83,7 +81,7 @@ public sealed class UserTemplateFileStoreTests
                 description: null, icon: null, category: null,
                 workflowMarkdown: "---\nworkspace: project\n---\nbody",
                 defaultSchedule: null, defaultWorkspaceMode: "project", defaultApprovalPolicy: null,
-                defaultRequireApproval: false, needsThreadBinding: false,
+                needsThreadBinding: false,
                 defaultTitle: null, defaultDescription: null,
                 ct: CancellationToken.None);
 
@@ -95,7 +93,7 @@ public sealed class UserTemplateFileStoreTests
                 description: null, icon: null, category: null,
                 workflowMarkdown: "---\nworkspace: project\n---\nbody2",
                 defaultSchedule: null, defaultWorkspaceMode: "project", defaultApprovalPolicy: null,
-                defaultRequireApproval: false, needsThreadBinding: false,
+                needsThreadBinding: false,
                 defaultTitle: null, defaultDescription: null,
                 ct: CancellationToken.None);
 
@@ -126,7 +124,7 @@ public sealed class UserTemplateFileStoreTests
                 title: "hijack", description: null, icon: null, category: null,
                 workflowMarkdown: "---\n---\nx",
                 defaultSchedule: null, defaultWorkspaceMode: null, defaultApprovalPolicy: null,
-                defaultRequireApproval: false, needsThreadBinding: false,
+                needsThreadBinding: false,
                 defaultTitle: null, defaultDescription: null,
                 ct: CancellationToken.None));
         }
@@ -153,7 +151,7 @@ public sealed class UserTemplateFileStoreTests
                 title: "t", description: null, icon: null, category: null,
                 workflowMarkdown: "---\n---\nx",
                 defaultSchedule: null, defaultWorkspaceMode: null, defaultApprovalPolicy: null,
-                defaultRequireApproval: false, needsThreadBinding: false,
+                needsThreadBinding: false,
                 defaultTitle: null, defaultDescription: null,
                 ct: CancellationToken.None));
         }
@@ -174,7 +172,7 @@ public sealed class UserTemplateFileStoreTests
                 id: "to-delete", title: "x", description: null, icon: null, category: null,
                 workflowMarkdown: "---\n---\nx",
                 defaultSchedule: null, defaultWorkspaceMode: null, defaultApprovalPolicy: null,
-                defaultRequireApproval: false, needsThreadBinding: false,
+                needsThreadBinding: false,
                 defaultTitle: null, defaultDescription: null,
                 ct: CancellationToken.None);
 

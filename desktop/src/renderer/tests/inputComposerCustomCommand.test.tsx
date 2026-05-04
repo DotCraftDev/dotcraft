@@ -323,15 +323,18 @@ describe('InputComposer custom command expansion', () => {
 
     fireEvent.keyDown(textbox, { key: 'Enter' })
 
-    expect(useConversationStore.getState().pendingMessage).toEqual({
-      text: '/code-review',
-      inputParts: [
-        { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
-        { type: 'text', text: '/code-review' }
-      ],
-      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    await waitFor(() => {
+      const enqueueCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/enqueue')
+      expect(enqueueCall).toBeDefined()
+      expect(enqueueCall?.[1]).toEqual({
+        threadId: 'thread-1',
+        input: [
+          { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+          { type: 'text', text: '/code-review' }
+        ],
+        sender: undefined
+      })
     })
-    expect(screen.getByText(/Queued:/)).toHaveTextContent('/code-review')
   })
 
   it('shows a file-reference queue label instead of raw markers when queued text is empty', async () => {
@@ -352,18 +355,21 @@ describe('InputComposer custom command expansion', () => {
 
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
 
-    expect(useConversationStore.getState().pendingMessage).toEqual({
-      text: '',
-      inputParts: [
-        { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]' }
-      ],
-      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    await waitFor(() => {
+      const enqueueCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/enqueue')
+      expect(enqueueCall).toBeDefined()
+      expect(enqueueCall?.[1]).toEqual({
+        threadId: 'thread-1',
+        input: [
+          { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]' }
+        ],
+        sender: undefined
+      })
     })
-    expect(screen.getByText(/Queued:/)).toHaveTextContent(/Queued follow-up with 1 file reference/)
     expect(screen.queryByText(/\[\[Attached File:/)).not.toBeInTheDocument()
   })
 
-  it('drops queued images but preserves queued text and files while warning the user', async () => {
+  it('queues dropped images alongside text and file references while running', async () => {
     useConversationStore.setState({
       turnStatus: 'running',
       activeTurnId: 'turn-running'
@@ -409,19 +415,22 @@ describe('InputComposer custom command expansion', () => {
     fireEvent.keyDown(textbox, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(useConversationStore.getState().pendingMessage).toEqual({
-        text: '/code-review',
-        inputParts: [
+      const enqueueCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/enqueue')
+      expect(enqueueCall).toBeDefined()
+      expect(enqueueCall?.[1]).toEqual({
+        threadId: 'thread-1',
+        input: [
           { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
-          { type: 'text', text: '/code-review' }
+          { type: 'text', text: '/code-review' },
+          {
+            type: 'localImage',
+            path: 'C:\\temp\\image.png',
+            mimeType: 'image/png',
+            fileName: 'diagram.png'
+          }
         ],
-        files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+        sender: undefined
       })
     })
-    expect(
-      useToastStore.getState().toasts.some((toast) =>
-        toast.message.includes('Image attachments cannot be queued')
-      )
-    ).toBe(true)
   })
 })

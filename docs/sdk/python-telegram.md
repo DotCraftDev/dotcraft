@@ -69,7 +69,7 @@ pip install -r sdk/python/examples/telegram/requirements.txt
 ### 3. 启动 DotCraft
 
 ```bash
-dotcraft
+dotcraft gateway
 ```
 
 DotCraft 会自动以子进程方式启动 Telegram 适配器。你可以在 stderr 日志中看到 Bot 成功连接的信息。

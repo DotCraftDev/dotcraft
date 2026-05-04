@@ -72,7 +72,7 @@ $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxx"
 ### 4. 启动 DotCraft
 
 ```bash
-dotcraft
+dotcraft gateway
 ```
 
 ## 配置

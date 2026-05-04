@@ -25,7 +25,9 @@ public sealed class MemoryContextProvider(
     IReadOnlyList<string>? deferredMcpServerNames = null,
     string? subAgentProfilesSection = null,
     bool skillVariantModeEnabled = false,
-    SkillVariantTarget? skillVariantTarget = null)
+    SkillVariantTarget? skillVariantTarget = null,
+    string? promptProfile = null,
+    string? roleInstructions = null)
     : AIContextProvider
 {
     private readonly PromptBuilder _promptBuilder = new(
@@ -42,7 +44,9 @@ public sealed class MemoryContextProvider(
         subAgentProfilesSection,
         toolNamesProvider,
         skillVariantModeEnabled,
-        skillVariantTarget);
+        skillVariantTarget,
+        promptProfile,
+        roleInstructions);
 
     protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {

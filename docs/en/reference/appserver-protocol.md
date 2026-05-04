@@ -106,6 +106,7 @@ Initialize request:
       "approvalSupport": true,
       "streamingSupport": true,
       "commandExecutionStreaming": true,
+      "toolExecutionLifecycle": true,
       "configChange": true
     }
   }
@@ -300,6 +301,8 @@ Common notifications:
 | `item/commandExecution/outputDelta` | Command output delta. |
 | `item/toolCall/argumentsDelta` | Tool-call argument delta. |
 
+When a client declares `capabilities.toolExecutionLifecycle: true`, the server may also send `toolExecution` item lifecycle events: `item/started` marks one tool invocation as executing, and `item/completed` marks that `callId` as finished. This is a UI/runtime enhancement for updating individual parallel tool cards early; the matching `toolResult` remains the complete authoritative result.
+
 Clients can suppress specific notifications for the current connection by passing exact method names in `initialize.params.capabilities.optOutNotificationMethods`.
 
 ## Approvals
@@ -451,6 +454,7 @@ send(
       approvalSupport: true,
       streamingSupport: true,
       commandExecutionStreaming: true,
+      toolExecutionLifecycle: true,
       configChange: true,
     },
   },

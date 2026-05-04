@@ -87,7 +87,7 @@ Global hooks load first; workspace hooks are **appended** (additive, not overrid
 | `FindFiles` | Find files by name pattern |
 | `WebFetch` | Fetch web page |
 | `WebSearch` | Search web |
-| `SpawnSubagent` | Spawn a subagent for background tasks |
+| `SpawnAgent` | Spawn a subagent child thread for background tasks |
 
 Matcher is case-insensitive regex. Examples: `""` (all), `"WriteFile|EditFile"` (write ops), `".*File"` (all file ops), `"Exec"` (shell only).
 

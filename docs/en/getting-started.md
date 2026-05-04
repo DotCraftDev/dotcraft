@@ -33,6 +33,12 @@ bash build_linux.bat
 
 On first launch, choose a real project folder as the workspace. DotCraft keeps that project's configuration, sessions, tasks, skills, and attachments with the project, so Desktop, terminal, and automation entry points can continue from the same context.
 
+To complete first-time setup from a terminal, run this in a project directory that does not yet have `.craft/`:
+
+```bash
+dotcraft
+```
+
 Start from a real project folder instead of an empty directory so the agent can read repository structure, existing docs, and build scripts.
 
 ![Workspace setup wizard](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
@@ -68,17 +74,19 @@ Open the workspace in Desktop, create a session, and send a lightweight request:
 Read this repository's README and docs/index.md, then tell me how to start the project.
 ```
 
-If you prefer the terminal, run this from the project directory:
+If you prefer a script-friendly command-line entry, run a one-shot task from the project directory:
 
 ```bash
-dotcraft
+dotcraft exec "Read this repository's README and docs/index.md, then tell me how to start the project."
 ```
+
+In an initialized workspace, `dotcraft` does not enter an interactive chat. Use the TUI for terminal interaction.
 
 For a richer terminal UI, continue with the [TUI Guide](./tui_guide.md).
 
 ## Understand the Entry Model
 
-DotCraft organizes its entry points around the **Unified Session Core**: CLI, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
+DotCraft organizes its entry points around the **Unified Session Core**: command-line runs, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
 
 | Dimension | Gateway | Unified Session Core |
 |-----------|---------|----------------------|

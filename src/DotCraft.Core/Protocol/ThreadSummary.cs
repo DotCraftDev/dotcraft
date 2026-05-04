@@ -47,6 +47,8 @@ public sealed class ThreadSummary
 
     public string? DisplayName { get; set; }
 
+    public ThreadSource Source { get; set; } = ThreadSource.User();
+
     public ThreadStatus Status { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -81,6 +83,7 @@ public sealed class ThreadSummary
             ChannelContext = thread.ChannelContext
                 ?? (thread.Metadata.TryGetValue("channelContext", out var mc) ? mc : null),
             DisplayName = thread.DisplayName,
+            Source = thread.Source,
             Status = thread.Status,
             CreatedAt = thread.CreatedAt,
             LastActiveAt = thread.LastActiveAt,

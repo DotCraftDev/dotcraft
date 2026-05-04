@@ -29,7 +29,7 @@ public sealed class GitHubAutomationWorkspaceCleanupTests
             Assert.NotNull(workspacePath);
             Assert.True(Directory.Exists(workspacePath));
 
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, CancellationToken.None);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Completed, CancellationToken.None);
 
             await source.ReconcileExpiredResourcesAsync(CancellationToken.None);
             await source.ReconcileExpiredResourcesAsync(CancellationToken.None);
@@ -62,7 +62,7 @@ public sealed class GitHubAutomationWorkspaceCleanupTests
             var workspacePath = await source.ProvisionWorkspaceAsync(task, CancellationToken.None);
             Assert.NotNull(workspacePath);
 
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, CancellationToken.None);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Completed, CancellationToken.None);
             await source.OnAgentCompletedAsync(task, "review complete", CancellationToken.None);
 
             var reviewStatePath = Path.Combine(craftPath, "review-state", $"{task.Id}.json");
@@ -97,7 +97,7 @@ public sealed class GitHubAutomationWorkspaceCleanupTests
             var workspacePath = await source.ProvisionWorkspaceAsync(task, CancellationToken.None);
             Assert.NotNull(workspacePath);
 
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, CancellationToken.None);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, CancellationToken.None);
 
             await source.ReconcileExpiredResourcesAsync(CancellationToken.None);
 
@@ -125,7 +125,7 @@ public sealed class GitHubAutomationWorkspaceCleanupTests
             var workspacePath = await source.ProvisionWorkspaceAsync(task, CancellationToken.None);
             Assert.NotNull(workspacePath);
 
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, CancellationToken.None);
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, CancellationToken.None);
             await source.DeleteTaskAsync(task.Id, CancellationToken.None);
 
             Assert.False(Directory.Exists(workspacePath));

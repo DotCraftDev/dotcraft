@@ -72,7 +72,7 @@ Use a fine-grained personal access token with the narrowest repository scope and
 ### 4. Start DotCraft
 
 ```bash
-dotcraft
+dotcraft gateway
 ```
 
 ## Configuration

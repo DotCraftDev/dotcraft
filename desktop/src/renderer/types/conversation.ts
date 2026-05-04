@@ -16,6 +16,7 @@ export type ItemType =
   | 'agentMessage'
   | 'reasoningContent'
   | 'commandExecution'
+  | 'toolExecution'
   | 'toolCall'
   | 'pluginFunctionCall'
   | 'toolResult'
@@ -124,6 +125,8 @@ export interface ConversationItem {
   errorMessage?: string
   /** Tool result text updated on item/completed (toolResult) */
   result?: string
+  /** Lightweight runtime preview from toolExecution items. */
+  resultPreview?: string
   /** Whether the tool succeeded updated on item/completed (toolResult) */
   success?: boolean
   /** Duration in milliseconds from tool start to completion */
@@ -323,6 +326,41 @@ function mapInputPart(raw: unknown): InputPart | null {
   }
 }
 
+function normalizeElapsedSeconds(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.max(0, Math.round(value))
+}
+
+function elapsedSecondsFromTimestamps(
+  createdAt: string | undefined,
+  completedAt: string | undefined
+): number | undefined {
+  if (!createdAt || !completedAt) return undefined
+
+  const createdMs = Date.parse(createdAt)
+  const completedMs = Date.parse(completedAt)
+  if (!Number.isFinite(createdMs) || !Number.isFinite(completedMs) || completedMs < createdMs) {
+    return undefined
+  }
+
+  return Math.max(1, Math.round((completedMs - createdMs) / 1000))
+}
+
+function mapReasoningElapsedSeconds(
+  type: ItemType,
+  raw: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  createdAt: string,
+  completedAt: string | undefined
+): number | undefined {
+  if (type !== 'reasoningContent') return undefined
+
+  const explicitElapsed = normalizeElapsedSeconds(
+    (raw.elapsedSeconds as unknown) ?? (payload.elapsedSeconds as unknown)
+  )
+  return explicitElapsed ?? elapsedSecondsFromTimestamps(createdAt, completedAt)
+}
+
 /**
  * Converts a raw wire Turn object (from thread/read or turn/started) into
  * ConversationTurn. Wire items use camelCase property names.
@@ -374,6 +412,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
   const payloadMaterializedInputParts = Array.isArray(payloadMaterializedInputPartsRaw)
     ? payloadMaterializedInputPartsRaw.map(mapInputPart).filter((part): part is InputPart => part != null)
     : undefined
+  const createdAt = (raw.createdAt as string | undefined) ?? new Date().toISOString()
+  const completedAt = raw.completedAt as string | undefined
   return {
     id: (raw.id as string) ?? '',
     type,
@@ -410,6 +450,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.exitCode as number | null | undefined),
     executionStatus: (raw.executionStatus as ConversationItem['executionStatus'] | undefined)
       ?? (payload.status as ConversationItem['executionStatus'] | undefined),
+    resultPreview: (raw.resultPreview as string | undefined)
+      ?? (payload.resultPreview as string | undefined),
     arguments: (raw.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
     pluginId: (raw.pluginId as string | undefined)
@@ -426,6 +468,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     result: (raw.result as string | undefined)
       ?? (payload.result as string | undefined)
       ?? pluginResult,
+    duration: (raw.duration as number | undefined)
+      ?? (payload.durationMs as number | undefined),
     success: (raw.success as boolean | undefined)
       ?? (payload.success as boolean | undefined),
     images: payloadImages,
@@ -437,8 +481,9 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     triggerRefId: (raw.triggerRefId as string | undefined)
       ?? (payload.triggerRefId as string | undefined),
     systemNotice: type === 'systemNotice' ? mapSystemNotice(raw, payload) : undefined,
-    createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
-    completedAt: (raw.completedAt as string | undefined)
+    createdAt,
+    completedAt,
+    elapsedSeconds: mapReasoningElapsedSeconds(type, raw, payload, createdAt, completedAt)
   }
 }
 

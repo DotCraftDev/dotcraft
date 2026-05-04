@@ -8,7 +8,7 @@ namespace DotCraft.Agents;
 /// This bridges server-side SubAgent progress data to the Wire Protocol layer,
 /// enabling connected clients to display real-time SubAgent progress.
 ///
-/// The aggregator is started when the first <c>SpawnSubagent</c> tool call begins within a Turn,
+/// The aggregator is started when the first <c>SpawnAgent</c> tool call begins within a Turn,
 /// and stops when the Turn ends or all tracked SubAgents have completed.
 /// </summary>
 internal sealed class SubAgentProgressAggregator : IAsyncDisposable

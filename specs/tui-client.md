@@ -56,7 +56,7 @@ We thank the Codex team for their pioneering work in terminal AI agent UX.
 
 - **Wire protocol semantics**: Thread, Turn, and Item lifecycle, message formats, and transport rules are defined in [appserver-protocol.md](appserver-protocol.md). This spec references them but does not redefine them.
 - **Server-side behavior**: Agent execution, tool invocation, hook execution, and session management are server-internal concerns.
-- **Built-in C# CLI behavior**: The existing Spectre.Console CLI remains a separate implementation. This TUI does not replace it; both share the same Wire Protocol surface.
+- **Command-line one-shot behavior**: `dotcraft exec` remains a separate non-interactive entry point for scripts and automation.
 - **Frontend visual design details**: Specific glyphs, colors, spacing, and exact layout rendering belong to implementation and can evolve without changing this spec.
 
 ---
@@ -65,7 +65,7 @@ We thank the Codex team for their pioneering work in terminal AI agent UX.
 
 ### 2.1 Goals
 
-1. **Feature parity**: Expose the full Wire Protocol surface with UX quality matching or exceeding the built-in C# CLI.
+1. **Feature coverage**: Expose the full Wire Protocol surface with a high-quality terminal UX.
 2. **Performance**: Sustain 60fps rendering with sub-millisecond frame times, even during concurrent SubAgent progress updates at 200ms intervals.
 3. **Single binary**: Distribute as a statically linked binary with zero runtime dependencies (no Node.js, no .NET).
 4. **Cross-platform**: Support Windows (10+), macOS, and Linux terminals via Crossterm.

@@ -204,6 +204,33 @@ describe('ThreadEntry', () => {
     expect(appServerSendRequest).not.toHaveBeenCalledWith('thread/delete', { threadId: 'thread-1' })
   })
 
+  it('does not expose archive or delete actions for subagent children', async () => {
+    const thread = makeThread({
+      id: 'child-1',
+      originChannel: 'subagent',
+      source: {
+        kind: 'subagent',
+        subAgent: {
+          parentThreadId: 'parent-1',
+          depth: 1
+        }
+      }
+    })
+    renderThreadEntry(thread)
+
+    fireEvent.mouseEnter(await screen.findByTestId('thread-entry-child-1'))
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+
+    fireEvent.contextMenu(screen.getByTestId('thread-entry-child-1'), {
+      clientX: 20,
+      clientY: 20
+    })
+
+    expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Archive' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+  })
+
   it('keeps the thread in local state when backend delete fails', async () => {
     const thread = makeThread()
     useThreadStore.setState({ threadList: [thread], activeThreadId: 'thread-1' })

@@ -5,7 +5,9 @@ import { useThreadStore, selectFilteredThreads } from '../../stores/threadStore'
 import { groupThreads } from '../../utils/threadGrouping'
 import { ThreadGroup } from './ThreadGroup'
 import type { ThreadGroup as ThreadGroupType } from '../../types/thread'
+import type { ThreadSummary } from '../../types/thread'
 import { THREAD_GROUP_ORDER } from '../../types/thread'
+import { getSubAgentParentThreadId, isSubAgentThread } from '../../utils/subAgentThreads'
 
 /**
  * Scrollable container for the grouped thread list.
@@ -66,7 +68,7 @@ export function ThreadList(): JSX.Element {
     )
   }
 
-  const groups = groupThreads(filteredThreads)
+  const groups = groupThreads(orderSubAgentsAfterParents(filteredThreads))
 
   return (
     <div
@@ -114,6 +116,43 @@ export function ThreadList(): JSX.Element {
         ))}
     </div>
   )
+}
+
+function orderSubAgentsAfterParents(threads: ThreadSummary[]): ThreadSummary[] {
+  const childrenByParent = new Map<string, ThreadSummary[]>()
+  const topLevel: ThreadSummary[] = []
+  const emitted = new Set<string>()
+
+  for (const thread of threads) {
+    const parentId = isSubAgentThread(thread) ? getSubAgentParentThreadId(thread) : null
+    if (parentId) {
+      const children = childrenByParent.get(parentId) ?? []
+      children.push(thread)
+      childrenByParent.set(parentId, children)
+    } else {
+      topLevel.push(thread)
+    }
+  }
+
+  const result: ThreadSummary[] = []
+  for (const thread of topLevel) {
+    result.push(thread)
+    emitted.add(thread.id)
+    const children = childrenByParent.get(thread.id) ?? []
+    for (const child of children) {
+      result.push(child)
+      emitted.add(child.id)
+    }
+  }
+
+  for (const thread of threads) {
+    if (!emitted.has(thread.id)) {
+      result.push(thread)
+      emitted.add(thread.id)
+    }
+  }
+
+  return result
 }
 
 const emptyStyle: React.CSSProperties = {

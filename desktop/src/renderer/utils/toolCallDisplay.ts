@@ -42,7 +42,11 @@ export const BUILTIN_TOOLS = new Set<string>([
   'Exec',
   'WebSearch',
   'WebFetch',
-  'SpawnSubagent',
+  'SpawnAgent',
+  'WaitAgent',
+  'SendInput',
+  'ResumeAgent',
+  'CloseAgent',
   'LSP',
   'SearchTools',
   'Cron',
@@ -482,24 +486,60 @@ export function getStreamingToolDisplay(
       }
       return { label: translate(locale, 'toolCall.streaming.webFetchGeneric') }
     }
-    case 'SpawnSubagent': {
-      const label = extractPartialJsonStringValue(rawArgs, 'label')
-      const task = extractPartialJsonStringValue(rawArgs, 'task')
+    case 'SpawnAgent': {
+      const label = extractPartialJsonStringValue(rawArgs, 'agentNickname')
+      const task = extractPartialJsonStringValue(rawArgs, 'agentPrompt')
+      const profile = extractPartialJsonStringValue(rawArgs, 'profile')
       if (label) {
         return {
-          label: translate(locale, 'toolCall.streaming.spawnSubagent', {
+          label: translate(locale, 'toolCall.streaming.spawnAgent', {
             label: truncateChars(label, 60)
           })
         }
       }
       if (task) {
         return {
-          label: translate(locale, 'toolCall.streaming.spawnSubagentTask', {
+          label: translate(locale, 'toolCall.streaming.spawnAgentTask', {
             task: truncateChars(task, 60)
           })
         }
       }
-      return { label: translate(locale, 'toolCall.streaming.spawnSubagentGeneric') }
+      if (profile) {
+        return {
+          label: translate(locale, 'toolCall.streaming.spawnAgentProfile', {
+            profile: truncateChars(profile, 40)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.spawnAgentGeneric') }
+    }
+    case 'WaitAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.waiting', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'SendInput': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.sendingInput', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'ResumeAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.resuming', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
+    }
+    case 'CloseAgent': {
+      return {
+        label: translate(locale, 'toolCall.subAgent.closing', {
+          name: translate(locale, 'toolCall.subAgent.agent')
+        })
+      }
     }
     case 'LSP': {
       const op = extractPartialJsonStringValue(rawArgs, 'operation')

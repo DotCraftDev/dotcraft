@@ -20,6 +20,11 @@ describe('automationsStore templates', () => {
     })
 
     useAutomationsStore.setState({
+      tasks: [],
+      loading: false,
+      error: null,
+      selectedTaskId: null,
+      statusFilter: 'all',
       templates: [],
       templatesLoaded: false,
       templatesLocale: undefined
@@ -69,5 +74,56 @@ describe('automationsStore templates', () => {
       locale: 'zh-Hans'
     })
     expect(useAutomationsStore.getState().templates[0]?.title).toBe('每周活动报告')
+  })
+
+  it('does not send task-level review fields when creating tasks', async () => {
+    sendRequest.mockResolvedValueOnce({}).mockResolvedValueOnce({ tasks: [] })
+
+    await useAutomationsStore.getState().createTask({
+      title: 'Ship cleanup',
+      description: 'Remove stale review gates',
+      approvalPolicy: 'workspaceScope',
+      workspaceMode: 'project'
+    })
+
+    expect(sendRequest).toHaveBeenNthCalledWith(1, 'automation/task/create', {
+      title: 'Ship cleanup',
+      description: 'Remove stale review gates',
+      approvalPolicy: 'workspaceScope',
+      workspaceMode: 'project'
+    })
+    expect(sendRequest.mock.calls[0][1]).not.toHaveProperty('requireApproval')
+  })
+
+  it('does not expose approve or reject task actions', () => {
+    const state = useAutomationsStore.getState() as unknown as Record<string, unknown>
+
+    expect('approveTask' in state).toBe(false)
+    expect('rejectTask' in state).toBe(false)
+  })
+
+  it('does not send template-level default review fields when saving templates', async () => {
+    sendRequest.mockResolvedValueOnce({
+      template: {
+        id: 'cleanup',
+        title: 'Cleanup',
+        workflowMarkdown: '---\n---'
+      }
+    })
+
+    await useAutomationsStore.getState().saveTemplate({
+      title: 'Cleanup',
+      workflowMarkdown: '---\n---',
+      defaultApprovalPolicy: 'workspaceScope',
+      needsThreadBinding: false
+    })
+
+    expect(sendRequest).toHaveBeenCalledWith('automation/template/save', {
+      title: 'Cleanup',
+      workflowMarkdown: '---\n---',
+      needsThreadBinding: false,
+      defaultApprovalPolicy: 'workspaceScope'
+    })
+    expect(sendRequest.mock.calls[0][1]).not.toHaveProperty('defaultRequireApproval')
   })
 })

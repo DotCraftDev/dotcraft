@@ -10,6 +10,7 @@ using DotCraft.Skills;
 using DotCraft.Lsp;
 using DotCraft.Tools;
 using DotCraft.Tools.BackgroundTerminals;
+using DotCraft.Protocol;
 using OpenAI.Chat;
 
 namespace DotCraft.Abstractions;
@@ -136,6 +137,57 @@ public sealed class ToolProviderContext
     /// Optional thread-scoped store for external CLI session ids used by resumable subagents.
     /// </summary>
     public IExternalCliSessionStore? ExternalCliSessionStore { get; init; }
+
+    /// <summary>
+    /// Current session-backed thread id, when tools are being created for a specific thread.
+    /// </summary>
+    public string? CurrentThreadId { get; init; }
+
+    /// <summary>
+    /// Current session-backed thread source, when tools are being created for a specific thread.
+    /// </summary>
+    public ThreadSource? CurrentThreadSource { get; init; }
+
+    /// <summary>
+    /// Controls which DotCraft agent-control tools may be exposed in this tool context.
+    /// </summary>
+    public AgentControlToolAccess AgentControlToolAccess { get; init; } = AgentControlToolAccess.Full;
+
+    /// <summary>
+    /// Optional allow-list of DotCraft agent-control tool names used when
+    /// <see cref="AgentControlToolAccess"/> is <see cref="AgentControlToolAccess.AllowList"/>.
+    /// </summary>
+    public IReadOnlySet<string>? AllowedAgentControlTools { get; init; }
+
+    /// <summary>
+    /// Optional exact tool allow-list resolved for the current thread.
+    /// </summary>
+    public IReadOnlySet<string>? ToolAllowList { get; init; }
+
+    /// <summary>
+    /// Optional exact tool deny-list resolved for the current thread.
+    /// </summary>
+    public IReadOnlySet<string>? ToolDenyList { get; init; }
+
+    /// <summary>
+    /// Optional prompt profile for the current thread.
+    /// </summary>
+    public string? PromptProfile { get; init; }
+
+    /// <summary>
+    /// Optional role-specific instructions appended to the current thread prompt.
+    /// </summary>
+    public string? RoleInstructions { get; init; }
+
+    /// <summary>
+    /// Origin channel of the current session-backed thread.
+    /// </summary>
+    public string? CurrentOriginChannel { get; init; }
+
+    /// <summary>
+    /// Channel context of the current session-backed thread.
+    /// </summary>
+    public string? CurrentChannelContext { get; init; }
 
     /// <summary>
     /// Optional ACP extension proxy for extension method calls.

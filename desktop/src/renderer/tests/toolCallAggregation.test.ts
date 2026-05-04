@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateToolCalls } from '../utils/toolCallAggregation'
+import { aggregateToolCalls, isToolItemLive, planToolRunRender } from '../utils/toolCallAggregation'
 import type { ConversationItem } from '../types/conversation'
 
 function makeItem(
@@ -148,8 +148,8 @@ describe('aggregateToolCalls', () => {
 
   it('keeps non-aggregatable tools as individual cards', () => {
     const items = [
-      makeItem('SpawnSubagent', '1'),
-      makeItem('SpawnSubagent', '2')
+      makeItem('SpawnAgent', '1'),
+      makeItem('SpawnAgent', '2')
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(2)
@@ -302,5 +302,44 @@ describe('aggregateToolCalls', () => {
       expect(result[2].category).toBe('web')
       expect(result[2].items.map((item) => item.id)).toEqual(['4', '5'])
     }
+  })
+
+  it('treats completed tool calls without tool results as live only while the turn is running', () => {
+    const pending = makeItem('WaitAgent', 'wait-1', {
+      arguments: { agentNickname: 'Reviewer' }
+    })
+
+    expect(isToolItemLive(pending)).toBe(false)
+    expect(isToolItemLive(pending, { turnRunning: true })).toBe(true)
+  })
+
+  it('keeps pending-result tools out of settled groups in running turns', () => {
+    const items = [
+      makeItem('ReadFile', '1', { result: 'ok', success: true }),
+      makeItem('ReadFile', '2'),
+      makeItem('ReadFile', '3', { result: 'ok', success: true })
+    ]
+
+    const result = aggregateToolCalls(items, { turnRunning: true })
+
+    expect(result).toHaveLength(3)
+    expect(result[0].kind).toBe('single')
+    expect(result[1].kind).toBe('single')
+    expect(result[2].kind).toBe('single')
+    if (result[1].kind === 'single') {
+      expect(result[1].item.id).toBe('2')
+    }
+  })
+
+  it('does not keep missing-result historical tools live after the turn is completed', () => {
+    const items = [
+      makeItem('ReadFile', '1'),
+      makeItem('ReadFile', '2')
+    ]
+
+    const result = planToolRunRender(items, { isRunning: false, isTrailingRun: false })
+
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0].kind).toBe('group')
   })
 })

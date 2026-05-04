@@ -62,8 +62,6 @@ public sealed partial class LocalWorkflowLoader(ILogger<LocalWorkflowLoader> log
         {
             Steps = steps,
             MaxRounds = fm.MaxRounds > 0 ? fm.MaxRounds : 10,
-            OnApprove = fm.OnApprove,
-            OnReject = fm.OnReject,
             WorkspaceMode = MapWorkspaceString(fm.Workspace)
         });
     }
@@ -175,8 +173,6 @@ public sealed partial class LocalWorkflowLoader(ILogger<LocalWorkflowLoader> log
     private sealed class WorkflowYamlFrontMatter
     {
         public int MaxRounds { get; set; } = 10;
-        public string? OnApprove { get; set; }
-        public string? OnReject { get; set; }
         public List<string>? Steps { get; set; }
 
         /// <summary><c>project</c> (default) or <c>isolated</c>.</summary>

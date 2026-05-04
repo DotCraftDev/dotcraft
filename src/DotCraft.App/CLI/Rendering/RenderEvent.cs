@@ -94,8 +94,7 @@ public enum RenderEventType
 
     /// <summary>
     /// Plan/todo progress update — emitted when the agent creates or updates a structured plan.
-    /// The <see cref="RenderEvent.PlanData"/> carries the complete plan snapshot for rendering
-    /// as a Todolist progress panel via <see cref="StatusPanel.ShowPlanStatus"/>.
+    /// The <see cref="RenderEvent.PlanData"/> carries the complete plan snapshot for rendering.
     /// </summary>
     PlanUpdate
 }

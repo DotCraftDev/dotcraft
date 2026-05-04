@@ -53,6 +53,58 @@ internal sealed class ThreadEventBroker(string threadId)
             });
     }
 
+    public void PublishTurnStarted(SessionTurn turn)
+    {
+        Publish(new SessionEvent
+        {
+            EventId = NextEventId(),
+            EventType = SessionEventType.TurnStarted,
+            ThreadId = threadId,
+            TurnId = turn.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = SnapshotTurn(turn)
+        });
+    }
+
+    public void PublishTurnCompleted(SessionTurn turn)
+    {
+        Publish(new SessionEvent
+        {
+            EventId = NextEventId(),
+            EventType = SessionEventType.TurnCompleted,
+            ThreadId = threadId,
+            TurnId = turn.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = SnapshotTurn(turn)
+        });
+    }
+
+    public void PublishTurnFailed(SessionTurn turn, string error)
+    {
+        Publish(new SessionEvent
+        {
+            EventId = NextEventId(),
+            EventType = SessionEventType.TurnFailed,
+            ThreadId = threadId,
+            TurnId = turn.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = new TurnFailedPayload { Turn = SnapshotTurn(turn), Error = error }
+        });
+    }
+
+    public void PublishTurnCancelled(SessionTurn turn, string reason)
+    {
+        Publish(new SessionEvent
+        {
+            EventId = NextEventId(),
+            EventType = SessionEventType.TurnCancelled,
+            ThreadId = threadId,
+            TurnId = turn.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = new TurnCancelledPayload { Turn = SnapshotTurn(turn), Reason = reason }
+        });
+    }
+
     /// <summary>
     /// Publishes the current queued input snapshot for this thread.
     /// </summary>
@@ -163,6 +215,21 @@ internal sealed class ThreadEventBroker(string threadId)
             }
         }
     }
+
+    private static SessionTurn SnapshotTurn(SessionTurn turn) => new()
+    {
+        Id = turn.Id,
+        ThreadId = turn.ThreadId,
+        Status = turn.Status,
+        Input = turn.Input,
+        Items = [.. turn.Items],
+        StartedAt = turn.StartedAt,
+        CompletedAt = turn.CompletedAt,
+        TokenUsage = turn.TokenUsage,
+        Error = turn.Error,
+        OriginChannel = turn.OriginChannel,
+        Initiator = turn.Initiator
+    };
 
     private async IAsyncEnumerable<SessionEvent> ReadAllAsync(
         long subscriberId,

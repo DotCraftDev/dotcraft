@@ -18,8 +18,11 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useSkillsStore } from '../stores/skillsStore'
+import { useSubAgentStore } from '../stores/subAgentStore'
+import { useAutomationsStore, type AutomationTask } from '../stores/automationsStore'
 import type { ContextUsageSnapshotWire, ThreadSummary } from '../types/thread'
 import type { InputPart } from '../types/conversation'
+import type { SubAgentEntry } from '../types/toolCall'
 import { resolveWorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
 import { buildComposerInputParts } from '../utils/composeInputParts'
 
@@ -59,6 +62,11 @@ function dispatch(payload: { method: string; params: unknown }): void {
       }, {
         isActive: threads.activeThreadId === threadId,
         isDesktopOrigin: true
+      })
+      useSubAgentStore.getState().updateChildRuntime(threadId, {
+        running: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).running === true,
+        waitingOnApproval: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).waitingOnApproval === true,
+        waitingOnPlanConfirmation: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).waitingOnPlanConfirmation === true
       })
       break
     }
@@ -169,6 +177,42 @@ function dispatch(payload: { method: string; params: unknown }): void {
       }
       break
 
+    case 'subagent/progress': {
+      const entries = (p.entries as SubAgentEntry[]) ?? []
+      const threadId = (p.threadId as string | undefined) ?? ''
+      if (threadId) {
+        const subAgentStore = useSubAgentStore.getState()
+        const knownChildCount = subAgentStore.childrenByParent.get(threadId)?.length ?? 0
+        subAgentStore.updateProgress(threadId, entries)
+        const nextSubAgentStore = useSubAgentStore.getState()
+        if (
+          entries.length > 0
+          && knownChildCount < entries.length
+          && !nextSubAgentStore.loadingParents.has(threadId)
+        ) {
+          void nextSubAgentStore.fetchChildren(threadId)
+        }
+      }
+      if (shouldUpdateActiveConversation(threadId)) {
+        conv.onSubagentProgress(entries)
+      }
+      break
+    }
+
+    case 'subagent/graphChanged': {
+      const parentThreadId = (p.parentThreadId as string | undefined) ?? ''
+      if (parentThreadId) {
+        void useSubAgentStore.getState().fetchChildren(parentThreadId)
+      }
+      break
+    }
+
+    case 'automation/task/updated': {
+      const task = (p.task ?? {}) as AutomationTask
+      useAutomationsStore.getState().upsertTask(task)
+      break
+    }
+
     default:
       break
   }
@@ -180,7 +224,7 @@ function dispatch(payload: { method: string; params: unknown }): void {
 function dispatchThreadLifecycle(payload: { method: string; params: unknown }): void {
   const method = payload.method
   const p = (payload.params ?? {}) as Record<string, unknown>
-  const { addThread, removeThread } = useThreadStore.getState()
+  const { addThread, removeThreadTree, updateThreadStatus } = useThreadStore.getState()
 
   switch (method) {
     case 'thread/started': {
@@ -190,7 +234,16 @@ function dispatchThreadLifecycle(payload: { method: string; params: unknown }): 
     }
     case 'thread/deleted': {
       const pp = p as { threadId: string }
-      removeThread(pp.threadId)
+      removeThreadTree(pp.threadId)
+      break
+    }
+    case 'thread/statusChanged': {
+      const pp = p as { threadId: string; newStatus: string }
+      if (pp.newStatus === 'archived') {
+        removeThreadTree(pp.threadId)
+      } else {
+        updateThreadStatus(pp.threadId, pp.newStatus as 'active' | 'paused' | 'archived')
+      }
       break
     }
     default:
@@ -258,6 +311,7 @@ async function dispatchTurnCompletedWithAutoSend(
 beforeEach(() => {
   s().reset()
   useThreadStore.getState().reset()
+  useSubAgentStore.getState().reset()
   useThreadStore.setState({
     activeThreadId: 'thread-1',
     threadList: [
@@ -270,6 +324,11 @@ beforeEach(() => {
         lastActiveAt: NOW
       }
     ]
+  })
+  useAutomationsStore.setState({
+    tasks: [],
+    selectedTaskId: null,
+    statusFilter: 'all'
   })
   workspaceConfigChangedDedupe.clear()
 })
@@ -317,6 +376,195 @@ describe('notification dispatch payload format', () => {
     })
 
     expect(fetchSkillsCalls).toBe(0)
+  })
+
+  it('shows subagent progress immediately and refreshes child metadata', async () => {
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'subagent/children/list') {
+        return {
+          data: [
+            {
+              edge: {
+                parentThreadId: 'thread-1',
+                childThreadId: 'child-1',
+                agentNickname: 'Lovelace',
+                profileName: 'native',
+                runtimeType: 'native',
+                supportsSendInput: true,
+                supportsResume: true,
+                supportsClose: true,
+                status: 'open'
+              },
+              thread: {
+                id: 'child-1',
+                displayName: 'Lovelace',
+                status: 'active',
+                originChannel: 'subagent',
+                createdAt: NOW,
+                lastActiveAt: NOW,
+                runtime: {
+                  running: true,
+                  waitingOnApproval: false,
+                  waitingOnPlanConfirmation: false
+                }
+              }
+            }
+          ]
+        }
+      }
+      return {}
+    })
+    vi.stubGlobal('window', {
+      api: {
+        appServer: { sendRequest }
+      }
+    })
+
+    dispatch({
+      method: 'subagent/progress',
+      params: {
+        threadId: 'thread-1',
+        entries: [
+          {
+            label: 'Lovelace',
+            isCompleted: false,
+            inputTokens: 12,
+            outputTokens: 34,
+            currentTool: 'ReadFile',
+            currentToolDisplay: 'Reading sprite atlas'
+          }
+        ]
+      }
+    })
+
+    expect(useSubAgentStore.getState().childrenByParent.get('thread-1')?.[0]).toEqual(
+      expect.objectContaining({
+        nickname: 'Lovelace',
+        isPlaceholder: true,
+        lastToolDisplay: 'Reading sprite atlas',
+        runtime: expect.objectContaining({ running: true })
+      })
+    )
+
+    await vi.waitFor(() => {
+      expect(sendRequest).toHaveBeenCalledWith('subagent/children/list', {
+        parentThreadId: 'thread-1',
+        includeClosed: true,
+        includeThreads: true
+      })
+      expect(useSubAgentStore.getState().childrenByParent.get('thread-1')?.[0]).toEqual(
+        expect.objectContaining({
+          childThreadId: 'child-1',
+          isPlaceholder: false,
+          lastToolDisplay: 'Reading sprite atlas',
+          supportsClose: true
+        })
+      )
+      expect(useThreadStore.getState().threadList.some((thread) => thread.id === 'child-1')).toBe(true)
+    })
+  })
+
+  it('updates subagent dock runtime from thread/runtimeChanged notifications', () => {
+    useSubAgentStore.getState().setChildren('thread-1', [
+      {
+        childThreadId: 'child-1',
+        parentThreadId: 'thread-1',
+        nickname: 'Lovelace',
+        agentRole: null,
+        profileName: 'native',
+        runtimeType: 'native',
+        supportsSendInput: true,
+        supportsResume: true,
+        supportsClose: true,
+        status: 'open',
+        lastToolDisplay: 'Reading sprite atlas',
+        currentTool: 'ReadFile',
+        inputTokens: 12,
+        outputTokens: 34,
+        isCompleted: false,
+        runtime: {
+          running: true,
+          waitingOnApproval: false,
+          waitingOnPlanConfirmation: false
+        }
+      }
+    ])
+
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'child-1',
+        runtime: { running: false, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
+
+    expect(useSubAgentStore.getState().childrenByParent.get('thread-1')?.[0]).toEqual(
+      expect.objectContaining({
+        currentTool: null,
+        isCompleted: true,
+        runtime: expect.objectContaining({ running: false })
+      })
+    )
+  })
+
+  it('refreshes subagent children and sidebar on graph changes', async () => {
+    const sendRequest = vi.fn(async (method: string) => {
+      if (method === 'subagent/children/list') {
+        return {
+          data: [
+            {
+              edge: {
+                parentThreadId: 'thread-1',
+                childThreadId: 'child-graph',
+                agentNickname: 'Graph child',
+                status: 'open'
+              },
+              thread: {
+                id: 'child-graph',
+                displayName: 'Graph child',
+                status: 'active',
+                originChannel: 'subagent',
+                source: {
+                  kind: 'subagent',
+                  subAgent: {
+                    parentThreadId: 'thread-1',
+                    rootThreadId: 'thread-1',
+                    depth: 1
+                  }
+                },
+                createdAt: NOW,
+                lastActiveAt: NOW,
+                runtime: {
+                  running: true,
+                  waitingOnApproval: false,
+                  waitingOnPlanConfirmation: false
+                }
+              }
+            }
+          ]
+        }
+      }
+      return {}
+    })
+    vi.stubGlobal('window', {
+      api: {
+        appServer: { sendRequest }
+      }
+    })
+
+    dispatch({
+      method: 'subagent/graphChanged',
+      params: { parentThreadId: 'thread-1', childThreadId: 'child-graph' }
+    })
+
+    await vi.waitFor(() => {
+      expect(sendRequest).toHaveBeenCalledWith('subagent/children/list', {
+        parentThreadId: 'thread-1',
+        includeClosed: true,
+        includeThreads: true
+      })
+      expect(useThreadStore.getState().threadList.some((thread) => thread.id === 'child-graph')).toBe(true)
+    })
   })
 
   it('dispatches turn/started correctly from { method, params } payload', () => {
@@ -880,6 +1128,31 @@ describe('notification dispatch payload format', () => {
       dispatch({ method: 'unknown/future/event', params: { foo: 'bar' } })
     }).not.toThrow()
   })
+
+  it('upserts flattened automation task statuses from task updates', () => {
+    for (const status of ['running', 'completed', 'failed'] as const) {
+      dispatch({
+        method: 'automation/task/updated',
+        params: {
+          task: {
+            id: `task-${status}`,
+            sourceName: 'local',
+            title: status,
+            status,
+            threadId: null,
+            createdAt: NOW,
+            updatedAt: NOW
+          }
+        }
+      })
+    }
+
+    expect(useAutomationsStore.getState().tasks.map((task) => task.status).sort()).toEqual([
+      'completed',
+      'failed',
+      'running'
+    ])
+  })
 })
 
 describe('thread lifecycle notification dispatch', () => {
@@ -908,6 +1181,36 @@ describe('thread lifecycle notification dispatch', () => {
       params: { threadId: 'thread_del_1' }
     })
     expect(useThreadStore.getState().threadList.some((t) => t.id === 'thread_del_1')).toBe(false)
+  })
+
+  it('removes subagent descendants when a parent is deleted or archived', () => {
+    dispatchThreadLifecycle({
+      method: 'thread/started',
+      params: { thread: minimalThread('parent-1') }
+    })
+    dispatchThreadLifecycle({
+      method: 'thread/started',
+      params: {
+        thread: {
+          ...minimalThread('child-1'),
+          originChannel: 'subagent',
+          source: {
+            kind: 'subagent',
+            subAgent: {
+              parentThreadId: 'parent-1',
+              depth: 1
+            }
+          }
+        }
+      }
+    })
+
+    dispatchThreadLifecycle({
+      method: 'thread/statusChanged',
+      params: { threadId: 'parent-1', newStatus: 'archived' }
+    })
+
+    expect(useThreadStore.getState().threadList).toEqual([])
   })
 })
 

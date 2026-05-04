@@ -6,6 +6,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import { useSkillsStore } from '../../stores/skillsStore'
+import { useSubAgentStore } from '../../stores/subAgentStore'
 import type { ComposerFileAttachment, ImageAttachment, QueuedTurnInput } from '../../types/conversation'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
 import { buildComposerInputParts } from '../../utils/composeInputParts'
@@ -24,6 +25,7 @@ import { ModelPicker } from './ModelPicker'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import { ContextUsageRing } from './ContextUsageRing'
 import { ApprovalPolicyPicker } from './ApprovalPolicyPicker'
+import { SubAgentDock } from './SubAgentDock'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -95,6 +97,7 @@ export function InputComposer({
   const setThreadMode = useConversationStore((s) => s.setThreadMode)
   const composerPrefill = useUIStore((s) => s.composerPrefill)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const hasSubAgentDock = useSubAgentStore((s) => (s.childrenByParent.get(threadId)?.length ?? 0) > 0)
   const locale = useLocale()
 
   const isRunning = turnStatus === 'running'
@@ -450,10 +453,11 @@ export function InputComposer({
           onRemove={(id) => { void removeQueuedInput(id) }}
         />
       )}
-
       <ComposerShell
         dragOver={dragOver}
         dropLabel={t('composer.dropImage')}
+        topAccessory={<SubAgentDock parentThreadId={threadId} />}
+        topAccessoryVisible={hasSubAgentDock}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}

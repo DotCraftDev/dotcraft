@@ -32,6 +32,32 @@ public sealed class StreamAdapterPluginFunctionTests
             });
     }
 
+    [Fact]
+    public async Task AdaptWireNotificationsAsync_UsesToolExecutionCompletionAndSkipsDuplicateToolResult()
+    {
+        var events = new List<RenderEvent>();
+        await foreach (var renderEvent in StreamAdapter.AdaptWireNotificationsAsync(ReadToolExecutionNotifications()))
+        {
+            events.Add(renderEvent);
+        }
+
+        Assert.Collection(
+            events,
+            started =>
+            {
+                Assert.Equal(RenderEventType.ToolCallStarted, started.Type);
+                Assert.Equal("WaitAgent", started.Title);
+                Assert.Equal("call-1", started.CallId);
+            },
+            completed =>
+            {
+                Assert.Equal(RenderEventType.ToolCallCompleted, completed.Type);
+                Assert.Equal("WaitAgent", completed.Title);
+                Assert.Equal("call-1", completed.CallId);
+                Assert.Equal("preview done", completed.AdditionalInfo);
+            });
+    }
+
     private static async IAsyncEnumerable<JsonDocument> ReadNotifications()
     {
         yield return JsonDocument.Parse(
@@ -76,6 +102,70 @@ public sealed class StreamAdapterPluginFunctionTests
                       { "type": "image", "mediaType": "image/png", "dataBase64": "abc123" }
                     ],
                     "success": true
+                  }
+                }
+              }
+            }
+            """);
+    }
+
+    private static async IAsyncEnumerable<JsonDocument> ReadToolExecutionNotifications()
+    {
+        yield return JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "method": "item/started",
+              "params": {
+                "item": {
+                  "id": "tool-1",
+                  "type": "toolCall",
+                  "payload": {
+                    "toolName": "WaitAgent",
+                    "callId": "call-1",
+                    "arguments": { "childThreadId": "thread_child" }
+                  }
+                }
+              }
+            }
+            """);
+
+        await Task.Yield();
+
+        yield return JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "method": "item/completed",
+              "params": {
+                "item": {
+                  "id": "exec-1",
+                  "type": "toolExecution",
+                  "payload": {
+                    "toolName": "WaitAgent",
+                    "callId": "call-1",
+                    "status": "completed",
+                    "success": true,
+                    "resultPreview": "preview done"
+                  }
+                }
+              }
+            }
+            """);
+
+        yield return JsonDocument.Parse(
+            """
+            {
+              "jsonrpc": "2.0",
+              "method": "item/completed",
+              "params": {
+                "item": {
+                  "id": "result-1",
+                  "type": "toolResult",
+                  "payload": {
+                    "callId": "call-1",
+                    "success": true,
+                    "result": "full result"
                   }
                 }
               }

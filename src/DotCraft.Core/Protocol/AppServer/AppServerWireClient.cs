@@ -65,6 +65,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
         string clientVersion = "0.1.0",
         bool approvalSupport = true,
         bool streamingSupport = true,
+        bool toolExecutionLifecycle = false,
         IReadOnlyList<string>? optOutMethods = null,
         AcpExtensionCapability? acpExtensions = null)
     {
@@ -73,12 +74,14 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
             {
                 approvalSupport,
                 streamingSupport,
+                toolExecutionLifecycle,
                 optOutNotificationMethods = optOutMethods ?? Array.Empty<string>()
             }
             : new
             {
                 approvalSupport,
                 streamingSupport,
+                toolExecutionLifecycle,
                 optOutNotificationMethods = optOutMethods ?? Array.Empty<string>(),
                 acpExtensions
             };

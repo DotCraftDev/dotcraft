@@ -42,6 +42,9 @@ internal static class HubTurnNotificationPolicy
             if (ThreadVisibility.IsInternal(thread))
                 return new HubTurnNotificationDecision(false, string.Empty);
 
+            if (IsSubAgentThread(thread))
+                return new HubTurnNotificationDecision(false, string.Empty);
+
             if (!string.IsNullOrWhiteSpace(thread.DisplayName))
                 return new HubTurnNotificationDecision(true, thread.DisplayName.Trim());
         }
@@ -53,5 +56,17 @@ internal static class HubTurnNotificationPolicy
         return new HubTurnNotificationDecision(
             true,
             LanguageService.Current.T("hub.notification.thread.default"));
+    }
+
+    private static bool IsSubAgentThread(SessionThread thread)
+    {
+        if (string.Equals(thread.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(thread.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return !string.IsNullOrWhiteSpace(thread.ChannelContext)
+            && thread.ChannelContext.StartsWith("thread_", StringComparison.OrdinalIgnoreCase);
     }
 }

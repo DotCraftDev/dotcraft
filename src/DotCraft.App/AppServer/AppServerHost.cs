@@ -225,7 +225,9 @@ public sealed class AppServerHost(
         _runtime.ThreadStarted += BroadcastThreadStarted;
         _runtime.ThreadRenamed += BroadcastThreadRenamed;
         _runtime.ThreadDeleted += BroadcastThreadDeleted;
+        _runtime.ThreadStatusChanged += BroadcastThreadStatusChanged;
         _runtime.ThreadRuntimeSignal += OnThreadRuntimeSignal;
+        _runtime.SubAgentGraphChanged += BroadcastSubAgentGraphChanged;
         _runtime.CronStateChanged += OnCronStateChanged;
         _runtime.BackgroundJobResultProduced += OnBackgroundJobResultProduced;
         _runtime.AutomationTaskUpdated += BroadcastAutomationTaskUpdated;
@@ -241,7 +243,9 @@ public sealed class AppServerHost(
         _runtime.ThreadStarted -= BroadcastThreadStarted;
         _runtime.ThreadRenamed -= BroadcastThreadRenamed;
         _runtime.ThreadDeleted -= BroadcastThreadDeleted;
+        _runtime.ThreadStatusChanged -= BroadcastThreadStatusChanged;
         _runtime.ThreadRuntimeSignal -= OnThreadRuntimeSignal;
+        _runtime.SubAgentGraphChanged -= BroadcastSubAgentGraphChanged;
         _runtime.CronStateChanged -= OnCronStateChanged;
         _runtime.BackgroundJobResultProduced -= OnBackgroundJobResultProduced;
         _runtime.AutomationTaskUpdated -= BroadcastAutomationTaskUpdated;
@@ -919,7 +923,7 @@ public sealed class AppServerHost(
             @params = new { thread = thread.ToWire() }
         };
 
-        var skipTransport = AppServerRequestContext.CurrentTransport;
+        var skipTransport = IsSubAgentThread(thread) ? null : AppServerRequestContext.CurrentTransport;
 
         foreach (var (transport, connection) in _activeTransports)
         {
@@ -942,6 +946,38 @@ public sealed class AppServerHost(
             });
         }
     }
+
+    private void BroadcastSubAgentGraphChanged(string parentThreadId, string childThreadId)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.SubAgentGraphChanged,
+            @params = new { parentThreadId, childThreadId }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.SubAgentGraphChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private static bool IsSubAgentThread(SessionThread thread) =>
+        string.Equals(thread.Source.Kind, ThreadSourceKinds.SubAgent, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(thread.OriginChannel, SubAgentThreadOrigin.ChannelName, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Broadcasts <c>thread/renamed</c> to all connected transports when a thread's display name changes
@@ -1073,6 +1109,39 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.ThreadRuntimeChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private void BroadcastThreadStatusChanged(string threadId, ThreadStatus previousStatus, ThreadStatus newStatus)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadStatusChanged,
+            @params = new { threadId, previousStatus, newStatus }
+        };
+
+        var skipTransport = AppServerRequestContext.CurrentTransport;
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadStatusChanged))
+                continue;
+
+            if (skipTransport != null && ReferenceEquals(transport, skipTransport))
                 continue;
 
             _ = Task.Run(async () =>

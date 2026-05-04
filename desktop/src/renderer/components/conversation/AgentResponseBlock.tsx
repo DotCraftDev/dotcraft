@@ -6,7 +6,6 @@ import { ToolCallCard } from './ToolCallCard'
 import { AgentMessage } from './AgentMessage'
 import { ErrorBlock } from './ErrorBlock'
 import { CancelledNotice } from './CancelledNotice'
-import { SubAgentProgressBlock } from './SubAgentProgressBlock'
 import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { TurnArtifacts } from './TurnArtifacts'
 import { ApprovalCard } from './ApprovalCard'
@@ -17,7 +16,6 @@ import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
 import { isToolItemLive } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
-import type { SubAgentEntry } from '../../types/toolCall'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
@@ -38,16 +36,6 @@ interface AgentResponseBlockProps {
    * (e.g. automation task review panel).
    */
   activeItemIdOverride?: string | null
-  /**
-   * When set, SubAgent table uses this data instead of the global conversation store
-   * (e.g. automation review scoped to reviewThreadId).
-   */
-  subAgentEntriesOverride?: SubAgentEntry[]
-  /**
-   * Thread-level SubAgent snapshot must render at most once. Show on the active turn
-   * while streaming, and on the last turn for the collapsed completed summary.
-   */
-  isLastTurn?: boolean
 }
 
 /**
@@ -71,32 +59,25 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   streamingReasoning = '',
   isRunning = false,
   isActiveTurn = false,
-  activeItemIdOverride,
-  subAgentEntriesOverride,
-  isLastTurn = false
+  activeItemIdOverride
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
-  const liveSubAgentEntries = useConversationStore((s) => s.subAgentEntries)
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
-  const resolvedSubAgentEntries = subAgentEntriesOverride
-    ?? (isActiveTurn
-      ? liveSubAgentEntries
-      : (turn.subAgentEntries ?? (isLastTurn ? liveSubAgentEntries : [])))
+
+  const hydratedItems = hydrateToolCallItems(turn.items)
 
   // Exclude user messages and toolResult items (toolResults are merged into their
-  // parent toolCall items by the store, not rendered independently)
-  const renderableItems = turn.items.filter(
+  // parent toolCall items before rendering, not rendered independently)
+  const renderableItems = hydratedItems.filter(
     (i) =>
       (i.type !== 'userMessage' || i.deliveryMode === 'guidance')
       && i.type !== 'toolResult'
       && i.type !== 'commandExecution'
+      && i.type !== 'toolExecution'
   )
 
-  // Build render nodes in item order with shared insertion state so subagent
-  // summary only appears once even when a completed turn is split into slices.
-  let subAgentBlockInserted = false
   const renderItemSequence = (
     itemsToRender: ConversationItem[],
     keyPrefix = ''
@@ -118,31 +99,12 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         }
         const isTrailingRun = i + 1 >= itemsToRender.length
         const { entries } = planToolRunRender(toolRun, { isRunning, isTrailingRun })
-        const runNodes: React.ReactNode[] = []
-        let lastSpawnSubagentIndex = -1
 
         for (const entry of entries) {
-          runNodes.push(
-            renderAggregatedEntry(entry, turn.id, nodes.length + runNodes.length, keyPrefix)
+          nodes.push(
+            renderAggregatedEntry(entry, turn.id, nodes.length, isRunning, keyPrefix)
           )
-          if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
-            lastSpawnSubagentIndex = runNodes.length - 1
-          }
         }
-
-        if (!subAgentBlockInserted && lastSpawnSubagentIndex >= 0) {
-          runNodes.splice(
-            lastSpawnSubagentIndex + 1,
-            0,
-            <SubAgentProgressBlock
-              key={`subagent-progress-${turn.id}`}
-              entries={resolvedSubAgentEntries}
-            />
-          )
-          subAgentBlockInserted = true
-        }
-
-        nodes.push(...runNodes)
       } else if (item.type === 'userMessage' && item.deliveryMode === 'guidance') {
         nodes.push(
           <UserMessageBlock
@@ -281,6 +243,7 @@ function renderAggregatedEntry(
   entry: AggregatedToolCall,
   turnId: string,
   offset: number,
+  turnRunning: boolean,
   keyPrefix = ''
 ): React.ReactNode {
   if (entry.kind === 'single') {
@@ -289,6 +252,7 @@ function renderAggregatedEntry(
         key={entry.item.id}
         item={entry.item}
         turnId={turnId}
+        turnRunning={turnRunning}
       />
     )
   }
@@ -298,6 +262,7 @@ function renderAggregatedEntry(
       category={entry.category}
       items={entry.items}
       turnId={turnId}
+      turnRunning={turnRunning}
     />
   )
 }
@@ -308,19 +273,21 @@ interface GroupedToolCallRowProps {
   category: ToolGroupCategory
   items: ConversationItem[]
   turnId: string
+  turnRunning: boolean
 }
 
 /**
  * Collapsed summary row for a group of consecutive aggregated tool calls.
  * Expandable to show each individual child tool card.
  */
-function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps): JSX.Element {
+function GroupedToolCallRow({ category, items, turnId, turnRunning }: GroupedToolCallRowProps): JSX.Element {
   const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const label = formatToolGroupLabel(category, items, locale, changedFiles)
   const hasFailedItems = items.some(isGroupedItemFailed)
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const rowColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div>
@@ -328,6 +295,8 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
         onClick={() => setExpanded((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -337,21 +306,34 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          color: 'var(--text-secondary)',
+          color: hasFailedItems ? 'var(--error)' : rowColor,
           fontSize: '12px',
           textAlign: 'left',
           borderRadius: '4px'
         }}
       >
-        <span style={{ flex: 1, color: hasFailedItems ? 'var(--error)' : 'var(--text-secondary)' }}>
-          {label}
+        <span
+          data-testid="tool-row-title-group"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            flex: '0 1 auto',
+            minWidth: 0,
+            maxWidth: '100%',
+            color: hasFailedItems ? 'var(--error)' : rowColor
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+          <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
         </span>
-        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
       </button>
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>
           {items.map((item) => (
-            <ToolCallCard key={item.id} item={item} turnId={turnId} />
+            <ToolCallCard key={item.id} item={item} turnId={turnId} turnRunning={turnRunning} />
           ))}
         </div>
       )}
@@ -394,6 +376,87 @@ function findLastCreatePlanIndexBefore(items: ConversationItem[], beforeIndex: n
 
 function isGuidanceUserMessage(item: ConversationItem): boolean {
   return item.type === 'userMessage' && item.deliveryMode === 'guidance'
+}
+
+function hydrateToolCallItems(items: ConversationItem[]): ConversationItem[] {
+  const resultByCallId = new Map<string, ConversationItem>()
+  const commandExecutionByCallId = new Map<string, ConversationItem>()
+  const toolExecutionByCallId = new Map<string, ConversationItem>()
+
+  for (const item of items) {
+    if (item.type === 'toolResult' && item.toolCallId) {
+      resultByCallId.set(item.toolCallId, item)
+    } else if (item.type === 'commandExecution' && item.toolCallId) {
+      commandExecutionByCallId.set(item.toolCallId, item)
+    } else if (item.type === 'toolExecution' && item.toolCallId) {
+      toolExecutionByCallId.set(item.toolCallId, item)
+    }
+  }
+
+  return items.map((item) => {
+    if (item.type !== 'toolCall' || !item.toolCallId) return item
+
+    const resultItem = resultByCallId.get(item.toolCallId)
+    const commandExecution = commandExecutionByCallId.get(item.toolCallId)
+    const toolExecution = toolExecutionByCallId.get(item.toolCallId)
+    let hydrated = item
+
+    if (toolExecution) {
+      hydrated = {
+        ...hydrated,
+        status: 'completed',
+        result: hydrated.result ?? toolExecution.resultPreview,
+        resultPreview: toolExecution.resultPreview ?? hydrated.resultPreview,
+        success: toolExecution.success ?? hydrated.success,
+        executionStatus: toolExecution.executionStatus ?? hydrated.executionStatus,
+        duration: toolExecution.duration
+          ?? hydrated.duration
+          ?? computeItemDurationMs(hydrated.createdAt, toolExecution.completedAt),
+        completedAt: toolExecution.completedAt ?? hydrated.completedAt
+      }
+    }
+
+    if (resultItem) {
+      hydrated = {
+        ...hydrated,
+        status: 'completed',
+        result: resultItem.result ?? hydrated.result,
+        success: resultItem.success ?? hydrated.success ?? true,
+        duration: hydrated.duration ?? computeItemDurationMs(hydrated.createdAt, resultItem.completedAt),
+        completedAt: resultItem.completedAt ?? hydrated.completedAt
+      }
+    }
+
+    if (commandExecution) {
+      hydrated = {
+        ...hydrated,
+        status: commandExecution.status === 'completed' ? 'completed' : hydrated.status,
+        command: commandExecution.command ?? hydrated.command,
+        workingDirectory: commandExecution.workingDirectory ?? hydrated.workingDirectory,
+        commandSource: commandExecution.commandSource ?? hydrated.commandSource,
+        aggregatedOutput: commandExecution.aggregatedOutput ?? hydrated.aggregatedOutput,
+        exitCode: commandExecution.exitCode ?? hydrated.exitCode,
+        executionStatus: commandExecution.executionStatus ?? hydrated.executionStatus,
+        duration: commandExecution.duration
+          ?? hydrated.duration
+          ?? computeItemDurationMs(hydrated.createdAt, commandExecution.completedAt),
+        completedAt: commandExecution.completedAt ?? hydrated.completedAt
+      }
+    }
+
+    return hydrated
+  })
+}
+
+function computeItemDurationMs(
+  createdAt: string | undefined,
+  completedAt: string | undefined
+): number | undefined {
+  if (!createdAt || !completedAt) return undefined
+  const startMs = Date.parse(createdAt)
+  const endMs = Date.parse(completedAt)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return undefined
+  return endMs - startMs
 }
 
 function getIntermediateElapsedMs(

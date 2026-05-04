@@ -27,6 +27,7 @@ export function TurnCollapsedSummary({
 
   const duration = formatDurationShort(elapsedMs)
   const label = t('conversation.turnCollapsed.processed', { duration })
+  const rowColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div>
@@ -47,14 +48,28 @@ export function TurnCollapsedSummary({
           borderBottom: expanded
             ? '1px solid var(--border-subtle, rgba(127,127,127,0.18))'
             : '1px solid transparent',
-          color: 'var(--text-secondary)',
+          color: rowColor,
           fontSize: '12px',
           textAlign: 'left',
           cursor: 'pointer'
         }}
       >
-        <span style={{ flex: 1 }}>{label}</span>
-        <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+        <span
+          data-testid="tool-row-title-group"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            flex: '0 1 auto',
+            minWidth: 0,
+            maxWidth: '100%'
+          }}
+        >
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+          <ToolCollapseChevron expanded={expanded} visible={hovered || expanded} />
+        </span>
       </button>
       <CollapsibleContent
         expanded={expanded}

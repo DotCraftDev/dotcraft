@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, MouseEvent } from 'react'
-import { Box, ChevronLeft, ExternalLink, Link, MessageCircle, RefreshCw, Settings, Trash2, Wrench } from 'lucide-react'
+import { Box, ChevronLeft, Ellipsis, ExternalLink, Link, MessageCircle, Settings, Trash2, Wrench } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { usePluginStore, type PluginDiagnosticEntry, type PluginEntry } from '../../stores/pluginStore'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -9,14 +9,16 @@ import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
 import { PillSwitch } from '../ui/PillSwitch'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { SkillsView } from '../skills/SkillsView'
+import { SkillsManageList, SkillsView, filterLocalSkills } from '../skills/SkillsView'
 import {
-  CatalogChip,
   CatalogFilterMenu,
   CatalogSearchBox,
   CatalogTabs,
   styles as catalogStyles
 } from '../catalog/CatalogSurface'
+import { ActionTooltip } from '../ui/ActionTooltip'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { RefreshIcon } from '../ui/AppIcons'
 import { PluginCatalogItem, PluginIcon, pluginSourceLabel, pluginSubtitle, pluginTitle } from './PluginCatalogItem'
 import { PluginInstallDialog } from './PluginInstallDialog'
 
@@ -45,15 +47,24 @@ export function PluginsView(): JSX.Element {
     removePlugin,
     togglePluginEnabled
   } = usePluginStore()
-  const fetchSkills = useSkillsStore((s) => s.fetchSkills)
+  const {
+    skills,
+    loading: skillsLoading,
+    error: skillsError,
+    fetchSkills,
+    toggleSkillEnabled
+  } = useSkillsStore()
   const [surface, setSurface] = useState<Surface>('plugins')
   const [mode, setMode] = useState<PluginMode>('browse')
   const [query, setQuery] = useState('')
+  const [skillManageQuery, setSkillManageQuery] = useState('')
   const [publisherFilter, setPublisherFilter] = useState<PublisherFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [savedPluginId, setSavedPluginId] = useState<string | null>(null)
+  const [savedSkillName, setSavedSkillName] = useState<string | null>(null)
   const [installTarget, setInstallTarget] = useState<PluginEntry | null>(null)
   const [installingId, setInstallingId] = useState<string | null>(null)
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
 
   useEffect(() => {
     if (pluginManagement) void fetchPlugins()
@@ -74,11 +85,25 @@ export function PluginsView(): JSX.Element {
     return () => window.clearTimeout(timer)
   }, [savedPluginId])
 
+  useEffect(() => {
+    if (!savedSkillName) return
+    const timer = window.setTimeout(() => setSavedSkillName(null), 1500)
+    return () => window.clearTimeout(timer)
+  }, [savedSkillName])
+
+  useEffect(() => {
+    if (mode === 'manage') void fetchSkills()
+  }, [fetchSkills, mode])
+
   const browsePlugins = useMemo(
     () => filterPlugins(plugins, query, publisherFilter, categoryFilter),
     [plugins, query, publisherFilter, categoryFilter]
   )
   const managePlugins = useMemo(() => filterPlugins(plugins, query, 'all', 'all'), [plugins, query])
+  const manageSkills = useMemo(
+    () => filterLocalSkills(skills, skillManageQuery, 'all'),
+    [skills, skillManageQuery]
+  )
   const visibleDiagnostics = useMemo(() => filterVisibleDiagnostics(diagnostics), [diagnostics])
   const categoryOptions = useMemo(() => buildCategoryOptions(plugins, t), [plugins, t])
   const sections = useMemo(() => buildSections(browsePlugins, categoryFilter, t), [browsePlugins, categoryFilter, t])
@@ -105,12 +130,12 @@ export function PluginsView(): JSX.Element {
     />
   ) : null
 
-  if (surface === 'skills') {
+  if (surface === 'skills' && mode !== 'manage') {
     return (
       <div style={page}>
         <SurfaceTabs value={surface} onChange={setSurface} />
         <div style={{ flex: 1, minHeight: 0 }}>
-          <SkillsView />
+          <SkillsView onManage={() => setMode('manage')} />
         </div>
       </div>
     )
@@ -173,63 +198,71 @@ export function PluginsView(): JSX.Element {
     return (
       <>
         <div style={page}>
-          <SurfaceTabs value={surface} onChange={setSurface} />
           <header style={manageHeader}>
             <div style={breadcrumb}>
               <button type="button" onClick={() => setMode('browse')} style={breadcrumbButton}>
                 <ChevronLeft size={14} aria-hidden />
-                {t('plugins.pageTitle')}
+                {surface === 'plugins' ? t('plugins.pageTitle') : t('skills.pageTitle')}
               </button>
               <span style={breadcrumbSep}>›</span>
               <span style={breadcrumbCurrent}>{t('plugins.manage')}</span>
             </div>
-            <div style={manageToolbar}>
-              <CatalogChip label={t('plugins.manage.count.plugins', { count: String(plugins.length) })} active />
-              <CatalogChip label={t('plugins.manage.count.apps', { count: '0' })} />
-              <CatalogChip label={t('plugins.manage.count.mcp', { count: '0' })} />
-              <CatalogChip label={t('plugins.manage.count.skills', { count: String(plugins.reduce((sum, plugin) => sum + plugin.skills.length, 0)) })} />
-              <div style={{ flex: 1 }} />
-              {savedPluginId && <span style={savedHint}>{t('settings.savedToast')}</span>}
-              <button
-                type="button"
-                aria-label={t('plugins.refresh')}
-                title={t('plugins.refresh')}
-                onClick={() => void fetchPlugins()}
-                style={iconToolbarButton}
-              >
-                <RefreshCw size={15} aria-hidden />
-              </button>
-              <CatalogSearchBox
-                value={query}
-                placeholder={t('plugins.manage.searchPlaceholder')}
-                onChange={setQuery}
-                style={{ maxWidth: '280px', flex: '0 1 280px' }}
+            {surface === 'plugins' ? (
+              <PluginsManageToolbar
+                surface={surface}
+                plugins={plugins}
+                skillsCount={skills.length}
+                query={query}
+                savedPluginId={savedPluginId}
+                onSurfaceChange={setSurface}
+                onQueryChange={setQuery}
               />
-            </div>
+            ) : (
+              <ManageSkillsToolbar
+                surface={surface}
+                pluginsCount={plugins.length}
+                skillsCount={skills.length}
+                query={skillManageQuery}
+                savedSkillName={savedSkillName}
+                onSurfaceChange={setSurface}
+                onQueryChange={setSkillManageQuery}
+              />
+            )}
           </header>
-          <main style={manageMain}>
-            {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
-            {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
-            {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
-            <PluginDiagnosticsBanner diagnostics={visibleDiagnostics} />
-            {managePlugins.map((plugin) => (
-              <PluginManageItem
-                key={plugin.id}
-                plugin={plugin}
-                onOpen={() => void selectPlugin(plugin.id)}
-                onInstall={() => setInstallTarget(plugin)}
-                onToggle={async (enabled) => {
-                  try {
-                    await togglePluginEnabled(plugin.id, enabled)
-                    await fetchSkills()
-                    setSavedPluginId(plugin.id)
-                  } catch {
-                    addToast(t('plugins.updateFailed'), 'error')
-                  }
-                }}
-              />
-            ))}
-          </main>
+          {surface === 'plugins' ? (
+            <PluginsManageList
+              pluginManagement={pluginManagement}
+              loading={loading}
+              error={error}
+              diagnostics={visibleDiagnostics}
+              plugins={managePlugins}
+              onOpen={(plugin) => void selectPlugin(plugin.id)}
+              onInstall={setInstallTarget}
+              onToggle={async (plugin, enabled) => {
+                try {
+                  await togglePluginEnabled(plugin.id, enabled)
+                  await fetchSkills()
+                  setSavedPluginId(plugin.id)
+                } catch {
+                  addToast(t('plugins.updateFailed'), 'error')
+                }
+              }}
+            />
+          ) : (
+            <SkillsManageList
+              skills={manageSkills}
+              loading={skillsLoading}
+              error={skillsError}
+              onToggleEnabled={async (skill, enabled) => {
+                try {
+                  await toggleSkillEnabled(skill.name, enabled)
+                  setSavedSkillName(skill.name)
+                } catch {
+                  addToast(t('skills.updateFailed'), 'error')
+                }
+              }}
+            />
+          )}
         </div>
         {installDialog}
       </>
@@ -241,20 +274,20 @@ export function PluginsView(): JSX.Element {
       <SurfaceTabs value={surface} onChange={setSurface} />
       <header style={browseHeader}>
         <div style={topActions}>
-          <button
-            type="button"
-            aria-label={t('plugins.refresh')}
-            title={t('plugins.refresh')}
-            onClick={() => void fetchPlugins()}
-            style={manageButton}
-          >
-            <RefreshCw size={14} aria-hidden />
-            {t('plugins.refresh')}
-          </button>
           <button type="button" onClick={() => setMode('manage')} style={manageButton}>
             <Settings size={14} aria-hidden />
             {t('plugins.manage')}
           </button>
+          <ActionTooltip label={t('plugins.moreActions')} placement="bottom">
+            <button
+              type="button"
+              aria-label={t('plugins.moreActions')}
+              onClick={(event) => setMenuPosition({ x: event.clientX, y: event.clientY })}
+              style={iconButton}
+            >
+              <Ellipsis size={16} aria-hidden />
+            </button>
+          </ActionTooltip>
         </div>
         <h1 style={heroTitle}>{t('plugins.heroTitle')}</h1>
         <div style={searchRow}>
@@ -301,8 +334,172 @@ export function PluginsView(): JSX.Element {
         ))}
         {!loading && !error && browsePlugins.length === 0 && <p style={emptyText}>{t('plugins.empty')}</p>}
       </main>
+      {menuPosition && (
+        <ContextMenu
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          items={[
+            {
+              label: t('plugins.refresh'),
+              icon: <RefreshIcon size={14} />,
+              onClick: () => void fetchPlugins()
+            }
+          ]}
+        />
+      )}
       {installDialog}
     </div>
+  )
+}
+
+function PluginsManageToolbar({
+  surface,
+  plugins,
+  skillsCount,
+  query,
+  savedPluginId,
+  onSurfaceChange,
+  onQueryChange
+}: {
+  surface: Surface
+  plugins: PluginEntry[]
+  skillsCount: number
+  query: string
+  savedPluginId: string | null
+  onSurfaceChange: (surface: Surface) => void
+  onQueryChange: (query: string) => void
+}): JSX.Element {
+  const t = useT()
+
+  return (
+    <div style={manageToolbar}>
+      <ManageSurfaceTabs
+        value={surface}
+        pluginsCount={plugins.length}
+        skillsCount={skillsCount}
+        onChange={onSurfaceChange}
+      />
+      <div style={{ flex: 1 }} />
+      {savedPluginId && <span style={savedHint}>{t('settings.savedToast')}</span>}
+      <CatalogSearchBox
+        value={query}
+        placeholder={t('plugins.manage.searchPlaceholder')}
+        onChange={onQueryChange}
+        style={{ maxWidth: '280px', flex: '0 1 280px' }}
+      />
+    </div>
+  )
+}
+
+function ManageSkillsToolbar({
+  surface,
+  pluginsCount,
+  skillsCount,
+  query,
+  savedSkillName,
+  onSurfaceChange,
+  onQueryChange
+}: {
+  surface: Surface
+  pluginsCount: number
+  skillsCount: number
+  query: string
+  savedSkillName: string | null
+  onSurfaceChange: (surface: Surface) => void
+  onQueryChange: (query: string) => void
+}): JSX.Element {
+  const t = useT()
+
+  return (
+    <div style={manageToolbar}>
+      <ManageSurfaceTabs
+        value={surface}
+        pluginsCount={pluginsCount}
+        skillsCount={skillsCount}
+        onChange={onSurfaceChange}
+      />
+      <div style={{ flex: 1 }} />
+      {savedSkillName && <span style={savedHint}>{t('settings.savedToast')}</span>}
+      <CatalogSearchBox
+        value={query}
+        placeholder={t('skills.manage.searchPlaceholder')}
+        onChange={onQueryChange}
+        style={{ maxWidth: '280px', flex: '0 1 280px' }}
+      />
+    </div>
+  )
+}
+
+function ManageSurfaceTabs({
+  value,
+  pluginsCount,
+  skillsCount,
+  onChange
+}: {
+  value: Surface
+  pluginsCount: number
+  skillsCount: number
+  onChange: (surface: Surface) => void
+}): JSX.Element {
+  const t = useT()
+  const items: Array<{ value: Surface; label: string }> = [
+    { value: 'plugins', label: t('plugins.manage.count.plugins', { count: String(pluginsCount) }) },
+    { value: 'skills', label: t('plugins.manage.count.skills', { count: String(skillsCount) }) }
+  ]
+
+  return (
+    <div style={manageSurfaceTabs}>
+      {items.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => onChange(item.value)}
+          style={value === item.value ? manageSurfaceTabActive : manageSurfaceTab}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PluginsManageList({
+  pluginManagement,
+  loading,
+  error,
+  diagnostics,
+  plugins,
+  onOpen,
+  onInstall,
+  onToggle
+}: {
+  pluginManagement: boolean
+  loading: boolean
+  error: string | null
+  diagnostics: PluginDiagnosticEntry[]
+  plugins: PluginEntry[]
+  onOpen: (plugin: PluginEntry) => void
+  onInstall: (plugin: PluginEntry) => void
+  onToggle: (plugin: PluginEntry, enabled: boolean) => void
+}): JSX.Element {
+  const t = useT()
+
+  return (
+    <main style={manageMain}>
+      {!pluginManagement && <p style={emptyText}>{t('plugins.unavailable')}</p>}
+      {loading && <p style={emptyText}>{t('plugins.loading')}</p>}
+      {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
+      <PluginDiagnosticsBanner diagnostics={diagnostics} />
+      {plugins.map((plugin) => (
+        <PluginManageItem
+          key={plugin.id}
+          plugin={plugin}
+          onOpen={() => onOpen(plugin)}
+          onInstall={() => onInstall(plugin)}
+          onToggle={(enabled) => onToggle(plugin, enabled)}
+        />
+      ))}
+    </main>
   )
 }
 
@@ -343,7 +540,7 @@ function PluginManageItem({
       </button>
       <span style={manageSource}>{pluginSourceLabel(plugin)}</span>
       {plugin.installed ? (
-        <PillSwitch checked={plugin.enabled} onChange={onToggle} size="sm" ariaLabel={`${pluginTitle(plugin)} enabled`} />
+        <PillSwitch checked={plugin.enabled} onChange={onToggle} size="sm" aria-label={`${pluginTitle(plugin)} enabled`} />
       ) : (
         <button type="button" onClick={onInstall} style={installMiniButton}>{t('plugins.install')}</button>
       )}
@@ -471,7 +668,7 @@ function PluginDetailView({
         {plugin.installed && (
           <div style={detailToggleRow}>
             <span>{plugin.enabled ? t('plugins.enabled') : t('plugins.disabled')}</span>
-            <PillSwitch checked={plugin.enabled} onChange={onToggle} ariaLabel={`${pluginTitle(plugin)} enabled`} />
+            <PillSwitch checked={plugin.enabled} onChange={onToggle} aria-label={`${pluginTitle(plugin)} enabled`} />
           </div>
         )}
       </main>
@@ -703,12 +900,24 @@ const compactItem: CSSProperties = catalogStyles.compactItem
 const rowTitle: CSSProperties = catalogStyles.rowTitle
 const rowDesc: CSSProperties = catalogStyles.rowDesc
 const manageButton: CSSProperties = catalogStyles.manageButton
+const iconButton: CSSProperties = catalogStyles.iconButton
 const manageHeader: CSSProperties = catalogStyles.manageHeader
 const breadcrumb: CSSProperties = catalogStyles.breadcrumb
 const breadcrumbButton: CSSProperties = catalogStyles.breadcrumbButton
 const breadcrumbSep: CSSProperties = catalogStyles.breadcrumbSep
 const breadcrumbCurrent: CSSProperties = catalogStyles.breadcrumbCurrent
 const manageToolbar: CSSProperties = catalogStyles.manageToolbar
+const manageSurfaceTabs: CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px' }
+const manageSurfaceTab: CSSProperties = {
+  ...catalogStyles.chip,
+  border: 'none',
+  cursor: 'pointer'
+}
+const manageSurfaceTabActive: CSSProperties = {
+  ...catalogStyles.chipActive,
+  border: 'none',
+  cursor: 'pointer'
+}
 const savedHint: CSSProperties = catalogStyles.savedHint
 const manageMain: CSSProperties = catalogStyles.manageMain
 const manageRow: CSSProperties = catalogStyles.manageRow

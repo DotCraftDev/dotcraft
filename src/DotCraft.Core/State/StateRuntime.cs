@@ -166,6 +166,31 @@ public sealed class StateRuntime
                     FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS thread_spawn_edges (
+                    parent_thread_id TEXT NOT NULL,
+                    child_thread_id TEXT NOT NULL,
+                    parent_turn_id TEXT,
+                    depth INTEGER NOT NULL DEFAULT 1,
+                    agent_nickname TEXT,
+                    agent_role TEXT,
+                    profile_name TEXT,
+                    runtime_type TEXT,
+                    supports_send_input INTEGER NOT NULL DEFAULT 0,
+                    supports_resume INTEGER NOT NULL DEFAULT 0,
+                    supports_close INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(parent_thread_id, child_thread_id),
+                    FOREIGN KEY(parent_thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE,
+                    FOREIGN KEY(child_thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_thread_spawn_edges_parent
+                    ON thread_spawn_edges(parent_thread_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_thread_spawn_edges_child
+                    ON thread_spawn_edges(child_thread_id);
+
                 CREATE TABLE IF NOT EXISTS trace_sessions (
                     session_key TEXT PRIMARY KEY,
                     started_at TEXT NOT NULL,
@@ -266,9 +291,31 @@ public sealed class StateRuntime
                     ON dashboard_usage_records(session_key, timestamp DESC, id DESC);
                 """;
             command.ExecuteNonQuery();
+            EnsureColumn(connection, "thread_spawn_edges", "runtime_type", "TEXT");
+            EnsureColumn(connection, "thread_spawn_edges", "supports_send_input", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "thread_spawn_edges", "supports_resume", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "thread_spawn_edges", "supports_close", "INTEGER NOT NULL DEFAULT 1");
 
             _initialized = true;
         }
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string tableName, string columnName, string definition)
+    {
+        using (var pragma = connection.CreateCommand())
+        {
+            pragma.CommandText = $"PRAGMA table_info({tableName})";
+            using var reader = pragma.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     private static long ReadPragmaLong(SqliteConnection connection, string pragmaName)

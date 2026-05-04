@@ -21,6 +21,8 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
 {
     private static readonly AsyncLocal<FunctionInvocationContext?> CurrentInvocationContext = new();
 
+    private const string InvalidToolArgumentsMetadataKey = "dotcraft.toolResult.invalidArguments";
+
     /// <summary>
     /// Gets the function invocation context currently flowing through this client.
     /// </summary>
@@ -169,6 +171,7 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
                 var addedPreviewContents = AddToolCallArgumentPreviews(update, toolCallPreviewTrackers);
                 if (addedPreviewContents is { Count: > 0 })
                     (previewContentsByUpdate ??= [])[update] = addedPreviewContents;
+                NormalizeFunctionCallArguments(update.Contents);
                 updates.Add(update);
                 CopyFunctionCalls(update.Contents, functionCalls);
 
@@ -316,6 +319,15 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         {
             if (content is FunctionCallContent { InformationalOnly: false } functionCall)
                 calls.Add(functionCall);
+        }
+    }
+
+    private static void NormalizeFunctionCallArguments(IList<AIContent> contents)
+    {
+        foreach (var content in contents)
+        {
+            if (content is FunctionCallContent { Arguments: null } functionCall)
+                functionCall.Arguments = new Dictionary<string, object?>();
         }
     }
 
@@ -575,9 +587,13 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         bool captureExceptions,
         CancellationToken cancellationToken)
     {
+        var toolExecution = ToolExecutionTracker.Claim(call.CallId);
         var tool = FindTool(call.Name, options);
         if (tool is not AIFunction function)
+        {
+            toolExecution?.CompleteFailure($"Requested function \"{call.Name}\" not found.");
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.NotFound, null, null, false);
+        }
 
         var arguments = new AIFunctionArguments(call.Arguments)
         {
@@ -603,11 +619,26 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             var value = FunctionInvoker == null
                 ? await function.InvokeAsync(arguments, cancellationToken)
                 : await FunctionInvoker(context, cancellationToken);
+            if (value is FunctionResultContent { Exception: { } resultException })
+                toolExecution?.CompleteFailure(resultException.Message, value);
+            else
+                toolExecution?.CompleteSuccess(value);
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.RanToCompletion, value, null, context.Terminate);
+        }
+        catch (OperationCanceledException ex)
+        {
+            toolExecution?.CompleteCancelled(ex.Message);
+            throw;
         }
         catch (Exception ex) when (captureExceptions && ex is not OperationCanceledException)
         {
+            toolExecution?.CompleteFailure(ex.Message);
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.Exception, null, ex, false);
+        }
+        catch (Exception ex)
+        {
+            toolExecution?.CompleteFailure(ex.Message);
+            throw;
         }
         finally
         {
@@ -625,6 +656,9 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             return new FunctionResultContent(result.Call.CallId, result.Value ?? "Success: Function completed.");
         }
 
+        if (result.Status == FunctionInvocationStatus.InvalidArguments)
+            return CreateInvalidToolArgumentsResult(result.Call.CallId, result.Value?.ToString() ?? "Error: Invalid tool arguments.");
+
         var message = result.Status switch
         {
             FunctionInvocationStatus.NotFound => $"Error: Requested function \"{result.Call.Name}\" not found.",
@@ -639,6 +673,28 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         {
             Exception = result.Exception
         };
+    }
+
+    internal static bool IsInvalidToolArgumentsResult(FunctionResultContent content)
+    {
+        if (content.AdditionalProperties == null)
+            return false;
+
+        return content.AdditionalProperties.TryGetValue(InvalidToolArgumentsMetadataKey, out var value)
+            && value is bool invalid
+            && invalid;
+    }
+
+    private static FunctionResultContent CreateInvalidToolArgumentsResult(string callId, string message)
+    {
+        var content = new FunctionResultContent(callId, message)
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                [InvalidToolArgumentsMetadataKey] = true
+            }
+        };
+        return content;
     }
 
     private AITool? FindTool(string name, ChatOptions? options)
@@ -733,6 +789,7 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
     {
         RanToCompletion,
         NotFound,
+        InvalidArguments,
         Exception
     }
 

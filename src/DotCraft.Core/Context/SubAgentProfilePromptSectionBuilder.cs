@@ -33,7 +33,7 @@ internal static class SubAgentProfilePromptSectionBuilder
         {
             "## Available SubAgent Profiles",
             "",
-            "Use only the exact profile names listed below with `SpawnSubagent`. Do not guess profile names that are not listed here.",
+            "Do not guess profile names that are not listed here.",
             $"Default profile: `{SubAgentCoordinator.DefaultProfileName}`",
             ""
         };

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Configuration;
@@ -6,6 +7,7 @@ using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
+using DotCraft.Tools;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Data.Sqlite;
@@ -72,6 +74,192 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
         Assert.Equal(
             [SessionThreadRuntimeSignal.TurnStarted, SessionThreadRuntimeSignal.TurnFailed],
             seen);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_SubAgentJsonStringResult_PersistsSuccessfulToolResult()
+    {
+        const string resultJson = "{\"childThreadId\":\"thread_child\",\"status\":\"running\",\"profileName\":\"native\"}";
+        IChatClient chatClient = new FakeChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent("call-1", resultJson)])
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        var turn = Assert.Single(loaded!.Turns);
+        var resultItem = Assert.Single(turn.Items, item => item.Type == ItemType.ToolResult);
+        var payload = Assert.IsType<ToolResultPayload>(resultItem.Payload);
+        Assert.True(payload.Success);
+        Assert.Equal("call-1", payload.CallId);
+        Assert.Equal(resultJson, payload.Result);
+        using var doc = JsonDocument.Parse(payload.Result);
+        Assert.Equal("thread_child", doc.RootElement.GetProperty("childThreadId").GetString());
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ReasoningAroundTool_PersistsSeparateReasoningItems()
+    {
+        IChatClient chatClient = new FakeChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("I need ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("a tool")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new ToolCallArgumentsDeltaContent
+            {
+                ToolCallIndex = 0,
+                ToolName = "ExampleTool",
+                CallId = "call-1",
+                ArgumentsDelta = "{\"path\":\"a.txt\"}"
+            }]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent(
+                callId: "call-1",
+                name: "ExampleTool",
+                arguments: new Dictionary<string, object?> { ["path"] = "a.txt" })]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent("call-1", "tool result")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("Now ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("answer")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("done")])
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        var turn = Assert.Single(loaded!.Turns);
+        var assistantItems = turn.Items.Where(item => item.Type != ItemType.UserMessage).ToList();
+
+        Assert.Equal(
+            [
+                ItemType.ReasoningContent,
+                ItemType.ToolCall,
+                ItemType.ToolResult,
+                ItemType.ReasoningContent,
+                ItemType.AgentMessage
+            ],
+            assistantItems.Select(item => item.Type));
+
+        Assert.Equal("I need a tool", Assert.IsType<ReasoningContentPayload>(assistantItems[0].Payload).Text);
+        Assert.Equal("Now answer", Assert.IsType<ReasoningContentPayload>(assistantItems[3].Payload).Text);
+        Assert.Equal("done", Assert.IsType<AgentMessagePayload>(assistantItems[4].Payload).Text);
+        Assert.All(
+            assistantItems.Where(item => item.Type == ItemType.ReasoningContent),
+            item => Assert.NotNull(item.CompletedAt));
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_ReasoningBeforeAgentMessage_FinalizesBeforeMessage()
+    {
+        IChatClient chatClient = new FakeChatClient([
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("First ")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("thought")]),
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("answer")])
+        ]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        await DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+
+        var loaded = await new ThreadStore(_tempDir).LoadThreadAsync(thread.Id);
+        var turn = Assert.Single(loaded!.Turns);
+        var assistantItems = turn.Items.Where(item => item.Type != ItemType.UserMessage).ToList();
+
+        Assert.Equal([ItemType.ReasoningContent, ItemType.AgentMessage], assistantItems.Select(item => item.Type));
+        Assert.Equal("First thought", Assert.IsType<ReasoningContentPayload>(assistantItems[0].Payload).Text);
+        Assert.Equal("answer", Assert.IsType<AgentMessagePayload>(assistantItems[1].Payload).Text);
+        Assert.NotNull(assistantItems[0].CompletedAt);
+    }
+
+    [Fact]
+    public async Task SubAgentEdgeChanges_InvokeGraphChangedBroadcastHook()
+    {
+        IChatClient chatClient = new FakeChatClient([new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")])]);
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var parent = await svc.CreateThreadAsync(MakeIdentity(), threadId: "parent-1");
+        var child = await svc.CreateThreadAsync(
+            new SessionIdentity
+            {
+                ChannelName = SubAgentThreadOrigin.ChannelName,
+                UserId = "u",
+                ChannelContext = parent.Id,
+                WorkspacePath = _tempDir
+            },
+            threadId: "child-1",
+            source: ThreadSource.ForSubAgent(new SubAgentThreadSource
+            {
+                ParentThreadId = parent.Id,
+                RootThreadId = parent.Id,
+                Depth = 1
+            }));
+        var seen = new List<(string parentThreadId, string childThreadId)>();
+        svc.SubAgentGraphChangedForBroadcast = (parentThreadId, childThreadId) =>
+            seen.Add((parentThreadId, childThreadId));
+
+        await svc.UpsertThreadSpawnEdgeAsync(new ThreadSpawnEdge
+        {
+            ParentThreadId = parent.Id,
+            ChildThreadId = child.Id,
+            Status = ThreadSpawnEdgeStatus.Open
+        });
+        await svc.SetThreadSpawnEdgeStatusAsync(
+            parent.Id,
+            child.Id,
+            ThreadSpawnEdgeStatus.Closed);
+
+        Assert.Equal(
+            [("parent-1", "child-1"), ("parent-1", "child-1")],
+            seen);
+    }
+
+    [Fact]
+    public async Task CreateThreadAsync_TopLevelThread_SetsAgentControlToolsFullInToolContext()
+    {
+        IChatClient chatClient = new FakeChatClient([new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")])]);
+        var recorder = new RecordingToolProvider();
+        await using var agentFactory = CreateAgentFactory(chatClient, [recorder]);
+        var svc = CreateService(agentFactory, chatClient);
+
+        var thread = await svc.CreateThreadAsync(
+            MakeIdentity(),
+            config: new ThreadConfiguration(),
+            threadId: "top-policy");
+
+        var seen = Assert.Single(recorder.Contexts, context => context.CurrentThreadId == thread.Id);
+        Assert.Equal(AgentControlToolAccess.Full, seen.AgentControlToolAccess);
+    }
+
+    [Fact]
+    public async Task CreateThreadAsync_SubAgentThread_SetsAgentControlToolsDisabledInToolContext()
+    {
+        IChatClient chatClient = new FakeChatClient([new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")])]);
+        var recorder = new RecordingToolProvider();
+        await using var agentFactory = CreateAgentFactory(chatClient, [recorder]);
+        var svc = CreateService(agentFactory, chatClient);
+
+        var child = await svc.CreateThreadAsync(
+            new SessionIdentity
+            {
+                ChannelName = SubAgentThreadOrigin.ChannelName,
+                UserId = "u",
+                ChannelContext = "parent-policy",
+                WorkspacePath = _tempDir
+            },
+            config: new ThreadConfiguration(),
+            threadId: "child-policy",
+            source: ThreadSource.ForSubAgent(new SubAgentThreadSource
+            {
+                ParentThreadId = "parent-policy",
+                RootThreadId = "parent-policy",
+                Depth = 1
+            }));
+
+        var seen = Assert.Single(recorder.Contexts, context => context.CurrentThreadId == child.Id);
+        Assert.Equal(AgentControlToolAccess.Disabled, seen.AgentControlToolAccess);
     }
 
     [Fact]
@@ -348,7 +536,9 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
             tokenUsageStore: tokenUsageStore);
     }
 
-    private AgentFactory CreateAgentFactory(IChatClient chatClientFactory)
+    private AgentFactory CreateAgentFactory(
+        IChatClient chatClientFactory,
+        IReadOnlyList<IAgentToolProvider>? toolProviders = null)
     {
         var config = new AppConfig
         {
@@ -365,7 +555,7 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
             skillsLoader: skills,
             approvalService: new AutoApproveApprovalService(),
             blacklist: null,
-            toolProviders: Array.Empty<IAgentToolProvider>());
+            toolProviders: toolProviders ?? Array.Empty<IAgentToolProvider>());
     }
 
     private SessionIdentity MakeIdentity() => new()
@@ -385,7 +575,7 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     private static string FormatMessage(ChatMessage message)
     {
         var text = string.Concat(message.Contents.OfType<TextContent>().Select(content => content.Text));
-        var runtimeContextIndex = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
+        var runtimeContextIndex = text.IndexOf("\n[Runtime Context]", StringComparison.Ordinal);
         if (runtimeContextIndex >= 0)
             text = text[..runtimeContextIndex];
         return $"{message.Role}:{text.Trim()}";
@@ -523,6 +713,19 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class RecordingToolProvider : IAgentToolProvider
+    {
+        public int Priority => 10;
+
+        public List<ToolProviderContext> Contexts { get; } = [];
+
+        public IEnumerable<AITool> CreateTools(ToolProviderContext context)
+        {
+            Contexts.Add(context);
+            return [];
         }
     }
 }

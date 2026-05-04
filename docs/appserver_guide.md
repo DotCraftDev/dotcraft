@@ -2,12 +2,12 @@
 
 ## 概述
 
-AppServer 是 DotCraft 的 wire protocol 服务器，它将 Agent 能力（会话管理、工具调用、审批流）以 JSON-RPC 协议暴露给外部客户端。CLI 默认通过 AppServer 与 Agent 通信，你也可以直接启动 AppServer 来构建自定义集成。
+AppServer 是 DotCraft 的 wire protocol 服务器，它将 Agent 能力（会话管理、工具调用、审批流）以 JSON-RPC 协议暴露给外部客户端。TUI、Desktop、ACP、外部渠道和自定义集成都可以连接同一个 AppServer。
 
 **适用场景**：
 
 - 🔌 自定义 IDE / 编辑器集成
-- 🌐 远程开发（CLI 连接远端 AppServer）
+- 🌐 远程开发（客户端连接远端 AppServer）
 - 👥 多客户端共享同一个工作区
 - 🔧 构建非 C# 客户端（任何支持 WebSocket / stdio 的语言）
 
@@ -26,14 +26,14 @@ dotcraft app-server --listen ws://127.0.0.1:9100
 dotcraft app-server --listen ws+stdio://127.0.0.1:9100
 ```
 
-### 从 CLI 连接远程 AppServer
+### 使用命令行连接远程 AppServer
 
 ```bash
-# 连接已运行的 AppServer
-dotcraft --remote ws://127.0.0.1:9100/ws
+# 运行一次性命令
+dotcraft exec --remote ws://127.0.0.1:9100/ws "总结当前工作区"
 
 # 带 Token 认证
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "总结当前工作区"
 ```
 
 ### 带认证的 WebSocket 服务
@@ -43,7 +43,7 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 dotcraft app-server --listen ws://0.0.0.0:9100 --token my-secret
 
 # 客户端：连接时携带 Token
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "检查状态"
 ```
 
 ## 命令行参数参考
@@ -52,10 +52,11 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 
 | 命令 / 参数 | 说明 |
 |-------------|------|
-| `dotcraft` | 交互式 CLI（默认模式） |
+| `dotcraft exec <prompt>` | 运行一次性命令行 Agent 任务 |
+| `dotcraft exec -` | 从 stdin 读取输入并运行一次性任务 |
 | `dotcraft app-server` | 启动 AppServer（默认 stdio 模式） |
 | `--listen <URL>` | AppServer 传输方式，搭配 `app-server` 使用 |
-| `--remote <URL>` | CLI 连接远程 AppServer，搭配默认模式使用 |
+| `--remote <URL>` | 客户端连接远程 AppServer，搭配 `exec` 或 ACP 使用 |
 | `--token <VALUE>` | WebSocket 认证 Token，可搭配 `--listen` 或 `--remote` |
 
 ### `--listen` URL Scheme
@@ -71,7 +72,7 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 
 ### stdio（默认）
 
-AppServer 通过 stdin/stdout 以换行分隔的 JSON（JSONL）格式通信。这是标准的子进程通信方式——CLI 默认自动以子进程方式启动 AppServer。
+AppServer 通过 stdin/stdout 以换行分隔的 JSON（JSONL）格式通信。这是 TUI、Desktop、ACP 和自定义客户端常用的本地子进程通信方式。
 
 ```
 Client (stdin) → JSON-RPC Request → AppServer
@@ -118,7 +119,7 @@ dotcraft app-server --listen ws://0.0.0.0:9100 --token my-secret
 ### 客户端连接时传 Token
 
 ```bash
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "检查状态"
 ```
 
 Token 通过 WebSocket 连接 URL 的查询参数传递：`ws://host:port/ws?token=<value>`
@@ -150,13 +151,13 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 | `AppServer.WebSocket.Port` | WebSocket 监听端口 | `9100` |
 | `AppServer.WebSocket.Token` | WebSocket 认证 Token | 空 |
 
-**CLI 客户端配置项**：
+**命令行客户端配置项**：
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `CLI.AppServerUrl` | 远程 AppServer WebSocket 地址 | 空 |
-| `CLI.AppServerToken` | 远程连接认证 Token | 空 |
-| `CLI.AppServerBin` | 自定义 AppServer 可执行文件路径 | 空（使用当前进程） |
+| `CLI.AppServerUrl` | `dotcraft exec` 使用的远程 AppServer WebSocket 地址 | 空 |
+| `CLI.AppServerToken` | `dotcraft exec` 使用的远程连接认证 Token | 空 |
+| `CLI.AppServerBin` | `dotcraft exec` 启动本地 Hub/AppServer 时使用的自定义可执行文件路径 | 空（使用当前进程） |
 
 **配置示例**：
 
@@ -188,7 +189,7 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Client (CLI / IDE / Custom)                    │
+│  Client (TUI / Desktop / ACP / Custom)          │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐   │
 │  │  stdin/out │  │ WebSocket │  │ WebSocket │   │
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘   │
@@ -206,14 +207,14 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
     └────────────────────────────────────────┘
 ```
 
-### CLI 与 AppServer 的关系
+### 客户端与 AppServer 的关系
 
-默认情况下，CLI 自动以子进程方式启动 `dotcraft app-server`，通过 stdio 通信。你无需手动启动 AppServer——但以下场景需要手动管理：
+本地客户端通常会自动启动或确保工作区 AppServer。以下场景适合手动管理 AppServer：
 
 | 场景 | 做法 |
 |------|------|
-| 本地终端直接使用 | 直接 `dotcraft`，自动管理 AppServer |
-| 远程开发 | 远端启动 `dotcraft app-server --listen ws://...`，本地 `dotcraft --remote ws://...` |
+| 命令行一次性任务 | 使用 `dotcraft exec "..."`，由命令自动连接后端 |
+| 远程开发 | 远端启动 `dotcraft app-server --listen ws://...`，本地客户端连接 WebSocket |
 | 多客户端共享工作区 | 启动 WebSocket 模式，多个客户端各自连接 |
 | 自定义客户端集成 | 启动 AppServer，用任意语言通过 JSON-RPC 通信 |
 
@@ -221,9 +222,9 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 
 | 我想做什么 | 推荐方式 |
 |------------|----------|
-| 只在本机终端使用 | 直接运行 `dotcraft`，让 CLI 自动管理 AppServer |
+| 只在脚本里运行一次任务 | 使用 `dotcraft exec "..."` |
 | 让 Desktop / TUI / ACP 共享同一后端 | 启动 `dotcraft app-server --listen ws://127.0.0.1:9100` |
-| 远程连接工作区 | 服务端监听 WebSocket，本地客户端使用 `--remote` |
+| 远程连接工作区 | 服务端监听 WebSocket，本地客户端连接 `/ws` |
 | 开发自定义客户端 | 使用 JSON-RPC 2.0 over stdio 或 WebSocket 调用 Wire Protocol |
 
 ## 故障排查
@@ -234,8 +235,4 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 
 ### 认证失败
 
-服务端设置 `--token` 后，CLI、TUI、Desktop 或自定义客户端必须携带同一个 token。远程部署时不要使用空 token。
-
-### 本地 CLI 为什么还会启动子进程
-
-直接运行 `dotcraft` 时 CLI 会自动托管 stdio AppServer。只有远程、多客户端或自定义集成场景才需要手动启动 AppServer。
+服务端设置 `--token` 后，TUI、Desktop、ACP、`dotcraft exec` 或自定义客户端必须携带同一个 token。远程部署时不要使用空 token。

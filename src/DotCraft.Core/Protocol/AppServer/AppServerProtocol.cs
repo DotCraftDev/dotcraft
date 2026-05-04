@@ -75,6 +75,12 @@ public sealed class AppServerClientCapabilities
     public bool? CommandExecutionStreaming { get; set; }
 
     /// <summary>
+    /// Whether the client can consume toolExecution lifecycle items.
+    /// Default false to preserve legacy toolCall/toolResult-based clients.
+    /// </summary>
+    public bool? ToolExecutionLifecycle { get; set; }
+
+    /// <summary>
     /// Whether the client can consume background terminal management notifications.
     /// </summary>
     public bool? BackgroundTerminals { get; set; }
@@ -560,6 +566,12 @@ public sealed class AppServerServerCapabilities
     public bool SubAgentManagement { get; set; }
 
     /// <summary>
+    /// Server supports session-backed SubAgent child threads.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SubAgentSessions { get; set; }
+
+    /// <summary>
     /// Compatibility field for GitHub tracker configuration management methods
     /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
     /// New clients should prefer <see cref="Extensions"/>.
@@ -611,6 +623,8 @@ public sealed class ThreadListParams
 
     public bool? IncludeArchived { get; set; }
 
+    public bool? IncludeSubAgents { get; set; }
+
     /// <summary>
     /// When set, only threads whose <c>originChannel</c> matches (case-insensitive) are returned.
     /// </summary>
@@ -628,6 +642,37 @@ public sealed class ThreadListParams
 public sealed class ThreadListResult
 {
     public List<ThreadSummary> Data { get; set; } = [];
+}
+
+// ───── subagent/children/list ─────
+
+public sealed class SubAgentChildrenListParams
+{
+    public string ParentThreadId { get; set; } = string.Empty;
+
+    public bool? IncludeClosed { get; set; }
+
+    public bool? IncludeThreads { get; set; }
+}
+
+public sealed class SubAgentChildWire
+{
+    public ThreadSpawnEdge Edge { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SessionWireThread? Thread { get; set; }
+}
+
+public sealed class SubAgentChildrenListResult
+{
+    public List<SubAgentChildWire> Data { get; set; } = [];
+}
+
+public sealed class SubAgentThreadParams
+{
+    public string ParentThreadId { get; set; } = string.Empty;
+
+    public string ChildThreadId { get; set; } = string.Empty;
 }
 
 // ───── thread/read ─────
@@ -1486,13 +1531,6 @@ public sealed class AutomationTaskWire
     public AutomationThreadBindingWire? ThreadBinding { get; set; }
 
     /// <summary>
-    /// Whether the task requires manual Approve/Reject after the agent completes.
-    /// Defaults to false when <see cref="ThreadBinding"/> is set, true otherwise.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? RequireApproval { get; set; }
-
-    /// <summary>
     /// Scheduled next-run time (UTC). Null when the task has no <see cref="Schedule"/> or is ready to dispatch immediately.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1591,12 +1629,6 @@ public sealed class AutomationTaskCreateParams
     public AutomationThreadBindingWire? ThreadBinding { get; set; }
 
     /// <summary>
-    /// Optional explicit override. When omitted: defaults to false if <see cref="ThreadBinding"/> is set, true otherwise.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? RequireApproval { get; set; }
-
-    /// <summary>
     /// Optional template id the dialog selected; persisted in front-matter for telemetry / re-apply.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1607,23 +1639,6 @@ public sealed class AutomationTaskCreateResult
 {
     public string TaskId { get; set; } = string.Empty;
     public string TaskDirectory { get; set; } = string.Empty;
-}
-
-public sealed class AutomationTaskApproveParams
-{
-    public string WorkspacePath { get; set; } = string.Empty;
-    public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
-}
-
-public sealed class AutomationTaskRejectParams
-{
-    public string WorkspacePath { get; set; } = string.Empty;
-    public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Reason { get; set; }
 }
 
 public sealed class AutomationTaskDeleteParams
@@ -1687,10 +1702,6 @@ public sealed class AutomationTemplateWire
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DefaultApprovalPolicy { get; set; }
-
-    /// <summary>Default for the <c>require_approval</c> toggle in the dialog.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? DefaultRequireApproval { get; set; }
 
     /// <summary>
     /// Suggests to the UI that this template benefits from being bound to an existing thread
@@ -1761,8 +1772,6 @@ public sealed class AutomationTemplateSaveParams
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DefaultApprovalPolicy { get; set; }
-
-    public bool DefaultRequireApproval { get; set; }
 
     public bool NeedsThreadBinding { get; set; }
 
@@ -2514,6 +2523,9 @@ public static class AppServerMethods
     public const string SubAgentProfileSetEnabled = "subagent/profiles/setEnabled";
     public const string SubAgentProfileUpsert = "subagent/profiles/upsert";
     public const string SubAgentProfileRemove = "subagent/profiles/remove";
+    public const string SubAgentChildrenList = "subagent/children/list";
+    public const string SubAgentClose = "subagent/close";
+    public const string SubAgentResume = "subagent/resume";
     public const string McpStatusList = "mcp/status/list";
     public const string McpTest = "mcp/test";
 
@@ -2552,6 +2564,7 @@ public static class AppServerMethods
 
     // Server → Client notification (SubAgent progress)
     public const string SubAgentProgress = "subagent/progress";
+    public const string SubAgentGraphChanged = "subagent/graphChanged";
 
     // Server → Client notification (incremental token usage)
     public const string ItemUsageDelta = "item/usage/delta";
@@ -2618,8 +2631,6 @@ public static class AppServerMethods
     public const string AutomationTaskList = "automation/task/list";
     public const string AutomationTaskRead = "automation/task/read";
     public const string AutomationTaskCreate = "automation/task/create";
-    public const string AutomationTaskApprove = "automation/task/approve";
-    public const string AutomationTaskReject = "automation/task/reject";
     public const string AutomationTaskDelete = "automation/task/delete";
 
     /// <summary>Replaces or clears a task's thread binding without rewriting other fields.</summary>

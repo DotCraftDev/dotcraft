@@ -21,9 +21,13 @@ import type { ThreadSummary } from '../../types/thread'
 import { CatalogFilterMenu, CatalogSearchBox, styles as catalogStyles } from '../catalog/CatalogSurface'
 
 type ViewMode = 'browse' | 'manage'
-type SourceFilter = 'all' | 'system' | 'personal' | 'market'
+export type SourceFilter = 'all' | 'system' | 'personal' | 'market'
 
-export function SkillsView(): JSX.Element {
+interface SkillsViewProps {
+  onManage?: () => void
+}
+
+export function SkillsView({ onManage }: SkillsViewProps = {}): JSX.Element {
   const t = useT()
   const confirm = useConfirmDialog()
   const {
@@ -268,7 +272,7 @@ export function SkillsView(): JSX.Element {
     <div style={page}>
       <header style={browseHeader}>
         <div style={topActions}>
-          <button type="button" onClick={() => setMode('manage')} style={manageButton}>
+          <button type="button" onClick={() => onManage ? onManage() : setMode('manage')} style={manageButton}>
             <Settings size={14} aria-hidden />
             {t('skills.manage')}
           </button>
@@ -444,8 +448,6 @@ function SkillsManageView({
   onToggleEnabled: (skill: SkillEntry, enabled: boolean) => void
 }): JSX.Element {
   const t = useT()
-  const systemCount = allSkills.filter((skill) => skill.source === 'builtin').length
-  const personalCount = allSkills.length - systemCount
 
   return (
     <div style={page}>
@@ -458,50 +460,98 @@ function SkillsManageView({
           <span style={breadcrumbSep}>›</span>
           <span style={breadcrumbCurrent}>{t('skills.manage')}</span>
         </div>
-        <div style={manageToolbar}>
-          <Chip label={t('skills.manage.count.all', { count: String(allSkills.length) })} active />
-          <Chip label={t('skills.manage.count.system', { count: String(systemCount) })} />
-          <Chip label={t('skills.manage.count.personal', { count: String(personalCount) })} />
-          <div style={{ flex: 1 }} />
-          {savedSkillName && <span style={savedHint}>{t('settings.savedToast')}</span>}
-          <CatalogSearchBox
-            value={query}
-            placeholder={t('skills.manage.searchPlaceholder')}
-            onChange={onQueryChange}
-            style={{ maxWidth: '280px', flex: '0 1 280px' }}
-          />
-        </div>
+        <SkillsManageToolbar
+          allSkills={allSkills}
+          query={query}
+          savedSkillName={savedSkillName}
+          onQueryChange={onQueryChange}
+        />
       </header>
 
-      <main style={manageMain}>
-        {loading && <p style={emptyText}>{t('skills.loading')}</p>}
-        {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
-        {!loading && !error && skills.map((skill) => (
-          <div key={skill.name} style={manageRow}>
-            <SkillAvatar
-              name={skill.name}
-              displayName={skillTitle(skill)}
-              size={38}
-              iconDataUrl={skill.iconSmallDataUrl}
-            />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={rowTitleLine}>
-                <div style={rowTitle}>{skillTitle(skill)}</div>
-                {skill.hasVariant ? <VariantBadge compact /> : null}
-              </div>
-              <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
-            </div>
-            <span style={manageSource}>{sourceLabel(skill, t)}</span>
-            <PillSwitch
-              checked={skill.enabled}
-              onChange={(enabled) => onToggleEnabled(skill, enabled)}
-              size="sm"
-              aria-label={skill.enabled ? t('skillCard.toggleDisable') : t('skillCard.toggleEnable')}
-            />
-          </div>
-        ))}
-      </main>
+      <SkillsManageList
+        skills={skills}
+        loading={loading}
+        error={error}
+        onToggleEnabled={onToggleEnabled}
+      />
     </div>
+  )
+}
+
+export function SkillsManageToolbar({
+  allSkills,
+  query,
+  savedSkillName,
+  onQueryChange
+}: {
+  allSkills: SkillEntry[]
+  query: string
+  savedSkillName: string | null
+  onQueryChange: (query: string) => void
+}): JSX.Element {
+  const t = useT()
+  const systemCount = allSkills.filter((skill) => skill.source === 'builtin').length
+  const personalCount = allSkills.length - systemCount
+
+  return (
+    <div style={manageToolbar}>
+      <Chip label={t('skills.manage.count.all', { count: String(allSkills.length) })} active />
+      <Chip label={t('skills.manage.count.system', { count: String(systemCount) })} />
+      <Chip label={t('skills.manage.count.personal', { count: String(personalCount) })} />
+      <div style={{ flex: 1 }} />
+      {savedSkillName && <span style={savedHint}>{t('settings.savedToast')}</span>}
+      <CatalogSearchBox
+        value={query}
+        placeholder={t('skills.manage.searchPlaceholder')}
+        onChange={onQueryChange}
+        style={{ maxWidth: '280px', flex: '0 1 280px' }}
+      />
+    </div>
+  )
+}
+
+export function SkillsManageList({
+  skills,
+  loading,
+  error,
+  onToggleEnabled
+}: {
+  skills: SkillEntry[]
+  loading: boolean
+  error: string | null
+  onToggleEnabled: (skill: SkillEntry, enabled: boolean) => void
+}): JSX.Element {
+  const t = useT()
+
+  return (
+    <main style={manageMain}>
+      {loading && <p style={emptyText}>{t('skills.loading')}</p>}
+      {error && <p style={{ ...emptyText, color: 'var(--error)' }} role="alert">{error}</p>}
+      {!loading && !error && skills.map((skill) => (
+        <div key={skill.name} style={manageRow}>
+          <SkillAvatar
+            name={skill.name}
+            displayName={skillTitle(skill)}
+            size={38}
+            iconDataUrl={skill.iconSmallDataUrl}
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={rowTitleLine}>
+              <div style={rowTitle}>{skillTitle(skill)}</div>
+              {skill.hasVariant ? <VariantBadge compact /> : null}
+            </div>
+            <div style={rowDesc}>{skillSubtitle(skill, t)}</div>
+          </div>
+          <span style={manageSource}>{sourceLabel(skill, t)}</span>
+          <PillSwitch
+            checked={skill.enabled}
+            onChange={(enabled) => onToggleEnabled(skill, enabled)}
+            size="sm"
+            aria-label={skill.enabled ? t('skillCard.toggleDisable') : t('skillCard.toggleEnable')}
+          />
+        </div>
+      ))}
+    </main>
   )
 }
 
@@ -748,7 +798,7 @@ function Meta({ label, value }: { label: string; value: string }): JSX.Element {
   )
 }
 
-function filterLocalSkills(skills: SkillEntry[], query: string, filter: SourceFilter): SkillEntry[] {
+export function filterLocalSkills(skills: SkillEntry[], query: string, filter: SourceFilter): SkillEntry[] {
   const q = query.trim().toLowerCase()
   return skills.filter((skill) => {
     if (filter === 'system' && skill.source !== 'builtin') return false

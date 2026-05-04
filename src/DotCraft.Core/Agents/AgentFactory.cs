@@ -191,6 +191,7 @@ public sealed class AgentFactory : IAsyncDisposable
         tools = ApplyHooks(tools);
 
         tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
+        tools = ToolSchemaSanitizer.SanitizeTools(tools);
 
         return tools;
     }
@@ -219,6 +220,7 @@ public sealed class AgentFactory : IAsyncDisposable
         tools = ApplyHooks(tools);
 
         tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
+        tools = ToolSchemaSanitizer.SanitizeTools(tools);
 
         return tools;
     }
@@ -256,6 +258,7 @@ public sealed class AgentFactory : IAsyncDisposable
         }
 
         tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
+        tools = ToolSchemaSanitizer.SanitizeTools(tools);
 
         return tools;
     }
@@ -304,6 +307,7 @@ public sealed class AgentFactory : IAsyncDisposable
         ToolProviderContext ctx,
         string? instructions = null)
     {
+        tools = ToolSchemaSanitizer.SanitizeTools(tools);
         LastCreatedTools = tools;
 
         var deferredRegistry = ctx.DeferredToolRegistry;
@@ -353,7 +357,7 @@ public sealed class AgentFactory : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(instructions))
         {
             string? subAgentProfilesSection = null;
-            if (tools.Any(t => string.Equals(t.Name, "SpawnSubagent", StringComparison.OrdinalIgnoreCase)))
+            if (tools.Any(t => string.Equals(t.Name, "SpawnAgent", StringComparison.OrdinalIgnoreCase)))
             {
                 subAgentProfilesSection = SubAgentProfilePromptSectionBuilder.Build(
                     ctx.Config.SubAgentProfiles,
@@ -399,7 +403,9 @@ public sealed class AgentFactory : IAsyncDisposable
                     deferredMcpServerNames: deferredServerNames,
                     subAgentProfilesSection: subAgentProfilesSection,
                     skillVariantModeEnabled: skillVariantModeEnabled,
-                    skillVariantTarget: skillVariantTarget)
+                    skillVariantTarget: skillVariantTarget,
+                    promptProfile: ctx.PromptProfile,
+                    roleInstructions: ctx.RoleInstructions)
             ];
         }
 
@@ -508,6 +514,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         return [.. tools.Select<AITool, AITool>(tool => tool switch
         {
+            ToolSchemaSanitizingFunction => tool,
             AIFunction fn when fn is not ResultSizeLimitingFunction => Wrap(fn),
             _ => tool
         })];

@@ -102,12 +102,6 @@ public sealed class AutomationOrchestratorReconcileTests
         public Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<AutomationTask>>([]);
 
-        public Task ApproveTaskAsync(string taskId, CancellationToken ct) =>
-            Task.CompletedTask;
-
-        public Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct) =>
-            Task.CompletedTask;
-
         public Task ReconcileExpiredResourcesAsync(CancellationToken ct)
         {
             ReconcileCalls++;

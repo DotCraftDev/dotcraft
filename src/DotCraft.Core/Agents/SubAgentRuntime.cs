@@ -63,6 +63,12 @@ public sealed record SubAgentRunResult
 
 public sealed record SubAgentTokenUsage(long InputTokens, long OutputTokens);
 
+public sealed record SubAgentPreparedRun(
+    SubAgentProfile Profile,
+    ISubAgentRuntime Runtime,
+    SubAgentLaunchContext LaunchContext,
+    SubAgentTaskRequest Request);
+
 public sealed record SubAgentProfileDiagnostic
 {
     public required string Name { get; init; }
@@ -541,6 +547,8 @@ public sealed class SubAgentCoordinator
 
     public IReadOnlyList<string> ValidationWarnings => _profileRegistry.ValidationWarnings;
 
+    public bool ExternalCliSessionResumeEnabled => _enableExternalCliSessionResume;
+
     public IReadOnlyList<SubAgentProfileDiagnostic> GetProfileDiagnostics()
     {
         var diagnostics = new List<SubAgentProfileDiagnostic>();
@@ -621,28 +629,42 @@ public sealed class SubAgentCoordinator
         string? profileName = null,
         CancellationToken cancellationToken = default)
     {
-        var effectiveProfileName = string.IsNullOrWhiteSpace(profileName)
-            ? DefaultProfileName
-            : profileName.Trim();
-
-        if (!_profileRegistry.TryGet(effectiveProfileName, out var profile))
-            return $"Error: Unknown subagent profile '{effectiveProfileName}'.";
-
-        if (!_profileRegistry.IsEnabled(profile.Name))
-            return $"Error: Subagent profile '{profile.Name}' is disabled.";
-
-        if (!_runtimes.TryGetValue(profile.Runtime, out var runtime))
-            return $"Error: Subagent profile '{profile.Name}' references unknown runtime '{profile.Runtime}'.";
-
-        string workingDirectory;
         try
         {
-            workingDirectory = ResolveWorkingDirectory(profile, request);
+            var prepared = PrepareRun(request, profileName);
+            var result = await ExecutePreparedRunAsync(prepared, cancellationToken: cancellationToken);
+            return result.Text;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             return $"Error: {ex.Message}";
         }
+    }
+
+    public SubAgentPreparedRun PrepareRun(
+        SubAgentTaskRequest request,
+        string? profileName = null)
+    {
+        var effectiveProfileName = string.IsNullOrWhiteSpace(profileName)
+            ? DefaultProfileName
+            : profileName.Trim();
+
+        if (!_profileRegistry.TryGet(effectiveProfileName, out var profile))
+            throw new InvalidOperationException($"Unknown subagent profile '{effectiveProfileName}'.");
+
+        if (!_profileRegistry.IsEnabled(profile.Name))
+            throw new InvalidOperationException($"Subagent profile '{profile.Name}' is disabled.");
+
+        if (!_runtimes.TryGetValue(profile.Runtime, out var runtime))
+            throw new InvalidOperationException(
+                $"Subagent profile '{profile.Name}' references unknown runtime '{profile.Runtime}'.");
+
+        var workingDirectory = ResolveWorkingDirectory(profile, request);
+        var approvalContext = request.ApprovalContext ?? ApprovalContextScope.Current;
 
         string? resumeSessionId = null;
         if (_enableExternalCliSessionResume
@@ -656,22 +678,33 @@ public sealed class SubAgentCoordinator
             WorkspaceRoot: _workspaceRoot,
             WorkingDirectory: workingDirectory,
             ProfileName: profile.Name,
-            ExtraLaunchArgs: ResolvePermissionModeArgs(profile, request.ApprovalContext ?? ApprovalContextScope.Current),
+            ExtraLaunchArgs: ResolvePermissionModeArgs(profile, approvalContext),
             ResumeSessionId: resumeSessionId,
-            ApprovalMode: SubAgentApprovalModeResolver.Resolve(_approvalService, request.ApprovalContext ?? ApprovalContextScope.Current),
+            ApprovalMode: SubAgentApprovalModeResolver.Resolve(_approvalService, approvalContext),
             ApprovalService: _approvalService,
-            ApprovalContext: request.ApprovalContext ?? ApprovalContextScope.Current);
+            ApprovalContext: approvalContext);
 
-        var sink = CreateEventSink(request, runtime.RuntimeType);
-        var session = await runtime.CreateSessionAsync(profile, launchContext, cancellationToken);
+        var effectiveRequest = request with
+        {
+            WorkingDirectory = workingDirectory,
+            ApprovalContext = approvalContext
+        };
+
+        return new SubAgentPreparedRun(profile, runtime, launchContext, effectiveRequest);
+    }
+
+    public async Task<SubAgentRunResult> ExecutePreparedRunAsync(
+        SubAgentPreparedRun prepared,
+        ISubAgentEventSink? sink = null,
+        CancellationToken cancellationToken = default)
+    {
+        sink ??= CreateEventSink(prepared.Request, prepared.Runtime.RuntimeType);
+        var profile = prepared.Profile;
+        var runtime = prepared.Runtime;
+        var session = await runtime.CreateSessionAsync(profile, prepared.LaunchContext, cancellationToken);
         try
         {
-            var effectiveRequest = request with
-            {
-                WorkingDirectory = workingDirectory,
-                ApprovalContext = request.ApprovalContext ?? launchContext.ApprovalContext
-            };
-            var result = await runtime.RunAsync(session, effectiveRequest, sink, cancellationToken);
+            var result = await runtime.RunAsync(session, prepared.Request, sink, cancellationToken);
             if (!result.IsError
                 && _enableExternalCliSessionResume
                 && profile.SupportsResume == true
@@ -679,11 +712,12 @@ public sealed class SubAgentCoordinator
             {
                 _externalCliSessionStore?.RecordSuccessfulRun(
                     profile.Name,
-                    request.Label,
-                    workingDirectory,
+                    prepared.Request.Label,
+                    prepared.LaunchContext.WorkingDirectory,
                     result.SessionId);
             }
-            return result.Text;
+
+            return result;
         }
         catch (OperationCanceledException)
         {

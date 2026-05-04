@@ -19,7 +19,7 @@ describe('SchedulePicker', () => {
       loading: false,
       error: null,
       selectedTaskId: null,
-      filterSource: 'all',
+      statusFilter: 'all',
       templates: [],
       templatesLoaded: false
     })
@@ -91,7 +91,8 @@ describe('SchedulePicker', () => {
 
     useAutomationsStore.setState({
       templates: [fortyFiveTemplate, ninetyTemplate],
-      templatesLoaded: true
+      templatesLoaded: true,
+      templatesLocale: 'en'
     })
 
     renderWithLocale(<NewTaskDialog onClose={() => {}} />)

@@ -100,58 +100,7 @@ public sealed class LocalAutomationSource(
         local.CreatedAt = reloaded.CreatedAt;
         local.UpdatedAt = reloaded.UpdatedAt;
 
-        return local.Status == AutomationTaskStatus.AgentCompleted;
-    }
-
-    /// <summary>
-    /// Approves the task and runs the optional <c>on_approve</c> hook from workflow.md.
-    /// </summary>
-    public async Task ApproveTaskAsync(string taskId, CancellationToken ct)
-    {
-        var local = await FindTaskByIdAsync(taskId, ct)
-            ?? throw new KeyNotFoundException($"Local task '{taskId}' was not found.");
-
-        if (local.Status != AutomationTaskStatus.AwaitingReview)
-            throw new InvalidOperationException(
-                $"Task '{taskId}' is not awaiting review (status: {local.Status}).");
-
-        var workflow = await workflowLoader.LoadAsync(local, ct);
-        local.Status = AutomationTaskStatus.Approved;
-        await fileStore.SaveAsync(local, ct);
-
-        if (!string.IsNullOrWhiteSpace(workflow.OnApprove))
-        {
-            var workspace = local.AgentWorkspacePath ?? Path.Combine(local.TaskDirectory, "workspace");
-            await RunShellHookAsync(workspace, workflow.OnApprove, ct);
-        }
-
-    }
-
-    /// <summary>
-    /// Rejects the task and runs the optional <c>on_reject</c> hook from workflow.md.
-    /// </summary>
-    public async Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct)
-    {
-        var local = await FindTaskByIdAsync(taskId, ct)
-            ?? throw new KeyNotFoundException($"Local task '{taskId}' was not found.");
-
-        if (local.Status != AutomationTaskStatus.AwaitingReview)
-            throw new InvalidOperationException(
-                $"Task '{taskId}' is not awaiting review (status: {local.Status}).");
-
-        var workflow = await workflowLoader.LoadAsync(local, ct);
-        local.Status = AutomationTaskStatus.Rejected;
-        await fileStore.SaveAsync(local, ct);
-
-        if (!string.IsNullOrWhiteSpace(reason))
-            logger.LogInformation("Task {TaskId} rejected: {Reason}", taskId, reason);
-
-        if (!string.IsNullOrWhiteSpace(workflow.OnReject))
-        {
-            var workspace = local.AgentWorkspacePath ?? Path.Combine(local.TaskDirectory, "workspace");
-            await RunShellHookAsync(workspace, workflow.OnReject, ct);
-        }
-
+        return local.Status == AutomationTaskStatus.Completed;
     }
 
     /// <summary>
@@ -168,7 +117,7 @@ public sealed class LocalAutomationSource(
         var local = await FindTaskByIdAsync(taskId, ct)
             ?? throw new KeyNotFoundException($"Local task '{taskId}' was not found.");
 
-        if (local.Status is AutomationTaskStatus.Dispatched or AutomationTaskStatus.AgentRunning)
+        if (local.Status == AutomationTaskStatus.Running)
         {
             throw new InvalidOperationException(
                 $"Task '{taskId}' cannot be deleted while the agent is running.");

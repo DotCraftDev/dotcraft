@@ -689,7 +689,7 @@ impl ChatView<'_> {
     }
 
     fn is_spawn_subagent_tool_name(tool_name: &str) -> bool {
-        tool_name == "SpawnSubagent"
+        tool_name == "SpawnAgent"
     }
 
     fn is_spawn_subagent_history_entry(entry: &HistoryEntry) -> bool {

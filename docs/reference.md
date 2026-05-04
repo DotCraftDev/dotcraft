@@ -21,6 +21,7 @@
 | 让 Agent 创建、修补和维护工作区 skill | [Agent Skill 自学习](./skills/agent-self-learning.md) |
 | 搜索本地 skills，并从 SkillHub / ClawHub 安装第三方 skills | [Skills 搜索与安装](./skills/marketplace.md) |
 | 限制文件、Shell、网络和沙箱能力 | [安全配置](./config/security.md) |
+| 配置 SubAgent role、profile 和递归深度 | [SubAgent 配置指南](./subagents_guide.md) |
 
 ## 我想运行自动化或扩展工作流
 

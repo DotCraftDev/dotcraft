@@ -4,6 +4,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { InputComposer } from '../components/conversation/InputComposer'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useConversationStore } from '../stores/conversationStore'
+import { useSubAgentStore } from '../stores/subAgentStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
 
@@ -23,6 +24,18 @@ function renderComposer(): void {
   )
 }
 
+function findComposerSurface(textbox: HTMLElement): HTMLElement | null {
+  let current = textbox.parentElement
+  while (current) {
+    const style = current.getAttribute('style') ?? ''
+    if (style.includes('border: 1px solid') && style.includes('border-radius')) {
+      return current
+    }
+    current = current.parentElement
+  }
+  return null
+}
+
 describe('InputComposer layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -40,6 +53,7 @@ describe('InputComposer layout', () => {
 
     useConversationStore.getState().reset()
     useConnectionStore.getState().reset()
+    useSubAgentStore.getState().reset()
     useThreadStore.getState().reset()
     useUIStore.setState({
       activeMainView: 'conversation',
@@ -69,7 +83,7 @@ describe('InputComposer layout', () => {
     })
   })
 
-  it('renders single mode toggle and themed model picker inside the composer surface', () => {
+  it('renders single mode toggle and themed model picker inside the composer surface', async () => {
     renderComposer()
 
     const textbox = screen.getByRole('textbox')
@@ -82,10 +96,14 @@ describe('InputComposer layout', () => {
     expect(modeToggle.getAttribute('style')).toContain('background: transparent')
     expect(modeToggle.getAttribute('style')).not.toContain('var(--border-default)')
     fireEvent.click(modeToggle)
-    expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
-    expect(screen.getByRole('button', { name: 'Agent' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Agent' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
+    })
 
     const modelButton = screen.getByRole('button', { name: 'Select model' })
     fireEvent.focus(modelButton)
@@ -113,6 +131,83 @@ describe('InputComposer layout', () => {
     expect(svg?.getAttribute('width')).toBe('20')
     expect(sendButton.getAttribute('style')).toContain('color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)')
     expect(sendButton.getAttribute('style')).toContain('var(--text-dimmed)')
+  })
+
+  it('attaches the SubAgent dock directly to the composer surface when children exist', () => {
+    useSubAgentStore.getState().setChildren('thread-1', [
+      {
+        childThreadId: 'child-1',
+        parentThreadId: 'thread-1',
+        nickname: 'Lovelace',
+        agentRole: null,
+        profileName: 'native',
+        runtimeType: 'native',
+        supportsSendInput: true,
+        supportsResume: true,
+        supportsClose: true,
+        status: 'open',
+        lastToolDisplay: 'Reading sprite atlas',
+        currentTool: 'ReadFile',
+        inputTokens: 12,
+        outputTokens: 34,
+        isCompleted: false,
+        runtime: {
+          running: true,
+          waitingOnApproval: false,
+          waitingOnPlanConfirmation: false
+        }
+      }
+    ])
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'subagent/children/list') {
+        return {
+          data: [
+            {
+              edge: {
+                parentThreadId: 'thread-1',
+                childThreadId: 'child-1',
+                agentNickname: 'Lovelace',
+                profileName: 'native',
+                runtimeType: 'native',
+                supportsSendInput: true,
+                supportsResume: true,
+                supportsClose: true,
+                status: 'open'
+              },
+              thread: {
+                id: 'child-1',
+                displayName: 'Lovelace',
+                status: 'active',
+                originChannel: 'subagent',
+                createdAt: new Date().toISOString(),
+                lastActiveAt: new Date().toISOString(),
+                runtime: {
+                  running: true,
+                  waitingOnApproval: false,
+                  waitingOnPlanConfirmation: false
+                }
+              }
+            }
+          ]
+        }
+      }
+      return {}
+    })
+
+    renderComposer()
+
+    const dock = screen.getByTestId('subagent-dock')
+    const textbox = screen.getByRole('textbox')
+    const composerSurface = findComposerSurface(textbox)
+    const shell = dock.parentElement
+
+    expect(dock.getAttribute('style')).toContain('width: 100%')
+    expect(dock.getAttribute('style')).toContain('margin: 0px 0px -1px')
+    expect(dock.getAttribute('style')).not.toContain('min(1080px')
+    expect(composerSurface).not.toBeNull()
+    expect(composerSurface?.getAttribute('style')).toContain('border-radius: 0 0 20px 20px')
+    expect(shell?.getAttribute('style')).toContain('padding: 0px 14px 14px')
+    expect(shell?.getAttribute('style')).toContain('gap: 0px')
   })
 
   it('keeps the context usage ring aligned to the model picker height with a smaller donut', () => {

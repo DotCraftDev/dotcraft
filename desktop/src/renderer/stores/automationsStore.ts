@@ -9,12 +9,8 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 export type AutomationTaskStatus =
   | 'pending'
-  | 'dispatched'
-  | 'agent_running'
-  | 'agent_completed'
-  | 'awaiting_review'
-  | 'approved'
-  | 'rejected'
+  | 'running'
+  | 'completed'
   | 'failed'
 
 /**
@@ -53,8 +49,6 @@ export interface AutomationTask {
   schedule?: AutomationSchedule | null
   /** Optional binding to a pre-existing thread (turns submit directly into it). */
   threadBinding?: AutomationThreadBinding | null
-  /** True = awaitingReview after run; false = skip review (loop on schedule). */
-  requireApproval?: boolean | null
   /** ISO 8601 UTC. Null when the task has no schedule or is ready to dispatch immediately. */
   nextRunAt?: string | null
 }
@@ -72,7 +66,6 @@ export interface AutomationTemplate {
   defaultSchedule?: AutomationSchedule | null
   defaultWorkspaceMode?: 'project' | 'isolated' | string | null
   defaultApprovalPolicy?: 'workspaceScope' | 'fullAuto' | string | null
-  defaultRequireApproval?: boolean | null
   needsThreadBinding?: boolean | null
   defaultTitle?: string | null
   defaultDescription?: string | null
@@ -96,7 +89,6 @@ export interface SaveTemplateInput {
   defaultSchedule?: AutomationSchedule | null
   defaultWorkspaceMode?: 'project' | 'isolated' | null
   defaultApprovalPolicy?: 'workspaceScope' | 'fullAuto' | null
-  defaultRequireApproval?: boolean
   needsThreadBinding?: boolean
   defaultTitle?: string | null
   defaultDescription?: string | null
@@ -110,18 +102,17 @@ export interface CreateTaskInput {
   workspaceMode?: 'project' | 'isolated'
   schedule?: AutomationSchedule | null
   threadBinding?: AutomationThreadBinding | null
-  requireApproval?: boolean
   templateId?: string
 }
 
-export type SourceFilter = 'all' | 'local' | 'github'
+export type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed'
 
 interface AutomationsState {
   tasks: AutomationTask[]
   loading: boolean
   error: string | null
   selectedTaskId: string | null
-  filterSource: SourceFilter
+  statusFilter: StatusFilter
   /** Cached built-in templates (lazy-loaded on first fetchTemplates call). */
   templates: AutomationTemplate[]
   templatesLoaded: boolean
@@ -134,8 +125,6 @@ interface AutomationsState {
   /** Stops periodic refresh; call on unmount. */
   stopPolling(): void
   createTask(input: CreateTaskInput): Promise<void>
-  approveTask(taskId: string, sourceName: string): Promise<void>
-  rejectTask(taskId: string, sourceName: string, reason?: string): Promise<void>
   deleteTask(task: AutomationTask): Promise<void>
   /** Updates the task's thread binding. Pass null to unbind. */
   updateBinding(
@@ -149,7 +138,7 @@ interface AutomationsState {
   /** Deletes a user-authored template. Built-in ids are rejected by the server. */
   deleteTemplate(id: string): Promise<void>
   selectTask(taskId: string | null): void
-  setFilterSource(filter: SourceFilter): void
+  setStatusFilter(filter: StatusFilter): void
   upsertTask(task: AutomationTask): void
   removeTask(taskId: string, sourceName: string): void
 }
@@ -159,7 +148,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   loading: false,
   error: null,
   selectedTaskId: null,
-  filterSource: 'all',
+  statusFilter: 'all',
   templates: [],
   templatesLoaded: false,
   templatesLocale: undefined,
@@ -203,21 +192,8 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     if (input.workflowTemplate) params.workflowTemplate = input.workflowTemplate
     if (input.schedule && input.schedule.kind !== 'once') params.schedule = input.schedule
     if (input.threadBinding && input.threadBinding.threadId) params.threadBinding = input.threadBinding
-    if (typeof input.requireApproval === 'boolean') params.requireApproval = input.requireApproval
     if (input.templateId) params.templateId = input.templateId
     await window.api.appServer.sendRequest('automation/task/create', params)
-    await get().fetchTasks()
-  },
-
-  async approveTask(taskId: string, sourceName: string) {
-    await window.api.appServer.sendRequest('automation/task/approve', { taskId, sourceName })
-    await get().fetchTasks()
-  },
-
-  async rejectTask(taskId: string, sourceName: string, reason?: string) {
-    const params: Record<string, unknown> = { taskId, sourceName }
-    if (reason) params.reason = reason
-    await window.api.appServer.sendRequest('automation/task/reject', params)
     await get().fetchTasks()
   },
 
@@ -269,7 +245,6 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     const params: Record<string, unknown> = {
       title: input.title,
       workflowMarkdown: input.workflowMarkdown,
-      defaultRequireApproval: input.defaultRequireApproval ?? false,
       needsThreadBinding: input.needsThreadBinding ?? false
     }
     if (input.id) params.id = input.id
@@ -341,8 +316,8 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     set({ selectedTaskId: taskId })
   },
 
-  setFilterSource(filter: SourceFilter) {
-    set({ filterSource: filter })
+  setStatusFilter(filter: StatusFilter) {
+    set({ statusFilter: filter })
   },
 
   upsertTask(task: AutomationTask) {

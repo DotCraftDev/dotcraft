@@ -89,7 +89,7 @@ npx dotcraft-channel-weixin --workspace /path/to/workspace --config /custom/weix
 ## 4) Interactive Setup (QR Login)
 
 - First run with no saved session transitions to `authRequired`
-- In CLI mode, QR is rendered in terminal
+- In terminal mode, QR is rendered in the terminal
 - After scan confirmation, adapter transitions to `ready`
 - When session expires, lifecycle transitions `authExpired -> authRequired`, then QR login is required again
 

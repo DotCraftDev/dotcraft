@@ -79,11 +79,41 @@ max_rounds: 10
 
 ### 3. 启动 DotCraft
 
+自动化场景建议使用显式、非交互的初始化命令准备工作区：
+
 ```bash
-dotcraft
+dotcraft setup --language Chinese --model <model> --endpoint <endpoint> --api-key <key> --profile developer
+```
+
+初始化完成后启动 Gateway：
+
+```bash
+dotcraft gateway
 ```
 
 编排器会发现 `pending` 状态的任务并派发 Agent。Agent 完成后调用 `CompleteLocalTask`，任务进入 `awaiting_review` 状态等待人工审核。
+
+### 命令行一次性任务
+
+需要在脚本或 CI 中直接调用 Agent 时，使用 `dotcraft exec`：
+
+```bash
+dotcraft exec "检查最近一次提交并总结风险"
+```
+
+也可以从 stdin 读取输入，适合管道组合：
+
+```bash
+git diff --stat | dotcraft exec -
+```
+
+连接远程 AppServer 时，把连接参数放在 `exec` 后：
+
+```bash
+dotcraft exec --remote ws://server:9100/ws --token my-secret "汇总当前任务状态"
+```
+
+`dotcraft exec` 只运行一个输入并退出。stdout 只输出最终回复，连接信息、进度和错误写入 stderr；执行成功返回 `0`，配置错误、模型错误、审批请求被拒绝或运行取消时返回非 `0`。
 
 ## 配置
 

@@ -69,7 +69,7 @@ See [config.example.json](https://github.com/DotHarness/dotcraft/blob/master/sdk
 ### 3. Start DotCraft
 
 ```bash
-dotcraft
+dotcraft gateway
 ```
 
 DotCraft will automatically spawn the Telegram adapter as a subprocess. You should see log output from the adapter on stderr indicating the bot connected.

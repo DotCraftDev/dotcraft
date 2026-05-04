@@ -10,7 +10,7 @@ namespace DotCraft.Tests.Sessions.Protocol.AppServer.Integration;
 /// End-to-end integration tests for the AppServer wire protocol stack.
 /// Each test spins up a full AppServer server loop (via <see cref="StdioTransport"/> over in-memory
 /// pipes) against a <see cref="TestableSessionService"/>, and then exercises the client side
-/// using <see cref="AppServerWireClient"/> — the exact component used by <see cref="WireCliSession"/>.
+/// using <see cref="AppServerWireClient"/> - the component used by out-of-process clients.
 ///
 /// Test coverage:
 /// <list type="bullet">

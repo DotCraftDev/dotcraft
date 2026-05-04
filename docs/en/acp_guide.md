@@ -2,7 +2,7 @@
 
 [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) is an open protocol that standardizes how coding agents communicate with editors and IDEs — the same idea as LSP, but for AI agents. Any editor that implements ACP can host any ACP-compatible agent. DotCraft speaks ACP natively, which means it can run as a first-class coding assistant inside your editor without requiring a cloud subscription, a proprietary plugin, or any vendor-specific setup.
 
-From the editor's perspective, communication happens over **stdio (standard input/output) using JSON-RPC 2.0**: the editor launches DotCraft as a subprocess and exchanges messages through its standard streams. Internally, the DotCraft ACP process acts as a **protocol bridge** between the editor (ACP protocol) and an AppServer instance (wire protocol). All session state, agent execution, and tool invocation are handled by AppServer — the same backend used by CLI, TUI, and Desktop clients. The bridge either starts a local AppServer subprocess automatically, or connects to a remote AppServer you specify.
+From the editor's perspective, communication happens over **stdio (standard input/output) using JSON-RPC 2.0**: the editor launches DotCraft as a subprocess and exchanges messages through its standard streams. Internally, the DotCraft ACP process acts as a **protocol bridge** between the editor (ACP protocol) and an AppServer instance (wire protocol). All session state, agent execution, and tool invocation are handled by AppServer — the same backend used by TUI, Desktop, and external channel clients. The bridge either starts a local AppServer subprocess automatically, or connects to a remote AppServer you specify.
 
 ## Supported Editors
 
@@ -19,14 +19,14 @@ Any other editor or tool with ACP support can integrate DotCraft using the same 
 
 ### 1. Initialize the DotCraft workspace
 
-Before connecting an editor, run DotCraft once in the project directory from a terminal. This creates the `.craft/` folder with default configuration files and built-in commands:
+Before connecting an editor, complete non-interactive setup once in the project directory from a terminal. This creates the `.craft/` folder with default configuration files and built-in commands:
 
 ```bash
 cd <your-project-directory>
-dotcraft
+dotcraft setup --language English --model <model> --endpoint <endpoint> --api-key <key> --profile developer
 ```
 
-DotCraft will initialize the workspace and enter CLI mode. You can exit immediately — the workspace is ready. See the [Configuration Guide](./config_guide.md) for details on configuring the model and other options.
+After DotCraft initializes the workspace, it is ready for ACP, TUI, Desktop, or automation entry points. See the [Configuration Guide](./config_guide.md) for details on configuring the model and other options.
 
 ### 2. Configure ACP in your editor
 
@@ -42,7 +42,7 @@ If you already have a DotCraft AppServer running (e.g. started via `dotcraft app
 dotcraft -acp --remote ws://<host>:<port>/ws
 ```
 
-Add `--token <token>` if the AppServer requires authentication. When connected to a remote AppServer, sessions created through the editor are visible to all other connected clients (CLI, TUI, Desktop) in real time.
+Add `--token <token>` if the AppServer requires authentication. When connected to a remote AppServer, sessions created through the editor are visible to all other connected clients in real time.
 
 ---
 
@@ -115,7 +115,7 @@ This means DotCraft can read unsaved buffer contents, show diffs inline before a
 Because ACP is now a full AppServer client, sessions created through an editor are first-class citizens in the same session store as all other channels:
 
 - **Session ID format**: `acp_{sessionId}` (the session ID is assigned by the editor and forwarded to AppServer)
-- **Session storage**: stored in `<workspace>/.craft/sessions/` alongside sessions from CLI, TUI, Desktop, and bot channels
+- **Session storage**: stored in `<workspace>/.craft/sessions/` alongside sessions from TUI, Desktop, and bot channels
 - **Shared memory**: `memory/MEMORY.md` and `memory/HISTORY.md` are shared across all channels in the same workspace; knowledge acquired in an ACP session is accessible from CLI and external channel sessions in the same workspace, and vice versa
 - **Multi-client access**: when using `--remote`, multiple clients can connect to the same AppServer simultaneously. An ACP session started in Obsidian can be resumed or monitored from the Desktop application in real time
 

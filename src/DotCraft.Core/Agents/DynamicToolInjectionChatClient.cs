@@ -16,24 +16,17 @@ namespace DotCraft.Agents;
 /// This ensures the prompt prefix remains stable after the first discovery
 /// event, allowing the LLM provider's prompt cache to re-establish quickly.
 /// </summary>
-internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
+internal sealed class DynamicToolInjectionChatClient(
+    IChatClient innerClient,
+    DeferredToolRegistry registry,
+    TraceCollector? traceCollector = null,
+    HookRunner? hookRunner = null)
+    : DelegatingChatClient(innerClient)
 {
-    private readonly DeferredToolRegistry _registry;
-    private readonly TraceCollector? _traceCollector;
-    private readonly HookRunner? _hookRunner;
-
     // Tracks which deferred tool names have already been injected into a
     // ChatOptions sent to the LLM. Per-instance (i.e. per-agent), monotonically
     // growing to keep the tools list stable and cache-friendly.
     private readonly HashSet<string> _sentToolNames = new(StringComparer.Ordinal);
-
-    public DynamicToolInjectionChatClient(IChatClient innerClient, DeferredToolRegistry registry, TraceCollector? traceCollector = null, HookRunner? hookRunner = null)
-        : base(innerClient)
-    {
-        _registry = registry;
-        _traceCollector = traceCollector;
-        _hookRunner = hookRunner;
-    }
 
     public override Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -60,7 +53,7 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
     /// </summary>
     private ChatOptions? InjectActivatedTools(ChatOptions? options)
     {
-        var activatedNames = _registry.GetActivatedToolNames();
+        var activatedNames = registry.GetActivatedToolNames();
 
         // Compute the set of newly activated tools that have not been sent yet.
         List<string>? newNames = null;
@@ -83,16 +76,16 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
         var injected = new List<string>(newNames.Count);
         foreach (var name in newNames)
         {
-            if (_registry.DeferredTools.TryGetValue(name, out var tool))
+            if (registry.DeferredTools.TryGetValue(name, out var tool))
             {
                 // Apply hook wrapping so deferred tools go through the same
                 // PreToolUse/PostToolUse/PostToolUseFailure pipeline as static tools.
-                if (_hookRunner != null && _hookRunner.HasToolHooks && tool is AIFunction fn)
+                if (hookRunner != null && hookRunner.HasToolHooks && tool is AIFunction fn)
                 {
-                    var wrapped = new HookWrappedFunction(fn, _hookRunner);
+                    var wrapped = new HookWrappedFunction(fn, hookRunner);
                     // Replace the raw entry in ActivatedToolsList so
                     // FunctionInvokingChatClient.AdditionalTools executes the wrapped version.
-                    _registry.ReplaceActivatedTool(name, wrapped);
+                    registry.ReplaceActivatedTool(name, wrapped);
                     tool = wrapped;
                 }
 
@@ -102,11 +95,11 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
             }
         }
 
-        if (injected.Count > 0 && _traceCollector != null)
+        if (injected.Count > 0 && traceCollector != null)
         {
             var sessionKey = TracingChatClient.CurrentSessionKey ?? TracingChatClient.GetActiveSessionKey();
             if (!string.IsNullOrEmpty(sessionKey))
-                _traceCollector.RecordToolInjection(sessionKey, injected);
+                traceCollector.RecordToolInjection(sessionKey, injected);
         }
 
         return cloned;

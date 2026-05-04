@@ -5,7 +5,7 @@ namespace DotCraft.Agents;
 /// <summary>
 /// Thread-safe static registry that relays real-time SubAgent progress
 /// (current tool, accumulated tokens) from SubAgent execution threads
-/// to the REPL Live Table renderer which polls every ~80ms.
+/// to terminal renderers which poll periodically.
 /// </summary>
 public static class SubAgentProgressBridge
 {

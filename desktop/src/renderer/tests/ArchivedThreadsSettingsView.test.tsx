@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ConfirmDialogHost } from '../components/ui/ConfirmDialog'
 import { ArchivedThreadsSettingsView } from '../components/settings/ArchivedThreadsSettingsView'
+import { useThreadStore } from '../stores/threadStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
@@ -39,6 +40,21 @@ describe('ArchivedThreadsSettingsView deletion actions', () => {
               originChannel: 'appserver',
               createdAt: new Date().toISOString(),
               lastActiveAt: new Date().toISOString()
+            },
+            {
+              id: 'child-1',
+              displayName: 'Archived child',
+              status: 'archived',
+              originChannel: 'subagent',
+              source: {
+                kind: 'subagent',
+                subAgent: {
+                  parentThreadId: 'arch-1',
+                  depth: 1
+                }
+              },
+              createdAt: new Date().toISOString(),
+              lastActiveAt: new Date().toISOString()
             }
           ]
         }
@@ -53,12 +69,14 @@ describe('ArchivedThreadsSettingsView deletion actions', () => {
         workspace: { saveImageToTemp: vi.fn() }
       }
     })
+    useThreadStore.getState().reset()
   })
 
   it('deletes a single archived thread after confirmation', async () => {
     renderView()
 
     await screen.findByText('Archived One')
+    expect(screen.queryByText('Archived child')).not.toBeInTheDocument()
     const rowDeleteButtons = screen.getAllByLabelText('Delete')
     fireEvent.click(rowDeleteButtons[0]!)
     const dialog = await screen.findByRole('dialog')
@@ -67,6 +85,44 @@ describe('ArchivedThreadsSettingsView deletion actions', () => {
 
     await waitFor(() => {
       expect(appServerSendRequest).toHaveBeenCalledWith('thread/delete', { threadId: 'arch-1' })
+    })
+  })
+
+  it('clears subagent descendants from the local sidebar store after deleting a parent', async () => {
+    useThreadStore.getState().setThreadList([
+      {
+        id: 'arch-1',
+        displayName: 'Archived One',
+        status: 'archived',
+        originChannel: 'appserver',
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString()
+      },
+      {
+        id: 'child-1',
+        displayName: 'Archived child',
+        status: 'archived',
+        originChannel: 'subagent',
+        source: {
+          kind: 'subagent',
+          subAgent: {
+            parentThreadId: 'arch-1',
+            depth: 1
+          }
+        },
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString()
+      }
+    ])
+    renderView()
+
+    await screen.findByText('Archived One')
+    fireEvent.click(screen.getAllByLabelText('Delete')[0]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(useThreadStore.getState().threadList).toEqual([])
     })
   })
 

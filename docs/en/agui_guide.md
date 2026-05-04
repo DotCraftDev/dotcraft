@@ -22,7 +22,7 @@ Enable AG-UI mode in `config.json`:
 
 ```bash
 cd /your/workspace
-dotcraft
+dotcraft gateway
 ```
 
 ### 3. Connect

@@ -1,7 +1,7 @@
 import { useT } from '../../contexts/LocaleContext'
 import type { MessageKey } from '../../../shared/locales'
 import type { AutomationTaskStatus } from '../../stores/automationsStore'
-import { ArrowRight, CircleCheck, CircleX, Clock, Eye, Loader2, TriangleAlert } from 'lucide-react'
+import { CircleCheck, Clock, Loader2, TriangleAlert } from 'lucide-react'
 
 interface StatusConfig {
   label: string
@@ -29,34 +29,17 @@ function SpinnerIcon(): JSX.Element {
   )
 }
 
-function CheckFilledIcon(): JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-      <circle cx="8" cy="8" r="7" />
-      <path d="M5.5 8l2 2 3.5-4" stroke="var(--bg-primary)" strokeWidth="1.5" fill="none" />
-    </svg>
-  )
-}
-
 const STATUS_LABEL_KEY: Record<AutomationTaskStatus, MessageKey> = {
   pending: 'status.pending',
-  dispatched: 'status.dispatched',
-  agent_running: 'status.running',
-  agent_completed: 'status.agentCompleted',
-  awaiting_review: 'status.review',
-  approved: 'status.approved',
-  rejected: 'status.rejected',
+  running: 'status.running',
+  completed: 'status.completed',
   failed: 'status.failed'
 }
 
 const statusMap: Record<AutomationTaskStatus, Omit<StatusConfig, 'label'>> = {
   pending: { color: 'var(--text-tertiary)', icon: <Clock size={14} strokeWidth={1.5} aria-hidden /> },
-  dispatched: { color: 'var(--accent)', icon: <ArrowRight size={14} strokeWidth={1.5} aria-hidden /> },
-  agent_running: { color: 'var(--accent)', icon: <SpinnerIcon /> },
-  agent_completed: { color: 'var(--accent)', icon: <CircleCheck size={14} strokeWidth={1.5} aria-hidden /> },
-  awaiting_review: { color: 'var(--warning)', icon: <Eye size={14} strokeWidth={1.5} aria-hidden /> },
-  approved: { color: 'var(--success)', icon: <CheckFilledIcon /> },
-  rejected: { color: 'var(--error)', icon: <CircleX size={14} strokeWidth={1.5} aria-hidden /> },
+  running: { color: 'var(--accent)', icon: <SpinnerIcon /> },
+  completed: { color: 'var(--success)', icon: <CircleCheck size={14} strokeWidth={1.5} aria-hidden /> },
   failed: { color: 'var(--error)', icon: <TriangleAlert size={14} strokeWidth={1.5} aria-hidden /> }
 }
 

@@ -80,9 +80,6 @@ export function NewTaskDialog({
     (initialTemplate?.defaultApprovalPolicy as 'workspaceScope' | 'fullAuto' | undefined) ??
       'workspaceScope'
   )
-  const [requireApprovalOverride, setRequireApprovalOverride] = useState<boolean | null>(
-    initialTemplate?.defaultRequireApproval ?? null
-  )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showThreadPicker, setShowThreadPicker] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
@@ -115,9 +112,6 @@ export function NewTaskDialog({
     (editingTemplate?.defaultApprovalPolicy as 'workspaceScope' | 'fullAuto' | undefined) ??
       'workspaceScope'
   )
-  const [tplRequireApproval, setTplRequireApproval] = useState<boolean>(
-    editingTemplate?.defaultRequireApproval ?? false
-  )
   const [tplNeedsThreadBinding, setTplNeedsThreadBinding] = useState<boolean>(
     editingTemplate?.needsThreadBinding ?? false
   )
@@ -138,8 +132,6 @@ export function NewTaskDialog({
   }, [initialTemplate, tab])
 
   const targetMode: TargetMode = binding ? 'bound' : workspaceMode
-  const effectiveRequireApproval =
-    requireApprovalOverride ?? (binding ? false : true)
 
   const boundThreadName = useMemo(() => {
     if (!binding) return null
@@ -169,8 +161,6 @@ export function NewTaskDialog({
       setWorkspaceMode(tpl.defaultWorkspaceMode)
     if (tpl.defaultApprovalPolicy === 'workspaceScope' || tpl.defaultApprovalPolicy === 'fullAuto')
       setApprovalPolicy(tpl.defaultApprovalPolicy)
-    if (typeof tpl.defaultRequireApproval === 'boolean')
-      setRequireApprovalOverride(tpl.defaultRequireApproval)
     if (tpl.needsThreadBinding && !binding) setShowThreadPicker(true)
   }
 
@@ -187,7 +177,6 @@ export function NewTaskDialog({
       setTplWorkspaceMode(tpl.defaultWorkspaceMode)
     if (tpl.defaultApprovalPolicy === 'workspaceScope' || tpl.defaultApprovalPolicy === 'fullAuto')
       setTplApprovalPolicy(tpl.defaultApprovalPolicy)
-    setTplRequireApproval(tpl.defaultRequireApproval ?? false)
     setTplNeedsThreadBinding(tpl.needsThreadBinding ?? false)
   }
 
@@ -203,7 +192,6 @@ export function NewTaskDialog({
         workspaceMode,
         schedule: schedule && schedule.kind !== 'once' ? schedule : null,
         threadBinding: binding,
-        requireApproval: effectiveRequireApproval,
         templateId,
         workflowTemplate
       })
@@ -231,7 +219,6 @@ export function NewTaskDialog({
           tplSchedule && tplSchedule.kind !== 'once' ? tplSchedule : null,
         defaultWorkspaceMode: tplWorkspaceMode,
         defaultApprovalPolicy: tplApprovalPolicy,
-        defaultRequireApproval: tplRequireApproval,
         needsThreadBinding: tplNeedsThreadBinding,
         defaultTitle: tplDefaultTitle.trim() || null,
         defaultDescription: tplDefaultDescription.trim() || null
@@ -487,24 +474,6 @@ export function NewTaskDialog({
                         </option>
                         <option value="fullAuto">{t('auto.newTask.policyFullAuto')}</option>
                       </select>
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px'
-                      }}
-                    >
-                      <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
-                        {t('auto.newTask.requireApproval')}
-                      </span>
-                      <PillSwitch
-                        checked={effectiveRequireApproval}
-                        onChange={(v) => setRequireApprovalOverride(v)}
-                        aria-label={t('auto.newTask.requireApproval')}
-                        size="sm"
-                      />
                     </div>
                   </div>
                 )}
@@ -775,24 +744,6 @@ export function NewTaskDialog({
                         </option>
                         <option value="fullAuto">{t('auto.newTask.policyFullAuto')}</option>
                       </select>
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px'
-                      }}
-                    >
-                      <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
-                        {t('auto.newTask.requireApproval')}
-                      </span>
-                      <PillSwitch
-                        checked={tplRequireApproval}
-                        onChange={setTplRequireApproval}
-                        aria-label={t('auto.newTask.requireApproval')}
-                        size="sm"
-                      />
                     </div>
                     <div
                       style={{

@@ -9,8 +9,9 @@ namespace DotCraft.CLI;
 ///
 /// <para>Supported usage forms:</para>
 /// <list type="bullet">
-/// <item><c>dotcraft</c> — default interactive CLI</item>
-/// <item><c>dotcraft --remote ws://host:port/ws [--token T]</c> — CLI connected to remote AppServer</item>
+/// <item><c>dotcraft exec "prompt"</c> — one-shot command-line agent run</item>
+/// <item><c>dotcraft exec -</c> — one-shot run with the prompt read from stdin</item>
+/// <item><c>dotcraft exec --remote ws://host:port/ws [--token T] "prompt"</c> — one-shot run connected to a remote AppServer</item>
 /// <item><c>dotcraft app-server</c> — AppServer in stdio mode (backward-compatible)</item>
 /// <item><c>dotcraft app-server --listen ws://host:port</c> — AppServer in pure WebSocket mode</item>
 /// <item><c>dotcraft app-server --listen ws+stdio://host:port</c> — AppServer in stdio + WebSocket mode</item>
@@ -31,8 +32,11 @@ public sealed record CommandLineArgs
     /// </summary>
     public enum RunMode
     {
-        /// <summary>Default interactive CLI (REPL).</summary>
-        Cli,
+        /// <summary>No executable mode was supplied.</summary>
+        None,
+
+        /// <summary>One-shot command-line agent run.</summary>
+        Exec,
 
         /// <summary>AppServer subprocess mode (wire protocol server).</summary>
         AppServer,
@@ -64,7 +68,7 @@ public sealed record CommandLineArgs
     public string? ListenUrl { get; init; }
 
     /// <summary>
-    /// <c>--remote</c> URL for <see cref="RunMode.Cli"/> mode.
+    /// <c>--remote</c> URL for <see cref="RunMode.Exec"/> mode.
     /// When set, the CLI connects to an already-running AppServer via WebSocket
     /// instead of spawning a subprocess.
     /// <para>Example: <c>ws://127.0.0.1:9100/ws</c></para>
@@ -75,6 +79,16 @@ public sealed record CommandLineArgs
     /// <c>--token</c> for WebSocket authentication (both server-side and client-side).
     /// </summary>
     public string? Token { get; init; }
+
+    /// <summary>
+    /// Prompt text for <see cref="RunMode.Exec"/>. Null when stdin should be used or no prompt was supplied.
+    /// </summary>
+    public string? ExecPrompt { get; init; }
+
+    /// <summary>
+    /// Whether <see cref="RunMode.Exec"/> should read its prompt from stdin.
+    /// </summary>
+    public bool ExecReadStdin { get; init; }
 
     public string? SetupLanguage { get; init; }
 
@@ -117,10 +131,13 @@ public sealed record CommandLineArgs
     /// </summary>
     public static CommandLineArgs Parse(string[] args)
     {
-        RunMode mode = RunMode.Cli;
+        RunMode mode = RunMode.None;
         string? listenUrl = null;
         string? remoteUrl = null;
         string? token = null;
+        string? execPrompt = null;
+        var execReadStdin = false;
+        var execPromptParts = new List<string>();
         string? setupLanguage = null;
         string? setupModel = null;
         string? setupEndPoint = null;
@@ -138,6 +155,12 @@ public sealed record CommandLineArgs
         for (int i = 0; i < args.Length; i++)
         {
             var arg = args[i];
+
+            if (arg.Equals("exec", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = RunMode.Exec;
+                continue;
+            }
 
             // Sub-command: app-server
             if (arg.Equals("app-server", StringComparison.OrdinalIgnoreCase))
@@ -340,7 +363,21 @@ public sealed record CommandLineArgs
                 continue;
             }
 
-            // Unknown arguments are silently ignored (forward-compatible).
+            if (mode == RunMode.Exec)
+            {
+                execPromptParts.Add(arg);
+            }
+            // Unknown arguments outside exec are silently ignored (forward-compatible).
+        }
+
+        if (mode == RunMode.Exec)
+        {
+            execPrompt = string.Join(" ", execPromptParts).Trim();
+            if (execPrompt == "-")
+            {
+                execPrompt = null;
+                execReadStdin = true;
+            }
         }
 
         // Determine whether stdout is reserved for a wire protocol.
@@ -350,6 +387,7 @@ public sealed record CommandLineArgs
         {
             RunMode.Acp => true,
             RunMode.AppServer => !IsPureWebSocketListen(listenUrl),
+            RunMode.Exec => true,
             _ => false
         };
 
@@ -359,6 +397,8 @@ public sealed record CommandLineArgs
             ListenUrl = listenUrl,
             RemoteUrl = remoteUrl,
             Token = token,
+            ExecPrompt = execPrompt,
+            ExecReadStdin = execReadStdin,
             SetupLanguage = setupLanguage,
             SetupModel = setupModel,
             SetupEndPoint = setupEndPoint,
@@ -409,10 +449,11 @@ public sealed record CommandLineArgs
             case RunMode.Gateway:
                 break;
 
-            case RunMode.Cli:
+            case RunMode.Exec:
                 ApplyCliConfig(config);
                 break;
 
+            case RunMode.None:
             case RunMode.Setup:
                 break;
 

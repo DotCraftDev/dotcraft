@@ -28,7 +28,7 @@ public sealed class ConsoleApprovalService(ApprovalStore? store = null) : IAppro
     public static IRenderControl? CurrentRenderControl => _renderControl;
 
     /// <summary>
-    /// Set the render control for the current thread (called by ReplHost before streaming)
+    /// Set the render control for the current thread before streaming.
     /// </summary>
     public static void SetRenderControl(IRenderControl? renderControl)
     {

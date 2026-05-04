@@ -6,22 +6,6 @@ namespace DotCraft.Tests.Context;
 public sealed class SubAgentProfilePromptSectionBuilderTests
 {
     [Fact]
-    public void Build_IncludesBuiltInProfiles_AndDefaultProfile()
-    {
-        var section = SubAgentProfilePromptSectionBuilder.Build(
-            configuredProfiles: null,
-            binaryAvailabilityProbe: _ => true);
-
-        Assert.NotNull(section);
-        Assert.Contains("## Available SubAgent Profiles", section);
-        Assert.Contains("Default profile: `native`", section);
-        Assert.Contains("`native`", section);
-        Assert.Contains("`codex-cli`", section);
-        Assert.Contains("`cursor-cli`", section);
-        Assert.DoesNotContain("`custom-cli-oneshot`", section, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Build_ConfiguredProfilesOverrideBuiltIns_AndCanRequireWorkingDirectory()
     {
         var section = SubAgentProfilePromptSectionBuilder.Build(

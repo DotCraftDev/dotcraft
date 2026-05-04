@@ -25,6 +25,7 @@ import { useMcpStore, type McpServerStatusWire } from './stores/mcpStore'
 import { useSkillsStore } from './stores/skillsStore'
 import { usePluginStore } from './stores/pluginStore'
 import { usePendingRestartStore } from './stores/pendingRestartStore'
+import { useSubAgentStore } from './stores/subAgentStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -48,6 +49,7 @@ import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
 import { handleBrowserEvent } from './utils/browserEventHandler'
 import { handleBrowserUseOpen } from './utils/browserUseOpenHandler'
+import { getSubAgentParentThreadId, isSubAgentThread } from './utils/subAgentThreads'
 import { isFatalConnectionError, useSlowConnectingHint } from './utils/connectionUi'
 import {
   resolveWorkspaceConfigChangedPayload,
@@ -285,7 +287,7 @@ export function App(): JSX.Element {
     try {
       const settings = await window.api.settings.get()
       const crossChannelOrigins = await ensureVisibleChannelsSeeded(settings)
-      const params = { identity, crossChannelOrigins }
+      const params = { identity, crossChannelOrigins, includeSubAgents: true }
       const result = await window.api.appServer.sendRequest('thread/list', params)
       const res = result as { data: ThreadSummary[] }
       setThreadList(res.data ?? [])
@@ -473,6 +475,7 @@ export function App(): JSX.Element {
       useMcpStore.getState().reset()
       useCronStore.getState().reset()
       useAutomationsStore.getState().selectTask(null)
+      useSubAgentStore.getState().reset()
       useUIStore.getState().setAutomationsTab('tasks')
       useUIStore.getState().setActiveDetailTab('changes', { reveal: false })
       useUIStore.getState().setActiveMainView('conversation')
@@ -520,6 +523,12 @@ export function App(): JSX.Element {
           case 'thread/started': {
             const pp = p as { thread: ThreadSummary }
             doAddThread(pp.thread)
+            if (pp.thread && isSubAgentThread(pp.thread)) {
+              const parentThreadId = getSubAgentParentThreadId(pp.thread)
+              if (parentThreadId) {
+                void useSubAgentStore.getState().fetchChildren(parentThreadId)
+              }
+            }
             break
           }
 
@@ -533,13 +542,17 @@ export function App(): JSX.Element {
 
           case 'thread/deleted': {
             const pp = p as { threadId: string }
-            useThreadStore.getState().removeThread(pp.threadId)
+            useThreadStore.getState().removeThreadTree(pp.threadId)
             break
           }
 
           case 'thread/statusChanged': {
             const pp = p as { threadId: string; newStatus: string }
-            doUpdateStatus(pp.threadId, pp.newStatus as 'active' | 'paused' | 'archived')
+            if (pp.newStatus === 'archived') {
+              useThreadStore.getState().removeThreadTree(pp.threadId)
+            } else {
+              doUpdateStatus(pp.threadId, pp.newStatus as 'active' | 'paused' | 'archived')
+            }
             break
           }
 
@@ -569,6 +582,11 @@ export function App(): JSX.Element {
               isActive: threadStore.activeThreadId === threadId,
               isDesktopOrigin: threadSummary?.originChannel?.toLowerCase() === 'dotcraft-desktop'
             })
+            useSubAgentStore.getState().updateChildRuntime(threadId, {
+              running: pp.runtime?.running === true,
+              waitingOnApproval: pp.runtime?.waitingOnApproval === true,
+              waitingOnPlanConfirmation: pp.runtime?.waitingOnPlanConfirmation === true
+            })
             break
           }
 
@@ -584,8 +602,8 @@ export function App(): JSX.Element {
 
           case 'thread/archived': {
             const pp = p as { threadId: string }
-            doUpdateStatus(pp.threadId, 'archived')
             const activeId = useThreadStore.getState().activeThreadId
+            useThreadStore.getState().removeThreadTree(pp.threadId)
             if (activeId === pp.threadId) {
               addToast(translate(localeRef.current, 'toast.threadArchived'), 'info')
             }
@@ -771,12 +789,34 @@ export function App(): JSX.Element {
           case 'subagent/progress': {
             const entries = (p.entries as SubAgentEntry[]) ?? []
             const threadId = (p.threadId as string | undefined) ?? ''
+            if (threadId) {
+              const subAgentStore = useSubAgentStore.getState()
+              const knownChildCount = subAgentStore.childrenByParent.get(threadId)?.length ?? 0
+              subAgentStore.updateProgress(threadId, entries)
+              const nextSubAgentStore = useSubAgentStore.getState()
+              if (
+                entries.length > 0
+                && knownChildCount < entries.length
+                && !nextSubAgentStore.loadingParents.has(threadId)
+              ) {
+                void nextSubAgentStore.fetchChildren(threadId)
+              }
+            }
             if (shouldUpdateReviewThread(threadId)) {
               useReviewPanelStore.getState().onSubagentProgress(entries)
             }
             if (shouldUpdateActiveConversation(threadId)) {
               conv.onSubagentProgress(entries)
             }
+            break
+          }
+
+          case 'subagent/graphChanged': {
+            const parentThreadId = (p.parentThreadId as string | undefined) ?? ''
+            if (parentThreadId) {
+              void useSubAgentStore.getState().fetchChildren(parentThreadId)
+            }
+            void reloadThreadList()
             break
           }
 
@@ -1339,6 +1379,7 @@ export function App(): JSX.Element {
           }
           useConversationStore.getState().setQueuedInputs(res.thread.queuedInputs ?? [])
           useConversationStore.getState().setContextUsage(res.thread.contextUsage ?? null)
+          void useSubAgentStore.getState().fetchChildren(requestedId)
           const parked = useThreadStore.getState().consumeParkedApproval(requestedId)
           if (parked) {
             useConversationStore.getState().onApprovalRequest(parked.bridgeId, parked.rawParams)

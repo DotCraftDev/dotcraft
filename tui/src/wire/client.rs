@@ -71,6 +71,7 @@ impl WireClient {
                 approval_support: true,
                 streaming_support: true,
                 command_execution_streaming: true,
+                tool_execution_lifecycle: true,
                 opt_out_notification_methods: vec![],
             },
         };
