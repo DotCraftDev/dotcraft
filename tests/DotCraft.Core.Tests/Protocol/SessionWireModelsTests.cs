@@ -92,6 +92,43 @@ public sealed class SessionWireModelsTests
         Assert.Equal("{\"content\":\"hello\"", root.GetProperty("delta").GetString());
     }
 
+    [Fact]
+    public void ToWire_ToolExecutionItem_SerializesPayloadKindAndShape()
+    {
+        var item = new SessionItem
+        {
+            Id = "item_1",
+            TurnId = "turn_1",
+            Type = ItemType.ToolExecution,
+            Status = ItemStatus.Completed,
+            CreatedAt = new DateTimeOffset(2026, 5, 4, 10, 0, 0, TimeSpan.Zero),
+            CompletedAt = new DateTimeOffset(2026, 5, 4, 10, 0, 1, TimeSpan.Zero),
+            Payload = new ToolExecutionPayload
+            {
+                CallId = "call_1",
+                ToolName = "WaitAgent",
+                Status = "completed",
+                Success = true,
+                DurationMs = 1000,
+                ResultPreview = "agent done"
+            }
+        };
+
+        var wire = item.ToWire();
+        Assert.Equal("toolExecution", wire.PayloadKind);
+
+        var payloadJson = System.Text.Json.JsonSerializer.Serialize(
+            wire.Payload, SessionWireJsonOptions.Default);
+        using var doc = System.Text.Json.JsonDocument.Parse(payloadJson);
+        var root = doc.RootElement;
+        Assert.Equal("call_1", root.GetProperty("callId").GetString());
+        Assert.Equal("WaitAgent", root.GetProperty("toolName").GetString());
+        Assert.Equal("completed", root.GetProperty("status").GetString());
+        Assert.True(root.GetProperty("success").GetBoolean());
+        Assert.Equal(1000, root.GetProperty("durationMs").GetInt64());
+        Assert.Equal("agent done", root.GetProperty("resultPreview").GetString());
+    }
+
     private static SessionThread BuildThread(TurnStatus turnStatus)
     {
         var completedAt = turnStatus is TurnStatus.Completed or TurnStatus.Failed or TurnStatus.Cancelled

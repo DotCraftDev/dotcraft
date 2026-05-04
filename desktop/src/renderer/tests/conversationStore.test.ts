@@ -248,6 +248,49 @@ describe('turn lifecycle', () => {
     expect(toolItem?.executionStatus).toBe('inProgress')
   })
 
+  it('uses toolExecution completion to settle the matching toolCall without storing the enhancement item', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-wait',
+        type: 'toolCall',
+        payload: {
+          callId: 'wait-1',
+          toolName: 'WaitAgent',
+          arguments: { childThreadId: 'thread_child' }
+        }
+      }
+    })
+
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'execution-wait',
+        type: 'toolExecution',
+        completedAt: '2026-04-25T10:00:02.000Z',
+        payload: {
+          callId: 'wait-1',
+          toolName: 'WaitAgent',
+          status: 'completed',
+          success: true,
+          durationMs: 1200,
+          resultPreview: 'agent done'
+        }
+      }
+    })
+
+    const items = s().turns[0].items
+    expect(items.some((i) => i.type === 'toolExecution')).toBe(false)
+    const toolItem = items.find((i) => i.id === 'tool-wait')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.status).toBe('completed')
+    expect(toolItem?.success).toBe(true)
+    expect(toolItem?.duration).toBe(1200)
+    expect(toolItem?.resultPreview).toBe('agent done')
+    expect(toolItem?.result).toBe('agent done')
+  })
+
   it('merges an existing command execution into Exec when toolCall starts later', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({

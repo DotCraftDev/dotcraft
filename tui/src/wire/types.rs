@@ -61,6 +61,7 @@ pub struct ClientCapabilities {
     pub approval_support: bool,
     pub streaming_support: bool,
     pub command_execution_streaming: bool,
+    pub tool_execution_lifecycle: bool,
     pub opt_out_notification_methods: Vec<String>,
 }
 
@@ -143,12 +144,17 @@ mod tests {
             approval_support: true,
             streaming_support: true,
             command_execution_streaming: true,
+            tool_execution_lifecycle: true,
             opt_out_notification_methods: vec![],
         };
 
         let json = serde_json::to_value(caps).expect("serialize");
         assert_eq!(
             json.get("commandExecutionStreaming").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            json.get("toolExecutionLifecycle").and_then(|v| v.as_bool()),
             Some(true)
         );
     }

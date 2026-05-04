@@ -250,6 +250,32 @@ public sealed record CommandExecutionOutputDelta
 }
 
 /// <summary>
+/// Payload for ToolExecution runtime lifecycle items.
+/// </summary>
+public sealed record ToolExecutionPayload
+{
+    /// <summary>
+    /// Matches the related ToolCall/ToolResult call id.
+    /// </summary>
+    public string CallId { get; init; } = string.Empty;
+
+    public string ToolName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// "inProgress", "completed", "failed", or "cancelled".
+    /// </summary>
+    public string Status { get; init; } = "inProgress";
+
+    public bool? Success { get; init; }
+
+    public long? DurationMs { get; init; }
+
+    public string? ResultPreview { get; init; }
+
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>
 /// Delta payload emitted while tool-call arguments are still streaming.
 /// </summary>
 public sealed record ToolCallArgumentsDelta

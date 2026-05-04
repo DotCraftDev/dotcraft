@@ -191,7 +191,8 @@ public sealed class AppServerProcess : IAsyncDisposable
                 clientName: "dotcraft-cli",
                 clientVersion: AppVersion.Informational,
                 approvalSupport: true,
-                streamingSupport: true);
+                streamingSupport: true,
+                toolExecutionLifecycle: true);
 
             // Extract server version from the initialize response for display in the welcome screen.
             // Response shape: { "result": { "serverInfo": { "version": "..." } } }

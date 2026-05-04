@@ -101,7 +101,7 @@ pub enum HistoryEntry {
         result: Option<String>,
         /// True when the tool returned successfully (payload.success == true).
         success: bool,
-        /// How long the tool call took (from item/started to item/completed).
+        /// How long the tool call took (from item/started to toolExecution/toolResult completion).
         duration: Option<std::time::Duration>,
     },
     Error {
@@ -143,7 +143,7 @@ pub struct ActiveToolCall {
     pub success: bool,
     /// When this tool call started (set on item/started).
     pub started_at: std::time::Instant,
-    /// How long this call took (set on item/completed).
+    /// How long this call took (set on toolExecution/toolResult completion).
     pub duration: Option<std::time::Duration>,
 }
 

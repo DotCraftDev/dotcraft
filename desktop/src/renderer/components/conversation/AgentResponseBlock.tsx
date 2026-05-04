@@ -75,6 +75,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       (i.type !== 'userMessage' || i.deliveryMode === 'guidance')
       && i.type !== 'toolResult'
       && i.type !== 'commandExecution'
+      && i.type !== 'toolExecution'
   )
 
   const renderItemSequence = (
@@ -380,12 +381,15 @@ function isGuidanceUserMessage(item: ConversationItem): boolean {
 function hydrateToolCallItems(items: ConversationItem[]): ConversationItem[] {
   const resultByCallId = new Map<string, ConversationItem>()
   const commandExecutionByCallId = new Map<string, ConversationItem>()
+  const toolExecutionByCallId = new Map<string, ConversationItem>()
 
   for (const item of items) {
     if (item.type === 'toolResult' && item.toolCallId) {
       resultByCallId.set(item.toolCallId, item)
     } else if (item.type === 'commandExecution' && item.toolCallId) {
       commandExecutionByCallId.set(item.toolCallId, item)
+    } else if (item.type === 'toolExecution' && item.toolCallId) {
+      toolExecutionByCallId.set(item.toolCallId, item)
     }
   }
 
@@ -394,7 +398,23 @@ function hydrateToolCallItems(items: ConversationItem[]): ConversationItem[] {
 
     const resultItem = resultByCallId.get(item.toolCallId)
     const commandExecution = commandExecutionByCallId.get(item.toolCallId)
+    const toolExecution = toolExecutionByCallId.get(item.toolCallId)
     let hydrated = item
+
+    if (toolExecution) {
+      hydrated = {
+        ...hydrated,
+        status: 'completed',
+        result: hydrated.result ?? toolExecution.resultPreview,
+        resultPreview: toolExecution.resultPreview ?? hydrated.resultPreview,
+        success: toolExecution.success ?? hydrated.success,
+        executionStatus: toolExecution.executionStatus ?? hydrated.executionStatus,
+        duration: toolExecution.duration
+          ?? hydrated.duration
+          ?? computeItemDurationMs(hydrated.createdAt, toolExecution.completedAt),
+        completedAt: toolExecution.completedAt ?? hydrated.completedAt
+      }
+    }
 
     if (resultItem) {
       hydrated = {

@@ -91,6 +91,9 @@ public sealed class AppServerEventDispatcher
         // case is exempt because it also signals the turn/start response callback.
         var method = evt.ToWireMethodName();
 
+        if (evt.ItemPayload?.Type == ItemType.ToolExecution && !_connection.SupportsToolExecutionLifecycle)
+            return;
+
         switch (evt.EventType)
         {
             case SessionEventType.TurnStarted:
@@ -140,7 +143,7 @@ public sealed class AppServerEventDispatcher
     // This method maps SessionEvent → the correct params object.
     // -------------------------------------------------------------------------
 
-    private static object? BuildParams(SessionEvent evt) => evt.EventType switch
+    private object? BuildParams(SessionEvent evt) => evt.EventType switch
     {
         // Thread notifications (spec Section 6.1)
         SessionEventType.ThreadCreated => new
@@ -167,20 +170,20 @@ public sealed class AppServerEventDispatcher
         // Turn notifications (spec Section 6.2)
         SessionEventType.TurnStarted => new
         {
-            turn = evt.TurnPayload?.ToWire(includeItems: true)
+            turn = ToWireTurnForConnection(evt.TurnPayload)
         },
         SessionEventType.TurnCompleted => new
         {
-            turn = evt.TurnPayload?.ToWire(includeItems: true)
+            turn = ToWireTurnForConnection(evt.TurnPayload)
         },
         SessionEventType.TurnFailed => new
         {
-            turn = evt.TurnPayload?.ToWire(includeItems: true),
+            turn = ToWireTurnForConnection(evt.TurnPayload),
             error = evt.TurnFailedPayload?.Error
         },
         SessionEventType.TurnCancelled => new
         {
-            turn = evt.TurnPayload?.ToWire(includeItems: true),
+            turn = ToWireTurnForConnection(evt.TurnPayload),
             reason = evt.TurnCancelledPayload?.Reason
         },
 
@@ -274,6 +277,19 @@ public sealed class AppServerEventDispatcher
 
         _ => null
     };
+
+    private SessionWireTurn? ToWireTurnForConnection(SessionTurn? turn)
+    {
+        if (turn is null)
+            return null;
+
+        var wire = turn.ToWire(includeItems: true);
+        if (_connection.SupportsToolExecutionLifecycle || wire.Items is null)
+            return wire;
+
+        wire.Items.RemoveAll(item => item.Type == ItemType.ToolExecution);
+        return wire;
+    }
 
     // -------------------------------------------------------------------------
     // Approval flow (spec Section 7)

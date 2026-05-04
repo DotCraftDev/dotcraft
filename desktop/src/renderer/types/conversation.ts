@@ -16,6 +16,7 @@ export type ItemType =
   | 'agentMessage'
   | 'reasoningContent'
   | 'commandExecution'
+  | 'toolExecution'
   | 'toolCall'
   | 'pluginFunctionCall'
   | 'toolResult'
@@ -124,6 +125,8 @@ export interface ConversationItem {
   errorMessage?: string
   /** Tool result text updated on item/completed (toolResult) */
   result?: string
+  /** Lightweight runtime preview from toolExecution items. */
+  resultPreview?: string
   /** Whether the tool succeeded updated on item/completed (toolResult) */
   success?: boolean
   /** Duration in milliseconds from tool start to completion */
@@ -447,6 +450,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.exitCode as number | null | undefined),
     executionStatus: (raw.executionStatus as ConversationItem['executionStatus'] | undefined)
       ?? (payload.status as ConversationItem['executionStatus'] | undefined),
+    resultPreview: (raw.resultPreview as string | undefined)
+      ?? (payload.resultPreview as string | undefined),
     arguments: (raw.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
     pluginId: (raw.pluginId as string | undefined)
@@ -463,6 +468,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     result: (raw.result as string | undefined)
       ?? (payload.result as string | undefined)
       ?? pluginResult,
+    duration: (raw.duration as number | undefined)
+      ?? (payload.durationMs as number | undefined),
     success: (raw.success as boolean | undefined)
       ?? (payload.success as boolean | undefined),
     images: payloadImages,

@@ -28,6 +28,7 @@ public static class StreamAdapter
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var callIdMap = new Dictionary<string, (string? Icon, string? Name, string? ArgsJson, string? FormattedDisplay)>();
+        var completedFromToolExecution = new HashSet<string>(StringComparer.Ordinal);
 
         await foreach (var doc in notifications.WithCancellation(ct))
         {
@@ -101,11 +102,28 @@ public static class StreamAdapter
                     if (!hasParams || !@params.TryGetProperty("item", out var item)) break;
                     var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
 
-                    if (type == "toolResult")
+                    if (type == "toolExecution")
                     {
                         var payload = item.TryGetProperty("payload", out var p) ? p : default;
                         var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
                             ? ci.GetString() : null;
+                        var result = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("resultPreview", out var r)
+                            ? r.GetString() : null;
+                        string? icon = null, name = null, argsJson = null, formattedDisplay = null;
+                        if (!string.IsNullOrEmpty(callId) && callIdMap.TryGetValue(callId!, out var info))
+                        {
+                            (icon, name, argsJson, formattedDisplay) = info;
+                            completedFromToolExecution.Add(callId!);
+                        }
+                        yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, result, formattedDisplay, callId: callId);
+                    }
+                    else if (type == "toolResult")
+                    {
+                        var payload = item.TryGetProperty("payload", out var p) ? p : default;
+                        var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
+                            ? ci.GetString() : null;
+                        if (!string.IsNullOrEmpty(callId) && completedFromToolExecution.Remove(callId!))
+                            break;
                         var result = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("result", out var r)
                             ? r.GetString() : null;
                         string? icon = null, name = null, argsJson = null, formattedDisplay = null;

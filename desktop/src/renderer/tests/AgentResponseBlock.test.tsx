@@ -344,6 +344,57 @@ describe('AgentResponseBlock tail tool aggregation timing', () => {
     expect(screen.queryByText('done')).toBeNull()
   })
 
+  it('hydrates completed parallel tools from toolExecution while unmatched tools stay running', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-parallel-tool-execution',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:12:00.000Z',
+      items: [
+        {
+          id: 'tool-done',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-done',
+          toolName: 'FollowupTool',
+          arguments: {},
+          createdAt: '2026-04-18T11:12:01.000Z'
+        },
+        {
+          id: 'tool-pending',
+          type: 'toolCall',
+          status: 'completed',
+          toolCallId: 'call-pending',
+          toolName: 'PendingTool',
+          arguments: {},
+          createdAt: '2026-04-18T11:12:02.000Z'
+        },
+        {
+          id: 'execution-done',
+          type: 'toolExecution',
+          status: 'completed',
+          toolCallId: 'call-done',
+          toolName: 'FollowupTool',
+          resultPreview: 'agent done',
+          success: true,
+          duration: 1200,
+          createdAt: '2026-04-18T11:12:01.000Z',
+          completedAt: '2026-04-18T11:12:03.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} isRunning />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Called FollowupTool')).not.toHaveClass('tool-running-gradient-text')
+    expect(screen.getByText(/PendingTool/)).toHaveClass('tool-running-gradient-text')
+    expect(screen.queryByText('agent done')).toBeNull()
+  })
+
   it('keeps WebSearch child tool headers but removes duplicate expanded copy above the table', () => {
     const makeSearchItem = (
       id: string,

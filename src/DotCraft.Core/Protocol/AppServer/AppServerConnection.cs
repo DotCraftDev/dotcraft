@@ -237,6 +237,13 @@ public sealed class AppServerConnection
         _clientCapabilities?.CommandExecutionStreaming == true;
 
     /// <summary>
+    /// Returns <c>true</c> if the client declared tool execution lifecycle support.
+    /// Defaults to false so legacy clients continue to use toolCall/toolResult rendering.
+    /// </summary>
+    public bool SupportsToolExecutionLifecycle =>
+        _clientCapabilities?.ToolExecutionLifecycle == true;
+
+    /// <summary>
     /// Returns true when the client declared background terminal notification support.
     /// </summary>
     public bool SupportsBackgroundTerminals =>

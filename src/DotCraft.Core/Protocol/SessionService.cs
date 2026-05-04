@@ -1281,6 +1281,8 @@ public sealed class SessionService(
                     : agentFactory.ToolProviderContext.PathBlacklist;
                 var supportsCommandExecutionStreaming =
                     AppServer.AppServerRequestContext.CurrentConnection?.SupportsCommandExecutionStreaming == true;
+                var supportsToolExecutionLifecycle =
+                    AppServer.AppServerRequestContext.CurrentConnection?.SupportsToolExecutionLifecycle == true;
 
                 using var pluginFunctionScope = PluginFunctionExecutionScope.Set(
                     new PluginFunctionExecutionContext
@@ -1311,6 +1313,16 @@ public sealed class SessionService(
                         EmitItemDelta = eventChannel.EmitItemDelta,
                         EmitItemCompleted = eventChannel.EmitItemCompleted,
                         SupportsCommandExecutionStreaming = supportsCommandExecutionStreaming
+                    });
+                using var toolExecutionScope = ToolExecutionRuntimeScope.Set(
+                    new ToolExecutionRuntimeContext
+                    {
+                        TurnId = turn.Id,
+                        Turn = turn,
+                        NextItemSequence = NextItemSeq,
+                        EmitItemStarted = eventChannel.EmitItemStarted,
+                        EmitItemCompleted = eventChannel.EmitItemCompleted,
+                        SupportsToolExecutionLifecycle = supportsToolExecutionLifecycle
                     });
                 var currentSubAgentSource = thread.Source.SubAgent;
                 using var subAgentSessionScope = SubAgentSessionScope.Set(new SubAgentSessionContext
@@ -1481,6 +1493,12 @@ public sealed class SessionService(
                                         effectiveWorkspacePath);
                                     if (isPluginFunctionTool)
                                         break;
+                                    RegisterToolExecutionIfNeeded(
+                                        fc,
+                                        turn,
+                                        NextItemSeq,
+                                        eventChannel,
+                                        supportsToolExecutionLifecycle);
 
                                     SessionItem? toolCallItem = null;
                                     if (!string.IsNullOrWhiteSpace(fc.CallId)
@@ -2475,6 +2493,46 @@ public sealed class SessionService(
             Command = command,
             WorkingDirectory = workingDirectory,
             Source = "host",
+            Item = item
+        });
+    }
+
+    private static void RegisterToolExecutionIfNeeded(
+        FunctionCallContent functionCall,
+        SessionTurn turn,
+        Func<int> nextItemSeq,
+        SessionEventChannel eventChannel,
+        bool supportsToolExecutionLifecycle)
+    {
+        if (!supportsToolExecutionLifecycle)
+            return;
+
+        if (ToolExecutionRuntimeScope.Current is not { } runtime)
+            return;
+
+        if (string.IsNullOrWhiteSpace(functionCall.CallId))
+            return;
+
+        var item = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(nextItemSeq()),
+            TurnId = turn.Id,
+            Type = ItemType.ToolExecution,
+            Status = ItemStatus.Started,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolExecutionPayload
+            {
+                CallId = functionCall.CallId,
+                ToolName = functionCall.Name,
+                Status = "inProgress"
+            }
+        };
+        turn.Items.Add(item);
+        eventChannel.EmitItemStarted(item);
+        runtime.RegisterPending(new PendingToolExecutionRegistration
+        {
+            CallId = functionCall.CallId,
+            ToolName = functionCall.Name,
             Item = item
         });
     }

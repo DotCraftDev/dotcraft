@@ -633,6 +633,7 @@ public static class SessionWireMapper
             CommandExecutionOutputDelta => "commandExecutionOutputDelta",
             ToolCallArgumentsDelta => "toolCallArgumentsDelta",
             CommandExecutionPayload => "commandExecution",
+            ToolExecutionPayload => "toolExecution",
             ApprovalRequestPayload => "approvalRequest",
             ApprovalResponsePayload => "approvalResponse",
             ErrorPayload => "error",

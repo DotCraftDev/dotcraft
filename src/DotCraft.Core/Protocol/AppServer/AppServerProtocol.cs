@@ -75,6 +75,12 @@ public sealed class AppServerClientCapabilities
     public bool? CommandExecutionStreaming { get; set; }
 
     /// <summary>
+    /// Whether the client can consume toolExecution lifecycle items.
+    /// Default false to preserve legacy toolCall/toolResult-based clients.
+    /// </summary>
+    public bool? ToolExecutionLifecycle { get; set; }
+
+    /// <summary>
     /// Whether the client can consume background terminal management notifications.
     /// </summary>
     public bool? BackgroundTerminals { get; set; }

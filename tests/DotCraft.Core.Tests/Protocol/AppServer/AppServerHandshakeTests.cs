@@ -115,10 +115,14 @@ public sealed class AppServerHandshakeTests : IDisposable
     [Fact]
     public async Task Initialize_SetsClientCapabilities_OnConnection()
     {
-        await _h.InitializeAsync(approvalSupport: true, streamingSupport: false);
+        await _h.InitializeAsync(
+            approvalSupport: true,
+            streamingSupport: false,
+            toolExecutionLifecycle: true);
 
         Assert.True(_h.Connection.SupportsApproval);
         Assert.False(_h.Connection.SupportsStreaming);
+        Assert.True(_h.Connection.SupportsToolExecutionLifecycle);
     }
 
     // -------------------------------------------------------------------------

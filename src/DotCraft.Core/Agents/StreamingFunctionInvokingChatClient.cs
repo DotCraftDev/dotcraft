@@ -587,9 +587,13 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
         bool captureExceptions,
         CancellationToken cancellationToken)
     {
+        var toolExecution = ToolExecutionTracker.Claim(call.CallId);
         var tool = FindTool(call.Name, options);
         if (tool is not AIFunction function)
+        {
+            toolExecution?.CompleteFailure($"Requested function \"{call.Name}\" not found.");
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.NotFound, null, null, false);
+        }
 
         var arguments = new AIFunctionArguments(call.Arguments)
         {
@@ -615,11 +619,26 @@ public sealed class StreamingFunctionInvokingChatClient(IChatClient innerClient,
             var value = FunctionInvoker == null
                 ? await function.InvokeAsync(arguments, cancellationToken)
                 : await FunctionInvoker(context, cancellationToken);
+            if (value is FunctionResultContent { Exception: { } resultException })
+                toolExecution?.CompleteFailure(resultException.Message, value);
+            else
+                toolExecution?.CompleteSuccess(value);
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.RanToCompletion, value, null, context.Terminate);
+        }
+        catch (OperationCanceledException ex)
+        {
+            toolExecution?.CompleteCancelled(ex.Message);
+            throw;
         }
         catch (Exception ex) when (captureExceptions && ex is not OperationCanceledException)
         {
+            toolExecution?.CompleteFailure(ex.Message);
             return new FunctionInvocationOutcome(call, FunctionInvocationStatus.Exception, null, ex, false);
+        }
+        catch (Exception ex)
+        {
+            toolExecution?.CompleteFailure(ex.Message);
+            throw;
         }
         finally
         {

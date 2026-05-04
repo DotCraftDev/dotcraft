@@ -297,6 +297,7 @@ Fields:
   - `AgentMessage` — Agent's response text (may be streamed incrementally).
   - `ReasoningContent` — Agent's internal reasoning/thinking (if exposed by the model).
   - `CommandExecution` — Server-observed shell execution stream for `Exec`-style tools. Payload includes command metadata and aggregated output.
+  - `ToolExecution` — Server-observed runtime lifecycle for a normal tool invocation. Payload includes call id, tool name, status, duration, and optional preview/error text.
   - `ToolCall` — Agent invokes a tool. Payload includes tool name and arguments.
   - `PluginFunctionCall` — Agent invokes a Plugin Function. Payload includes plugin identity, function name, arguments, content items, structured result, and success/failure metadata. Plugin-backed tools do not create companion `ToolResult` items.
   - `ToolResult` — Result of a tool invocation. Payload includes result text and success/failure.
@@ -403,6 +404,22 @@ Delta payload (during streaming):
   "callId": string        // Correlation ID linking ToolCall to ToolResult
 }
 ```
+
+#### ToolExecution
+
+```
+{
+  "callId": string,        // Matches the ToolCall.callId
+  "toolName": string,      // Name of the tool being executed
+  "status": string,        // "inProgress", "completed", "failed", or "cancelled"
+  "success": boolean,      // Whether execution succeeded (nullable until completion)
+  "durationMs": number,    // Wall-clock duration when available
+  "resultPreview": string, // Optional sanitized/truncated UI preview
+  "errorMessage": string   // Optional human-readable failure/cancellation message
+}
+```
+
+`ToolExecution` is a runtime projection for UIs. It does not replace `ToolCall` or `ToolResult`: `ToolCall` remains the model-request/final-arguments item, and `ToolResult` remains the complete model-visible result.
 
 #### PluginFunctionCall
 

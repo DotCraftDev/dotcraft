@@ -52,6 +52,10 @@ public sealed class SessionItem
         Payload as CommandExecutionPayload;
 
     [JsonIgnore]
+    public ToolExecutionPayload? AsToolExecution =>
+        Payload as ToolExecutionPayload;
+
+    [JsonIgnore]
     public ToolCallPayload? AsToolCall =>
         Payload as ToolCallPayload;
 

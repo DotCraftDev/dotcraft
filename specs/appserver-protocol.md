@@ -220,6 +220,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.commandExecutionStreaming` | boolean | no | Whether the client can consume `commandExecution` items and `item/commandExecution/outputDelta` notifications. Default `false`. |
+| `capabilities.toolExecutionLifecycle` | boolean | no | Whether the client can consume `toolExecution` lifecycle items for per-call runtime completion. Default `false`. |
 | `capabilities.backgroundTerminals` | boolean | no | Whether the client can consume `terminal/*` background terminal notifications. Default `false`. |
 | `capabilities.configChange` | boolean | no | Whether the client wants `workspace/configChanged` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
@@ -1307,6 +1308,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
+| `toolExecution` | Runtime lifecycle enhancement for a normal tool invocation. Payload uses `callId`, `toolName`, `status`, `success`, `durationMs`, `resultPreview`, and `errorMessage`. It is emitted only when the client advertises `capabilities.toolExecutionLifecycle = true`. |
 | `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` -> `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin discovery and manifest architecture are defined in [plugin-architecture.md](plugin-architecture.md). |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
@@ -1415,6 +1417,36 @@ Compatibility rule:
 - When a connection advertises `capabilities.commandExecutionStreaming = true`, the server may emit the `commandExecution` projection for `Exec`-style tools so clients can render real-time shell output.
 - The underlying `toolCall` / `toolResult` items still exist for model execution and persistence, but clients that support `commandExecution` should treat that item type as the primary terminal-output source to avoid duplicate rendering.
 - A client may also use `commandExecution` as an enhancement source for an existing `Exec` tool card instead of rendering it as a standalone conversation item.
+- Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
+
+#### `toolExecution` lifecycle
+
+When a connection advertises `capabilities.toolExecutionLifecycle = true`, the server may emit a `toolExecution` item for each non-plugin tool invocation so clients can update one tool card as soon as that invocation finishes, even when other parallel tool calls are still running.
+
+`toolExecution` items follow a fixed sequence:
+
+1. `item/started` with `item.type = "toolExecution"` and payload `status = "inProgress"`.
+2. `item/completed` with final payload `status`, `success`, `durationMs`, and optional `resultPreview` / `errorMessage`.
+
+Payload shape:
+
+```ts
+{
+  callId: string
+  toolName: string
+  status: "inProgress" | "completed" | "failed" | "cancelled"
+  success?: boolean
+  durationMs?: number
+  resultPreview?: string
+  errorMessage?: string
+}
+```
+
+Compatibility rule:
+
+- `toolExecution` does not replace `toolCall` or `toolResult`. `toolCall` remains the model-request and final-arguments item; `toolResult` remains the complete, authoritative model-visible result.
+- `resultPreview` is a UI preview only. It is sanitized text and may be truncated to 4096 characters. Clients should replace it with the matching `toolResult.result` when that result arrives.
+- Plugin-backed tools do not emit companion `toolExecution`; their lifecycle is already represented by `pluginFunctionCall`.
 - Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
 
 **Params**:

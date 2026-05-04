@@ -56,7 +56,8 @@ public sealed class CliHost(
                 clientName: "dotcraft-cli",
                 clientVersion: AppVersion.Informational,
                 approvalSupport: true,
-                streamingSupport: true);
+                streamingSupport: true,
+                toolExecutionLifecycle: true);
 
             wire = _wsConnection.Wire;
             cliSession = new WireCliSession(wire);
@@ -98,7 +99,8 @@ public sealed class CliHost(
                 clientName: "dotcraft-cli",
                 clientVersion: AppVersion.Informational,
                 approvalSupport: true,
-                streamingSupport: true);
+                streamingSupport: true,
+                toolExecutionLifecycle: true);
 
             wire = _wsConnection.Wire;
             cliSession = new WireCliSession(wire);

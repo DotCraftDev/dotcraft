@@ -96,6 +96,7 @@ internal sealed class AppServerTestHarness : IDisposable
     public async Task<JsonDocument> InitializeAsync(
         bool approvalSupport = true,
         bool streamingSupport = true,
+        bool toolExecutionLifecycle = false,
         bool? configChange = null,
         List<string>? optOutMethods = null,
         bool nodeReplBrowserUse = false)
@@ -104,6 +105,7 @@ internal sealed class AppServerTestHarness : IDisposable
         {
             approvalSupport,
             streamingSupport,
+            toolExecutionLifecycle,
             configChange,
             optOutNotificationMethods = optOutMethods ?? [],
             nodeRepl = nodeReplBrowserUse

@@ -954,7 +954,7 @@ public sealed class AppServerRequestHandler(
         var p = GetParams<ThreadReadParams>(msg);
         var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var includeTurns = p.IncludeTurns ?? false;
-        return new { thread = WithContextUsage(thread.ToWire(includeTurns), thread.Id) };
+        return new { thread = WithContextUsage(FilterToolExecutionItemsForConnection(thread.ToWire(includeTurns)), thread.Id) };
     }
 
     private async Task<object?> HandleThreadRollbackAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -966,8 +966,18 @@ public sealed class AppServerRequestHandler(
         var thread = await sessionService.RollbackThreadAsync(p.ThreadId, p.NumTurns, ct);
         return new ThreadRollbackResponse
         {
-            Thread = WithContextUsage(thread.ToWire(includeTurns: true), thread.Id)
+            Thread = WithContextUsage(FilterToolExecutionItemsForConnection(thread.ToWire(includeTurns: true)), thread.Id)
         };
+    }
+
+    private SessionWireThread FilterToolExecutionItemsForConnection(SessionWireThread wire)
+    {
+        if (connection.SupportsToolExecutionLifecycle || wire.Turns is null)
+            return wire;
+
+        foreach (var turn in wire.Turns)
+            turn.Items?.RemoveAll(item => item.Type == ItemType.ToolExecution);
+        return wire;
     }
 
     private SessionWireThread WithContextUsage(SessionWireThread wire, string threadId)

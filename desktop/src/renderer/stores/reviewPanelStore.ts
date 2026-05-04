@@ -4,6 +4,7 @@ import {
   derivePluginFunctionResultText,
   isToolLikeItemType,
   normalizePluginFunctionContentItems,
+  wireItemToConversationItem,
   wireTurnToConversationTurn
 } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
@@ -43,14 +44,42 @@ function mergeCommandExecutionAcrossItems(
   return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
 }
 
+function mergeToolExecutionIntoToolCall(
+  item: ConversationItem,
+  toolExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if (!toolExecution.toolCallId || item.toolCallId !== toolExecution.toolCallId) return item
+
+  return {
+    ...item,
+    status: 'completed',
+    success: toolExecution.success ?? item.success,
+    duration: toolExecution.duration ?? item.duration,
+    resultPreview: toolExecution.resultPreview ?? item.resultPreview,
+    result: item.result ?? toolExecution.resultPreview,
+    executionStatus: toolExecution.executionStatus ?? item.executionStatus,
+    completedAt: toolExecution.completedAt ?? item.completedAt
+  }
+}
+
+function mergeToolExecutionAcrossItems(
+  items: ConversationItem[],
+  toolExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeToolExecutionIntoToolCall(i, toolExecution))
+}
+
 function mergeHistoricalCommandExecutions(turn: ConversationTurn): ConversationTurn {
   let items = turn.items
   for (const item of turn.items) {
     if (item.type === 'commandExecution' && item.toolCallId) {
       items = mergeCommandExecutionAcrossItems(items, item)
+    } else if (item.type === 'toolExecution' && item.toolCallId) {
+      items = mergeToolExecutionAcrossItems(items, item)
     }
   }
-  return { ...turn, items }
+  return { ...turn, items: items.filter((item) => item.type !== 'toolExecution') }
 }
 
 function buildToolLikeItem(
@@ -686,6 +715,22 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                     ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
                     : updatedItems
                 })())
+            }
+        )
+      }))
+    } else if (type === 'toolExecution') {
+      const toolExecution = wireItemToConversationItem(item)
+      if (!toolExecution.toolCallId) return
+
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeToolExecutionAcrossItems(t.items, toolExecution)
+                )
               }
         )
       }))

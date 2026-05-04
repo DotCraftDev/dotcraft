@@ -340,6 +340,32 @@ function mergeCommandExecutionAcrossItems(
   return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
 }
 
+function mergeToolExecutionIntoToolCall(
+  item: ConversationItem,
+  toolExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if (!toolExecution.toolCallId || item.toolCallId !== toolExecution.toolCallId) return item
+
+  return {
+    ...item,
+    status: 'completed',
+    success: toolExecution.success ?? item.success,
+    duration: toolExecution.duration ?? item.duration,
+    resultPreview: toolExecution.resultPreview ?? item.resultPreview,
+    result: item.result ?? toolExecution.resultPreview,
+    executionStatus: toolExecution.executionStatus ?? item.executionStatus,
+    completedAt: toolExecution.completedAt ?? item.completedAt
+  }
+}
+
+function mergeToolExecutionAcrossItems(
+  items: ConversationItem[],
+  toolExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeToolExecutionIntoToolCall(i, toolExecution))
+}
+
 function findMatchingCommandExecution(
   items: ConversationItem[],
   toolCallId: string | undefined
@@ -591,6 +617,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       // Build a callId -> toolResult lookup for this turn
       const resultByCallId = new Map<string, ConversationItem>()
       const commandExecutionByCallId = new Map<string, ConversationItem>()
+      const toolExecutionByCallId = new Map<string, ConversationItem>()
       for (const item of turn.items) {
         if (item.type === 'toolResult' && item.toolCallId) {
           resultByCallId.set(item.toolCallId, item)
@@ -598,18 +625,25 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         if (item.type === 'commandExecution' && item.toolCallId) {
           commandExecutionByCallId.set(item.toolCallId, item)
         }
+        if (item.type === 'toolExecution' && item.toolCallId) {
+          toolExecutionByCallId.set(item.toolCallId, item)
+        }
       }
-      if (resultByCallId.size === 0 && commandExecutionByCallId.size === 0) return turn
+      if (resultByCallId.size === 0 && commandExecutionByCallId.size === 0 && toolExecutionByCallId.size === 0) return turn
 
       // Merge result data into toolCall items and extract diffs
       const mergedItems = turn.items.map((item) => {
         if (item.type !== 'toolCall') return item
         const resultItem = resultByCallId.get(item.toolCallId ?? '')
         const commandExecution = commandExecutionByCallId.get(item.toolCallId ?? '')
+        const toolExecution = toolExecutionByCallId.get(item.toolCallId ?? '')
         if (!resultItem) {
-          return commandExecution
-            ? mergeCommandExecutionIntoToolCall(item, commandExecution)
+          const mergedWithToolExecution = toolExecution
+            ? mergeToolExecutionIntoToolCall(item, toolExecution)
             : item
+          return commandExecution
+            ? mergeCommandExecutionIntoToolCall(mergedWithToolExecution, commandExecution)
+            : mergedWithToolExecution
         }
 
         const resultText = resultItem.result ?? ''
@@ -624,9 +658,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           duration: endMs - startMs,
           completedAt: resultItem.completedAt
         }
-        const mergedWithCommandExecution = commandExecution
-          ? mergeCommandExecutionIntoToolCall(merged, commandExecution)
+        const mergedWithToolExecution = toolExecution
+          ? mergeToolExecutionIntoToolCall(merged, toolExecution)
           : merged
+        const mergedWithCommandExecution = commandExecution
+          ? mergeCommandExecutionIntoToolCall(mergedWithToolExecution, commandExecution)
+          : mergedWithToolExecution
 
         // Accumulate diffs for file-writing tools (same path may appear multiple times)
         if (item.arguments && (item.toolName === 'WriteFile' || item.toolName === 'EditFile')) {
@@ -660,7 +697,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         return mergedWithCommandExecution
       })
 
-      return { ...turn, items: mergedItems }
+      return { ...turn, items: mergedItems.filter((item) => item.type !== 'toolExecution') }
     })
 
     // If the loaded history contains a still-running turn (e.g. switching back to a thread
@@ -1340,6 +1377,22 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                     ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
                     : updatedItems
                 })())
+            }
+        )
+      }))
+    } else if (type === 'toolExecution') {
+      const toolExecution = wireItemToConversationItem(item)
+      if (!toolExecution.toolCallId) return
+
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeToolExecutionAcrossItems(t.items, toolExecution)
+                )
               }
         )
       }))

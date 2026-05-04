@@ -512,15 +512,82 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .active_command_executions
                         .retain(|e| e.item_id != item_id);
                 }
-                "toolCall" | "toolResult" | "pluginFunctionCall" => {
-                    // The wire protocol sends two separate item/completed events per tool:
-                    //   1. type="toolCall"   — the call completed; payload has no result
-                    //   2. type="toolResult" — the result arrived; payload has the result text
-                    //
-                    // We handle them in order:
-                    //   - toolCall:   update the ActiveToolCall and move it to history
-                    //   - toolResult: if the tool is still in active_tools, update it there;
-                    //                 if it was already moved to history, patch the history entry
+                "toolExecution" => {
+                    let payload = payload_or_item(item);
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let success = payload
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or_else(|| {
+                            payload
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s == "completed")
+                                .unwrap_or(true)
+                        });
+                    let result_text = payload
+                        .get("resultPreview")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let duration = payload
+                        .get("durationMs")
+                        .and_then(|v| v.as_u64())
+                        .map(std::time::Duration::from_millis);
+
+                    if let Some(pos) = state
+                        .streaming
+                        .active_tools
+                        .iter()
+                        .position(|t| t.call_id == call_id)
+                    {
+                        let mut tool = state.streaming.active_tools.remove(pos);
+                        tool.completed = true;
+                        tool.success = success;
+                        tool.duration = duration.or_else(|| Some(tool.started_at.elapsed()));
+                        if result_text.is_some() {
+                            tool.result = result_text;
+                        }
+                        state.history.push(HistoryEntry::ToolCall {
+                            call_id: tool.call_id.clone(),
+                            name: tool.tool_name,
+                            args: tool.arguments,
+                            result: tool.result,
+                            success: tool.success,
+                            duration: tool.duration,
+                        });
+                    } else {
+                        for entry in state.history.iter_mut().rev() {
+                            if let HistoryEntry::ToolCall {
+                                call_id: ref id,
+                                result: ref mut r,
+                                success: ref mut s,
+                                duration: ref mut d,
+                                ..
+                            } = entry
+                            {
+                                if id == &call_id {
+                                    if r.is_none() {
+                                        *r = result_text;
+                                    }
+                                    *s = success;
+                                    if duration.is_some() {
+                                        *d = duration;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                "toolCall" => {
+                    // toolCall completion only finalizes arguments. Execution completion is
+                    // represented by toolExecution when negotiated, or toolResult as fallback.
+                }
+                "toolResult" | "pluginFunctionCall" => {
                     let payload = payload_or_item(item);
                     let call_id = payload
                         .get("callId")
@@ -565,30 +632,23 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         }
                     }
 
-                    // toolCall completion: move the entry to committed history.
-                    if item_type == "toolCall"
-                        || item_type == "pluginFunctionCall"
+                    if let Some(pos) = state
+                        .streaming
+                        .active_tools
+                        .iter()
+                        .position(|t| t.call_id == call_id && t.completed)
                     {
-                        if let Some(pos) = state
-                            .streaming
-                            .active_tools
-                            .iter()
-                            .position(|t| t.call_id == call_id && t.completed)
-                        {
-                            let tool = state.streaming.active_tools.remove(pos);
-                            state.history.push(HistoryEntry::ToolCall {
-                                call_id: tool.call_id.clone(),
-                                name: tool.tool_name,
-                                args: tool.arguments,
-                                result: tool.result,
-                                success: tool.success,
-                                duration: tool.duration,
-                            });
-                        }
+                        let tool = state.streaming.active_tools.remove(pos);
+                        state.history.push(HistoryEntry::ToolCall {
+                            call_id: tool.call_id.clone(),
+                            name: tool.tool_name,
+                            args: tool.arguments,
+                            result: tool.result,
+                            success: tool.success,
+                            duration: tool.duration,
+                        });
                     }
 
-                    // toolResult completion: the result arrives after the toolCall event has
-                    // already moved the entry to history. Patch the ToolCall with matching call_id.
                     if item_type == "toolResult" {
                         let still_active = state
                             .streaming
@@ -604,7 +664,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                                     ..
                                 } = entry
                                 {
-                                    if id == &call_id && r.is_none() {
+                                    if id == &call_id {
                                         *r = result_text;
                                         *s = success;
                                         break;
@@ -1036,9 +1096,11 @@ mod tests {
                 serde_json::json!({
                     "item": {
                         "id": "tool-2",
-                        "type": "toolCall",
+                        "type": "toolExecution",
                         "payload": {
                             "callId": "call-2",
+                            "toolName": "Exec",
+                            "status": "completed",
                             "success": true
                         }
                     }
@@ -1114,6 +1176,42 @@ mod tests {
                 Some(std::time::Duration::from_millis(10))
             ))
         );
+    }
+
+    #[test]
+    fn tool_call_completed_only_finalizes_arguments_not_execution() {
+        let mut state = AppState::new("workspace".to_string());
+        state.streaming.active_tools.push(ActiveToolCall {
+            call_id: "call-args".to_string(),
+            tool_name: "ReadFile".to_string(),
+            arguments: r#"{"path":"a.txt"}"#.to_string(),
+            completed: false,
+            result: None,
+            success: true,
+            started_at: std::time::Instant::now(),
+            duration: None,
+        });
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/completed",
+                serde_json::json!({
+                    "item": {
+                        "id": "tool-args",
+                        "type": "toolCall",
+                        "payload": {
+                            "callId": "call-args",
+                            "toolName": "ReadFile",
+                            "arguments": { "path": "a.txt" }
+                        }
+                    }
+                })
+            )
+        ));
+
+        assert_eq!(state.streaming.active_tools.len(), 1);
+        assert!(state.history.is_empty());
     }
 
     #[test]

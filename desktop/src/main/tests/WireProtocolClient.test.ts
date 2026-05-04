@@ -327,6 +327,7 @@ describe('WireProtocolClient', () => {
     expect(initReq.method).toBe('initialize')
     expect(initReq.params.clientInfo.name).toBe('dotcraft-desktop')
     expect(initReq.params.capabilities.approvalSupport).toBe(true)
+    expect(initReq.params.capabilities.toolExecutionLifecycle).toBe(true)
     expect(initReq.params.capabilities.nodeRepl).toEqual({
       backend: 'desktop-node'
     })

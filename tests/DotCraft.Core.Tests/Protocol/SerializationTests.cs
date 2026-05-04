@@ -39,6 +39,7 @@ public class SerializationTests
     [InlineData(ItemType.UserMessage, "UserMessage")]
     [InlineData(ItemType.AgentMessage, "AgentMessage")]
     [InlineData(ItemType.ReasoningContent, "ReasoningContent")]
+    [InlineData(ItemType.ToolExecution, "ToolExecution")]
     [InlineData(ItemType.ToolCall, "ToolCall")]
     [InlineData(ItemType.ToolResult, "ToolResult")]
     [InlineData(ItemType.ApprovalRequest, "ApprovalRequest")]
@@ -255,6 +256,32 @@ public class SerializationTests
         Assert.Equal("read_file", payload.ToolName);
         Assert.Equal("call_abc", payload.CallId);
         Assert.NotNull(payload.Arguments);
+    }
+
+    [Fact]
+    public void SessionItem_ToolExecution_RoundTrip()
+    {
+        var item = BuildItem(ItemType.ToolExecution, ItemStatus.Completed,
+            new ToolExecutionPayload
+            {
+                CallId = "call_abc",
+                ToolName = "WaitAgent",
+                Status = "completed",
+                Success = true,
+                DurationMs = 1234,
+                ResultPreview = "done",
+                ErrorMessage = null
+            });
+
+        var deserialized = RoundTrip(item);
+        var payload = deserialized.AsToolExecution;
+        Assert.NotNull(payload);
+        Assert.Equal("call_abc", payload.CallId);
+        Assert.Equal("WaitAgent", payload.ToolName);
+        Assert.Equal("completed", payload.Status);
+        Assert.True(payload.Success);
+        Assert.Equal(1234, payload.DurationMs);
+        Assert.Equal("done", payload.ResultPreview);
     }
 
     [Fact]

@@ -238,6 +238,60 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_EmitsToolExecutionCompletionAsEachParallelToolFinishes()
+    {
+        var inner = new ParallelToolsFakeChatClient();
+        var client = new StreamingFunctionInvokingChatClient(inner)
+        {
+            AllowConcurrentInvocation = true,
+            AdditionalTools =
+            [
+                AIFunctionFactory.Create(() => "unused", name: "Slow"),
+                AIFunctionFactory.Create(() => "unused", name: "Fast")
+            ],
+            FunctionInvoker = async (context, _) =>
+            {
+                if (context.CallContent.CallId == "call-slow")
+                {
+                    await Task.Delay(100);
+                    return "slow result";
+                }
+
+                await Task.Delay(10);
+                return "fast result";
+            }
+        };
+        var turn = new SessionTurn { Id = "turn_1", ThreadId = "thread_1", StartedAt = DateTimeOffset.UtcNow };
+        var completed = new List<SessionItem>();
+
+        using var scope = ToolExecutionRuntimeScope.Set(new ToolExecutionRuntimeContext
+        {
+            TurnId = turn.Id,
+            Turn = turn,
+            NextItemSequence = () => turn.Items.Count + 1,
+            EmitItemStarted = _ => { },
+            EmitItemCompleted = item => completed.Add(item),
+            SupportsToolExecutionLifecycle = true
+        });
+        RegisterToolExecution(turn, "item_slow", "call-slow", "Slow");
+        RegisterToolExecution(turn, "item_fast", "call-fast", "Fast");
+
+        await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "start")]))
+        {
+        }
+
+        Assert.Equal(["call-fast", "call-slow"],
+            completed.Select(item => Assert.IsType<ToolExecutionPayload>(item.Payload).CallId));
+        Assert.Equal(2, inner.Calls.Count);
+        var resultCallIds = inner.Calls[1]
+            .SelectMany(message => message.Contents)
+            .OfType<FunctionResultContent>()
+            .Select(result => result.CallId)
+            .ToList();
+        Assert.Equal(["call-slow", "call-fast"], resultCallIds);
+    }
+
+    [Fact]
     public async Task GetStreamingResponseAsync_NormalizesNullFunctionCallArguments()
     {
         var inner = new NullArgumentsToolFakeChatClient();
@@ -258,6 +312,35 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
     }
 
     private static string ThrowBoom() => throw new InvalidOperationException("boom");
+
+    private static void RegisterToolExecution(
+        SessionTurn turn,
+        string itemId,
+        string callId,
+        string toolName)
+    {
+        var item = new SessionItem
+        {
+            Id = itemId,
+            TurnId = turn.Id,
+            Type = ItemType.ToolExecution,
+            Status = ItemStatus.Started,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolExecutionPayload
+            {
+                CallId = callId,
+                ToolName = toolName,
+                Status = "inProgress"
+            }
+        };
+        turn.Items.Add(item);
+        ToolExecutionRuntimeScope.Current!.RegisterPending(new PendingToolExecutionRegistration
+        {
+            CallId = callId,
+            ToolName = toolName,
+            Item = item
+        });
+    }
 
     private static async Task<List<ChatResponseUpdate>> CollectAsync(IAsyncEnumerable<ChatResponseUpdate> updates)
     {
@@ -543,6 +626,44 @@ public sealed partial class StreamingFunctionInvokingChatClientTests
             {
                 yield return new ChatResponseUpdate(ChatRole.Assistant, [
                     new FunctionCallContent("call-1", "GetStatus", null)
+                ]);
+            }
+            else
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, "done");
+            }
+
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class ParallelToolsFakeChatClient : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "ok")]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Calls.Add(chatMessages.ToList());
+            if (Calls.Count == 1)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [
+                    new FunctionCallContent("call-slow", "Slow", new Dictionary<string, object?>()),
+                    new FunctionCallContent("call-fast", "Fast", new Dictionary<string, object?>())
                 ]);
             }
             else
