@@ -42,7 +42,7 @@ public interface IAutomationSource
 
     /// <summary>
     /// Called after each completed turn. Sources may reload external state (e.g. task.md).
-    /// Return true to stop the workflow loop before the next step (e.g. <c>agent_completed</c> sentinel).
+    /// Return true to stop the workflow loop before the next step (e.g. a completion sentinel).
     /// </summary>
     Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct) =>
         Task.FromResult(false);
@@ -73,18 +73,6 @@ public interface IAutomationSource
 
     /// <summary>Returns all tasks known to this source, regardless of status.</summary>
     Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct);
-
-    /// <summary>
-    /// Approves a task in <see cref="AutomationTaskStatus.AwaitingReview"/> status.
-    /// Source-specific side effects (e.g. merge PR, run hook) are executed.
-    /// </summary>
-    Task ApproveTaskAsync(string taskId, CancellationToken ct);
-
-    /// <summary>
-    /// Rejects a task in <see cref="AutomationTaskStatus.AwaitingReview"/> status.
-    /// Source-specific side effects (e.g. post comment, run hook) are executed.
-    /// </summary>
-    Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct);
 
     /// <summary>
     /// Permanently removes the task from the source (e.g. deletes local task directory).

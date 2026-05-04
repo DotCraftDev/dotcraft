@@ -11,12 +11,6 @@ public sealed class AutomationWorkflowDefinition
     /// <summary>Maximum full passes over <see cref="Steps"/> before stopping.</summary>
     public int MaxRounds { get; init; } = 10;
 
-    /// <summary>Optional shell command run in the task workspace after approval.</summary>
-    public string? OnApprove { get; init; }
-
-    /// <summary>Optional shell command run in the task workspace after rejection.</summary>
-    public string? OnReject { get; init; }
-
     /// <summary>Whether the agent runs in the project root or an isolated task workspace folder.</summary>
     public AutomationWorkspaceMode WorkspaceMode { get; init; } = AutomationWorkspaceMode.Project;
 }

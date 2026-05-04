@@ -19,6 +19,7 @@ import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useSkillsStore } from '../stores/skillsStore'
 import { useSubAgentStore } from '../stores/subAgentStore'
+import { useAutomationsStore, type AutomationTask } from '../stores/automationsStore'
 import type { ContextUsageSnapshotWire, ThreadSummary } from '../types/thread'
 import type { InputPart } from '../types/conversation'
 import type { SubAgentEntry } from '../types/toolCall'
@@ -206,6 +207,12 @@ function dispatch(payload: { method: string; params: unknown }): void {
       break
     }
 
+    case 'automation/task/updated': {
+      const task = (p.task ?? {}) as AutomationTask
+      useAutomationsStore.getState().upsertTask(task)
+      break
+    }
+
     default:
       break
   }
@@ -317,6 +324,11 @@ beforeEach(() => {
         lastActiveAt: NOW
       }
     ]
+  })
+  useAutomationsStore.setState({
+    tasks: [],
+    selectedTaskId: null,
+    statusFilter: 'all'
   })
   workspaceConfigChangedDedupe.clear()
 })
@@ -1115,6 +1127,31 @@ describe('notification dispatch payload format', () => {
     expect(() => {
       dispatch({ method: 'unknown/future/event', params: { foo: 'bar' } })
     }).not.toThrow()
+  })
+
+  it('upserts flattened automation task statuses from task updates', () => {
+    for (const status of ['running', 'completed', 'failed'] as const) {
+      dispatch({
+        method: 'automation/task/updated',
+        params: {
+          task: {
+            id: `task-${status}`,
+            sourceName: 'local',
+            title: status,
+            status,
+            threadId: null,
+            createdAt: NOW,
+            updatedAt: NOW
+          }
+        }
+      })
+    }
+
+    expect(useAutomationsStore.getState().tasks.map((task) => task.status).sort()).toEqual([
+      'completed',
+      'failed',
+      'running'
+    ])
   })
 })
 

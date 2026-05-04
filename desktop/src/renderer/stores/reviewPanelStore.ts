@@ -159,9 +159,6 @@ export interface ReviewPanelState {
   streamingActive: boolean
   loading: boolean
   loadError: string | null
-  approving: boolean
-  rejecting: boolean
-  actionError: string | null
   /** SubAgent progress rows for the thread being reviewed (isolated from main conversation). */
   subAgentEntries: SubAgentEntry[]
   /** Sequence number to prevent race conditions from stale async operations. */
@@ -209,9 +206,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
   ...emptyTurnFields(),
   loading: false,
   loadError: null,
-  approving: false,
-  rejecting: false,
-  actionError: null,
   _seq: 0,
 
   async openReviewPanel(taskId: string) {
@@ -236,7 +230,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: true,
       loadError: null,
-      actionError: null,
       _seq: newSeq
     })
 
@@ -314,12 +307,12 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       return
     }
 
-    if (task.status === 'agent_running' || task.status === 'dispatched') {
+    if (task.status === 'running') {
       try {
         await window.api.appServer.sendRequest('thread/subscribe', { threadId })
         // Check if still valid before setting subscription
         if (get()._seq === seqAtStart) {
-          set({ subscriptionActive: true, streamingActive: task.status === 'agent_running' })
+          set({ subscriptionActive: true, streamingActive: true })
         } else {
           // Stale - unsubscribe immediately
           void window.api.appServer
@@ -365,7 +358,6 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: false,
       loadError: null,
-      actionError: null,
       _seq: _seq + 1
     })
   },
@@ -889,12 +881,8 @@ function mapWireTaskToAutomationTask(raw: Record<string, unknown>): AutomationTa
   const statusRaw = String(raw.status ?? raw.Status ?? 'pending')
   const statusMap: Record<string, AutomationTask['status']> = {
     pending: 'pending',
-    dispatched: 'dispatched',
-    agent_running: 'agent_running',
-    agent_completed: 'agent_completed',
-    awaiting_review: 'awaiting_review',
-    approved: 'approved',
-    rejected: 'rejected',
+    running: 'running',
+    completed: 'completed',
     failed: 'failed'
   }
   const status = statusMap[statusRaw] ?? 'pending'

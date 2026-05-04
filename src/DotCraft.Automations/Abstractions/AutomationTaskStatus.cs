@@ -6,11 +6,7 @@ namespace DotCraft.Automations.Abstractions;
 public enum AutomationTaskStatus
 {
     Pending,
-    Dispatched,
-    AgentRunning,
-    AgentCompleted,
-    AwaitingReview,
-    Approved,
-    Rejected,
+    Running,
+    Completed,
     Failed
 }

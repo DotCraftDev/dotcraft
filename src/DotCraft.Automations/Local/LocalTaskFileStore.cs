@@ -88,9 +88,6 @@ public sealed partial class LocalTaskFileStore(
         var fm = deserializer.Deserialize<TaskFileFrontMatter>(yamlText);
         var status = LocalTaskStatusMapping.FromYaml(fm.Status);
 
-        var binding = ParseBinding(fm.ThreadBinding);
-        var requireApproval = fm.RequireApproval ?? (binding == null);
-
         var task = new LocalAutomationTask
         {
             TaskDirectory = taskDirectory,
@@ -105,8 +102,7 @@ public sealed partial class LocalTaskFileStore(
             UpdatedAt = fm.UpdatedAt,
             ApprovalPolicy = fm.ApprovalPolicy,
             Schedule = ParseSchedule(fm.Schedule),
-            ThreadBinding = binding,
-            RequireApproval = requireApproval
+            ThreadBinding = ParseBinding(fm.ThreadBinding)
         };
         task.NextRunAt = fm.NextRunAt;
 
@@ -207,7 +203,6 @@ public sealed partial class LocalTaskFileStore(
             ApprovalPolicy = task.ApprovalPolicy,
             Schedule = ToYaml(task.Schedule),
             ThreadBinding = ToYaml(task.ThreadBinding),
-            RequireApproval = task.RequireApproval,
             NextRunAt = task.NextRunAt
         };
 
@@ -288,13 +283,6 @@ public sealed partial class LocalTaskFileStore(
 
         /// <summary>Optional binding to a pre-existing thread to submit workflow turns into.</summary>
         public ThreadBindingYaml? ThreadBinding { get; set; }
-
-        /// <summary>
-        /// When true, the agent requires explicit user review after completing. When false, completes silently and
-        /// immediately re-enters the schedule loop (or ends when schedule is absent).
-        /// Default when missing: true if no <see cref="ThreadBinding"/>, otherwise false.
-        /// </summary>
-        public bool? RequireApproval { get; set; }
 
         /// <summary>
         /// Next scheduled run (UTC). Persisted so that orchestrator poll cycles do not drift the cadence

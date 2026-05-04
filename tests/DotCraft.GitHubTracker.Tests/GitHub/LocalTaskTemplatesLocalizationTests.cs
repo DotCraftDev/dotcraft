@@ -51,7 +51,6 @@ public sealed class LocalTaskTemplatesLocalizationTests
                 defaultSchedule: null,
                 defaultWorkspaceMode: "project",
                 defaultApprovalPolicy: "workspaceScope",
-                defaultRequireApproval: false,
                 needsThreadBinding: false,
                 defaultTitle: "My default title",
                 defaultDescription: "My default description",

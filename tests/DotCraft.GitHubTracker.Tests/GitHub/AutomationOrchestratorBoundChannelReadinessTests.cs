@@ -252,10 +252,6 @@ public sealed class AutomationOrchestratorBoundChannelReadinessTests
 
         public Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct) =>
             Task.CompletedTask;
-
-        public Task ApproveTaskAsync(string taskId, CancellationToken ct) => Task.CompletedTask;
-
-        public Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class StubSessionService(SessionThread? threadToReturn) : ISessionService

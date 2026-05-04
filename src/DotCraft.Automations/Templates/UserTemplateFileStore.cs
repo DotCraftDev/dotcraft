@@ -69,7 +69,6 @@ public sealed partial class UserTemplateFileStore(
         CronSchedule? defaultSchedule,
         string? defaultWorkspaceMode,
         string? defaultApprovalPolicy,
-        bool defaultRequireApproval,
         bool needsThreadBinding,
         string? defaultTitle,
         string? defaultDescription,
@@ -122,7 +121,6 @@ public sealed partial class UserTemplateFileStore(
             DefaultSchedule = ToYaml(defaultSchedule),
             DefaultWorkspaceMode = string.IsNullOrWhiteSpace(defaultWorkspaceMode) ? null : defaultWorkspaceMode,
             DefaultApprovalPolicy = string.IsNullOrWhiteSpace(defaultApprovalPolicy) ? null : defaultApprovalPolicy,
-            DefaultRequireApproval = defaultRequireApproval,
             NeedsThreadBinding = needsThreadBinding,
             DefaultTitle = string.IsNullOrWhiteSpace(defaultTitle) ? null : defaultTitle,
             DefaultDescription = string.IsNullOrWhiteSpace(defaultDescription) ? null : defaultDescription,
@@ -156,7 +154,6 @@ public sealed partial class UserTemplateFileStore(
             DefaultSchedule: defaultSchedule,
             DefaultWorkspaceMode: fm.DefaultWorkspaceMode,
             DefaultApprovalPolicy: fm.DefaultApprovalPolicy,
-            DefaultRequireApproval: defaultRequireApproval,
             NeedsThreadBinding: needsThreadBinding,
             DefaultTitle: fm.DefaultTitle,
             DefaultDescription: fm.DefaultDescription,
@@ -237,7 +234,6 @@ public sealed partial class UserTemplateFileStore(
             DefaultSchedule: FromYaml(fm.DefaultSchedule),
             DefaultWorkspaceMode: fm.DefaultWorkspaceMode,
             DefaultApprovalPolicy: fm.DefaultApprovalPolicy,
-            DefaultRequireApproval: fm.DefaultRequireApproval ?? false,
             NeedsThreadBinding: fm.NeedsThreadBinding ?? false,
             DefaultTitle: fm.DefaultTitle,
             DefaultDescription: fm.DefaultDescription,
@@ -293,7 +289,6 @@ public sealed partial class UserTemplateFileStore(
         public ScheduleYaml? DefaultSchedule { get; set; }
         public string? DefaultWorkspaceMode { get; set; }
         public string? DefaultApprovalPolicy { get; set; }
-        public bool? DefaultRequireApproval { get; set; }
         public bool? NeedsThreadBinding { get; set; }
         public string? DefaultTitle { get; set; }
         public string? DefaultDescription { get; set; }

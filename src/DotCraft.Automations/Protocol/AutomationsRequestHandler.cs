@@ -91,10 +91,6 @@ public sealed partial class AutomationsRequestHandler(
             ? "workspaceScope"
             : p.ApprovalPolicy.Trim();
 
-        var bound = p.ThreadBinding != null && !string.IsNullOrWhiteSpace(p.ThreadBinding.ThreadId);
-        // Default require_approval: false when bound (silent schedule loop), true otherwise.
-        var requireApproval = p.RequireApproval ?? !bound;
-
         var fm = new StringBuilder();
         fm.AppendLine("---");
         fm.AppendLine($"id: \"{taskId}\"");
@@ -105,7 +101,6 @@ public sealed partial class AutomationsRequestHandler(
         fm.AppendLine("thread_id: null");
         fm.AppendLine("agent_summary: null");
         fm.AppendLine($"approval_policy: \"{EscapeYamlString(approvalPolicy)}\"");
-        fm.AppendLine($"require_approval: {(requireApproval ? "true" : "false")}");
 
         if (!string.IsNullOrWhiteSpace(p.TemplateId))
             fm.AppendLine($"template_id: \"{EscapeYamlString(p.TemplateId)}\"");
@@ -149,7 +144,7 @@ public sealed partial class AutomationsRequestHandler(
             throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
 
         // Safety: don't rebind a task that is currently running; the frontend should confirm first.
-        if (task.Status is AutomationTaskStatus.Dispatched or AutomationTaskStatus.AgentRunning)
+        if (task.Status == AutomationTaskStatus.Running)
             throw AppServerErrors.TaskInvalidStatus(
                 "Cannot change binding while the task is running. Cancel the run first.");
 
@@ -213,7 +208,6 @@ public sealed partial class AutomationsRequestHandler(
                 defaultSchedule: FromWire(p.DefaultSchedule),
                 defaultWorkspaceMode: p.DefaultWorkspaceMode,
                 defaultApprovalPolicy: p.DefaultApprovalPolicy,
-                defaultRequireApproval: p.DefaultRequireApproval,
                 needsThreadBinding: p.NeedsThreadBinding,
                 defaultTitle: p.DefaultTitle,
                 defaultDescription: p.DefaultDescription,
@@ -261,7 +255,6 @@ public sealed partial class AutomationsRequestHandler(
         DefaultSchedule = ToWire(t.DefaultSchedule),
         DefaultWorkspaceMode = t.DefaultWorkspaceMode,
         DefaultApprovalPolicy = t.DefaultApprovalPolicy,
-        DefaultRequireApproval = t.DefaultRequireApproval,
         NeedsThreadBinding = t.NeedsThreadBinding,
         DefaultTitle = t.DefaultTitle,
         DefaultDescription = t.DefaultDescription,
@@ -321,48 +314,6 @@ public sealed partial class AutomationsRequestHandler(
         sb.AppendLine($"  mode: \"{EscapeYamlString(mode)}\"");
     }
 
-    public async Task<object?> HandleTaskApproveAsync(AppServerIncomingMessage msg, CancellationToken ct)
-    {
-        var p = GetParams<AutomationTaskApproveParams>(msg);
-        try
-        {
-            await orchestrator.ApproveTaskAsync(p.SourceName, p.TaskId, ct);
-        }
-        catch (KeyNotFoundException)
-        {
-            throw p.SourceName.Contains('/')
-                ? AppServerErrors.SourceNotFound(p.SourceName)
-                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw AppServerErrors.TaskInvalidStatus(ex.Message);
-        }
-
-        return new { ok = true };
-    }
-
-    public async Task<object?> HandleTaskRejectAsync(AppServerIncomingMessage msg, CancellationToken ct)
-    {
-        var p = GetParams<AutomationTaskRejectParams>(msg);
-        try
-        {
-            await orchestrator.RejectTaskAsync(p.SourceName, p.TaskId, p.Reason, ct);
-        }
-        catch (KeyNotFoundException)
-        {
-            throw p.SourceName.Contains('/')
-                ? AppServerErrors.SourceNotFound(p.SourceName)
-                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw AppServerErrors.TaskInvalidStatus(ex.Message);
-        }
-
-        return new { ok = true };
-    }
-
     public async Task<object?> HandleTaskDeleteAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<AutomationTaskDeleteParams>(msg);
@@ -403,7 +354,6 @@ public sealed partial class AutomationsRequestHandler(
             UpdatedAt = task.UpdatedAt,
             Schedule = ToWire(task.Schedule),
             ThreadBinding = ToWire(task.ThreadBinding),
-            RequireApproval = task.RequireApproval,
             NextRunAt = task.NextRunAt
         };
         if (task is LocalAutomationTask local)
@@ -426,7 +376,6 @@ public sealed partial class AutomationsRequestHandler(
             UpdatedAt = task.UpdatedAt,
             Schedule = ToWire(task.Schedule),
             ThreadBinding = ToWire(task.ThreadBinding),
-            RequireApproval = task.RequireApproval,
             NextRunAt = task.NextRunAt
         };
         if (task is LocalAutomationTask local)
@@ -471,12 +420,8 @@ public sealed partial class AutomationsRequestHandler(
     private static string StatusToWire(AutomationTaskStatus status) => status switch
     {
         AutomationTaskStatus.Pending => "pending",
-        AutomationTaskStatus.Dispatched => "dispatched",
-        AutomationTaskStatus.AgentRunning => "agent_running",
-        AutomationTaskStatus.AgentCompleted => "agent_completed",
-        AutomationTaskStatus.AwaitingReview => "awaiting_review",
-        AutomationTaskStatus.Approved => "approved",
-        AutomationTaskStatus.Rejected => "rejected",
+        AutomationTaskStatus.Running => "running",
+        AutomationTaskStatus.Completed => "completed",
         AutomationTaskStatus.Failed => "failed",
         _ => status.ToString().ToLowerInvariant()
     };

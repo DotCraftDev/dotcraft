@@ -1531,13 +1531,6 @@ public sealed class AutomationTaskWire
     public AutomationThreadBindingWire? ThreadBinding { get; set; }
 
     /// <summary>
-    /// Whether the task requires manual Approve/Reject after the agent completes.
-    /// Defaults to false when <see cref="ThreadBinding"/> is set, true otherwise.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? RequireApproval { get; set; }
-
-    /// <summary>
     /// Scheduled next-run time (UTC). Null when the task has no <see cref="Schedule"/> or is ready to dispatch immediately.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1636,12 +1629,6 @@ public sealed class AutomationTaskCreateParams
     public AutomationThreadBindingWire? ThreadBinding { get; set; }
 
     /// <summary>
-    /// Optional explicit override. When omitted: defaults to false if <see cref="ThreadBinding"/> is set, true otherwise.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? RequireApproval { get; set; }
-
-    /// <summary>
     /// Optional template id the dialog selected; persisted in front-matter for telemetry / re-apply.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1652,23 +1639,6 @@ public sealed class AutomationTaskCreateResult
 {
     public string TaskId { get; set; } = string.Empty;
     public string TaskDirectory { get; set; } = string.Empty;
-}
-
-public sealed class AutomationTaskApproveParams
-{
-    public string WorkspacePath { get; set; } = string.Empty;
-    public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
-}
-
-public sealed class AutomationTaskRejectParams
-{
-    public string WorkspacePath { get; set; } = string.Empty;
-    public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Reason { get; set; }
 }
 
 public sealed class AutomationTaskDeleteParams
@@ -1732,10 +1702,6 @@ public sealed class AutomationTemplateWire
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DefaultApprovalPolicy { get; set; }
-
-    /// <summary>Default for the <c>require_approval</c> toggle in the dialog.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? DefaultRequireApproval { get; set; }
 
     /// <summary>
     /// Suggests to the UI that this template benefits from being bound to an existing thread
@@ -1806,8 +1772,6 @@ public sealed class AutomationTemplateSaveParams
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DefaultApprovalPolicy { get; set; }
-
-    public bool DefaultRequireApproval { get; set; }
 
     public bool NeedsThreadBinding { get; set; }
 
@@ -2667,8 +2631,6 @@ public static class AppServerMethods
     public const string AutomationTaskList = "automation/task/list";
     public const string AutomationTaskRead = "automation/task/read";
     public const string AutomationTaskCreate = "automation/task/create";
-    public const string AutomationTaskApprove = "automation/task/approve";
-    public const string AutomationTaskReject = "automation/task/reject";
     public const string AutomationTaskDelete = "automation/task/delete";
 
     /// <summary>Replaces or clears a task's thread binding without rewriting other fields.</summary>

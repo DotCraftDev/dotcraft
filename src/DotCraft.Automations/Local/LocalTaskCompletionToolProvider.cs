@@ -29,22 +29,22 @@ public sealed class LocalTaskCompletionToolProvider(
                 {
                     var task = await fileStore.LoadAsync(taskDir, CancellationToken.None).ConfigureAwait(false);
 
-                    if (task.Status == AutomationTaskStatus.AgentCompleted)
-                        return "Local task is already marked as agent completed.";
+                    if (task.Status == AutomationTaskStatus.Completed)
+                        return "Local task is already marked as completed.";
 
-                    if (task.Status != AutomationTaskStatus.AgentRunning)
+                    if (task.Status != AutomationTaskStatus.Running)
                     {
                         return $"Cannot complete task in status {task.Status}. " +
-                               "CompleteLocalTask is only available while the task is agent_running.";
+                               "CompleteLocalTask is only available while the task is running.";
                     }
 
                     if (!string.IsNullOrWhiteSpace(summary))
                         task.AgentSummary = summary.Trim();
 
-                    task.Status = AutomationTaskStatus.AgentCompleted;
+                    task.Status = AutomationTaskStatus.Completed;
                     await fileStore.SaveAsync(task, CancellationToken.None).ConfigureAwait(false);
 
-                    return "Local task has been marked as complete (agent_completed). " +
+                    return "Local task has been marked as completed. " +
                            "The orchestrator will stop the workflow after this turn.";
                 }
                 catch (Exception ex)
@@ -54,7 +54,7 @@ public sealed class LocalTaskCompletionToolProvider(
                 }
             },
             "CompleteLocalTask",
-            "Call this when the task is fully complete. Sets task.md to agent_completed and stores the summary. " +
+            "Call this when the task is fully complete. Sets task.md to completed and stores the summary. " +
             "Only call after you have finished all required work in the task workspace.");
     }
 

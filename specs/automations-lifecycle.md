@@ -9,7 +9,7 @@
 
 This spec defines DotCraft's built-in Automations module as an increment over Symphony. Symphony owns the common poll, dispatch, retry, reconciliation, workspace, and agent-run semantics. DotCraft adds in-process AppServer integration, a source abstraction, local task storage, Desktop visibility, and automation wire methods.
 
-Built-in Automations does not define a task-level human review workflow. When an agent finishes a local automation task, the task reaches a terminal state directly or is re-armed by its schedule. Multi-round human feedback, comments, and explicit approval flows belong to the separate [DotCraft Symphony](dotcraft-symphony.md) application.
+Built-in Automations does not define a task-level human review workflow. When an agent finishes a local automation task, the task reaches a terminal status directly or is re-armed by its schedule. Multi-round human feedback, comments, and explicit approval flows belong to the separate [DotCraft Symphony](dotcraft-symphony.md) application.
 
 ---
 
@@ -35,7 +35,7 @@ The local copy under `specs/symphony/` is for repository-local reference only. N
 ### 1.1 This Spec Defines
 
 - `IAutomationSource`, `AutomationTask`, and the source-neutral task model.
-- Local task file storage, scheduling, and terminal-state semantics.
+- Local task file storage, scheduling, and terminal-status semantics.
 - DotCraft's built-in local task lifecycle without a review gate.
 - Session Core extensions used by automation threads.
 - Wire Protocol methods and notifications for task management and observability.
@@ -101,8 +101,8 @@ flowchart LR
 |-------|-------------------------|
 | `AutomationOrchestrator` | Hosts the Symphony-style loop, merges candidates from all sources, applies source-neutral dispatch guards, prepares workspaces, creates automation threads, and records task outcomes. |
 | `AutomationSessionClient` | In-process adapter over `ISessionService`; creates threads, submits turns, subscribes to events, and detects agent completion. |
-| `IAutomationSource` | Fetches candidates, maps source-specific states, provisions optional source workspaces, registers tools, and decides source-specific completion behavior. |
-| `LocalAutomationSource` | Manages file-backed task definitions, schedules, local workspace policy, and terminal local task state. |
+| `IAutomationSource` | Fetches pending tasks, persists status transitions, provisions optional source workspaces, registers tools, and decides source-specific completion behavior. |
+| `LocalAutomationSource` | Manages file-backed task definitions, schedules, local workspace policy, and terminal local task status. |
 | `GitHubAutomationSource` | Adapts GitHub issues and PRs into `AutomationTask`; PR-specific review semantics are governed by [PR Review Lifecycle](pr-review-lifecycle.md). |
 | Session Core | Executes agents and tools with per-thread workspace, tool profile, and tool-call approval policy. |
 
@@ -131,32 +131,18 @@ public interface IAutomationSource
     string Name { get; }
     string ToolProfileName { get; }
 
-    Task<IReadOnlyList<AutomationTask>> FetchCandidateTasksAsync(
-        CancellationToken ct = default);
-
-    Task<IReadOnlyList<TaskStateSnapshot>> FetchTaskStatesByIdsAsync(
-        IReadOnlyList<string> taskIds,
-        CancellationToken ct = default);
-
-    Task<IReadOnlyList<AutomationTask>> FetchTasksByStatesAsync(
-        IReadOnlyList<string> stateNames,
-        CancellationToken ct = default);
-
-    bool ShouldReDispatch(AutomationTask task, OrchestratorState state);
-    void OnTaskDispatched(AutomationTask task);
-
-    Task OnTaskCompletedAsync(
-        AutomationTask task,
-        AgentRunOutcome outcome,
-        CancellationToken ct = default);
-
     void RegisterToolProfile(IToolProfileRegistry registry);
+    Task<IReadOnlyList<AutomationTask>> GetPendingTasksAsync(CancellationToken ct);
+    Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct);
+    Task<AutomationWorkflowDefinition> GetWorkflowAsync(AutomationTask task, CancellationToken ct);
+    Task OnStatusChangedAsync(AutomationTask task, AutomationTaskStatus newStatus, CancellationToken ct);
+    Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct);
+    Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct);
 
     Task<string?> ProvisionWorkspaceAsync(AutomationTask task, CancellationToken ct) =>
         Task.FromResult<string?>(null);
-
-    IReadOnlyList<string> ActiveStates { get; }
-    IReadOnlyList<string> TerminalStates { get; }
+    Task ReconcileExpiredResourcesAsync(CancellationToken ct) => Task.CompletedTask;
+    Task DeleteTaskAsync(string taskId, CancellationToken ct);
 }
 ```
 
@@ -164,18 +150,18 @@ public interface IAutomationSource
 
 | Member | Requirement |
 |--------|-------------|
-| `FetchCandidateTasksAsync` | Return active tasks eligible for dispatch. Source-specific filtering happens here. |
-| `FetchTaskStatesByIdsAsync` | Return current source states for reconciliation and post-turn completion checks. |
-| `FetchTasksByStatesAsync` | Return tasks in specific states for startup cleanup and source-specific maintenance. |
-| `ShouldReDispatch` | Add source-specific dispatch checks after the orchestrator's running/claimed checks pass. |
-| `OnTaskDispatched` | Mark a task as claimed/running in source state when needed. |
-| `OnTaskCompletedAsync` | Persist the source's terminal, retry, or scheduled next state. Local tasks never enter a review state. |
+| `GetPendingTasksAsync` | Return tasks eligible for dispatch. Source-specific filtering happens here. |
+| `GetAllTasksAsync` | Return all tasks regardless of status for list/read views. |
+| `GetWorkflowAsync` | Return the workflow definition for the task. |
+| `OnStatusChangedAsync` | Persist orchestrator-driven status changes. Local tasks never enter a review status. |
+| `OnAgentCompletedAsync` | Persist the latest agent summary. |
+| `ShouldStopWorkflowAfterTurnAsync` | Reload source data after each turn and return true when the workflow should stop. |
 | `RegisterToolProfile` | Register only source-specific tools. Standard tools are provided by Session Core. |
 | `ProvisionWorkspaceAsync` | Optionally provide source-owned workspace setup. Returning `null` uses the generic workspace manager. |
 
 ### 4.3 Composite Source
 
-`CompositeAutomationSource` merges candidates from all registered sources, routes state and completion calls by `task.SourceName`, and exposes the union of source active and terminal states.
+`AutomationOrchestrator` merges candidates from all registered sources and routes status and completion calls by `task.SourceName`.
 
 ---
 
@@ -184,25 +170,21 @@ public interface IAutomationSource
 ### 5.1 Core Fields
 
 ```csharp
-public sealed record AutomationTask
+public abstract class AutomationTask
 {
     public required string Id { get; init; }
-    public required string SourceName { get; init; }
-    public required AutomationTaskKind Kind { get; init; }
-    public required string Identifier { get; init; }
     public required string Title { get; init; }
-    public string? Description { get; init; }
-    public required string State { get; init; }
-    public int Round { get; init; }
-    public string? WorkflowPath { get; init; }
-    public string? ThreadId { get; init; }
-    public string? AgentSummary { get; init; }
-    public AutomationSchedule? Schedule { get; init; }
-    public AutomationThreadBinding? ThreadBinding { get; init; }
-    public string? WorkspacePath { get; init; }
-    public string? ApprovalPolicy { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-    public DateTimeOffset UpdatedAt { get; init; }
+    public required AutomationTaskStatus Status { get; set; }
+    public required string SourceName { get; init; }
+    public string? ThreadId { get; set; }
+    public string? ToolProfileOverride { get; init; }
+    public string? Description { get; set; }
+    public string? AgentSummary { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public CronSchedule? Schedule { get; set; }
+    public AutomationThreadBinding? ThreadBinding { get; set; }
+    public DateTimeOffset? NextRunAt { get; set; }
 }
 ```
 
@@ -217,19 +199,18 @@ public enum AutomationTaskKind
 }
 ```
 
-### 5.3 State Names
+### 5.3 Status Names
 
-Local task persisted states are:
+Local task persisted statuses are:
 
-| State | Meaning |
+| Status | Meaning |
 |-------|---------|
 | `pending` | Eligible for dispatch. |
 | `running` | Agent is currently running or the task has been claimed. |
 | `completed` | Agent finished successfully and no schedule re-armed the task. |
 | `failed` | Agent run failed and retry policy is exhausted or not applicable. |
-| `cancelled` | Task was manually cancelled before or during execution. |
 
-`AgentCompleted` is an orchestrator transition outcome, not a persisted local task state. The source converts it to either `completed` or `pending` depending on schedule.
+Unknown or legacy review-gate statuses are not valid built-in Automations statuses.
 
 ---
 
@@ -253,8 +234,7 @@ Local task persisted states are:
 ```yaml
 id: task-001
 title: Refactor auth module
-state: pending
-round: 0
+status: pending
 workflow: project
 approval_policy: workspaceScope
 schedule:
@@ -271,31 +251,26 @@ The task body stores the user-facing description. `summary.md` stores the latest
 | Operation | Behavior |
 |-----------|----------|
 | Candidate fetch | Return tasks in `pending` whose schedule is due or absent. |
-| Dispatch | Set `state: running`, increment `round`, update `updated_at`, and bind the `threadId` when available. |
+| Dispatch | Set `status: running`, update `updated_at`, and bind the `threadId` when available. |
 | Agent success | Store `agentSummary`, write `summary.md`, then evaluate schedule. |
 | Schedule present | Re-arm to `pending` for the next due time. |
-| No schedule | Set `state: completed`. |
-| Agent failure | Set `state: failed` unless Symphony retry/backoff schedules another attempt. |
-| Cancellation | Set `state: cancelled` and stop active dispatch if possible. |
+| No schedule | Set `status: completed`. |
+| Agent failure | Set `status: failed` unless Symphony retry/backoff schedules another attempt. |
 
 ---
 
-## 7. Local Task Lifecycle State Machine
+## 7. Local Task Lifecycle Status Machine
 
-### 7.1 State Diagram
+### 7.1 Status Diagram
 
 ```mermaid
 stateDiagram-v2
     [*] --> Pending
     Pending --> Running: Dispatch
-    Running --> AgentCompleted: Agent completed
+    Running --> Pending: Agent completed / schedule re-arms
+    Running --> Completed: Agent completed / one-shot
     Running --> Failed: Agent failed / retry exhausted
-    Running --> Cancelled: Cancel
-    Pending --> Cancelled: Cancel
-    AgentCompleted --> Pending: Schedule re-arms task
-    AgentCompleted --> Completed: One-shot task
     Failed --> [*]
-    Cancelled --> [*]
     Completed --> [*]
 ```
 
@@ -304,19 +279,17 @@ stateDiagram-v2
 | Transition | Rule |
 |------------|------|
 | `Pending -> Running` | The orchestrator has capacity and the source says the task should dispatch. |
-| `Running -> AgentCompleted` | The agent exits successfully or calls the source's completion tool. |
-| `AgentCompleted -> Pending` | The task has a schedule and should run again later. |
-| `AgentCompleted -> Completed` | The task is one-shot or the schedule is finished. |
+| `Running -> Pending` | The agent completes a scheduled task and the orchestrator refreshes `nextRunAt`. |
+| `Running -> Completed` | The agent completes a one-shot task. |
 | `Running -> Failed` | The run fails and no retry remains. |
-| `Pending/Running -> Cancelled` | A client or operator cancels the task. |
 
 ### 7.3 Round Tracking
 
-`round` increments when a task is dispatched. It identifies execution attempts for summaries and logs only. It does not imply human feedback, comments, approval, or request-changes loops.
+Attempt tracking is for summaries and logs only. It does not imply human feedback, comments, approval, or request-changes loops.
 
 ### 7.4 No Built-In Review Gate
 
-Built-in Automations intentionally has no task-level review state or decision API. Human feedback and multi-round review are provided by [DotCraft Symphony](dotcraft-symphony.md), which keeps its own comment and round store and drives DotCraft through AppServer.
+Built-in Automations intentionally has no task-level review status or decision API. Human feedback and multi-round review are provided by [DotCraft Symphony](dotcraft-symphony.md), which keeps its own comment and round store and drives DotCraft through AppServer.
 
 ---
 
@@ -371,12 +344,12 @@ DotCraft-specific worker exit flow:
 
 ```text
 Agent success:
-  source.OnTaskCompletedAsync(task, AgentCompleted)
+  source.OnAgentCompletedAsync(task, summary)
   Local source: schedule ? pending : completed
 
 Agent failure:
   apply Symphony retry/backoff
-  if no retry remains, source.OnTaskCompletedAsync(task, Failed)
+  if no retry remains, source.OnStatusChangedAsync(task, failed)
 ```
 
 ---
@@ -388,7 +361,7 @@ Agent failure:
 ```yaml
 automation:
   active_states: ["pending"]
-  terminal_states: ["completed", "failed", "cancelled"]
+  terminal_states: ["completed", "failed"]
   max_turns: 20
   workspace: project
   approval_policy: workspaceScope
@@ -445,7 +418,7 @@ Hooks tied to approve/reject decisions are not part of built-in Automations.
 1. Create or resume an automation thread with reserved identity.
 2. Submit the rendered workflow prompt.
 3. Observe Session Core events through `ThreadEventBroker`.
-4. Detect successful completion, cancellation, timeout, or failure.
+4. Detect successful completion, timeout, or failure.
 5. Return `AgentRunOutcome` to the orchestrator.
 
 ### 12.2 Completion Detection
@@ -454,9 +427,9 @@ Completion can be detected by:
 
 - Source-specific completion tools, such as local task completion or GitHub issue completion.
 - Agent run termination after the configured max turns.
-- Timeout, cancellation, or exception.
+- Timeout or exception.
 
-Local task success maps to `AgentCompleted`, then immediately to `pending` or `completed`.
+Local task success maps directly to `completed` for one-shot tasks, or to `pending` with a refreshed `nextRunAt` for scheduled tasks. Failures map to `failed`.
 
 ---
 
@@ -466,13 +439,14 @@ Local task success maps to `AgentCompleted`, then immediately to `pending` or `c
 
 | Method | Direction | Params | Result |
 |--------|-----------|--------|--------|
-| `automation/task/list` | Client -> Server | `{ source?, state?, limit?, cursor? }` | `{ tasks: AutomationTaskWire[], nextCursor? }` |
-| `automation/task/get` | Client -> Server | `{ taskId }` | `{ task: AutomationTaskWire }` |
+| `automation/task/list` | Client -> Server | `{ sourceName? }` | `{ tasks: AutomationTaskWire[] }` |
+| `automation/task/read` | Client -> Server | `{ taskId, sourceName }` | `{ task: AutomationTaskWire }` |
 | `automation/task/create` | Client -> Server | `{ title, description?, workflowTemplate?, approvalPolicy?, workspaceMode?: "project" \| "isolated", schedule?: AutomationScheduleWire, threadBinding?: AutomationThreadBindingWire, templateId?: string }` | `{ task: AutomationTaskWire }` |
-| `automation/task/cancel` | Client -> Server | `{ taskId }` | `{ task: AutomationTaskWire }` |
-| `automation/task/delete` | Client -> Server | `{ taskId }` | `{ ok: true }` |
-| `automation/source/list` | Client -> Server | `{}` | `{ sources: AutomationSourceWire[] }` |
-| `automation/template/list` | Client -> Server | `{}` | `{ templates: AutomationTemplateWire[] }` |
+| `automation/task/updateBinding` | Client -> Server | `{ taskId, sourceName, threadBinding?: AutomationThreadBindingWire \| null }` | `{ task: AutomationTaskWire }` |
+| `automation/task/delete` | Client -> Server | `{ taskId, sourceName }` | `{ ok: true }` |
+| `automation/template/list` | Client -> Server | `{ locale? }` | `{ templates: AutomationTemplateWire[] }` |
+| `automation/template/save` | Client -> Server | `{ id?, title, description?, icon?, category?, workflowMarkdown, defaultSchedule?, defaultWorkspaceMode?, defaultApprovalPolicy?, needsThreadBinding?, defaultTitle?, defaultDescription? }` | `{ template: AutomationTemplateWire }` |
+| `automation/template/delete` | Client -> Server | `{ id }` | `{ ok: true }` |
 
 Task-level review endpoints are not part of built-in Automations.
 
@@ -480,9 +454,7 @@ Task-level review endpoints are not part of built-in Automations.
 
 | Notification | Direction | Payload |
 |--------------|-----------|---------|
-| `automation/task/stateChanged` | Server -> Client | `{ task: AutomationTaskWire, previousState? }` |
-| `automation/task/created` | Server -> Client | `{ task: AutomationTaskWire }` |
-| `automation/task/deleted` | Server -> Client | `{ taskId }` |
+| `automation/task/updated` | Server -> Client | `{ task: AutomationTaskWire }` |
 
 Review-requested notifications are not part of built-in Automations.
 
@@ -491,28 +463,25 @@ Review-requested notifications are not part of built-in Automations.
 ```json
 {
   "id": "task-001",
-  "source": "local",
-  "kind": "local",
-  "identifier": "task-001",
+  "sourceName": "local",
   "title": "Refactor auth module",
   "description": "Task body...",
-  "state": "completed",
-  "round": 2,
+  "status": "completed",
   "threadId": "thr_123",
   "agentSummary": "Completed summary...",
-  "workspacePath": ".craft/automations/tasks/task-001/workspace",
   "approvalPolicy": "workspaceScope",
   "schedule": null,
   "threadBinding": null,
+  "nextRunAt": null,
   "createdAt": "2026-05-04T00:00:00Z",
   "updatedAt": "2026-05-04T00:10:00Z"
 }
 ```
 
-`AutomationTaskWire.state` for built-in local tasks is one of:
+`AutomationTaskWire.status` for built-in local tasks is one of:
 
 ```text
-pending | running | completed | failed | cancelled
+pending | running | completed | failed
 ```
 
 The wire DTO does not include legacy task-level approval flags, approval decisions, review decisions, or review notification data.
@@ -544,7 +513,7 @@ Each task row displays:
 
 | Element | Description |
 |---------|-------------|
-| Status indicator | Pending, running, completed, failed, or cancelled. |
+| Status indicator | Pending, running, completed, or failed. |
 | Identifier and title | `{identifier}: {title}`. |
 | State badge | Right-aligned state label. |
 | Metadata line | Source, workflow, round count, turn count, schedule, and relative time. |
@@ -568,7 +537,7 @@ The panel has no approve, request-changes, or reject actions. Full multi-round r
 
 | Field | Type | Updated by |
 |-------|------|------------|
-| `tasks` | `AutomationTaskWire[]` | `automation/task/list`, `automation/task/stateChanged` |
+| `tasks` | `AutomationTaskWire[]` | `automation/task/list`, `automation/task/updated` |
 | `activeFilter` | `"all" \| "pending" \| "running" \| "completed" \| "failed"` | User tab selection |
 | `selectedTaskId` | `string \| null` | User task selection |
 
@@ -617,7 +586,7 @@ Automations should emit enough `ILogger` output for headless operators to inspec
 | Poll | Poll cycle completed with source counts. |
 | Dispatch | Task dispatch started with `taskId` and `sourceName`. |
 | Thread | Thread created or resumed with `taskId`, `threadId`, and `sourceName`. |
-| Status | Task enters `running`, `completed`, `failed`, or `cancelled`. |
+| Status | Task enters `running`, `completed`, or `failed`. |
 | Workflow | Turn or round milestones. |
 | Errors | Source fetch, dispatch, persistence, or worker failures. |
 
@@ -637,8 +606,6 @@ src/DotCraft.Automations/
     IAutomationSource.cs
     AutomationTask.cs
     AgentRunOutcome.cs
-    TaskStateSnapshot.cs
-    CompositeAutomationSource.cs
   Orchestrator/
     AutomationOrchestrator.cs
     OrchestratorState.cs
@@ -694,7 +661,7 @@ src/DotCraft.Core/
 ### 18.2 Phase 2: Automations Core
 
 - Create `DotCraft.Automations` with the source abstraction and orchestrator.
-- Implement `LocalAutomationSource` without review states or review decisions.
+- Implement `LocalAutomationSource` without review statuses or review decisions.
 - Add `AutomationsRequestHandler` for the non-review `automation/*` methods.
 - Register the orchestrator as an AppServer hosted service.
 
@@ -702,7 +669,7 @@ src/DotCraft.Core/
 
 - Implement the Automations task list and read-only task panel.
 - Subscribe to automation threads for live running task activity.
-- Add task creation, cancel, delete, source list, and template list flows.
+- Add task creation, delete, and template list flows.
 - Remove built-in approve/request-changes/reject UI.
 
 ### 18.4 Phase 4: GitHubTracker Slimming

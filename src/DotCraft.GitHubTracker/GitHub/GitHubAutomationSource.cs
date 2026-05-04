@@ -242,18 +242,11 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
         switch (newStatus)
         {
-            case AutomationTaskStatus.Dispatched:
-            case AutomationTaskStatus.AgentRunning:
+            case AutomationTaskStatus.Running:
                 _activeTasks[task.Id] = gh;
                 break;
 
-            case AutomationTaskStatus.AwaitingReview:
-                _activeTasks.TryRemove(task.Id, out _);
-                _completedTasks[task.Id] = gh;
-                break;
-
-            case AutomationTaskStatus.Approved:
-            case AutomationTaskStatus.Rejected:
+            case AutomationTaskStatus.Completed:
             case AutomationTaskStatus.Failed:
                 _activeTasks.TryRemove(task.Id, out _);
                 _completedTasks[task.Id] = gh;
@@ -415,24 +408,6 @@ public sealed class GitHubAutomationSource : IAutomationSource
             expiredTaskIds.Count,
             cleaned,
             failed);
-    }
-
-    /// <inheritdoc />
-    public Task ApproveTaskAsync(string taskId, CancellationToken ct)
-    {
-        _logger.LogInformation("GitHub task {TaskId} approved (no-op: human reviews via Desktop)", taskId);
-        if (_completedTasks.TryGetValue(taskId, out var gh))
-            gh.Status = AutomationTaskStatus.Approved;
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct)
-    {
-        _logger.LogInformation("GitHub task {TaskId} rejected: {Reason}", taskId, reason ?? "(no reason)");
-        if (_completedTasks.TryGetValue(taskId, out var gh))
-            gh.Status = AutomationTaskStatus.Rejected;
-        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
