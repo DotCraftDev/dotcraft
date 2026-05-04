@@ -12,8 +12,6 @@ import type { SubAgentEntry } from '../../types/toolCall'
 import { ThreadPickerOverlay } from './ThreadPickerOverlay'
 import { addToast } from '../../stores/toastStore'
 
-const PANEL_WIDTH = 480
-
 function SourceBadge({
   sourceName,
   t
@@ -212,8 +210,8 @@ export function TaskReviewPanel(): JSX.Element {
   return (
     <div
       style={{
-        width: PANEL_WIDTH,
-        minWidth: PANEL_WIDTH,
+        width: '100%',
+        minWidth: 0,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',

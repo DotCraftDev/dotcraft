@@ -4,6 +4,7 @@ import { translate, type AppLocale } from '../../../shared/locales'
 import type { CronJobWire } from '../../stores/cronStore'
 import { useCronStore } from '../../stores/cronStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
+import { useReviewPanelStore } from '../../stores/reviewPanelStore'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { formatNextRun } from '../../utils/cronNextRunDisplay'
@@ -121,6 +122,11 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
     }
   }
 
+  function clearTaskReviewSelection(): void {
+    useReviewPanelStore.getState().destroyReviewPanel()
+    clearTaskSelection(null)
+  }
+
   return (
     <>
       <div
@@ -128,14 +134,14 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
         tabIndex={0}
         onClick={() => {
           if (st.lastThreadId) {
-            clearTaskSelection(null)
+            clearTaskReviewSelection()
             selectCronJob(job.id)
           }
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             if (st.lastThreadId) {
-              clearTaskSelection(null)
+              clearTaskReviewSelection()
               selectCronJob(job.id)
             }
           }
@@ -263,7 +269,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
               icon: <Eye size={14} />,
               disabled: !st.lastThreadId,
               onClick: () => {
-                clearTaskSelection(null)
+                clearTaskReviewSelection()
                 selectCronJob(job.id)
               }
             },

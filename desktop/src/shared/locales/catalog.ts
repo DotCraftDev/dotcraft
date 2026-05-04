@@ -1468,7 +1468,7 @@ const MESSAGES_EN = {
     'Click "+ New Task" to create one, or wait for GitHub tasks to be discovered.',
   'auto.emptyCronHint':
     'Ask the agent in chat to create a cron job, e.g. "Remind me every hour…"',
-  'auto.newTaskButtonLabel': '+ New Task',
+  'auto.newTaskButtonLabel': 'New Task',
 
   // Settings groups (Codex-style section headers)
   'settings.group.general': 'General',
@@ -3181,7 +3181,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'common.hideSecret': '隐藏密钥',
   'auto.emptyTasksHint': '点击「+ 新建任务」创建，或等待发现 GitHub 任务。',
   'auto.emptyCronHint': '在对话中请智能体创建定时任务，例如「每小时提醒我…」。',
-  'auto.newTaskButtonLabel': '+ 新建任务',
+  'auto.newTaskButtonLabel': '新建任务',
 
   // Archived threads（补齐）
   'archivedThreads.title': '归档会话',

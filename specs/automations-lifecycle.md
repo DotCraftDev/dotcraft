@@ -451,7 +451,7 @@ Local task success maps directly to `completed` for one-shot tasks, or to `pendi
 
 Task-level review endpoints are not part of built-in Automations.
 
-`automation/task/run` is a manual dispatch affordance for Desktop and other operators. In v1 it supports local tasks only. A running task is rejected; a pending, completed, or failed local task is made pending with `nextRunAt: null`, then the orchestrator is asked to poll immediately. The request returns after queuing/triggering dispatch and does not wait for the agent run to finish.
+`automation/task/run` is a manual dispatch affordance for Desktop and other operators. In v1 it supports local tasks only. A running task is rejected; a pending, completed, or failed local task is made pending, then the orchestrator is asked to poll immediately. For unscheduled tasks, `nextRunAt` is cleared. For scheduled tasks, `nextRunAt` is set to a due-now timestamp so the manual run bypasses the future schedule gate once without changing the task's recurring schedule. The request returns after queuing/triggering dispatch and does not wait for the agent run to finish.
 
 ### 13.2 Notifications
 

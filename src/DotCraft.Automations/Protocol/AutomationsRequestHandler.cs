@@ -183,7 +183,9 @@ public sealed partial class AutomationsRequestHandler(
                 "Cannot run a task that is already running.");
 
         task.Status = AutomationTaskStatus.Pending;
-        task.NextRunAt = null;
+        task.NextRunAt = task.Schedule == null
+            ? null
+            : DateTimeOffset.UtcNow.AddMilliseconds(-1);
         await fileStore.SaveAsync(task, ct);
 
         _ = orchestrator.TriggerImmediatePollAsync(CancellationToken.None);

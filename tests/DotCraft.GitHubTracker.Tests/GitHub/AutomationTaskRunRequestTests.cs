@@ -17,7 +17,7 @@ namespace DotCraft.GitHubTracker.Tests.GitHub;
 public sealed class AutomationTaskRunRequestTests
 {
     [Fact]
-    public async Task HandleTaskRunAsync_RequeuesCompletedLocalTaskAndClearsNextRunAt()
+    public async Task HandleTaskRunAsync_RequeuesScheduledLocalTaskAsDueNow()
     {
         var root = CreateTestRoot();
         try
@@ -31,12 +31,45 @@ public sealed class AutomationTaskRunRequestTests
             task.NextRunAt = DateTimeOffset.UtcNow.AddDays(1);
             await harness.FileStore.SaveAsync(task, CancellationToken.None);
 
+            var before = DateTimeOffset.UtcNow;
+            var result = await harness.Handler.HandleTaskRunAsync(
+                Request(new { taskId = task.Id, sourceName = "local" }),
+                CancellationToken.None);
+            var after = DateTimeOffset.UtcNow;
+
+            var wire = Assert.IsType<AutomationTaskRunResult>(result).Task;
+            Assert.Equal("manual-run", wire.Id);
+            Assert.Equal("pending", wire.Status);
+            Assert.NotNull(wire.NextRunAt);
+            Assert.InRange(wire.NextRunAt!.Value, before.AddSeconds(-1), after);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task HandleTaskRunAsync_RequeuesUnscheduledLocalTaskAndClearsNextRunAt()
+    {
+        var root = CreateTestRoot();
+        try
+        {
+            using var harness = CreateHarness(root);
+            var task = await CreateTaskAsync(
+                harness.FileStore,
+                "manual-run-once",
+                AutomationTaskStatus.Completed,
+                schedule: null);
+            task.NextRunAt = DateTimeOffset.UtcNow.AddDays(1);
+            await harness.FileStore.SaveAsync(task, CancellationToken.None);
+
             var result = await harness.Handler.HandleTaskRunAsync(
                 Request(new { taskId = task.Id, sourceName = "local" }),
                 CancellationToken.None);
 
             var wire = Assert.IsType<AutomationTaskRunResult>(result).Task;
-            Assert.Equal("manual-run", wire.Id);
+            Assert.Equal("manual-run-once", wire.Id);
             Assert.Equal("pending", wire.Status);
             Assert.Null(wire.NextRunAt);
         }

@@ -50,6 +50,7 @@ export function AutomationsView(): JSX.Element {
 
   const { tasks, loading, error, fetchTasks } = useAutomationsStore()
   const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
+  const selectTask = useAutomationsStore((s) => s.selectTask)
   const startPolling = useAutomationsStore((s) => s.startPolling)
   const stopPolling = useAutomationsStore((s) => s.stopPolling)
 
@@ -60,6 +61,7 @@ export function AutomationsView(): JSX.Element {
   const startCronPolling = useCronStore((s) => s.startPolling)
   const stopCronPolling = useCronStore((s) => s.stopPolling)
   const selectedCronJobId = useCronStore((s) => s.selectedCronJobId)
+  const selectCronJob = useCronStore((s) => s.selectCronJob)
 
   const [showNewTask, setShowNewTask] = useState(false)
   const [newTaskTemplate, setNewTaskTemplate] = useState<AutomationTemplate | undefined>(undefined)
@@ -67,6 +69,9 @@ export function AutomationsView(): JSX.Element {
   const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [showGitHubConfig, setShowGitHubConfig] = useState(false)
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
+  const [reviewAsDrawer, setReviewAsDrawer] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 980
+  )
   const templates = useAutomationsStore((s) => s.templates)
   const fetchTemplates = useAutomationsStore((s) => s.fetchTemplates)
 
@@ -85,6 +90,32 @@ export function AutomationsView(): JSX.Element {
     if (hasTasks && !hasCron) setAutomationsTab('tasks')
     else if (!hasTasks && hasCron) setAutomationsTab('cron')
   }, [hasTasks, hasCron, setAutomationsTab])
+
+  useEffect(() => {
+    if (activePanel === 'tasks' && selectedCronJobId) selectCronJob(null)
+    if (activePanel === 'cron' && selectedTaskId) {
+      useReviewPanelStore.getState().destroyReviewPanel()
+      selectTask(null)
+    }
+  }, [activePanel, selectedCronJobId, selectedTaskId, selectCronJob, selectTask])
+
+  useEffect(() => {
+    if (!showGitHubConfig) return
+    if (selectedTaskId) {
+      useReviewPanelStore.getState().destroyReviewPanel()
+      selectTask(null)
+    }
+    if (selectedCronJobId) selectCronJob(null)
+  }, [showGitHubConfig, selectedCronJobId, selectedTaskId, selectCronJob, selectTask])
+
+  useEffect(() => {
+    function updateReviewMode(): void {
+      setReviewAsDrawer(window.innerWidth < 980)
+    }
+    updateReviewMode()
+    window.addEventListener('resize', updateReviewMode)
+    return () => window.removeEventListener('resize', updateReviewMode)
+  }, [])
 
   useEffect(() => {
     if (!hasTasks) {
@@ -130,6 +161,12 @@ export function AutomationsView(): JSX.Element {
   )
 
   const templateSections = useMemo(() => buildTemplateSections(templates, t), [templates, t])
+  const reviewPanel =
+    selectedTaskId != null
+      ? <TaskReviewPanel />
+      : selectedCronJobId != null
+        ? <CronReviewPanel />
+        : null
 
   function openNewTask(template?: AutomationTemplate): void {
     setNewTaskTemplate(template)
@@ -148,6 +185,15 @@ export function AutomationsView(): JSX.Element {
   const refreshCurrent = (): void => {
     if (activePanel === 'tasks') void fetchTasks()
     else void fetchCronJobs()
+  }
+
+  function closeReviewPanel(): void {
+    if (selectedTaskId) {
+      useReviewPanelStore.getState().closeReviewPanel()
+    }
+    if (selectedCronJobId) {
+      selectCronJob(null)
+    }
   }
 
   return (
@@ -186,7 +232,7 @@ export function AutomationsView(): JSX.Element {
               type="button"
               aria-label={t('auto.createTask')}
               onClick={() => openNewTask()}
-              style={manageButton}
+              style={primaryCreateButton}
             >
               <Plus size={14} aria-hidden />
               {t('auto.newTaskButtonLabel')}
@@ -206,94 +252,110 @@ export function AutomationsView(): JSX.Element {
         <h1 style={heroTitle}>{t('auto.viewTitle')}</h1>
       </header>
 
-      {showGitHubConfig && hasGitHubTrackerConfig && (
-        <main style={browseMain}>
-          <div style={panelConstrained}>
-            <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
-          </div>
-        </main>
-      )}
-
-      {!showGitHubConfig && activePanel === 'tasks' && (
-        <main id="automations-task-list" role="tabpanel" style={browseMain}>
-          {templateSections.map((section) => (
-            <CatalogSection key={section.key} title={section.title}>
-              <CatalogCompactGrid>
-                {section.templates.map((tpl) => (
-                  <TemplateCard
-                    key={tpl.id}
-                    template={tpl}
-                    onSelect={() => openNewTask(tpl)}
-                    onEdit={() => openTemplateEditor(tpl)}
-                  />
-                ))}
-                {section.key === 'user' && (
-                  <CreateTemplateCard onClick={() => openTemplateEditor()} />
-                )}
-              </CatalogCompactGrid>
-            </CatalogSection>
-          ))}
-
-          {templateSections.length === 0 && (
-            <CatalogSection title={t('auto.templates.title')}>
-              <p style={emptyText}>{t('auto.templates.empty')}</p>
-            </CatalogSection>
+      <div style={contentShell}>
+        <div style={contentPane}>
+          {showGitHubConfig && hasGitHubTrackerConfig && (
+            <main style={browseMain}>
+              <div style={panelConstrained}>
+                <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
+              </div>
+            </main>
           )}
 
-          <CatalogSection title={t('auto.tasks.title')}>
-            {loading && (
-              <div style={listConstrained}>
-                <SkeletonCard />
-                <SkeletonCard />
-                <SkeletonCard />
-              </div>
-            )}
+          {!showGitHubConfig && activePanel === 'tasks' && (
+            <main id="automations-task-list" role="tabpanel" style={browseMain}>
+              {templateSections.map((section) => (
+                <CatalogSection key={section.key} title={section.title}>
+                  <CatalogCompactGrid>
+                    {section.templates.map((tpl) => (
+                      <TemplateCard
+                        key={tpl.id}
+                        template={tpl}
+                        onSelect={() => openNewTask(tpl)}
+                        onEdit={() => openTemplateEditor(tpl)}
+                      />
+                    ))}
+                    {section.key === 'user' && (
+                      <CreateTemplateCard onClick={() => openTemplateEditor()} />
+                    )}
+                  </CatalogCompactGrid>
+                </CatalogSection>
+              ))}
 
-            {!loading && error && (
-              <RetryState message={error} onRetry={() => void fetchTasks()} />
-            )}
+              {templateSections.length === 0 && (
+                <CatalogSection title={t('auto.templates.title')}>
+                  <p style={emptyText}>{t('auto.templates.empty')}</p>
+                </CatalogSection>
+              )}
 
-            {!loading && !error && sortedTasks.length === 0 && (
-              <EmptyState title={t('auto.emptyTasks')} hint={t('auto.emptyTasksHint')} />
-            )}
+              <CatalogSection title={t('auto.tasks.title')}>
+                {loading && (
+                  <div style={listConstrained}>
+                    <SkeletonCard />
+                    <SkeletonCard />
+                    <SkeletonCard />
+                  </div>
+                )}
 
-            {!loading && !error && sortedTasks.length > 0 && (
-              <div style={listConstrained}>
-                {sortedTasks.map((task) => (
-                  <TaskCard key={`${task.sourceName}::${task.id}`} task={task} />
-                ))}
-              </div>
-            )}
-          </CatalogSection>
-        </main>
-      )}
+                {!loading && error && (
+                  <RetryState message={error} onRetry={() => void fetchTasks()} />
+                )}
 
-      {!showGitHubConfig && activePanel === 'cron' && hasCron && (
-        <main id="automations-cron-list" role="tabpanel" style={browseMain}>
-          <CatalogSection title={t('auto.cron.title')}>
-            {cronLoading && (
-              <div style={listConstrained}>
-                <SkeletonCard />
-                <SkeletonCard />
-              </div>
-            )}
+                {!loading && !error && sortedTasks.length === 0 && (
+                  <EmptyState title={t('auto.emptyTasks')} hint={t('auto.emptyTasksHint')} />
+                )}
 
-            {!cronLoading && cronError && (
-              <RetryState message={cronError} onRetry={() => void fetchCronJobs()} />
-            )}
+                {!loading && !error && sortedTasks.length > 0 && (
+                  <div style={listConstrained}>
+                    {sortedTasks.map((task) => (
+                      <TaskCard key={`${task.sourceName}::${task.id}`} task={task} />
+                    ))}
+                  </div>
+                )}
+              </CatalogSection>
+            </main>
+          )}
 
-            {!cronLoading && !cronError && cronJobs.length === 0 && (
-              <EmptyState title={t('auto.emptyCron')} hint={t('auto.emptyCronHint')} />
-            )}
+          {!showGitHubConfig && activePanel === 'cron' && hasCron && (
+            <main id="automations-cron-list" role="tabpanel" style={browseMain}>
+              <CatalogSection title={t('auto.cron.title')}>
+                {cronLoading && (
+                  <div style={listConstrained}>
+                    <SkeletonCard />
+                    <SkeletonCard />
+                  </div>
+                )}
 
-            {!cronLoading && !cronError && cronJobs.length > 0 && (
-              <div style={listConstrained}>
-                {cronJobs.map((job) => <CronJobCard key={job.id} job={job} />)}
-              </div>
-            )}
-          </CatalogSection>
-        </main>
-      )}
+                {!cronLoading && cronError && (
+                  <RetryState message={cronError} onRetry={() => void fetchCronJobs()} />
+                )}
+
+                {!cronLoading && !cronError && cronJobs.length === 0 && (
+                  <EmptyState title={t('auto.emptyCron')} hint={t('auto.emptyCronHint')} />
+                )}
+
+                {!cronLoading && !cronError && cronJobs.length > 0 && (
+                  <div style={listConstrained}>
+                    {cronJobs.map((job) => <CronJobCard key={job.id} job={job} />)}
+                  </div>
+                )}
+              </CatalogSection>
+            </main>
+          )}
+        </div>
+
+        {!showGitHubConfig && reviewPanel && !reviewAsDrawer && (
+          <aside style={reviewSidePanel}>{reviewPanel}</aside>
+        )}
+
+        {!showGitHubConfig && reviewPanel && reviewAsDrawer && (
+          <div style={reviewDrawerLayer} onMouseDown={closeReviewPanel}>
+            <aside style={reviewDrawer} onMouseDown={(event) => event.stopPropagation()}>
+              {reviewPanel}
+            </aside>
+          </div>
+        )}
+      </div>
 
       {menuPosition && (
         <ContextMenu
@@ -323,8 +385,6 @@ export function AutomationsView(): JSX.Element {
         />
       )}
 
-      {selectedTaskId && <TaskReviewPanel />}
-      {selectedCronJobId && <CronReviewPanel />}
     </div>
   )
 }
@@ -514,9 +574,16 @@ const browseHeader: CSSProperties = catalogStyles.browseHeader
 const topActions: CSSProperties = catalogStyles.topActions
 const heroTitle: CSSProperties = catalogStyles.heroTitle
 const browseMain: CSSProperties = catalogStyles.browseMain
-const manageButton: CSSProperties = catalogStyles.manageButton
 const iconButton: CSSProperties = catalogStyles.iconButton
 const emptyText: CSSProperties = catalogStyles.emptyText
+
+const primaryCreateButton: CSSProperties = {
+  ...catalogStyles.manageButton,
+  borderColor: 'var(--text-primary)',
+  backgroundColor: 'var(--text-primary)',
+  color: 'var(--bg-primary)',
+  fontWeight: 600
+}
 
 const iconButtonActive: CSSProperties = {
   ...iconButton,
@@ -533,6 +600,45 @@ const listConstrained: CSSProperties = {
 const panelConstrained: CSSProperties = {
   maxWidth: '760px',
   margin: '0 auto'
+}
+
+const contentShell: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  minWidth: 0,
+  display: 'flex',
+  position: 'relative'
+}
+
+const contentPane: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column'
+}
+
+const reviewSidePanel: CSSProperties = {
+  width: 'min(480px, 42vw)',
+  minWidth: '360px',
+  maxWidth: '480px',
+  height: '100%',
+  flexShrink: 0
+}
+
+const reviewDrawerLayer: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 50,
+  display: 'flex',
+  justifyContent: 'flex-end',
+  backgroundColor: 'color-mix(in srgb, var(--bg-primary) 24%, transparent)'
+}
+
+const reviewDrawer: CSSProperties = {
+  width: 'min(480px, 92vw)',
+  height: '100%',
+  boxShadow: '-12px 0 30px color-mix(in srgb, var(--bg-primary) 28%, transparent)'
 }
 
 const skeletonRow: CSSProperties = {
