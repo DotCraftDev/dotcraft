@@ -90,6 +90,8 @@ public sealed class SubAgentRunResult
 
 public static class SubAgentSessionControl
 {
+    private static readonly TimeSpan CloseAgentCancellationWait = TimeSpan.FromSeconds(5);
+
     private sealed record RunningChild(
         string ParentThreadId,
         CancellationTokenSource Cancellation,
@@ -387,13 +389,51 @@ public static class SubAgentSessionControl
         var parentThreadId = child.Source.SubAgent?.ParentThreadId ?? child.ChannelContext;
         if (RunningChildren.TryRemove(childThreadId, out var running))
         {
-            await running.Cancellation.CancelAsync();
-            running.Cancellation.Dispose();
+            try
+            {
+                await running.Cancellation.CancelAsync();
+                await running.Completion.WaitAsync(CloseAgentCancellationWait, ct);
+            }
+            catch (TimeoutException)
+            {
+                // Best-effort: fall through and explicitly cancel any active turn snapshot below.
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                // The running task may surface cancellation directly instead of returning a cancelled result.
+            }
+            finally
+            {
+                running.Cancellation.Dispose();
+            }
+
+            child = await sessionService.GetThreadAsync(childThreadId, ct);
         }
 
         var activeTurn = child.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval);
         if (activeTurn != null)
-            await sessionService.CancelTurnAsync(childThreadId, activeTurn.Id, ct);
+        {
+            if (sessionService is ISubAgentSyntheticTurnService syntheticTurns
+                && !string.Equals(
+                    child.Source.SubAgent?.RuntimeType,
+                    NativeSubAgentRuntime.RuntimeTypeName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await syntheticTurns.CancelSubAgentSyntheticTurnAsync(
+                    childThreadId,
+                    activeTurn.Id,
+                    "Subagent was cancelled.",
+                    CancellationToken.None);
+            }
+            else
+            {
+                await sessionService.CancelTurnAsync(childThreadId, activeTurn.Id, ct);
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(parentThreadId))
             await sessionService.SetThreadSpawnEdgeStatusAsync(parentThreadId!, childThreadId, ThreadSpawnEdgeStatus.Closed, ct);

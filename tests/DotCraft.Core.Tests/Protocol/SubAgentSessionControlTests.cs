@@ -184,7 +184,6 @@ public sealed class SubAgentSessionControlTests : IDisposable
             _sessionService,
             spawned.ChildThreadId,
             CancellationToken.None);
-        await Task.Delay(100);
         var child = await _sessionService.GetThreadAsync(spawned.ChildThreadId);
         var edge = Assert.Single(await _sessionService.ListSubAgentChildrenAsync(context.ParentThread.Id, includeClosed: true));
 
