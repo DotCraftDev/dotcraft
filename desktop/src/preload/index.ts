@@ -16,6 +16,8 @@ import type {
   MarketInstallResult,
   MarketDotCraftInstallPreparation,
   MarketSkillDetail,
+  SkillMarketBindDotCraftInstallRequest,
+  SkillMarketCleanupDotCraftInstallRequest,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
   SkillMarketPrepareDotCraftInstallRequest,
@@ -476,6 +478,12 @@ const api = {
       request: SkillMarketPrepareDotCraftInstallRequest
     ): Promise<MarketDotCraftInstallPreparation> {
       return ipcRenderer.invoke('skill-market:prepare-dotcraft-install', request)
+    },
+    bindDotCraftInstall(request: SkillMarketBindDotCraftInstallRequest): Promise<void> {
+      return ipcRenderer.invoke('skill-market:bind-dotcraft-install', request)
+    },
+    cleanupDotCraftInstall(request: SkillMarketCleanupDotCraftInstallRequest): Promise<void> {
+      return ipcRenderer.invoke('skill-market:cleanup-dotcraft-install', request)
     }
   },
 

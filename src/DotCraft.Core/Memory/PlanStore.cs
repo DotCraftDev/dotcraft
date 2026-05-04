@@ -1,14 +1,14 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DotCraft.State;
 
 namespace DotCraft.Memory;
 
 /// <summary>
-/// Persists plan files to disk. Supports both structured JSON plans and
-/// legacy raw-markdown plans for backward compatibility.
+/// Persists per-thread plans in the workspace state database.
 /// </summary>
-public sealed class PlanStore(string botPath)
+public sealed class PlanStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,47 +22,74 @@ public sealed class PlanStore(string botPath)
         PropertyNameCaseInsensitive = true
     };
 
-    private string PlansDir => Path.Combine(botPath, "plans");
+    private readonly StateRuntime _stateRuntime;
+
+    public PlanStore(string botPath)
+        : this(botPath, null)
+    {
+    }
+
+    internal PlanStore(string botPath, StateRuntime? stateRuntime)
+    {
+        _stateRuntime = stateRuntime ?? new StateRuntime(botPath);
+    }
 
     // ── Structured plan (JSON + rendered MD) ──
 
-    public string GetStructuredPlanPath(string sessionId)
-        => Path.Combine(PlansDir, $"{sessionId}.json");
-
     public async Task SaveStructuredPlanAsync(string sessionId, StructuredPlan plan)
     {
-        Directory.CreateDirectory(PlansDir);
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return;
 
         var json = JsonSerializer.Serialize(plan, JsonOptions);
-        await File.WriteAllTextAsync(GetStructuredPlanPath(sessionId), json, Encoding.UTF8);
-
-        // Also render a human-readable .md alongside
-        var md = RenderPlanMarkdown(plan);
-        await File.WriteAllTextAsync(GetPlanPath(sessionId), md, Encoding.UTF8);
+        var rendered = RenderPlanMarkdown(plan);
+        await SavePlanRowAsync(
+            sessionId,
+            json,
+            rendered,
+            plan.CreatedAt == default ? DateTimeOffset.UtcNow : plan.CreatedAt,
+            plan.UpdatedAt == default ? DateTimeOffset.UtcNow : plan.UpdatedAt);
     }
 
-    public async Task<StructuredPlan?> LoadStructuredPlanAsync(string sessionId)
+    public Task<StructuredPlan?> LoadStructuredPlanAsync(string sessionId)
     {
-        var path = GetStructuredPlanPath(sessionId);
-        if (!File.Exists(path))
-            return null;
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return Task.FromResult<StructuredPlan?>(null);
 
-        var json = await File.ReadAllTextAsync(path, Encoding.UTF8);
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT plan_json FROM thread_plans WHERE thread_id = $thread_id LIMIT 1";
+        command.Parameters.AddWithValue("$thread_id", sessionId);
+        var json = command.ExecuteScalar() as string;
         if (string.IsNullOrWhiteSpace(json))
-            return null;
+            return Task.FromResult<StructuredPlan?>(null);
 
         try
         {
-            return JsonSerializer.Deserialize<StructuredPlan>(json, ReadOptions);
+            return Task.FromResult(JsonSerializer.Deserialize<StructuredPlan>(json, ReadOptions));
         }
         catch
         {
-            return null;
+            return Task.FromResult<StructuredPlan?>(null);
         }
     }
 
     public bool StructuredPlanExists(string sessionId)
-        => File.Exists(GetStructuredPlanPath(sessionId));
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return false;
+
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT 1
+            FROM thread_plans
+            WHERE thread_id = $thread_id AND plan_json IS NOT NULL AND TRIM(plan_json) <> ''
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("$thread_id", sessionId);
+        return command.ExecuteScalar() != null;
+    }
 
     /// <summary>
     /// Renders a <see cref="StructuredPlan"/> as human-readable Markdown.
@@ -148,41 +175,29 @@ public sealed class PlanStore(string botPath)
         return sb.ToString().TrimEnd() + "\n";
     }
 
-    // ── Legacy raw-markdown plan ──
-
-    public string GetPlanPath(string sessionId)
-        => Path.Combine(PlansDir, $"{sessionId}.md");
-
-    public async Task SavePlanAsync(string sessionId, string content)
+    private Task SavePlanRowAsync(
+        string threadId,
+        string planJson,
+        string renderedMarkdown,
+        DateTimeOffset createdAt,
+        DateTimeOffset updatedAt)
     {
-        if (string.IsNullOrWhiteSpace(content))
-            return;
-
-        Directory.CreateDirectory(PlansDir);
-        await File.WriteAllTextAsync(GetPlanPath(sessionId), content, Encoding.UTF8);
-    }
-
-    public async Task<string?> LoadPlanAsync(string sessionId)
-    {
-        var path = GetPlanPath(sessionId);
-        if (!File.Exists(path))
-            return null;
-
-        var content = await File.ReadAllTextAsync(path, Encoding.UTF8);
-        return string.IsNullOrWhiteSpace(content) ? null : content;
-    }
-
-    public bool PlanExists(string sessionId)
-        => StructuredPlanExists(sessionId) || File.Exists(GetPlanPath(sessionId));
-
-    public void DeletePlan(string sessionId)
-    {
-        var jsonPath = GetStructuredPlanPath(sessionId);
-        if (File.Exists(jsonPath))
-            File.Delete(jsonPath);
-
-        var mdPath = GetPlanPath(sessionId);
-        if (File.Exists(mdPath))
-            File.Delete(mdPath);
+        using var connection = _stateRuntime.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_plans(thread_id, plan_json, rendered_markdown, created_at, updated_at)
+            VALUES ($thread_id, $plan_json, $rendered_markdown, $created_at, $updated_at)
+            ON CONFLICT(thread_id) DO UPDATE SET
+                plan_json = excluded.plan_json,
+                rendered_markdown = excluded.rendered_markdown,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$plan_json", planJson);
+        command.Parameters.AddWithValue("$rendered_markdown", renderedMarkdown);
+        command.Parameters.AddWithValue("$created_at", createdAt.UtcDateTime.ToString("O"));
+        command.Parameters.AddWithValue("$updated_at", updatedAt.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+        return Task.CompletedTask;
     }
 }

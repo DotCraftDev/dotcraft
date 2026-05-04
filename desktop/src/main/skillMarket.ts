@@ -6,6 +6,8 @@ import type {
   MarketDotCraftInstallPreparation,
   MarketSkillDetail,
   MarketSkillSummary,
+  SkillMarketBindDotCraftInstallRequest,
+  SkillMarketCleanupDotCraftInstallRequest,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
   SkillMarketPrepareDotCraftInstallRequest,
@@ -106,6 +108,7 @@ const MAX_FILE_COUNT = 1000
 const INSTALL_MARKER = '.dotcraft-market.json'
 const DOTCRAFT_INSTALL_MARKER = '.dotcraft-dotcraft-install.json'
 const DOTCRAFT_STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const DOTCRAFT_BINDINGS_DIR = '.bindings'
 const SKILL_DIR_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 export async function searchSkillMarket(
@@ -267,6 +270,53 @@ export async function prepareDotCraftSkillInstall(
     await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
     throw error
   }
+}
+
+export async function bindDotCraftSkillInstall(
+  workspacePath: string,
+  request: SkillMarketBindDotCraftInstallRequest
+): Promise<void> {
+  if (!workspacePath) throw new Error('No workspace open')
+  const threadId = normalizeThreadId(request.threadId)
+  const stagingRoot = path.join(workspacePath, '.craft', 'skill-install-staging')
+  const stagingDir = path.resolve(request.stagingDir)
+  assertWithin(stagingRoot, stagingDir)
+  if (!(await pathExists(stagingDir))) throw new Error('DotCraft install staging directory not found')
+
+  const bindingsRoot = path.join(stagingRoot, DOTCRAFT_BINDINGS_DIR)
+  await fs.mkdir(bindingsRoot, { recursive: true })
+  const bindingPath = path.join(bindingsRoot, `${threadId}.json`)
+  await fs.writeFile(
+    bindingPath,
+    `${JSON.stringify({ threadId, stagingDir, boundAt: new Date().toISOString() }, null, 2)}\n`,
+    'utf-8'
+  )
+}
+
+export async function cleanupDotCraftSkillInstall(
+  workspacePath: string,
+  request: SkillMarketCleanupDotCraftInstallRequest
+): Promise<void> {
+  if (!workspacePath) return
+  const threadId = normalizeThreadId(request.threadId)
+  const stagingRoot = path.join(workspacePath, '.craft', 'skill-install-staging')
+  const bindingPath = path.join(stagingRoot, DOTCRAFT_BINDINGS_DIR, `${threadId}.json`)
+  let stagingDir: string | null = null
+  try {
+    const raw = JSON.parse(await fs.readFile(bindingPath, 'utf-8')) as { stagingDir?: unknown }
+    if (typeof raw.stagingDir === 'string' && raw.stagingDir.trim()) {
+      const resolved = path.resolve(raw.stagingDir)
+      assertWithin(stagingRoot, resolved)
+      stagingDir = resolved
+    }
+  } catch {
+    stagingDir = null
+  }
+
+  if (stagingDir) {
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+  }
+  await fs.rm(bindingPath, { force: true }).catch(() => {})
 }
 
 export function normalizeArchive(zipBytes: Uint8Array): NormalizedArchiveEntry[] {
@@ -587,7 +637,7 @@ async function cleanupOldDotCraftStaging(stagingRoot: string): Promise<void> {
   }
 
   await Promise.all(entries
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && entry.name !== DOTCRAFT_BINDINGS_DIR)
     .map(async (entry) => {
       const fullPath = path.join(stagingRoot, entry.name)
       try {
@@ -599,6 +649,45 @@ async function cleanupOldDotCraftStaging(stagingRoot: string): Promise<void> {
         // Best-effort cleanup must never block a DotCraft install preparation.
       }
     }))
+
+  await cleanupDotCraftInstallBindings(stagingRoot)
+}
+
+async function cleanupDotCraftInstallBindings(stagingRoot: string): Promise<void> {
+  const bindingsRoot = path.join(stagingRoot, DOTCRAFT_BINDINGS_DIR)
+  let entries: Array<import('fs').Dirent>
+  try {
+    entries = await fs.readdir(bindingsRoot, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map(async (entry) => {
+      const bindingPath = path.join(bindingsRoot, entry.name)
+      try {
+        const raw = JSON.parse(await fs.readFile(bindingPath, 'utf-8')) as { stagingDir?: unknown }
+        const stagingDir = typeof raw.stagingDir === 'string' ? path.resolve(raw.stagingDir) : ''
+        if (!stagingDir) {
+          await fs.rm(bindingPath, { force: true })
+          return
+        }
+        assertWithin(stagingRoot, stagingDir)
+        if (!(await pathExists(stagingDir))) {
+          await fs.rm(bindingPath, { force: true })
+        }
+      } catch {
+        await fs.rm(bindingPath, { force: true }).catch(() => {})
+      }
+    }))
+}
+
+function normalizeThreadId(threadId: string): string {
+  const trimmed = String(threadId ?? '').trim()
+  if (!trimmed) throw new Error('Thread id is required')
+  if (!/^[A-Za-z0-9_.:-]+$/.test(trimmed)) throw new Error(`Invalid thread id: ${threadId}`)
+  return trimmed
 }
 
 function normalizeAuthor(...values: unknown[]): string | undefined {

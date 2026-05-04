@@ -748,7 +748,7 @@ SessionEvent
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/renamed` notification on the AppServer Wire Protocol after the display name is updated, including when the change originates from another channel or from automatic titling, so clients such as DotCraft Desktop can refresh thread titles **without** relying on `turn/completed` (which may not be delivered to connections that did not subscribe to that thread). See [AppServer Protocol §4.11 `thread/rename`](appserver-protocol.md#411-threadrename) and [§6.1 `thread/renamed`](appserver-protocol.md#61-thread-notifications).
 
 - **`thread/deleted` (Wire Protocol only; not a `SessionEvent`)**
-  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state, persisted thread/session data, all tracing sessions/events bound to that thread, and dashboard usage rows associated with the thread or its bound trace sessions; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
+  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state, persisted thread/session data, DB-backed plans, attachment reference rows, all tracing sessions/events bound to that thread, and dashboard usage rows associated with the thread or its bound trace sessions; it also best-effort deletes workspace-managed attachment files that are no longer referenced by any remaining thread. It does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/deleted` notification on the AppServer Wire Protocol after deletion completes, including when deletion is initiated outside Wire (e.g. DashBoard HTTP `DELETE` on `/dashboard/api/sessions/{sessionKey}`), so UIs stay consistent. See [AppServer Protocol §4.9 `thread/delete`](appserver-protocol.md#49-threaddelete) and [§6.1 Thread Notifications](appserver-protocol.md#61-thread-notifications).
 
 #### Turn Events
@@ -1021,6 +1021,8 @@ Thread data is stored under the workspace's `.craft/` directory:
 │   │   ├── {threadId}.jsonl     # Canonical rollout history for archived threads
 │   │   └── ...
 ├── state.db                     # SQLite metadata, agent sessions, tracing, token usage
+├── attachments/images/          # Workspace-managed local image blobs referenced by thread history
+├── cache/                       # Rebuildable cache files; not part of thread lifecycle
 ```
 
 ### 9.2 Thread File Format
@@ -1041,6 +1043,10 @@ Session Core reconstructs a `SessionThread` by replaying the rollout file in ord
 ### 9.3 Agent Session Storage
 
 Serialized `AgentSession` state is stored in the SQLite `thread_sessions` table inside `.craft/state.db`.
+
+Per-thread plans are stored in SQLite `thread_plans`. Plans follow the thread lifecycle: archive/unarchive keeps them, and permanent thread deletion cascades through the database. Legacy `.craft/plans/{threadId}.json|md` files are not a runtime plan source.
+
+Workspace-managed local images referenced by persisted `localImage` input parts are indexed in SQLite `thread_attachments`. The image file remains available for history rendering while at least one active or archived thread references it. Permanent thread deletion removes that thread's references and best-effort deletes now-unreferenced managed files. Unsent draft images that never enter thread history are cleaned as unreferenced attachments after the configured TTL.
 
 Session Core manages the mapping:
 - **Save**: After each Turn completes, serialize the `AgentSession` and upsert `thread_sessions.session_json`.

@@ -21,6 +21,7 @@ import {
 } from '../shared/titleBarOverlay'
 import {
   activateFileIndexWorkspace,
+  cleanupWorkspaceCache,
   readImageAsDataUrl,
   saveImageDataUrlToTemp,
   searchWorkspaceFiles,
@@ -55,6 +56,8 @@ import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../s
 import { parseJsonConfig, parseJsonObjectConfig } from '../shared/jsonConfig'
 import { detectEditors, launchEditor, type EditorId } from './externalEditors'
 import {
+  bindDotCraftSkillInstall,
+  cleanupDotCraftSkillInstall,
   getSkillMarketDetail,
   installSkillFromMarket,
   prepareDotCraftSkillInstall,
@@ -63,6 +66,8 @@ import {
 import type {
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
+  SkillMarketBindDotCraftInstallRequest,
+  SkillMarketCleanupDotCraftInstallRequest,
   SkillMarketPrepareDotCraftInstallRequest,
   SkillMarketSearchRequest
 } from '../shared/skillMarket'
@@ -588,6 +593,9 @@ export function registerIpcHandlers(
   callbacks?: IpcHandlerCallbacks
 ): void {
   activateFileIndexWorkspace(workspacePath)
+  if (workspacePath) {
+    void cleanupWorkspaceCache(workspacePath).catch(() => {})
+  }
   const handleSafe = (
     channel: string,
     listener: Parameters<typeof ipcMain.handle>[1]
@@ -871,6 +879,14 @@ export function registerIpcHandlers(
 
   handleSafe('skill-market:prepare-dotcraft-install', async (_event, request: SkillMarketPrepareDotCraftInstallRequest) => {
     return prepareDotCraftSkillInstall(workspacePath, request)
+  })
+
+  handleSafe('skill-market:bind-dotcraft-install', async (_event, request: SkillMarketBindDotCraftInstallRequest) => {
+    return bindDotCraftSkillInstall(workspacePath, request)
+  })
+
+  handleSafe('skill-market:cleanup-dotcraft-install', async (_event, request: SkillMarketCleanupDotCraftInstallRequest) => {
+    return cleanupDotCraftSkillInstall(workspacePath, request)
   })
 
   // Renderer -> Main: open allowed URL in OS default handler

@@ -192,14 +192,7 @@ export function CreatePlanCard({ item, locale }: CreatePlanCardProps): JSX.Eleme
 
       {hasContent && (
         <div style={{ position: 'relative', paddingBottom: expanded ? 0 : '28px' }}>
-          <div
-            style={expanded ? undefined : {
-              maxHeight: '220px',
-              overflow: 'hidden',
-              maskImage: 'linear-gradient(to bottom, #000 65%, transparent)',
-              WebkitMaskImage: 'linear-gradient(to bottom, #000 65%, transparent)'
-            }}
-          >
+          <div style={planMarkdownFrameStyle(expanded)}>
             <MarkdownRenderer content={parsed.content} />
           </div>
           {!expanded && (
@@ -329,6 +322,22 @@ const expandToggleStyle: CSSProperties = {
   color: 'var(--text-secondary)',
   cursor: 'pointer',
   fontSize: '12px'
+}
+
+function planMarkdownFrameStyle(expanded: boolean): CSSProperties {
+  if (expanded) {
+    return {
+      display: 'flow-root'
+    }
+  }
+
+  return {
+    display: 'flow-root',
+    maxHeight: '220px',
+    overflow: 'hidden',
+    maskImage: 'linear-gradient(to bottom, #000 65%, transparent)',
+    WebkitMaskImage: 'linear-gradient(to bottom, #000 65%, transparent)'
+  }
 }
 
 const spinnerStyle: CSSProperties = {

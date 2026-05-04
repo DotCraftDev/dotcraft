@@ -43,6 +43,9 @@ const INDEX_INVALIDATE_DEBOUNCE_MS = 1200
 const FILE_INDEX_CACHE_SCHEMA_VERSION = 1
 const FILE_INDEX_IGNORE_CONFIG_VERSION = 'force-exclude-v1'
 const FILE_INDEX_CACHE_RELATIVE_PATH = path.join('.craft', 'cache', 'desktop-file-index-v1.json')
+const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+const CACHE_MAX_FILE_BYTES = 10 * 1024 * 1024
+const WELCOME_SUGGESTIONS_CACHE_FILE = 'welcome-suggestions.json'
 
 const FILE_INDEX_WORKER_SOURCE = String.raw`
 const { parentPort, workerData } = require('worker_threads')
@@ -307,6 +310,7 @@ export function activateFileIndexWorkspace(workspaceRoot: string): void {
   if (activeIndexWorkspace === resolved) return
   invalidateFileIndex()
   activeIndexWorkspace = resolved
+  void cleanupWorkspaceCache(resolved).catch(() => {})
 }
 
 async function getAvailableIndex(
@@ -348,9 +352,64 @@ export async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexE
  */
 export function warmFileSearchIndex(workspaceRoot: string): void {
   if (!workspaceRoot.trim()) return
+  void cleanupWorkspaceCache(workspaceRoot).catch(() => {})
   void getAvailableIndex(workspaceRoot, 'warm').catch(() => {
     /* ignore — next search will retry */
   })
+}
+
+export async function cleanupWorkspaceCache(workspaceRoot: string): Promise<void> {
+  const resolved = path.resolve(workspaceRoot)
+  const cacheDir = path.join(resolved, '.craft', 'cache')
+  let entries: Array<import('fs').Dirent>
+  try {
+    entries = await fs.readdir(cacheDir, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  const now = Date.now()
+  await Promise.all(entries
+    .filter((entry) => entry.isFile())
+    .map(async (entry) => {
+      const filePath = path.join(cacheDir, entry.name)
+      try {
+        const stats = await fs.stat(filePath)
+        const expired = now - stats.mtimeMs > CACHE_MAX_AGE_MS
+        const oversized = stats.size > CACHE_MAX_FILE_BYTES
+        const invalid = await isInvalidKnownCache(filePath, entry.name, resolved)
+        if (expired || oversized || invalid || entry.name.endsWith('.tmp')) {
+          await fs.rm(filePath, { force: true })
+        }
+      } catch {
+        // Cache cleanup is best-effort and must never block composer startup.
+      }
+    }))
+}
+
+async function isInvalidKnownCache(filePath: string, fileName: string, resolvedRoot: string): Promise<boolean> {
+  if (fileName === path.basename(FILE_INDEX_CACHE_RELATIVE_PATH)) {
+    try {
+      const raw = await fs.readFile(filePath, 'utf8')
+      return parseFileIndexCache(raw, resolvedRoot) == null
+    } catch {
+      return true
+    }
+  }
+
+  if (fileName === WELCOME_SUGGESTIONS_CACHE_FILE) {
+    try {
+      const raw = JSON.parse(await fs.readFile(filePath, 'utf8')) as {
+        schemaVersion?: unknown
+        result?: unknown
+      }
+      return raw.schemaVersion !== 1 || raw.result == null
+    } catch {
+      return true
+    }
+  }
+
+  return false
 }
 
 function scoreMatch(name: string, qLower: string): number {

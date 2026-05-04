@@ -185,7 +185,7 @@ public sealed class AutomationTaskRunRequestTests
             fileStore,
             null!);
 
-        return new TestHarness(root, source, fileStore, handler);
+        return new TestHarness(source, fileStore, handler);
     }
 
     private static string CreateTestRoot()
@@ -200,20 +200,32 @@ public sealed class AutomationTaskRunRequestTests
 
     private static void DeleteDirectory(string path)
     {
-        if (Directory.Exists(path))
-            Directory.Delete(path, recursive: true);
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            if (!Directory.Exists(path))
+                return;
+
+            try
+            {
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(50 * attempt));
+            }
+            catch (UnauthorizedAccessException) when (attempt < 5)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(50 * attempt));
+            }
+        }
     }
 
     private sealed record TestHarness(
-        string Root,
         LocalAutomationSource Source,
         LocalTaskFileStore FileStore,
         AutomationsRequestHandler Handler) : IDisposable
     {
-        public void Dispose()
-        {
-            Source.Dispose();
-            DeleteDirectory(Root);
-        }
+        public void Dispose() => Source.Dispose();
     }
 }

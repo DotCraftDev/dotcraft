@@ -5,6 +5,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { zipSync } from 'fflate'
 import {
+  bindDotCraftSkillInstall,
+  cleanupDotCraftSkillInstall,
   getSkillMarketDetail,
   installSkillFromMarket,
   normalizeArchive,
@@ -303,5 +305,30 @@ describe('skillMarket', () => {
     expect(existsSync(join(result.candidateDir, 'README.md'))).toBe(true)
     expect(existsSync(result.metadataPath)).toBe(true)
     expect(existsSync(join(tempRoot, '.craft', 'skills', 'demo-skill', 'SKILL.md'))).toBe(false)
+  })
+
+  it('cleans a DotCraft install candidate bound to a thread', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-skill-market-'))
+    const fetcher = vi.fn(async () =>
+      zipResponse({
+        'demo-skill/SKILL.md': '---\nname: demo-skill\n---\n# Demo'
+      })
+    ) as typeof fetch
+
+    const result = await prepareDotCraftSkillInstall(
+      tempRoot,
+      { provider: 'skillhub', slug: 'demo-skill' },
+      fetcher
+    )
+
+    await bindDotCraftSkillInstall(tempRoot, {
+      threadId: 'thread_123',
+      stagingDir: result.stagingDir
+    })
+    expect(existsSync(result.stagingDir)).toBe(true)
+
+    await cleanupDotCraftSkillInstall(tempRoot, { threadId: 'thread_123' })
+
+    expect(existsSync(result.stagingDir)).toBe(false)
   })
 })

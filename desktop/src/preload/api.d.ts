@@ -2,6 +2,8 @@ import type {
   MarketInstallResult,
   MarketDotCraftInstallPreparation,
   MarketSkillDetail,
+  SkillMarketBindDotCraftInstallRequest,
+  SkillMarketCleanupDotCraftInstallRequest,
   SkillMarketDetailRequest,
   SkillMarketInstallRequest,
   SkillMarketPrepareDotCraftInstallRequest,
@@ -365,6 +367,8 @@ declare global {
         prepareDotCraftInstall(
           request: SkillMarketPrepareDotCraftInstallRequest
         ): Promise<MarketDotCraftInstallPreparation>
+        bindDotCraftInstall(request: SkillMarketBindDotCraftInstallRequest): Promise<void>
+        cleanupDotCraftInstall(request: SkillMarketCleanupDotCraftInstallRequest): Promise<void>
       }
       proxy: {
         getStatus(): Promise<ProxyStatusPayload>
