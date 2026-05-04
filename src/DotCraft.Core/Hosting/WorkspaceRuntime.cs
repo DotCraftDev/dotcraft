@@ -12,6 +12,7 @@ using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
+using DotCraft.State;
 using DotCraft.Tools;
 using DotCraft.Tools.BackgroundTerminals;
 using DotCraft.Tracing;
@@ -180,7 +181,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
 
             var fallbackApproval = new AutoApproveApprovalService();
             var scopedApproval = new SessionScopedApprovalService(fallbackApproval);
-            var planStore = new PlanStore(Paths.CraftPath);
+            var planStore = new PlanStore(Paths.CraftPath, Services.GetRequiredService<StateRuntime>());
             var wireAcpExtensionProxy = new WireAcpExtensionProxy();
             var wireNodeReplProxy = new WireNodeReplProxy();
 

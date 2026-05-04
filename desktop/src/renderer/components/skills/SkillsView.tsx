@@ -651,6 +651,11 @@ async function startDotCraftInstallThread(
     historyMode: 'server'
   }) as { thread: ThreadSummary }
 
+  await window.api.skillMarket.bindDotCraftInstall?.({
+    threadId: result.thread.id,
+    stagingDir: preparation.stagingDir
+  })
+
   useUIStore.getState().setPendingWelcomeTurn({
     threadId: result.thread.id,
     text: visibleText,

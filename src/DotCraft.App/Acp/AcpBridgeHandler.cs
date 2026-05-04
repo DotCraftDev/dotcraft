@@ -427,7 +427,6 @@ public sealed class AcpBridgeHandler(
         }
 
         _activeTurnIds.TryRemove(p.SessionId, out _);
-        planStore?.DeletePlan(p.SessionId);
 
         await wire.SendRequestAsync(AppServerMethods.ThreadArchive, new { threadId = p.SessionId }, ct: ct);
         acpTransport.SendResponse(request.Id, new SessionDeleteResult());

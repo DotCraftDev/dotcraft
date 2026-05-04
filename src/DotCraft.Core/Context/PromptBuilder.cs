@@ -447,14 +447,8 @@ When using the Exec tool, write standard Bash commands.
         if (string.IsNullOrEmpty(sessionId))
             return null;
 
-        // Prefer structured plan (JSON), fall back to legacy markdown
         var structured = planStore.LoadStructuredPlanAsync(sessionId).GetAwaiter().GetResult();
-        if (structured != null)
-            return PlanStore.RenderPlanMarkdown(structured);
-
-        return planStore.PlanExists(sessionId)
-            ? planStore.LoadPlanAsync(sessionId).GetAwaiter().GetResult()
-            : null;
+        return structured == null ? null : PlanStore.RenderPlanMarkdown(structured);
     }
 
     private const string AgentTodoPrompt =

@@ -14,6 +14,7 @@ public sealed class ThreadStore
 {
     private readonly ThreadMetadataStore _metadataStore;
     private readonly ThreadRolloutStore _rolloutStore;
+    private readonly ThreadAttachmentStore _attachmentStore;
     private readonly ConcurrentDictionary<string, SessionThread> _threadSnapshotCache = new(StringComparer.Ordinal);
 
     public ThreadStore(string botPath)
@@ -23,8 +24,11 @@ public sealed class ThreadStore
 
     internal ThreadStore(string botPath, StateRuntime? stateRuntime)
     {
-        _metadataStore = new ThreadMetadataStore(stateRuntime ?? new StateRuntime(botPath));
+        var runtime = stateRuntime ?? new StateRuntime(botPath);
+        _metadataStore = new ThreadMetadataStore(runtime);
         _rolloutStore = new ThreadRolloutStore(botPath);
+        _attachmentStore = new ThreadAttachmentStore(runtime, botPath);
+        RebuildAttachmentReferences();
     }
 
     /// <summary>
@@ -42,6 +46,7 @@ public sealed class ThreadStore
         var rolloutPath = await _rolloutStore.SaveThreadAsync(thread, previous, ct);
         _threadSnapshotCache[thread.Id] = CloneThreadSnapshot(thread);
         _metadataStore.UpsertThread(thread, rolloutPath);
+        _attachmentStore.ReplaceThreadAttachments(thread);
     }
 
     /// <summary>
@@ -55,6 +60,7 @@ public sealed class ThreadStore
         var rolloutPath = await _rolloutStore.AppendRollbackAsync(thread, numTurns, ct);
         _threadSnapshotCache[thread.Id] = CloneThreadSnapshot(thread);
         _metadataStore.UpsertThread(thread, rolloutPath);
+        _attachmentStore.ReplaceThreadAttachments(thread);
     }
 
     /// <summary>
@@ -78,7 +84,13 @@ public sealed class ThreadStore
     /// </summary>
     public void DeleteThread(string threadId)
     {
+        var candidatePaths = _threadSnapshotCache.TryGetValue(threadId, out var cached)
+            ? _attachmentStore.ExtractManagedImagePaths(cached)
+            : _rolloutStore.LoadThreadAsync(threadId).GetAwaiter().GetResult() is { } loaded
+                ? _attachmentStore.ExtractManagedImagePaths(loaded)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         _threadSnapshotCache.TryRemove(threadId, out _);
+        _attachmentStore.DeleteThreadReferencesAndCleanup(threadId, candidatePaths);
         _rolloutStore.DeleteThread(threadId);
         _metadataStore.DeleteThread(threadId);
     }
@@ -207,6 +219,18 @@ public sealed class ThreadStore
         var json = JsonSerializer.Serialize(thread, SessionJsonOptions.Default);
         return JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default)
             ?? throw new InvalidOperationException($"Failed to clone thread snapshot for {thread.Id}.");
+    }
+
+    private void RebuildAttachmentReferences()
+    {
+        try
+        {
+            _attachmentStore.RebuildFromThreads(_rolloutStore.LoadAllThreads());
+        }
+        catch
+        {
+            // Attachment indexing is best-effort; missing thumbnails should not block startup.
+        }
     }
 
     private async Task<AgentSession> RebuildSessionFromRolloutAsync(

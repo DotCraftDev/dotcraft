@@ -25,6 +25,15 @@ export interface SkillMarketPrepareDotCraftInstallRequest {
   version?: string
 }
 
+export interface SkillMarketBindDotCraftInstallRequest {
+  threadId: string
+  stagingDir: string
+}
+
+export interface SkillMarketCleanupDotCraftInstallRequest {
+  threadId: string
+}
+
 export interface MarketSkillSummary {
   provider: SkillMarketProviderId
   slug: string

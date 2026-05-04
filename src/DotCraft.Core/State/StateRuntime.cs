@@ -166,6 +166,33 @@ public sealed class StateRuntime
                     FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS thread_plans (
+                    thread_id TEXT PRIMARY KEY,
+                    plan_json TEXT,
+                    rendered_markdown TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS thread_attachments (
+                    ref_id TEXT PRIMARY KEY,
+                    path TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    item_id TEXT,
+                    kind TEXT NOT NULL,
+                    bytes INTEGER,
+                    created_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    FOREIGN KEY(thread_id) REFERENCES threads(thread_id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_thread_attachments_thread
+                    ON thread_attachments(thread_id);
+                CREATE INDEX IF NOT EXISTS idx_thread_attachments_path
+                    ON thread_attachments(path);
+
                 CREATE TABLE IF NOT EXISTS thread_spawn_edges (
                     parent_thread_id TEXT NOT NULL,
                     child_thread_id TEXT NOT NULL,

@@ -48,6 +48,31 @@ internal sealed class ThreadRolloutStore
         return Replay(lines);
     }
 
+    public IEnumerable<SessionThread> LoadAllThreads()
+    {
+        foreach (var dir in new[] { _activeDir, _archivedDir })
+        {
+            if (!Directory.Exists(dir))
+                continue;
+
+            foreach (var path in Directory.EnumerateFiles(dir, "*.jsonl", SearchOption.TopDirectoryOnly))
+            {
+                SessionThread? thread = null;
+                try
+                {
+                    thread = Replay(File.ReadAllLines(path));
+                }
+                catch
+                {
+                    // Corrupt rollout files are already ignored during discovery.
+                }
+
+                if (thread != null)
+                    yield return thread;
+            }
+        }
+    }
+
     public async Task<string> SaveThreadAsync(SessionThread thread, SessionThread? previous, CancellationToken ct = default)
     {
         var targetPath = GetExpectedPath(thread.Id, thread.Status == ThreadStatus.Archived);

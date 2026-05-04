@@ -728,7 +728,7 @@ const MESSAGES_EN = {
     'Local skill name: {{skillName}}\n' +
     'Workspace: {{workspacePath}}\n' +
     'Source: {{sourceUrl}}\n\n' +
-    'Use the skill-installer workflow with the candidate directory above. Verify and install it as the local name above, using --name when needed. Preserve the candidate bundle instead of rewriting it. After installation, use SkillView to review it, use SkillManage only for concrete workspace-specific adaptations, and finish with installation status, environment issues, adaptations, and next actions.',
+    'Use the skill-installer workflow with the candidate directory above. Verify and install it as the local name above, using --name when needed. Do not rewrite the candidate bundle. After installation, use SkillView to review it, use SkillManage only for concrete workspace-specific adaptations, remove the staging directory, and finish with installation status, environment issues, adaptations, and next actions.',
   'skillMarket.openSource': 'Open source',
   'skillMarket.noReadme': 'No marketplace preview is available for this skill.',
   'skillMarket.overwriteTitle': 'Replace installed skill?',
@@ -2476,7 +2476,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
     '本地技能名：{{skillName}}\n' +
     '工作区：{{workspacePath}}\n' +
     '来源：{{sourceUrl}}\n\n' +
-    '请使用 skill-installer 工作流处理上面的候选目录。用上面的本地技能名验证并安装，必要时传入 --name。保留候选 bundle，不要重写它。安装后用 SkillView 检查；只有发现明确的工作区差异时才用 SkillManage 写入适配。最后说明安装状态、环境问题、已做适配和后续动作。',
+    '请使用 skill-installer 工作流处理上面的候选目录。用上面的本地技能名验证并安装，必要时传入 --name。不要重写候选 bundle。安装后用 SkillView 检查；只有发现明确的工作区差异时才用 SkillManage 写入适配；随后删除 staging 目录。最后说明安装状态、环境问题、已做适配和后续动作。',
   'skillMarket.openSource': '打开来源',
   'skillMarket.noReadme': '此技能暂无市场预览。',
   'skillMarket.overwriteTitle': '替换已安装技能？',

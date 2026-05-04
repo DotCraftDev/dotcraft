@@ -542,6 +542,9 @@ export function App(): JSX.Element {
 
           case 'thread/deleted': {
             const pp = p as { threadId: string }
+            if (pp.threadId) {
+              void window.api.skillMarket?.cleanupDotCraftInstall?.({ threadId: pp.threadId }).catch(() => {})
+            }
             useThreadStore.getState().removeThreadTree(pp.threadId)
             break
           }
@@ -633,6 +636,7 @@ export function App(): JSX.Element {
             // Fallback: poll thread/read if sidebar still has no displayName (e.g. missed thread/renamed).
             // Primary updates come from thread/renamed broadcast and thread/read on selection.
             if (completedThreadId) {
+              void window.api.skillMarket?.cleanupDotCraftInstall?.({ threadId: completedThreadId }).catch(() => {})
               const ts = useThreadStore.getState()
               const threadEntry = ts.threadList.find((t) => t.id === completedThreadId)
               if (!threadEntry?.displayName) {
@@ -659,6 +663,9 @@ export function App(): JSX.Element {
             const error = (p.error as string) ?? (p.message as string) ?? 'Unknown error'
             const errorCode = (p.code as number | undefined)
               ?? ((p.error as Record<string, unknown> | undefined)?.code as number | undefined)
+            if (failedThreadId) {
+              void window.api.skillMarket?.cleanupDotCraftInstall?.({ threadId: failedThreadId }).catch(() => {})
+            }
             // -32020 = approval timeout — update the pending approval card
             if (shouldUpdateActiveConversation(failedThreadId)) {
               if (errorCode === -32020 || error.includes('-32020')) {
@@ -677,6 +684,9 @@ export function App(): JSX.Element {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const cancelledThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
             const reason = (p.reason as string) ?? ''
+            if (cancelledThreadId) {
+              void window.api.skillMarket?.cleanupDotCraftInstall?.({ threadId: cancelledThreadId }).catch(() => {})
+            }
             if (shouldUpdateActiveConversation(cancelledThreadId)) {
               conv.onTurnCancelled(rawTurn, reason)
             }
