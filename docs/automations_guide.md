@@ -79,6 +79,14 @@ max_rounds: 10
 
 ### 3. 启动 DotCraft
 
+自动化场景建议使用显式、非交互的初始化命令准备工作区：
+
+```bash
+dotcraft setup --language Chinese --model <model> --endpoint <endpoint> --api-key <key> --profile developer
+```
+
+初始化完成后启动 Gateway：
+
 ```bash
 dotcraft gateway
 ```

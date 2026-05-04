@@ -79,6 +79,14 @@ When finished, call `CompleteLocalTask` with a short completion summary.
 
 ### 3. Start DotCraft
 
+For automation scenarios, prepare the workspace with the explicit non-interactive setup command:
+
+```bash
+dotcraft setup --language English --model <model> --endpoint <endpoint> --api-key <key> --profile developer
+```
+
+After setup, start Gateway:
+
 ```bash
 dotcraft gateway
 ```

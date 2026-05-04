@@ -33,6 +33,12 @@ bash build_linux.bat
 
 首次打开 Desktop 后选择一个真实项目目录作为工作区。DotCraft 会把这个项目的配置、会话、任务、技能和附件跟随项目保存，之后从 Desktop、终端或自动化入口进入时都能继续使用同一份上下文。
 
+如果你想从终端完成首次初始化，也可以在还没有 `.craft/` 的项目目录中运行：
+
+```bash
+dotcraft
+```
+
 建议从真实项目目录开始，而不是空目录。这样 Agent 可以直接读取仓库结构、现有文档和构建脚本。
 
 ![工作区初始化向导](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
@@ -73,6 +79,8 @@ DotCraft 支持两种常用方式：
 ```bash
 dotcraft exec "请阅读这个仓库的 README 和 docs/index.md，告诉我这个项目怎么启动。"
 ```
+
+已经初始化的工作区中，`dotcraft` 不会进入交互式聊天；终端里的交互体验请使用 TUI。
 
 如果你想使用终端富界面，请继续阅读 [TUI 指南](./tui_guide.md)。
 

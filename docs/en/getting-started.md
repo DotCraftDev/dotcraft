@@ -33,6 +33,12 @@ bash build_linux.bat
 
 On first launch, choose a real project folder as the workspace. DotCraft keeps that project's configuration, sessions, tasks, skills, and attachments with the project, so Desktop, terminal, and automation entry points can continue from the same context.
 
+To complete first-time setup from a terminal, run this in a project directory that does not yet have `.craft/`:
+
+```bash
+dotcraft
+```
+
 Start from a real project folder instead of an empty directory so the agent can read repository structure, existing docs, and build scripts.
 
 ![Workspace setup wizard](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
@@ -73,6 +79,8 @@ If you prefer a script-friendly command-line entry, run a one-shot task from the
 ```bash
 dotcraft exec "Read this repository's README and docs/index.md, then tell me how to start the project."
 ```
+
+In an initialized workspace, `dotcraft` does not enter an interactive chat. Use the TUI for terminal interaction.
 
 For a richer terminal UI, continue with the [TUI Guide](./tui_guide.md).
 

@@ -29,8 +29,7 @@ public sealed class CliHost(
             var prompt = await ResolvePromptAsync(cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(prompt))
             {
-                await Console.Error.WriteLineAsync("Usage: dotcraft exec <prompt>").ConfigureAwait(false);
-                await Console.Error.WriteLineAsync("       dotcraft exec -").ConfigureAwait(false);
+                await CliStartup.WriteUsageAsync(Console.Error).ConfigureAwait(false);
                 Environment.ExitCode = 1;
                 return;
             }

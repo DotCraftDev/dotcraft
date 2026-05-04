@@ -18,23 +18,9 @@ Console.OutputEncoding = Encoding.UTF8;
 // 1. Parse command-line arguments
 // -------------------------------------------------------------------------
 var cliArgs = CommandLineArgs.Parse(args);
-if (cliArgs.Mode == CommandLineArgs.RunMode.None)
-{
-    await Console.Error.WriteLineAsync("Usage: dotcraft exec <prompt>");
-    await Console.Error.WriteLineAsync("       dotcraft exec -");
-    await Console.Error.WriteLineAsync("       dotcraft app-server | gateway | hub | acp | setup | skill");
-    Environment.Exit(1);
-    return;
-}
-
 var isRemoteExec = cliArgs.Mode == CommandLineArgs.RunMode.Exec
                && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp
-    or CommandLineArgs.RunMode.AppServer
-    or CommandLineArgs.RunMode.Gateway
-    or CommandLineArgs.RunMode.Hub
-    or CommandLineArgs.RunMode.Skill
-    or CommandLineArgs.RunMode.Exec;
+var isHeadless = CliStartup.IsHeadlessMode(cliArgs.Mode);
 
 // -------------------------------------------------------------------------
 // 2. Prepare subprocess environment (stdout → stderr, ignore Ctrl+C)
@@ -150,15 +136,23 @@ if (cliArgs.Mode == CommandLineArgs.RunMode.Setup)
     }
 }
 
-if (!Directory.Exists(botPath))
+var startupDecision = CliStartup.DecideWorkspaceStartup(cliArgs.Mode, Directory.Exists(botPath));
+if (startupDecision == WorkspaceStartupDecision.ShowUsage)
 {
-    if (isHeadless)
-    {
-        await Console.Error.WriteLineAsync($"DotCraft workspace not found: {botPath}");
-        Environment.Exit(1);
-        return;
-    }
+    await CliStartup.WriteUsageAsync(Console.Error);
+    Environment.Exit(1);
+    return;
+}
 
+if (startupDecision == WorkspaceStartupDecision.MissingWorkspace)
+{
+    await Console.Error.WriteLineAsync($"DotCraft workspace not found: {botPath}");
+    Environment.Exit(1);
+    return;
+}
+
+if (startupDecision == WorkspaceStartupDecision.InitializeInteractively)
+{
     // First, select language
     var selectedLanguage = InitHelper.SelectLanguage();
     var lang = new LanguageService(selectedLanguage);
@@ -259,6 +253,17 @@ if (!isRemoteExec && string.IsNullOrWhiteSpace(config.ApiKey))
         CraftPath = botPath
     });
     await setupHost.RunAsync();
+    return;
+}
+
+if (cliArgs.Mode == CommandLineArgs.RunMode.None)
+{
+    if (workspaceJustInitialized)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[green]✓ {Strings.InitWorkspaceInitialized}[/]");
+        await Console.Out.WriteLineAsync("Run `dotcraft exec <prompt>` to start a one-shot command-line task.");
+    }
     return;
 }
 
