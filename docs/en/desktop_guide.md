@@ -51,7 +51,7 @@ DotCraft Desktop --workspace /path/to/project
 
 ## Advanced Topics
 
-- Desktop consumes the AppServer Wire Protocol, so it can share the same session core with CLI, TUI, ACP, and external channels.
+- Desktop consumes the AppServer Wire Protocol, so it can share the same session core with TUI, ACP, and external channels.
 - Image attachments are stored under `.craft/attachments/images/` and can be restored after restart.
 - Installer builds can be produced with `npm run dist`; outputs are written under `desktop/dist/`.
 

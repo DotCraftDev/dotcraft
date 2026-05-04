@@ -68,17 +68,17 @@ Open the workspace in Desktop, create a session, and send a lightweight request:
 Read this repository's README and docs/index.md, then tell me how to start the project.
 ```
 
-If you prefer the terminal, run this from the project directory:
+If you prefer a script-friendly command-line entry, run a one-shot task from the project directory:
 
 ```bash
-dotcraft
+dotcraft exec "Read this repository's README and docs/index.md, then tell me how to start the project."
 ```
 
 For a richer terminal UI, continue with the [TUI Guide](./tui_guide.md).
 
 ## Understand the Entry Model
 
-DotCraft organizes its entry points around the **Unified Session Core**: CLI, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
+DotCraft organizes its entry points around the **Unified Session Core**: command-line runs, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
 
 | Dimension | Gateway | Unified Session Core |
 |-----------|---------|----------------------|

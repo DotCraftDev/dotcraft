@@ -16,7 +16,8 @@ public sealed class AgentTools(
 {
     private static readonly JsonSerializerOptions ResultJsonOptions = new(JsonSerializerOptions.Web);
 
-    [Description("Spawn a subagent as a child thread. Use this for collaborative background work when the parent agent can continue while the child thread runs.")]
+    [Description("Spawn a subagent as a child thread. Use this for collaborative background work when the parent agent can continue while the child thread runs." +
+                 "Returned childThreadId can be passed to SendInput, WaitAgent, ResumeAgent, and CloseAgent.")]
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnAgent))]
     [StreamArguments(false)]
     public async Task<string> SpawnAgent(

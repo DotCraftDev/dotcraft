@@ -22,7 +22,7 @@ DotCraft AG-UI 模式通过 **[AG-UI 协议](https://github.com/ag-ui-protocol/a
 
 ```bash
 cd /your/workspace
-dotcraft
+dotcraft gateway
 ```
 
 ### 3. 连接

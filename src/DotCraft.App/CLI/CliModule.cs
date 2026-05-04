@@ -7,11 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace DotCraft.CLI;
 
 /// <summary>
-/// CLI module for interactive console-based interaction.
-/// This is the default module when no other modules are enabled.
-/// Priority: 0 (lowest - used as fallback)
+/// CLI module for one-shot command-line agent runs.
 /// </summary>
-[DotCraftModule("cli", Priority = 0, Description = "CLI module for interactive console-based interaction (default fallback)", CanBePrimaryHost = true)]
+[DotCraftModule("cli", Priority = 0, Description = "CLI module for one-shot command-line agent runs", CanBePrimaryHost = true)]
 public sealed partial class CliModule : ModuleBase
 {
     /// <inheritdoc />
@@ -31,7 +29,7 @@ public sealed partial class CliModule : ModuleBase
 }
 
 /// <summary>
-/// Host factory for CLI mode.
+/// Host factory for command-line exec mode.
 /// </summary>
 [HostFactory("cli")]
 public sealed class CliHostFactory : IHostFactory

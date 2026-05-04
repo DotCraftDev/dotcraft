@@ -2,12 +2,12 @@
 
 ## Overview
 
-AppServer is DotCraft's wire protocol server that exposes Agent capabilities (session management, tool invocation, approval flows) to external clients via JSON-RPC. The CLI communicates with the Agent through AppServer by default, and you can also start AppServer directly to build custom integrations.
+AppServer is DotCraft's wire protocol server that exposes Agent capabilities (session management, tool invocation, approval flows) to external clients via JSON-RPC. TUI, Desktop, ACP, external channels, and custom integrations can connect to the same AppServer.
 
 **Use cases**:
 
 - 🔌 Custom IDE / editor integration
-- 🌐 Remote development (CLI connecting to a remote AppServer)
+- 🌐 Remote development (clients connecting to a remote AppServer)
 - 👥 Multiple clients sharing the same workspace
 - 🔧 Building non-C# clients (any language with WebSocket / stdio support)
 
@@ -26,14 +26,14 @@ dotcraft app-server --listen ws://127.0.0.1:9100
 dotcraft app-server --listen ws+stdio://127.0.0.1:9100
 ```
 
-### Connecting CLI to a Remote AppServer
+### Connecting from the Command Line
 
 ```bash
-# Connect to a running AppServer
-dotcraft --remote ws://127.0.0.1:9100/ws
+# Run one command against a running AppServer
+dotcraft exec --remote ws://127.0.0.1:9100/ws "Summarize this workspace"
 
 # With token authentication
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "Summarize this workspace"
 ```
 
 ### Authenticated WebSocket Service
@@ -43,7 +43,7 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 dotcraft app-server --listen ws://0.0.0.0:9100 --token my-secret
 
 # Client: connect with token
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "Check status"
 ```
 
 ## Command-Line Reference
@@ -52,10 +52,11 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 
 | Command / Option | Description |
 |------------------|-------------|
-| `dotcraft` | Interactive CLI (default mode) |
+| `dotcraft exec <prompt>` | Run one command-line Agent task |
+| `dotcraft exec -` | Read input from stdin and run one task |
 | `dotcraft app-server` | Start AppServer (defaults to stdio mode) |
 | `--listen <URL>` | AppServer transport, used with `app-server` |
-| `--remote <URL>` | CLI connects to remote AppServer, used with default mode |
+| `--remote <URL>` | Client connection to a remote AppServer, used with `exec` or ACP |
 | `--token <VALUE>` | WebSocket auth token, used with `--listen` or `--remote` |
 
 ### `--listen` URL Schemes
@@ -71,7 +72,7 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 
 ### stdio (Default)
 
-AppServer communicates over stdin/stdout using newline-delimited JSON (JSONL). This is the standard subprocess communication method — the CLI automatically starts AppServer as a subprocess by default.
+AppServer communicates over stdin/stdout using newline-delimited JSON (JSONL). This is the local subprocess communication method commonly used by TUI, Desktop, ACP, and custom clients.
 
 ```
 Client (stdin) → JSON-RPC Request → AppServer
@@ -118,7 +119,7 @@ dotcraft app-server --listen ws://0.0.0.0:9100 --token my-secret
 ### Client-Side Token Usage
 
 ```bash
-dotcraft --remote ws://server:9100/ws --token my-secret
+dotcraft exec --remote ws://server:9100/ws --token my-secret "Check status"
 ```
 
 The token is passed via the WebSocket connection URL query parameter: `ws://host:port/ws?token=<value>`
@@ -148,13 +149,13 @@ You can also configure AppServer via `config.json`, suitable for deployments tha
 | `AppServer.WebSocket.Port` | WebSocket listen port | `9100` |
 | `AppServer.WebSocket.Token` | WebSocket auth token | empty |
 
-**CLI Client Configuration**:
+**Command-Line Client Configuration**:
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `CLI.AppServerUrl` | Remote AppServer WebSocket URL | empty |
-| `CLI.AppServerToken` | Remote connection auth token | empty |
-| `CLI.AppServerBin` | Custom AppServer executable path | empty (uses current process) |
+| `CLI.AppServerUrl` | Remote AppServer WebSocket URL used by `dotcraft exec` | empty |
+| `CLI.AppServerToken` | Remote connection auth token used by `dotcraft exec` | empty |
+| `CLI.AppServerBin` | Custom executable path used when `dotcraft exec` starts the local Hub/AppServer | empty (uses current process) |
 
 **Configuration Examples**:
 
@@ -186,7 +187,7 @@ You can also configure AppServer via `config.json`, suitable for deployments tha
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Client (CLI / IDE / Custom)                    │
+│  Client (TUI / Desktop / ACP / Custom)          │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐   │
 │  │  stdin/out │  │ WebSocket │  │ WebSocket │   │
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘   │
@@ -205,14 +206,14 @@ You can also configure AppServer via `config.json`, suitable for deployments tha
     └────────────────────────────────────────┘
 ```
 
-### Relationship Between CLI and AppServer
+### Relationship Between Clients and AppServer
 
-By default, the CLI automatically starts `dotcraft app-server` as a subprocess and communicates via stdio. You don't need to manually start AppServer — but the following scenarios require manual management:
+Local clients usually start or ensure the workspace AppServer automatically. These scenarios are good fits for manually managing AppServer:
 
 | Scenario | Approach |
 |----------|----------|
-| Local terminal usage | Just run `dotcraft`, AppServer is managed automatically |
-| Remote development | Start `dotcraft app-server --listen ws://...` remotely, connect locally with `dotcraft --remote ws://...` |
+| One command-line task | Use `dotcraft exec "..."`; the command connects to the backend |
+| Remote development | Start `dotcraft app-server --listen ws://...` remotely, then connect clients to WebSocket |
 | Multiple clients sharing workspace | Start WebSocket mode, each client connects independently |
 | Custom client integration | Start AppServer, communicate via JSON-RPC in any language |
 
@@ -220,9 +221,9 @@ By default, the CLI automatically starts `dotcraft app-server` as a subprocess a
 
 | Goal | Recommended approach |
 |------|----------------------|
-| Use only the local terminal | Run `dotcraft` and let the CLI manage AppServer automatically |
+| Run one task from a script | Use `dotcraft exec "..."` |
 | Share one backend across Desktop / TUI / ACP | Start `dotcraft app-server --listen ws://127.0.0.1:9100` |
-| Connect to a remote workspace | Listen with WebSocket on the server, connect locally with `--remote` |
+| Connect to a remote workspace | Listen with WebSocket on the server, connect clients to `/ws` |
 | Build a custom client | Use JSON-RPC 2.0 over stdio or WebSocket through the Wire Protocol |
 
 ## Troubleshooting
@@ -233,14 +234,10 @@ Confirm the server was started with `--listen ws://...` or `ws+stdio://...`, and
 
 ### Authentication fails
 
-When the server sets `--token`, CLI, TUI, Desktop, or custom clients must send the same token. Do not use an empty token for remote deployments.
-
-### Why the local CLI still starts a subprocess
-
-Running `dotcraft` directly makes the CLI host a stdio AppServer automatically. Manual AppServer startup is only needed for remote, multi-client, or custom integration scenarios.
+When the server sets `--token`, TUI, Desktop, ACP, `dotcraft exec`, or custom clients must send the same token. Do not use an empty token for remote deployments.
 
 ## Further Reading
 
-- [Configuration Guide](./config_guide.md): Full configuration reference, including AppServer and CLI config items
+- [Configuration Guide](./config_guide.md): Full configuration reference, including AppServer config items
 - [ACP Mode Guide](./acp_guide.md): Editor / IDE integration (also based on wire protocol)
 - [AppServer Protocol Specification](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md): Complete JSON-RPC protocol specification (§15 covers WebSocket transport)

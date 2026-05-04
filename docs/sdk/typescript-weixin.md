@@ -89,7 +89,7 @@ npx dotcraft-channel-weixin --workspace /path/to/workspace --config /custom/weix
 ## 4）交互式初始化（二维码登录）
 
 - 首次运行若无已保存会话，会进入 `authRequired`
-- CLI 模式会在终端渲染二维码
+- 终端模式会在终端渲染二维码
 - 用户扫码确认后，适配器进入 `ready`
 - 会话过期时生命周期为 `authExpired -> authRequired`，需要重新扫码
 

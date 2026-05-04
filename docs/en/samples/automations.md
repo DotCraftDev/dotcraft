@@ -38,7 +38,7 @@ config.json
 ## Prerequisites
 
 - DotCraft installed or built on your machine
-- A project directory as the DotCraft workspace (current working directory when you run `dotcraft`)
+- A project directory as the DotCraft workspace (current working directory when you run `dotcraft gateway`)
 - For GitHub samples: a [Fine-grained Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) scoped to the target repository
 
 ## Approval Behavior in Automation Channels
@@ -72,7 +72,7 @@ If you want stricter behavior for an automation scenario, override the target pr
 ```
 
 4. Edit `task.md` so `id` matches the folder name. Set `title`, timestamps, and description.
-5. Run `dotcraft`.
+5. Run `dotcraft gateway`.
 
 When the agent completes, it calls `CompleteLocalTask` to mark the task done without running until `max_rounds`.
 
@@ -111,7 +111,7 @@ Set the token:
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
-Run `dotcraft`. The bot picks up all open, non-draft PRs automatically.
+Run `dotcraft gateway`. The bot picks up all open, non-draft PRs automatically.
 
 ### Lifecycle
 
@@ -148,7 +148,7 @@ cp samples/automations/github-collab-dev-bot/config.template.json /path/to/works
 cp samples/automations/github-collab-dev-bot/WORKFLOW.md          /path/to/workspace/WORKFLOW.md
 ```
 
-Edit `.craft/config.json` with your repository and token. Then run `dotcraft`.
+Edit `.craft/config.json` with your repository and token. Then run `dotcraft gateway`.
 
 ### Labels
 

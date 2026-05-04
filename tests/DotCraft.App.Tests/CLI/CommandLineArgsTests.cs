@@ -5,12 +5,53 @@ namespace DotCraft.Tests.CLI;
 public sealed class CommandLineArgsTests
 {
     [Fact]
-    public void Parse_DefaultArgs_UsesCliMode()
+    public void Parse_DefaultArgs_UsesNoMode()
     {
         var args = CommandLineArgs.Parse([]);
 
-        Assert.Equal(CommandLineArgs.RunMode.Cli, args.Mode);
+        Assert.Equal(CommandLineArgs.RunMode.None, args.Mode);
         Assert.False(args.ReservesStdout);
+    }
+
+    [Fact]
+    public void Parse_ExecSubcommand_ParsesPrompt()
+    {
+        var args = CommandLineArgs.Parse(["exec", "summarize", "this"]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Exec, args.Mode);
+        Assert.Equal("summarize this", args.ExecPrompt);
+        Assert.False(args.ExecReadStdin);
+        Assert.True(args.ReservesStdout);
+    }
+
+    [Fact]
+    public void Parse_ExecSubcommand_WithStdinSentinel_ReadsStdin()
+    {
+        var args = CommandLineArgs.Parse(["exec", "-"]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Exec, args.Mode);
+        Assert.Null(args.ExecPrompt);
+        Assert.True(args.ExecReadStdin);
+        Assert.True(args.ReservesStdout);
+    }
+
+    [Fact]
+    public void Parse_ExecSubcommand_WithRemoteAndToken_ParsesConnectionFlags()
+    {
+        var args = CommandLineArgs.Parse([
+            "exec",
+            "--remote",
+            "ws://127.0.0.1:9100/ws",
+            "--token",
+            "secret",
+            "hello"
+        ]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Exec, args.Mode);
+        Assert.Equal("ws://127.0.0.1:9100/ws", args.RemoteUrl);
+        Assert.Equal("secret", args.Token);
+        Assert.Equal("hello", args.ExecPrompt);
+        Assert.True(args.ReservesStdout);
     }
 
     [Fact]

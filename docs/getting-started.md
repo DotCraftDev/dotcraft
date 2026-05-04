@@ -68,17 +68,17 @@ DotCraft 支持两种常用方式：
 请阅读这个仓库的 README 和 docs/index.md，告诉我这个项目怎么启动。
 ```
 
-如果你更喜欢终端入口，可以在项目目录直接运行：
+如果你更喜欢脚本友好的命令行入口，可以在项目目录运行一次性任务：
 
 ```bash
-dotcraft
+dotcraft exec "请阅读这个仓库的 README 和 docs/index.md，告诉我这个项目怎么启动。"
 ```
 
 如果你想使用终端富界面，请继续阅读 [TUI 指南](./tui_guide.md)。
 
 ## 理解入口模型
 
-DotCraft 围绕 **统一会话核心（Unified Session Core）** 组织不同入口：CLI、Desktop、IDE、机器人与自动化并不是各自维护一套 agent 流程，而是复用同一个执行引擎与会话模型。
+DotCraft 围绕 **统一会话核心（Unified Session Core）** 组织不同入口：命令行、Desktop、IDE、机器人与自动化并不是各自维护一套 agent 流程，而是复用同一个执行引擎与会话模型。
 
 | 维度 | Gateway | Unified Session Core |
 |------|---------|----------------------|

@@ -1,263 +1,340 @@
+using System.Text;
 using System.Text.Json;
-using DotCraft.CLI.Rendering;
-using DotCraft.Commands.Custom;
 using DotCraft.Common;
 using DotCraft.Configuration;
-using DotCraft.Cron;
-using DotCraft.Hooks;
 using DotCraft.Hub;
 using DotCraft.Hosting;
-using DotCraft.Mcp;
 using DotCraft.Modules;
+using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
-using DotCraft.Skills;
 using DotCraft.Tools;
-using Microsoft.Extensions.DependencyInjection;
-using Spectre.Console;
 
 namespace DotCraft.CLI;
 
+/// <summary>
+/// One-shot command-line host used by <c>dotcraft exec</c>.
+/// </summary>
 public sealed class CliHost(
-    IServiceProvider sp,
+    CommandLineArgs cliArgs,
     AppConfig config,
     DotCraftPaths paths,
-    SkillsLoader skillsLoader,
-    McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
     private WebSocketClientConnection? _wsConnection;
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var hookRunner = sp.GetService<HookRunner>();
-        var cliConfig = config.GetSection<CliConfig>("CLI");
-
-        ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
-
-        ICliSession cliSession;
-        CliBackendInfo backendInfo;
-        AppServerWireClient wire;
-        string? dashBoardUrl = null;
-
-        if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
+        try
         {
-            // -------------------------------------------------------------------
-            // WebSocket mode: connect to an already-running AppServer via WebSocket
-            // -------------------------------------------------------------------
-            var wsUri = new Uri(cliConfig.AppServerUrl);
-            AnsiConsole.MarkupLine($"[grey][[CLI]][/] Connecting to AppServer at {wsUri}...");
-
-            _wsConnection = await WebSocketClientConnection.ConnectAsync(
-                wsUri,
-                cliConfig.AppServerToken,
-                cancellationToken);
-
-            var wsInitResponse = await _wsConnection.Wire.InitializeAsync(
-                clientName: "dotcraft-cli",
-                clientVersion: AppVersion.Informational,
-                approvalSupport: true,
-                streamingSupport: true,
-                toolExecutionLifecycle: true);
-
-            wire = _wsConnection.Wire;
-            cliSession = new WireCliSession(wire);
-            dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
-            backendInfo = new CliBackendInfo
+            var prompt = await ResolvePromptAsync(cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(prompt))
             {
-                Mode = "Remote",
-                ServerVersion = TryGetServerVersion(wsInitResponse),
-                ServerUrl = wsUri.ToString(),
-                ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
-                WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(wsInitResponse)
-            };
-        }
-        else
-        {
-            // -------------------------------------------------------------------
-            // Local mode (default): ask Hub for the workspace AppServer, then connect via WebSocket.
-            // -------------------------------------------------------------------
-            AnsiConsole.MarkupLine("[grey][[CLI]][/] Ensuring local AppServer through Hub...");
-
-            var hub = new HubClient(cliConfig.AppServerBin);
-            var ensured = await hub.EnsureAppServerAsync(
-                paths.WorkspacePath,
-                "dotcraft-cli",
-                cancellationToken);
-
-            if (!ensured.Endpoints.TryGetValue("appServerWebSocket", out var wsUrl)
-                || string.IsNullOrWhiteSpace(wsUrl))
-            {
-                throw new HubClientException("endpointUnavailable", "Hub did not return an AppServer WebSocket endpoint.");
+                await Console.Error.WriteLineAsync("Usage: dotcraft exec <prompt>").ConfigureAwait(false);
+                await Console.Error.WriteLineAsync("       dotcraft exec -").ConfigureAwait(false);
+                Environment.ExitCode = 1;
+                return;
             }
 
-            _wsConnection = await WebSocketClientConnection.ConnectAsync(
-                new Uri(wsUrl),
-                token: null,
-                cancellationToken);
+            ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
 
-            var wsInitResponse = await _wsConnection.Wire.InitializeAsync(
-                clientName: "dotcraft-cli",
-                clientVersion: AppVersion.Informational,
-                approvalSupport: true,
-                streamingSupport: true,
-                toolExecutionLifecycle: true);
+            var cliConfig = config.GetSection<CliConfig>("CLI");
+            var wire = await ConnectAsync(cliConfig, cancellationToken).ConfigureAwait(false);
+            var result = await RunOneShotAsync(wire, prompt, cancellationToken).ConfigureAwait(false);
 
-            wire = _wsConnection.Wire;
-            cliSession = new WireCliSession(wire);
-            backendInfo = new CliBackendInfo
+            if (!string.IsNullOrEmpty(result.Text))
+                await Console.Out.WriteLineAsync(result.Text).ConfigureAwait(false);
+
+            if (!result.Success)
             {
-                Mode = "Local / Hub-managed",
-                ServerVersion = TryGetServerVersion(wsInitResponse) ?? ensured.ServerVersion,
-                ProcessId = ensured.Pid,
-                ServerUrl = wsUrl,
-                ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
-                WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(wsInitResponse)
-            };
-
-            dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
+                if (!string.IsNullOrWhiteSpace(result.Error))
+                    await Console.Error.WriteLineAsync(result.Error).ConfigureAwait(false);
+                Environment.ExitCode = 1;
+            }
         }
-
-        var cronService = sp.GetService<CronService>();
-
-        var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var repl = new ReplHost(skillsLoader, cliSession,
-            paths.WorkspacePath, paths.CraftPath,
-            cronService: cronService,
-            mcpClientManager: mcpClientManager,
-            dashBoardUrl: dashBoardUrl,
-            customCommandLoader: customCommandLoader,
-            hookRunner: hookRunner,
-            backendInfo: backendInfo,
-            wireClient: wire);
-
-        // Background listener for out-of-band server notifications (e.g. system/jobResult).
-        // Cron and heartbeat now run server-side; results arrive as wire notifications
-        // while the REPL is idle. The loop drains system/jobResult and displays them.
-        using var notifCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var notifTask = Task.Run(() => ListenForJobResultsAsync(wire, repl, notifCts.Token), notifCts.Token);
-
-        await repl.RunAsync(cancellationToken);
-
-        notifCts.Cancel();
-        try { await notifTask; } catch (OperationCanceledException) { }
-
-        await cliSession.DisposeAsync();
+        catch (OperationCanceledException)
+        {
+            await Console.Error.WriteLineAsync("DotCraft exec cancelled.").ConfigureAwait(false);
+            Environment.ExitCode = 1;
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+            Environment.ExitCode = 1;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         if (_wsConnection != null)
-            await _wsConnection.DisposeAsync();
+            await _wsConnection.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Background loop that drains <c>system/jobResult</c> notifications arriving on the wire
-    /// while the REPL is idle and prints them cleanly, suspending and restoring the prompt.
-    /// </summary>
-    private static async Task ListenForJobResultsAsync(
-        AppServerWireClient wire, ReplHost repl, CancellationToken ct)
+    private async Task<string> ResolvePromptAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        if (cliArgs.ExecReadStdin)
         {
-            var notif = await wire.WaitForJobResultAsync(
-                timeout: TimeSpan.FromSeconds(5),
+            var buffer = new StringBuilder();
+            var chunk = new char[4096];
+            while (true)
+            {
+                var read = await Console.In.ReadAsync(chunk.AsMemory(0, chunk.Length), ct).ConfigureAwait(false);
+                if (read == 0)
+                    break;
+                buffer.Append(chunk, 0, read);
+            }
+
+            return buffer.ToString().Trim();
+        }
+
+        return cliArgs.ExecPrompt?.Trim() ?? string.Empty;
+    }
+
+    private async Task<AppServerWireClient> ConnectAsync(CliConfig cliConfig, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
+        {
+            var wsUri = new Uri(cliConfig.AppServerUrl);
+            await Console.Error.WriteLineAsync($"[CLI] Connecting to AppServer at {wsUri}...").ConfigureAwait(false);
+
+            _wsConnection = await WebSocketClientConnection.ConnectAsync(
+                wsUri,
+                cliConfig.AppServerToken,
+                ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await Console.Error.WriteLineAsync("[CLI] Ensuring local AppServer through Hub...").ConfigureAwait(false);
+
+            var hub = new HubClient(cliConfig.AppServerBin);
+            var ensured = await hub.EnsureAppServerAsync(
+                paths.WorkspacePath,
+                "dotcraft-cli",
+                ct).ConfigureAwait(false);
+
+            if (!ensured.Endpoints.TryGetValue("appServerWebSocket", out var wsUrl)
+                || string.IsNullOrWhiteSpace(wsUrl))
+            {
+                throw new HubClientException(
+                    "endpointUnavailable",
+                    "Hub did not return an AppServer WebSocket endpoint.");
+            }
+
+            _wsConnection = await WebSocketClientConnection.ConnectAsync(
+                new Uri(wsUrl),
+                token: null,
+                ct).ConfigureAwait(false);
+        }
+
+        await _wsConnection.Wire.InitializeAsync(
+            clientName: "dotcraft-cli",
+            clientVersion: AppVersion.Informational,
+            approvalSupport: true,
+            streamingSupport: true,
+            toolExecutionLifecycle: true).ConfigureAwait(false);
+
+        return _wsConnection.Wire;
+    }
+
+    private async Task<OneShotResult> RunOneShotAsync(
+        AppServerWireClient wire,
+        string prompt,
+        CancellationToken ct)
+    {
+        var threadId = await CreateThreadAsync(wire, ct).ConfigureAwait(false);
+        wire.RegisterThreadChannel(threadId);
+
+        var output = new StringBuilder();
+        var approvalRequested = false;
+        string? terminalError = null;
+
+        wire.ServerRequestHandler = async request =>
+        {
+            await Task.CompletedTask.ConfigureAwait(false);
+            if (request.RootElement.TryGetProperty("method", out var method)
+                && method.GetString() == AppServerMethods.ItemApprovalRequest)
+            {
+                approvalRequested = true;
+                return new { decision = "decline" };
+            }
+
+            return null;
+        };
+
+        try
+        {
+            var startResult = await wire.SendRequestAsync(AppServerMethods.TurnStart, new
+            {
+                threadId,
+                input = new[] { new { type = "text", text = prompt } }
+            }, timeout: TimeSpan.FromSeconds(30), ct: ct).ConfigureAwait(false);
+
+            var turnId = startResult.RootElement
+                .GetProperty("result").GetProperty("turn").GetProperty("id").GetString();
+            if (string.IsNullOrWhiteSpace(turnId))
+                throw new InvalidOperationException("AppServer returned a turn with no id.");
+
+            var notifications = wire.ReadThreadTurnNotificationsAsync(
+                threadId,
+                timeout: TimeSpan.FromMinutes(30),
                 ct: ct);
 
-            if (notif == null)
-                continue;
-
-            try
+            await foreach (var doc in notifications.WithCancellation(ct).ConfigureAwait(false))
             {
-                var p = notif.RootElement.GetProperty("params");
-                var source = p.TryGetProperty("source", out var s) ? s.GetString() : null;
-                var jobName = p.TryGetProperty("jobName", out var n) ? n.GetString() : null;
-                var result = p.TryGetProperty("result", out var r) ? r.GetString() : null;
-                var error = p.TryGetProperty("error", out var e) ? e.GetString() : null;
-
-                var tag = string.Equals(source, "heartbeat", StringComparison.OrdinalIgnoreCase)
-                    ? "Heartbeat" : "Cron";
-
-                repl.WriteExternalOutput(() =>
+                var notification = OneShotNotification.From(doc);
+                switch (notification.Kind)
                 {
-                    // Header line: [Cron] JobName  (or [Heartbeat])
-                    var header = jobName != null
-                        ? $"[grey][[{tag}]][/] [bold]{Markup.Escape(jobName)}[/]"
-                        : $"[grey][[{tag}]][/]";
-                    AnsiConsole.MarkupLine(header);
-
-                    if (error != null)
-                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
-                    else if (!string.IsNullOrEmpty(result))
-                        MarkdownConsoleRenderer.Render(result);
-                });
+                    case OneShotNotificationKind.AgentDelta:
+                        output.Append(notification.Text);
+                        break;
+                    case OneShotNotificationKind.AgentCompleted:
+                        if (output.Length == 0)
+                            output.Append(notification.Text);
+                        break;
+                    case OneShotNotificationKind.Progress:
+                        if (!string.IsNullOrWhiteSpace(notification.Text))
+                            await Console.Error.WriteLineAsync(notification.Text).ConfigureAwait(false);
+                        break;
+                    case OneShotNotificationKind.Failed:
+                        terminalError = notification.Text ?? "Turn failed.";
+                        break;
+                    case OneShotNotificationKind.Cancelled:
+                        terminalError = "Turn cancelled.";
+                        break;
+                }
             }
-            catch
+        }
+        finally
+        {
+            wire.ServerRequestHandler = null;
+            wire.UnregisterThreadChannel(threadId);
+        }
+
+        if (approvalRequested)
+            return new OneShotResult(false, output.ToString(), "Approval required; dotcraft exec declined the request.");
+
+        if (!string.IsNullOrWhiteSpace(terminalError))
+            return new OneShotResult(false, output.ToString(), terminalError);
+
+        return new OneShotResult(true, output.ToString(), null);
+    }
+
+    private async Task<string> CreateThreadAsync(AppServerWireClient wire, CancellationToken ct)
+    {
+        var result = await wire.SendRequestAsync(AppServerMethods.ThreadStart, new
+        {
+            identity = new
             {
-                // Malformed notification — ignore and continue
-            }
-        }
+                channelName = "cli",
+                userId = "local",
+                channelContext = (string?)null,
+                workspacePath = paths.WorkspacePath
+            },
+            historyMode = "server"
+        }, ct: ct).ConfigureAwait(false);
+
+        return result.RootElement.GetProperty("result").GetProperty("thread").GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("AppServer returned a thread with no id.");
+    }
+}
+
+internal sealed record OneShotResult(bool Success, string Text, string? Error);
+
+internal enum OneShotNotificationKind
+{
+    Ignored,
+    AgentDelta,
+    AgentCompleted,
+    Progress,
+    Failed,
+    Cancelled
+}
+
+internal sealed record OneShotNotification(OneShotNotificationKind Kind, string? Text)
+{
+    public static OneShotNotification From(JsonDocument doc)
+    {
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("method", out var methodEl))
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
+
+        var method = methodEl.GetString();
+        var hasParams = root.TryGetProperty("params", out var @params);
+
+        return method switch
+        {
+            AppServerMethods.ItemAgentMessageDelta => new OneShotNotification(
+                OneShotNotificationKind.AgentDelta,
+                hasParams && @params.TryGetProperty("delta", out var delta) ? delta.GetString() : null),
+
+            AppServerMethods.TurnFailed => new OneShotNotification(
+                OneShotNotificationKind.Failed,
+                hasParams && @params.TryGetProperty("error", out var error) ? error.GetString() : null),
+
+            AppServerMethods.TurnCancelled => new OneShotNotification(OneShotNotificationKind.Cancelled, null),
+
+            AppServerMethods.ItemStarted => ReadItemStarted(@params, hasParams),
+            AppServerMethods.ItemCompleted => ReadItemCompleted(@params, hasParams),
+            AppServerMethods.SystemEvent => ReadSystemEvent(@params, hasParams),
+
+            _ => new OneShotNotification(OneShotNotificationKind.Ignored, null)
+        };
     }
 
-    private static string? TryGetServerVersion(JsonDocument response)
+    private static OneShotNotification ReadItemStarted(JsonElement @params, bool hasParams)
     {
-        try
+        if (!hasParams || !@params.TryGetProperty("item", out var item))
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
+
+        var type = item.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+        if (type is not ("toolCall" or "pluginFunctionCall" or "commandExecution"))
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
+
+        var payload = item.TryGetProperty("payload", out var p) ? p : default;
+        var name = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("name", out var n)
+            ? n.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(name)
+            && payload.ValueKind == JsonValueKind.Object
+            && payload.TryGetProperty("command", out var command))
         {
-            return response.RootElement
-                .GetProperty("result")
-                .GetProperty("serverInfo")
-                .GetProperty("version")
-                .GetString();
+            name = command.GetString();
         }
-        catch
-        {
-            return null;
-        }
+
+        return new OneShotNotification(
+            OneShotNotificationKind.Progress,
+            string.IsNullOrWhiteSpace(name) ? $"[CLI] Started {type}." : $"[CLI] Started {type}: {name}");
     }
 
-    private static string? TryGetDashboardUrl(JsonDocument response)
+    private static OneShotNotification ReadItemCompleted(JsonElement @params, bool hasParams)
     {
-        try
+        if (!hasParams || !@params.TryGetProperty("item", out var item))
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
+
+        var type = item.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+        if (type == "agentMessage")
         {
-            var result = response.RootElement.GetProperty("result");
-            if (!result.TryGetProperty("dashboardUrl", out var el))
-                return null;
-            return el.GetString();
+            var text = item.TryGetProperty("text", out var textEl) && textEl.ValueKind == JsonValueKind.String
+                ? textEl.GetString()
+                : null;
+            return new OneShotNotification(OneShotNotificationKind.AgentCompleted, text);
         }
-        catch
-        {
-            return null;
-        }
+
+        if (type is not ("toolExecution" or "toolResult" or "pluginFunctionCall" or "commandExecution"))
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
+
+        return new OneShotNotification(OneShotNotificationKind.Progress, $"[CLI] Completed {type}.");
     }
 
-    private static bool TryGetModelCatalogManagement(JsonDocument response)
+    private static OneShotNotification ReadSystemEvent(JsonElement @params, bool hasParams)
     {
-        try
-        {
-            return response.RootElement
-                .GetProperty("result")
-                .GetProperty("capabilities")
-                .GetProperty("modelCatalogManagement")
-                .GetBoolean();
-        }
-        catch
-        {
-            return false;
-        }
-    }
+        if (!hasParams)
+            return new OneShotNotification(OneShotNotificationKind.Ignored, null);
 
-    private static bool TryGetWorkspaceConfigManagement(JsonDocument response)
-    {
-        try
-        {
-            return response.RootElement
-                .GetProperty("result")
-                .GetProperty("capabilities")
-                .GetProperty("workspaceConfigManagement")
-                .GetBoolean();
-        }
-        catch
-        {
-            return false;
-        }
+        var message = @params.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
+            ? m.GetString()
+            : null;
+        return string.IsNullOrWhiteSpace(message)
+            ? new OneShotNotification(OneShotNotificationKind.Ignored, null)
+            : new OneShotNotification(OneShotNotificationKind.Progress, $"[CLI] {message}");
     }
 }

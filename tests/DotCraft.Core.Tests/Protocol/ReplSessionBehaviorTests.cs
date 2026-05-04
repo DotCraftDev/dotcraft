@@ -148,7 +148,7 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         await _store.SaveThreadAsync(threadA);
 
         // /new in lazy mode: don't create a new thread yet
-        // (ReplHost sets _currentThreadId = null without calling CreateThreadAsync)
+        // The session resets _currentThreadId = null without calling CreateThreadAsync.
 
         var index = await _store.LoadIndexAsync();
         Assert.Single(index);
@@ -263,7 +263,7 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         // Archive it (/delete in Session Protocol mode).
         await _svc.ArchiveThreadAsync(thread.Id);
 
-        // In lazy mode, ReplHost sets _currentThreadId = null without creating a new thread.
+        // In lazy mode, the session sets _currentThreadId = null without creating a new thread.
         // Verify: the archive did not create any additional threads.
         var index = await _store.LoadIndexAsync();
         Assert.Single(index); // still only the one (now archived) thread
@@ -293,7 +293,7 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         var threadA = await _svc.CreateThreadAsync(_cliIdentity);
         await _svc.ArchiveThreadAsync(threadA.Id);
 
-        // Lazy: ReplHost resets to null. On next input, CreateThreadAsync is called.
+        // Lazy: the session resets to null. On next input, CreateThreadAsync is called.
         var threadB = await _svc.CreateThreadAsync(_cliIdentity);
         Assert.NotEqual(threadA.Id, threadB.Id);
         Assert.Equal(ThreadStatus.Active, threadB.Status);

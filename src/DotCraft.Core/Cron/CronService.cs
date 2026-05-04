@@ -71,7 +71,7 @@ public sealed class CronService : IDisposable
     /// Reloads the cron store from disk, replacing the current in-memory job list.
     /// Safe to call from any thread. In AppServer mode this is triggered automatically
     /// by the FileSystemWatcher when an external process writes to the store file.
-    /// In CLI mode call this before reads to see server-side changes.
+    /// Command-line callers can use this before reads to see server-side changes.
     /// </summary>
     public void ReloadStore()
     {

@@ -80,10 +80,32 @@ When finished, call `CompleteLocalTask` with a short completion summary.
 ### 3. Start DotCraft
 
 ```bash
-dotcraft
+dotcraft gateway
 ```
 
 The orchestrator discovers `pending` tasks and dispatches Agents. After the Agent calls `CompleteLocalTask`, the task enters `awaiting_review` for human review.
+
+### Command-Line One-Shot Tasks
+
+Use `dotcraft exec` when a script or CI job needs to call the Agent directly:
+
+```bash
+dotcraft exec "Check the latest commit and summarize risks"
+```
+
+You can also read the prompt from stdin for pipeline-friendly workflows:
+
+```bash
+git diff --stat | dotcraft exec -
+```
+
+Put remote AppServer connection flags after `exec`:
+
+```bash
+dotcraft exec --remote ws://server:9100/ws --token my-secret "Summarize current task status"
+```
+
+`dotcraft exec` runs one input and exits. stdout contains only the final answer; connection details, progress, and errors go to stderr. It exits `0` on success and non-zero for configuration errors, model errors, declined approval requests, or cancellation.
 
 ## Configuration
 

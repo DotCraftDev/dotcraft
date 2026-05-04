@@ -27,7 +27,7 @@ Enable API mode in `config.json`:
 
 ```bash
 cd /your/workspace
-dotcraft
+dotcraft gateway
 ```
 
 Console output on successful start:

@@ -18,10 +18,23 @@ Console.OutputEncoding = Encoding.UTF8;
 // 1. Parse command-line arguments
 // -------------------------------------------------------------------------
 var cliArgs = CommandLineArgs.Parse(args);
-var isRemoteCli = cliArgs.Mode == CommandLineArgs.RunMode.Cli
+if (cliArgs.Mode == CommandLineArgs.RunMode.None)
+{
+    await Console.Error.WriteLineAsync("Usage: dotcraft exec <prompt>");
+    await Console.Error.WriteLineAsync("       dotcraft exec -");
+    await Console.Error.WriteLineAsync("       dotcraft app-server | gateway | hub | acp | setup | skill");
+    Environment.Exit(1);
+    return;
+}
+
+var isRemoteExec = cliArgs.Mode == CommandLineArgs.RunMode.Exec
                && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway or CommandLineArgs.RunMode.Hub or CommandLineArgs.RunMode.Skill
-              || isRemoteCli;
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp
+    or CommandLineArgs.RunMode.AppServer
+    or CommandLineArgs.RunMode.Gateway
+    or CommandLineArgs.RunMode.Hub
+    or CommandLineArgs.RunMode.Skill
+    or CommandLineArgs.RunMode.Exec;
 
 // -------------------------------------------------------------------------
 // 2. Prepare subprocess environment (stdout → stderr, ignore Ctrl+C)
@@ -224,7 +237,7 @@ if (config.DebugMode)
 // -------------------------------------------------------------------------
 // 6. API Key validation
 // -------------------------------------------------------------------------
-if (!isRemoteCli && string.IsNullOrWhiteSpace(config.ApiKey))
+if (!isRemoteExec && string.IsNullOrWhiteSpace(config.ApiKey))
 {
     if (isHeadless)
     {
@@ -272,7 +285,7 @@ if (!configValidationOk && isHeadless)
 
 var preferredPrimaryModuleName = cliArgs.Mode switch
 {
-    CommandLineArgs.RunMode.Cli => "cli",
+    CommandLineArgs.RunMode.Exec => "cli",
     CommandLineArgs.RunMode.AppServer => "app-server",
     CommandLineArgs.RunMode.Gateway => "gateway",
     CommandLineArgs.RunMode.Acp => "acp",
@@ -283,6 +296,7 @@ var hostBuilder = new HostBuilder(moduleRegistry, config, paths, preferredPrimar
 
 var services = new ServiceCollection()
     .AddSingleton(moduleRegistry)
+    .AddSingleton(cliArgs)
     .AddDotCraft(config, workspacePath, botPath);
 
 var (provider, host) = hostBuilder.Build(services);

@@ -24,7 +24,7 @@ public sealed class ApprovalServiceContext
     public object? PermissionService { get; init; }
 
     /// <summary>
-    /// Optional approval store for CLI mode persistence.
+    /// Optional approval store for console approval persistence.
     /// </summary>
     public ApprovalStore? ApprovalStore { get; init; }
 

@@ -16,7 +16,7 @@ public static class StreamAdapter
     /// <summary>
     /// Adapts an <see cref="IAsyncEnumerable{JsonDocument}"/> of JSON-RPC notifications
     /// produced by <see cref="DotCraft.Protocol.AppServer.AppServerWireClient.ReadTurnNotificationsAsync"/>
-    /// into the same <see cref="RenderEvent"/> stream consumed by <see cref="AgentRenderer"/>.
+    /// into the same <see cref="RenderEvent"/> stream consumed by terminal clients.
     /// 
     /// Approval flow: <c>item/approval/request</c> server requests are handled out-of-band by
     /// <c>AppServerWireClient.ServerRequestHandler</c> before reaching this adapter. The adapter

@@ -21,12 +21,6 @@ Add this to `.craft/config.json`:
 ### 2. Start DotCraft
 
 ```bash
-dotcraft
-```
-
-When you need API, AG-UI, Automations, or external channels at the same time, use Gateway:
-
-```bash
 dotcraft gateway
 ```
 
