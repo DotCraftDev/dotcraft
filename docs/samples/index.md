@@ -21,7 +21,7 @@
 | 体验完整工作区 | [Workspace Sample](./workspace.md) |
 | 调用 OpenAI 兼容 API | [API Samples](./api.md) |
 | 运行 AG-UI 前端 | [AG-UI Client](./ag-ui-client.md) |
-| 配置本地 / GitHub 自动化 | [Automations Samples](./automations.md) |
+| 配置本地自动化 | [Automations Samples](./automations.md) |
 | 编写生命周期 Hooks | [Hooks Samples](./hooks.md) |
 | 准备项目启动上下文 | [Bootstrap Samples](./bootstrap.md) |
 | 复用内置 Skill 模板 | [Skills Samples](./skills.md) |
@@ -30,7 +30,7 @@
 
 - 示例中的配置片段可以应用到真实项目的 `.craft/config.json`。
 - 涉及 token 的示例优先使用环境变量，不要把密钥写入仓库。
-- 自动化和 GitHub 示例建议先在测试仓库验证。
+- 自动化示例建议先在一次性工作区验证。
 
 ## 故障排查
 

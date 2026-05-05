@@ -94,7 +94,6 @@ public sealed partial class LocalTaskFileStore(
             Id = fm.Id ?? Path.GetFileName(taskDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             Title = fm.Title ?? fm.Id ?? "Untitled",
             Status = status,
-            SourceName = "local",
             ThreadId = fm.ThreadId,
             Description = body,
             AgentSummary = fm.AgentSummary,

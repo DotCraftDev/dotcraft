@@ -65,7 +65,7 @@ export interface AppSettings {
   /** Legacy local AppServer port settings retained only for reading older settings files. */
   webSocket?: WebSocketConnectionSettings
   remote?: RemoteConnectionSettings
-  /** UI theme; omitted or invalid values are treated as dark by the renderer */
+  /** UI theme; omitted or invalid values are treated as light by the renderer */
   theme?: UiTheme
   /** Display language (BCP 47); omitted or invalid values are treated as English */
   locale?: AppLocale

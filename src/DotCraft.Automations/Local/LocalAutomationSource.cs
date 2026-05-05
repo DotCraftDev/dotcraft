@@ -16,7 +16,7 @@ public sealed class LocalAutomationSource(
     LocalWorkflowLoader workflowLoader,
     ILoggerFactory loggerFactory,
     ILogger<LocalAutomationSource> logger)
-    : IAutomationSource, IDisposable
+    : IDisposable
 {
     // Picks up new task.md files without restarting the host.
     private readonly IDisposable _newTaskWatch =
@@ -34,13 +34,8 @@ public sealed class LocalAutomationSource(
         _newTaskWatch?.Dispose();
     }
 
-    /// <inheritdoc />
-    public string Name => "local";
-
-    /// <inheritdoc />
     public string ToolProfileName => "local-task";
 
-    /// <inheritdoc />
     public void RegisterToolProfile(IToolProfileRegistry registry)
     {
         var completionLogger = loggerFactory.CreateLogger<LocalTaskCompletionToolProvider>();
@@ -51,32 +46,27 @@ public sealed class LocalAutomationSource(
         registry.Register(ToolProfileName, providers);
     }
 
-    /// <inheritdoc />
     public async Task<IReadOnlyList<AutomationTask>> GetPendingTasksAsync(CancellationToken ct)
     {
         var all = await fileStore.LoadAllAsync(ct);
         return all.Where(t => t.Status == AutomationTaskStatus.Pending).Cast<AutomationTask>().ToList();
     }
 
-    /// <inheritdoc />
     public async Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct)
     {
         var all = await fileStore.LoadAllAsync(ct);
         return all.Cast<AutomationTask>().ToList();
     }
 
-    /// <inheritdoc />
     public Task<AutomationWorkflowDefinition> GetWorkflowAsync(AutomationTask task, CancellationToken ct) =>
         workflowLoader.LoadAsync((LocalAutomationTask)task, ct);
 
-    /// <inheritdoc />
     public Task OnStatusChangedAsync(AutomationTask task, AutomationTaskStatus newStatus, CancellationToken ct)
     {
         task.Status = newStatus;
         return fileStore.SaveAsync((LocalAutomationTask)task, ct);
     }
 
-    /// <inheritdoc />
     public Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct)
     {
         var local = (LocalAutomationTask)task;
@@ -86,7 +76,6 @@ public sealed class LocalAutomationSource(
         return fileStore.SaveAsync(local, ct);
     }
 
-    /// <inheritdoc />
     public async Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct)
     {
         if (task is not LocalAutomationTask local)

@@ -24,10 +24,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotCraft.GitHubTracker.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\DotCraft.Core\DotCraft.Core.csproj" />
   </ItemGroup>
 

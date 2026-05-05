@@ -624,14 +624,6 @@ public sealed class AppServerServerCapabilities
     public bool SubAgentSessions { get; set; }
 
     /// <summary>
-    /// Compatibility field for GitHub tracker configuration management methods
-    /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
-    /// New clients should prefer <see cref="Extensions"/>.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool GitHubTrackerConfig { get; set; }
-
-    /// <summary>
     /// Server supports MCP runtime status methods/notifications.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -1583,7 +1575,6 @@ public sealed class AutomationTaskWire
     public string Id { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ThreadId { get; set; }
@@ -1668,9 +1659,6 @@ public sealed class AutomationTaskListParams
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? WorkspacePath { get; set; }
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SourceName { get; set; }
 }
 
 public sealed class AutomationTaskListResult
@@ -1682,7 +1670,6 @@ public sealed class AutomationTaskReadParams
 {
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
 }
 
 public sealed class AutomationTaskCreateParams
@@ -1733,14 +1720,12 @@ public sealed class AutomationTaskDeleteParams
 {
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
 }
 
 public sealed class AutomationTaskRunParams
 {
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
 }
 
 public sealed class AutomationTaskRunResult
@@ -1756,7 +1741,6 @@ public sealed class AutomationTaskUpdateBindingParams
 {
     public string WorkspacePath { get; set; } = string.Empty;
     public string TaskId { get; set; } = string.Empty;
-    public string SourceName { get; set; } = string.Empty;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AutomationThreadBindingWire? ThreadBinding { get; set; }
@@ -2191,8 +2175,6 @@ public sealed class WorkspaceConfigChangedParams
     /// </summary>
     public DateTimeOffset ChangedAt { get; set; }
 }
-
-// ───── githubTracker/* (GitHub tracker config management) ─────
 
 // ───── mcp/* (MCP server management) ─────
 

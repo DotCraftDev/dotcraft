@@ -40,7 +40,7 @@ lastUpdated: false
         </article>
         <article class="dc-card">
           <h3>Unified session model</h3>
-          <p>The Thread, Turn, and Item model is shared by CLI, Desktop, ACP, QQ, WeCom, GitHub Tracker, and automations.</p>
+          <p>The Thread, Turn, and Item model is shared by CLI, Desktop, ACP, QQ, WeCom, and automations.</p>
         </article>
         <article class="dc-card">
           <h3>Observability and governance</h3>
@@ -91,14 +91,14 @@ lastUpdated: false
         <p class="dc-kicker">Automations</p>
         <h2>Put agent work into a task pipeline</h2>
         <p class="dc-section__text">
-          Local tasks, Cron, and GitHub Issue/PR tracking share one orchestrator with scheduling, concurrency control, human review, and requeue behavior.
+          Local tasks and Cron provide scheduling, thread binding, activity display, and retry behavior inside the workspace.
         </p>
         <div class="dc-actions">
           <a class="dc-button dc-button--primary" href="./automations_guide">View Automations</a>
           <a class="dc-button" href="./hooks_guide">Extend with Hooks</a>
         </div>
       </div>
-      <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png" alt="DotCraft automations panel" />
+      <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_automations.png" alt="DotCraft automations panel" />
     </div>
   </section>
 

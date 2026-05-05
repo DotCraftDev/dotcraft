@@ -73,7 +73,7 @@ http://127.0.0.1:8080/dashboard
 | Sessions | 查看会话列表与详情 |
 | Trace Timeline | 按时间线检查 Agent、工具和错误事件 |
 | Settings | 查看配置 schema、全局配置、工作区配置和合并结果 |
-| Automations | 查看本地任务、Cron、GitHub 来源和审核状态 |
+| Automations | 查看本地任务、Cron 和活动状态 |
 
 ### API 参考
 

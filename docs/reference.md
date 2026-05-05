@@ -28,7 +28,6 @@
 | 目标 | 推荐文档 |
 |------|----------|
 | 本地任务、Cron 选择和人工审核 | [Automations 指南](./automations_guide.md) |
-| GitHub Issue/PR 自动化 | [GitHub 自动化](./automations/github.md) |
 | Automations 字段、模板变量和工具 | [Automations 参考](./automations/reference.md) |
 | 生命周期事件钩子和 Shell 扩展 | [Hooks 指南](./hooks_guide.md) |
 | Hook 事件、payload、退出码和示例 | [Hooks 参考](./hooks/reference.md) |

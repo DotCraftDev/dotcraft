@@ -28,7 +28,6 @@ export interface ServerCapabilities {
   mcpServerOrigins?: boolean
   subAgentManagement?: boolean
   externalChannelManagement?: boolean
-  gitHubTrackerConfig?: boolean
   mcpStatus?: boolean
   extensions?: Record<string, unknown>
   [key: string]: unknown

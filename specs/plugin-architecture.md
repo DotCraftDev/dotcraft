@@ -150,7 +150,7 @@ External channel tool invocations may still be projected as Session Core `plugin
 
 ### Runtime Dynamic Tools
 
-Runtime Dynamic Tools are declared by AppServer clients on `thread/start.dynamicTools` and are invoked through the `item/tool/call` server-to-client request. They are bound to the creating connection and are suitable for client-owned, thread-scoped capabilities such as an Oratorio review runner submitting a draft back to Oratorio.
+Runtime Dynamic Tools are declared by AppServer clients on `thread/start.dynamicTools` and are invoked through the `item/tool/call` server-to-client request. They are bound to the creating connection and are suitable for client-owned, thread-scoped capabilities such as an external review runner submitting a draft back to its caller.
 
 Runtime Dynamic Tools are not plugin manifest tools.
 

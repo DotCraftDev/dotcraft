@@ -6,7 +6,6 @@ using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Protocol;
-using DotCraft.Automations.Workspace;
 using DotCraft.Cron;
 using DotCraft.Protocol;
 using Microsoft.Extensions.Logging;
@@ -14,19 +13,18 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.Automations.Orchestrator;
 
 /// <summary>
-/// Polls registered sources and dispatches automation tasks to the shared session service.
+/// Polls local automation tasks and dispatches them to the shared session service.
 /// </summary>
 public sealed class AutomationOrchestrator
 {
     private const string AutomationsChannelName = "automations";
 
     private readonly AutomationsConfig _config;
-    private readonly AutomationWorkspaceManager _workspaceManager;
     private readonly LocalWorkflowLoader _workflowLoader;
     private readonly IToolProfileRegistry _toolProfileRegistry;
+    private readonly LocalAutomationSource _source;
     private readonly IChannelRuntimeRegistry? _channelRuntimeRegistry;
     private readonly ILogger<AutomationOrchestrator> _logger;
-    private readonly ConcurrentDictionary<string, IAutomationSource> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly OrchestratorState _state = new();
     private readonly ConcurrentDictionary<string, AutomationTask> _allTasks = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency;
@@ -40,35 +38,25 @@ public sealed class AutomationOrchestrator
 
     public AutomationOrchestrator(
         AutomationsConfig config,
-        AutomationWorkspaceManager workspaceManager,
         LocalWorkflowLoader workflowLoader,
         IToolProfileRegistry toolProfileRegistry,
+        LocalAutomationSource source,
         ILogger<AutomationOrchestrator> logger,
-        IEnumerable<IAutomationSource> sources,
         IChannelRuntimeRegistry? channelRuntimeRegistry = null)
     {
         _config = config;
-        _workspaceManager = workspaceManager;
         _workflowLoader = workflowLoader;
         _toolProfileRegistry = toolProfileRegistry;
+        _source = source;
         _channelRuntimeRegistry = channelRuntimeRegistry;
         _logger = logger;
-        foreach (var s in sources)
-            _sources[s.Name] = s;
         _concurrency = new SemaphoreSlim(config.MaxConcurrentTasks, config.MaxConcurrentTasks);
     }
 
     /// <summary>
-    /// Fired after every task status transition. Subscribers (e.g. <c>AutomationsEventDispatcher</c>)
-    /// use this to push Wire Protocol notifications.
+    /// Fired after every task status transition. Subscribers push Wire Protocol notifications.
     /// </summary>
     public event Func<AutomationTask, AutomationTaskStatus, Task>? OnTaskStatusChanged;
-
-    /// <summary>
-    /// Registers an additional source (e.g. from tests). If the orchestrator is already running,
-    /// call <see cref="RegisterToolProfilesForAllSources"/> to register profiles.
-    /// </summary>
-    public void RegisterSource(IAutomationSource source) => _sources[source.Name] = source;
 
     /// <summary>
     /// Supplies the session client created with the host's shared <see cref="ISessionService"/>.
@@ -76,56 +64,47 @@ public sealed class AutomationOrchestrator
     public void SetSessionClient(AutomationSessionClient client) => _sessionClient = client;
 
     /// <summary>
-    /// Calls <see cref="IAutomationSource.RegisterToolProfile"/> on every registered source.
+    /// Registers local automation tools.
     /// </summary>
-    public void RegisterToolProfilesForAllSources()
-    {
-        foreach (var source in _sources.Values)
-            source.RegisterToolProfile(_toolProfileRegistry);
-    }
+    public void RegisterToolProfile() => _source.RegisterToolProfile(_toolProfileRegistry);
 
     /// <summary>
-    /// Returns a snapshot of all tasks across all sources, merging the in-memory cache
-    /// (running/completed tasks) with each source's full task list (includes pending).
+    /// Returns a snapshot of all local tasks, merging the in-memory cache with the task store.
     /// </summary>
     public async Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct)
     {
         var merged = new Dictionary<string, AutomationTask>(StringComparer.Ordinal);
 
         foreach (var task in _allTasks.Values)
-            merged[TaskKey(task)] = task;
+            merged[task.Id] = task;
 
-        foreach (var source in _sources.Values)
+        try
         {
-            try
-            {
-                var sourceTasks = await source.GetAllTasksAsync(ct);
-                foreach (var t in sourceTasks)
-                    merged.TryAdd(TaskKey(t), t);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "GetAllTasksAsync failed for source {Source}", source.Name);
-            }
+            var sourceTasks = await _source.GetAllTasksAsync(ct);
+            foreach (var t in sourceTasks)
+                merged.TryAdd(t.Id, t);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetAllTasksAsync failed for local automation tasks");
         }
 
         return merged.Values.ToList();
     }
 
     /// <summary>
-    /// Runs one poll cycle immediately (e.g. Dashboard refresh). Serialized with the periodic poll loop via <see cref="_pollGate"/>.
+    /// Runs one poll cycle immediately.
     /// </summary>
     public Task TriggerImmediatePollAsync(CancellationToken cancellationToken = default) =>
         PollOnceAsync(cancellationToken);
 
     /// <summary>
-    /// Deletes the task via its source and removes it from the orchestrator cache.
+    /// Deletes a local task and removes it from the orchestrator cache.
     /// </summary>
-    public async Task DeleteTaskAsync(string sourceName, string taskId, CancellationToken ct)
+    public async Task DeleteTaskAsync(string taskId, CancellationToken ct)
     {
-        var source = ResolveSource(sourceName);
-        await source.DeleteTaskAsync(taskId, ct);
-        _allTasks.TryRemove(TaskKey(sourceName, taskId), out _);
+        await _source.DeleteTaskAsync(taskId, ct);
+        _allTasks.TryRemove(taskId, out _);
     }
 
     public Task StartAsync(CancellationToken ct)
@@ -133,7 +112,7 @@ public sealed class AutomationOrchestrator
         if (_sessionClient == null)
             throw new InvalidOperationException("Session client must be set before starting the orchestrator.");
 
-        RegisterToolProfilesForAllSources();
+        RegisterToolProfile();
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _pollTimer = new PeriodicTimer(_config.PollingInterval);
@@ -163,11 +142,9 @@ public sealed class AutomationOrchestrator
             }
             catch (OperationCanceledException)
             {
-                // Expected
             }
         }
 
-        // Dispose the CancellationTokenSource to release resources
         _cts?.Dispose();
         _cts = null;
 
@@ -179,7 +156,6 @@ public sealed class AutomationOrchestrator
         _logger.LogDebug("Automations poll loop running");
         try
         {
-            // Immediate first poll (do not wait one interval at startup).
             try
             {
                 await PollOnceAsync(ct);
@@ -230,124 +206,84 @@ public sealed class AutomationOrchestrator
         try
         {
             var sw = Stopwatch.StartNew();
-            var sourceSummaries = new List<string>();
-            var globalIds = new List<string>();
-            const int maxGlobalIds = 10;
-            var totalPendingEligible = 0;
+            var taskIds = new List<string>();
+            const int maxTaskIds = 10;
 
-            foreach (var source in _sources.Values)
+            IReadOnlyList<AutomationTask> pending;
+            try
             {
-                try
+                pending = await _source.GetPendingTasksAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetPendingTasksAsync failed for local automation tasks");
+                return;
+            }
+
+            EnsureNextRunAtInitialized(pending);
+
+            var pendingOnly = pending
+                .Where(t => t.Status == AutomationTaskStatus.Pending)
+                .ToList();
+
+            foreach (var t in pendingOnly.Take(maxTaskIds))
+                taskIds.Add(TruncateTaskIdForLog(t.Id));
+
+            foreach (var task in pending)
+            {
+                if (ct.IsCancellationRequested)
                 {
-                    await source.ReconcileExpiredResourcesAsync(ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(
-                        ex,
-                        "ReconcileExpiredResourcesAsync failed for source {Source}",
-                        source.Name);
+                    sw.Stop();
+                    LogPollSummary(sw.ElapsedMilliseconds, taskIds, pendingOnly.Count);
+                    return;
                 }
 
-                IReadOnlyList<AutomationTask> pending;
-                try
+                if (task.Status != AutomationTaskStatus.Pending)
+                    continue;
+
+                if (task.Schedule != null && task.NextRunAt is { } next && next > DateTimeOffset.UtcNow)
                 {
-                    pending = await source.GetPendingTasksAsync(ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "GetPendingTasksAsync failed for source {Source}", source.Name);
+                    _logger.LogDebug(
+                        "Task {TaskId} not due yet (next: {Next})",
+                        task.Id,
+                        next);
                     continue;
                 }
 
-                EnsureNextRunAtInitialized(pending);
-
-                var pendingOnly = pending
-                    .Where(t => t.Status == AutomationTaskStatus.Pending)
-                    .ToList();
-                totalPendingEligible += pendingOnly.Count;
-
-                foreach (var t in pendingOnly)
+                if (task.ThreadBinding != null && !await IsBoundChannelReadyAsync(task.ThreadBinding, ct))
                 {
-                    if (globalIds.Count >= maxGlobalIds)
-                        break;
-                    globalIds.Add(TruncateTaskIdForLog(t.Id));
+                    _logger.LogDebug(
+                        "Task {TaskId} bound thread's channel not ready yet; deferring",
+                        task.Id);
+                    continue;
                 }
 
-                sourceSummaries.Add($"{source.Name} pending={pendingOnly.Count}");
-
-                foreach (var task in pending)
+                if (_sessionClient == null)
                 {
-                    if (ct.IsCancellationRequested)
-                    {
-                        sw.Stop();
-                        LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
-                        return;
-                    }
-
-                    if (task.Status != AutomationTaskStatus.Pending)
-                        continue;
-
-                    // Schedule-aware gate: skip scheduled tasks whose next run is still in the future.
-                    // Tasks without a schedule fall through immediately (legacy one-shot semantics).
-                    if (task.Schedule != null && task.NextRunAt is { } next && next > DateTimeOffset.UtcNow)
-                    {
-                        _logger.LogDebug(
-                            "Task {TaskId} not due yet (next: {Next}, source: {Source})",
-                            task.Id, next, source.Name);
-                        continue;
-                    }
-
-                    // Channel readiness gate: for tasks bound to an existing thread whose origin channel is
-                    // external (adapter-backed), defer this tick if the adapter has not finished its
-                    // initialize/initialized handshake. Dispatching before that would construct an agent
-                    // without the channel's declared tools (see ExternalChannelToolProvider). Native channels
-                    // and unbound tasks return true from IsBoundChannelReadyAsync and fall through.
-                    if (task.ThreadBinding != null && !await IsBoundChannelReadyAsync(task.ThreadBinding, ct))
-                    {
-                        _logger.LogDebug(
-                            "Task {TaskId} bound thread's channel not ready yet; deferring (source: {Source})",
-                            task.Id, source.Name);
-                        continue;
-                    }
-
-                    if (_sessionClient == null)
-                    {
-                        _logger.LogDebug(
-                            "Task {TaskId} deferred because automation session client is not configured (source: {SourceName})",
-                            task.Id,
-                            source.Name);
-                        continue;
-                    }
-
-                    var taskKey = TaskKey(task);
-
-                    // Check if task is eligible for retry (respects backoff delay)
-                    if (_state.GetRetryCount(taskKey) > 0 &&
-                        !_state.IsEligibleForRetry(taskKey, _config.RetryInitialDelay, _config.RetryMaxDelay, DateTimeOffset.UtcNow))
-                    {
-                        _logger.LogDebug(
-                            "Task {TaskId} waiting for retry backoff (source: {SourceName})",
-                            task.Id,
-                            source.Name);
-                        continue;
-                    }
-
-                    if (!_state.TryBeginTask(taskKey))
-                    {
-                        _logger.LogDebug(
-                            "Task {TaskId} skipped (already active) for source {SourceName}",
-                            task.Id,
-                            source.Name);
-                        continue;
-                    }
-
-                    _ = Task.Run(() => RunDispatchAsync(source, task, ct), ct);
+                    _logger.LogDebug(
+                        "Task {TaskId} deferred because automation session client is not configured",
+                        task.Id);
+                    continue;
                 }
+
+                if (_state.GetRetryCount(task.Id) > 0 &&
+                    !_state.IsEligibleForRetry(task.Id, _config.RetryInitialDelay, _config.RetryMaxDelay, DateTimeOffset.UtcNow))
+                {
+                    _logger.LogDebug("Task {TaskId} waiting for retry backoff", task.Id);
+                    continue;
+                }
+
+                if (!_state.TryBeginTask(task.Id))
+                {
+                    _logger.LogDebug("Task {TaskId} skipped because it is already active", task.Id);
+                    continue;
+                }
+
+                _ = Task.Run(() => RunDispatchAsync(task, ct), ct);
             }
 
             sw.Stop();
-            LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
+            LogPollSummary(sw.ElapsedMilliseconds, taskIds, pendingOnly.Count);
         }
         finally
         {
@@ -355,20 +291,16 @@ public sealed class AutomationOrchestrator
         }
     }
 
-    private void LogPollSummary(
-        long elapsedMs,
-        List<string> sourceSummaries,
-        List<string> globalIds,
-        int totalPendingEligible)
+    private void LogPollSummary(long elapsedMs, List<string> taskIds, int totalPendingEligible)
     {
         var sb = new StringBuilder();
-        sb.AppendJoin("; ", sourceSummaries);
-        if (globalIds.Count > 0)
+        sb.Append("local pending=").Append(totalPendingEligible);
+        if (taskIds.Count > 0)
         {
             sb.Append(" taskIds=[");
-            sb.AppendJoin(',', globalIds);
+            sb.AppendJoin(',', taskIds);
             sb.Append(']');
-            var more = totalPendingEligible - globalIds.Count;
+            var more = totalPendingEligible - taskIds.Count;
             if (more > 0)
                 sb.Append(" (+").Append(more).Append(" more)");
         }
@@ -380,20 +312,9 @@ public sealed class AutomationOrchestrator
     }
 
     /// <summary>
-    /// Gate used by <see cref="PollOnceAsync"/> before dispatching a bound task: returns true when the target
-    /// thread's origin channel runtime is ready to accept a turn (i.e. its declared tools are settled).
+    /// Gate used before dispatching a bound task: returns true when the target thread's
+    /// origin channel runtime is ready to accept a turn.
     /// </summary>
-    /// <remarks>
-    /// Conservative defaults to preserve legacy behavior:
-    /// <list type="bullet">
-    ///   <item>No <see cref="IChannelRuntimeRegistry"/> wired (e.g. unit-test hosts): returns true.</item>
-    ///   <item>Session client not set, or binding points to a missing thread: returns true — the subsequent
-    ///     dispatch path will surface a clearer "missing thread" failure instead of silently deferring forever.</item>
-    ///   <item>Thread has no <c>OriginChannel</c> (legacy data): returns true.</item>
-    ///   <item>Runtime not yet registered for the origin channel: returns false (defer; likely still loading).</item>
-    ///   <item>Runtime found: returns <see cref="IChannelRuntime.IsReady"/>.</item>
-    /// </list>
-    /// </remarks>
     internal async Task<bool> IsBoundChannelReadyAsync(AutomationThreadBinding binding, CancellationToken ct)
     {
         if (_channelRuntimeRegistry == null || _sessionClient == null)
@@ -413,7 +334,6 @@ public sealed class AutomationOrchestrator
         return runtime.IsReady;
     }
 
-    /// <summary>Truncates task ids for log lines (max 64 chars).</summary>
     private static string TruncateTaskIdForLog(string id)
     {
         if (string.IsNullOrEmpty(id))
@@ -421,50 +341,45 @@ public sealed class AutomationOrchestrator
         return id.Length <= 64 ? id : id[..64];
     }
 
-    private async Task RunDispatchAsync(IAutomationSource source, AutomationTask task, CancellationToken ct)
+    private async Task RunDispatchAsync(AutomationTask task, CancellationToken ct)
     {
         await _concurrency.WaitAsync(ct);
-        var taskKey = TaskKey(task);
         try
         {
-            await DispatchTaskAsync(source, task, ct);
-            // Task succeeded - clear any retry state
-            _state.ClearRetries(taskKey);
+            await DispatchTaskAsync(task, ct);
+            _state.ClearRetries(task.Id);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation(
-                "Dispatch cancelled for task {TaskId} (source: {SourceName})",
-                task.Id,
-                source.Name);
+            _logger.LogInformation("Dispatch cancelled for task {TaskId}", task.Id);
             try
             {
                 task.Status = AutomationTaskStatus.Failed;
                 TrackTask(task);
-                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
                 await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
             catch (Exception cleanupEx)
             {
-                // Best effort: original ct may be cancelled; source persistence may fail.
                 _logger.LogWarning(cleanupEx, "Cleanup failed for cancelled task {TaskId}", task.Id);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Dispatch failed for task {TaskId} (source: {SourceName})", task.Id, source.Name);
-            
-            // Check if we should retry
+            _logger.LogError(ex, "Dispatch failed for task {TaskId}", task.Id);
+
             var shouldRetry = false;
             if (_config.MaxRetries > 0)
             {
-                var retryAttempt = _state.ScheduleRetry(taskKey, _config.MaxRetries, DateTimeOffset.UtcNow);
+                var retryAttempt = _state.ScheduleRetry(task.Id, _config.MaxRetries, DateTimeOffset.UtcNow);
                 if (retryAttempt > 0)
                 {
                     shouldRetry = true;
                     _logger.LogInformation(
-                        "Task {TaskId} scheduled for retry attempt {Attempt}/{Max} (source: {SourceName})",
-                        task.Id, retryAttempt, _config.MaxRetries, source.Name);
+                        "Task {TaskId} scheduled for retry attempt {Attempt}/{Max}",
+                        task.Id,
+                        retryAttempt,
+                        _config.MaxRetries);
                 }
             }
 
@@ -472,17 +387,16 @@ public sealed class AutomationOrchestrator
             {
                 if (shouldRetry)
                 {
-                    // Mark as pending for retry instead of failed
                     task.Status = AutomationTaskStatus.Pending;
                     TrackTask(task);
-                    await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, CancellationToken.None);
+                    await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, CancellationToken.None);
                     await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
                 }
                 else
                 {
                     task.Status = AutomationTaskStatus.Failed;
                     TrackTask(task);
-                    await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                    await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
                     await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
                 }
             }
@@ -493,53 +407,45 @@ public sealed class AutomationOrchestrator
         }
         finally
         {
-            _state.EndTask(taskKey);
+            _state.EndTask(task.Id);
             _concurrency.Release();
         }
     }
 
-    private async Task DispatchTaskAsync(IAutomationSource source, AutomationTask task, CancellationToken ct)
+    private async Task DispatchTaskAsync(AutomationTask task, CancellationToken ct)
     {
         var client = _sessionClient;
         if (client == null)
             throw new InvalidOperationException("Session client is not set.");
 
         _logger.LogInformation(
-            "Dispatch starting for task {TaskId} (source: {SourceName}, bound: {Bound})",
+            "Dispatch starting for task {TaskId} (bound: {Bound})",
             task.Id,
-            source.Name,
             task.ThreadBinding != null);
 
         task.Status = AutomationTaskStatus.Running;
         TrackTask(task);
-        await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
+        await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
         await RaiseStatusChangedAsync(task, AutomationTaskStatus.Running);
-        _logger.LogInformation(
-            "Task {TaskId} status: Running (source: {SourceName})",
-            task.Id,
-            source.Name);
+        _logger.LogInformation("Task {TaskId} status: Running", task.Id);
 
         string workspacePath;
         string threadId;
         string? automationTaskDirectory = null;
-        var boundThreadMode = task.ThreadBinding != null;
 
-        if (boundThreadMode)
+        if (task.ThreadBinding != null)
         {
-            // Bound mode: do NOT create or mutate the target thread's configuration. We rely on the thread's
-            // existing workspace/tool-profile/approval policy as configured by the user. The orchestrator only
-            // submits turns annotated with automation trigger metadata. If the thread no longer exists we mark
-            // the task as failed so the UI can prompt the user to re-bind.
-            var targetId = task.ThreadBinding!.ThreadId;
+            var targetId = task.ThreadBinding.ThreadId;
             var thread = await client.TryGetThreadAsync(targetId, ct);
             if (thread == null)
             {
                 _logger.LogWarning(
                     "Task {TaskId} bound thread {ThreadId} is missing; marking as failed",
-                    task.Id, targetId);
+                    task.Id,
+                    targetId);
                 task.Status = AutomationTaskStatus.Failed;
                 TrackTask(task);
-                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+                await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
                 await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
                 return;
             }
@@ -572,7 +478,7 @@ public sealed class AutomationOrchestrator
             var threadConfig = new ThreadConfiguration
             {
                 WorkspaceOverride = workspacePath,
-                ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
+                ToolProfile = _source.ToolProfileName,
                 ApprovalPolicy = ApprovalPolicy.AutoApprove,
                 AutomationTaskDirectory = automationTaskDirectory,
                 RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
@@ -580,49 +486,28 @@ public sealed class AutomationOrchestrator
 
             threadId = await client.CreateOrResumeThreadAsync(
                 AutomationsChannelName,
-                $"task-{task.SourceName}-{task.Id}",
+                $"task-{task.Id}",
                 threadConfig,
                 ct,
                 displayName: task.Title);
         }
         else
         {
-            workspacePath = await source.ProvisionWorkspaceAsync(task, ct)
-                            ?? await _workspaceManager.ProvisionAsync(task, ct);
-
-            var threadConfig = new ThreadConfiguration
-            {
-                WorkspaceOverride = workspacePath,
-                ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
-                ApprovalPolicy = ApprovalPolicy.AutoApprove,
-                AutomationTaskDirectory = automationTaskDirectory,
-                RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
-            };
-
-            threadId = await client.CreateOrResumeThreadAsync(
-                AutomationsChannelName,
-                $"task-{task.SourceName}-{task.Id}",
-                threadConfig,
-                ct,
-                displayName: task.Title);
+            throw new InvalidOperationException("Automations only supports local tasks.");
         }
 
         _logger.LogInformation(
-            "Thread ready for task {TaskId} (source: {SourceName}, threadId: {ThreadId})",
+            "Thread ready for task {TaskId} (threadId: {ThreadId})",
             task.Id,
-            source.Name,
             threadId);
 
         task.ThreadId = threadId;
         TrackTask(task);
-        await source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
+        await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Running, ct);
         await RaiseStatusChangedAsync(task, AutomationTaskStatus.Running);
-        _logger.LogInformation(
-            "Task {TaskId} thread bound while running (source: {SourceName})",
-            task.Id,
-            source.Name);
+        _logger.LogInformation("Task {TaskId} thread bound while running", task.Id);
 
-        var workflow = await source.GetWorkflowAsync(task, ct);
+        var workflow = await _source.GetWorkflowAsync(task, ct);
         if (workflow.Steps.Count == 0)
             throw new InvalidOperationException("Workflow has no steps.");
 
@@ -639,7 +524,6 @@ public sealed class AutomationOrchestrator
             Label = task.Title
         };
 
-        await source.OnBeforeAgentRunAsync(task, workspacePath, ct);
         try
         {
             while (round < workflow.MaxRounds && !ct.IsCancellationRequested && !stopWorkflow)
@@ -667,7 +551,7 @@ public sealed class AutomationOrchestrator
                         }
                     }
 
-                    if (await source.ShouldStopWorkflowAfterTurnAsync(task, ct))
+                    if (await _source.ShouldStopWorkflowAfterTurnAsync(task, ct))
                     {
                         stopWorkflow = true;
                         break;
@@ -678,37 +562,27 @@ public sealed class AutomationOrchestrator
                 }
 
                 _logger.LogInformation(
-                    "Workflow round {Round} completed for task {TaskId} (source: {SourceName}, maxRounds: {MaxRounds})",
+                    "Workflow round {Round} completed for task {TaskId} (maxRounds: {MaxRounds})",
                     round,
                     task.Id,
-                    source.Name,
                     workflow.MaxRounds);
             }
         }
         finally
         {
-            try
-            {
-                await source.OnAfterAgentRunAsync(task, workspacePath, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "OnAfterAgentRunAsync failed for task {TaskId}", task.Id);
-            }
         }
 
         if (ct.IsCancellationRequested)
         {
             _logger.LogInformation(
-                "Task {TaskId} workflow stopped: cancellation requested (source: {SourceName}, threadId: {ThreadId})",
+                "Task {TaskId} workflow stopped: cancellation requested (threadId: {ThreadId})",
                 task.Id,
-                source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
             TrackTask(task);
             try
             {
-                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
                 await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
             catch (Exception cleanupEx)
@@ -722,13 +596,12 @@ public sealed class AutomationOrchestrator
         if (turnFailed)
         {
             _logger.LogInformation(
-                "Task {TaskId} workflow stopped: turn failed (source: {SourceName}, threadId: {ThreadId})",
+                "Task {TaskId} workflow stopped: turn failed (threadId: {ThreadId})",
                 task.Id,
-                source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
             TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+            await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
             await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             return;
         }
@@ -736,22 +609,20 @@ public sealed class AutomationOrchestrator
         if (turnCancelled && task.Status != AutomationTaskStatus.Completed)
         {
             _logger.LogInformation(
-                "Task {TaskId} workflow stopped: turn cancelled (source: {SourceName}, threadId: {ThreadId})",
+                "Task {TaskId} workflow stopped: turn cancelled (threadId: {ThreadId})",
                 task.Id,
-                source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
             TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+            await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
             await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             return;
         }
 
-        await source.OnAgentCompletedAsync(task, summary ?? string.Empty, ct);
+        await _source.OnAgentCompletedAsync(task, summary ?? string.Empty, ct);
         _logger.LogInformation(
-            "Task {TaskId} agent completed (source: {SourceName}, summaryLength: {SummaryLength})",
+            "Task {TaskId} agent completed (summaryLength: {SummaryLength})",
             task.Id,
-            source.Name,
             summary?.Length ?? 0);
 
         if (task.Schedule != null)
@@ -759,32 +630,26 @@ public sealed class AutomationOrchestrator
             RearmSchedule(task);
             task.Status = AutomationTaskStatus.Pending;
             TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
+            await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, ct);
             await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
             _logger.LogInformation(
-                "Task {TaskId} rearmed for next run at {NextRunAt} (source: {SourceName})",
+                "Task {TaskId} rearmed for next run at {NextRunAt}",
                 task.Id,
-                task.NextRunAt,
-                source.Name);
+                task.NextRunAt);
         }
         else
         {
             task.Status = AutomationTaskStatus.Completed;
             TrackTask(task);
-            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Completed, ct);
+            await _source.OnStatusChangedAsync(task, AutomationTaskStatus.Completed, ct);
             await RaiseStatusChangedAsync(task, AutomationTaskStatus.Completed);
-            _logger.LogInformation(
-                "Task {TaskId} completed (source: {SourceName})",
-                task.Id,
-                source.Name);
+            _logger.LogInformation("Task {TaskId} completed", task.Id);
         }
     }
 
     /// <summary>
     /// Local automation tool policy: when <c>false</c>, file/shell operations outside the thread workspace are rejected
-    /// without prompting; when <c>true</c>, outside-workspace operations are auto-approved (higher risk).
-    /// Non-local tasks return null to use global AppConfig tool defaults.
-    /// Legacy: <c>default</c> previously meant interactive prompts; it now maps to workspace scope (false), not full auto.
+    /// without prompting; when <c>true</c>, outside-workspace operations are auto-approved.
     /// </summary>
     private static bool? ResolveRequireApprovalOutsideWorkspace(AutomationTask task)
     {
@@ -823,7 +688,7 @@ public sealed class AutomationOrchestrator
     }
 
     private void TrackTask(AutomationTask task) =>
-        _allTasks[TaskKey(task)] = task;
+        _allTasks[task.Id] = task;
 
     private async Task RaiseStatusChangedAsync(AutomationTask task, AutomationTaskStatus newStatus)
     {
@@ -841,28 +706,9 @@ public sealed class AutomationOrchestrator
         }
     }
 
-    private IAutomationSource ResolveSource(string sourceName)
-    {
-        if (!_sources.TryGetValue(sourceName, out var source))
-            throw new KeyNotFoundException($"Automation source '{sourceName}' not found.");
-        return source;
-    }
-
-    private static string TaskKey(AutomationTask task) => TaskKey(task.SourceName, task.Id);
-    private static string TaskKey(string sourceName, string taskId) => $"{sourceName}::{taskId}";
-
     /// <summary>
     /// Ensures each scheduled task has a <see cref="AutomationTask.NextRunAt"/> computed.
-    /// Called once per poll cycle so that schedules loaded from disk are honored without requiring task edits.
     /// </summary>
-    /// <remarks>
-    /// First-tick semantics for <c>kind: every</c>: when <see cref="AutomationTask.NextRunAt"/> is null
-    /// (e.g. a brand-new task whose <c>next_run_at</c> has never been persisted), treat it as immediately due
-    /// (<see cref="AutomationTask.CreatedAt"/> or now). This differs from <see cref="DotCraft.Cron.CronService"/>,
-    /// which treats the first tick as "one interval from registration"; automation tasks are user-visible and should
-    /// fire on the very first poll after creation. Once the task runs, <see cref="RearmSchedule"/> advances
-    /// NextRunAt to now+ev and the file store persists it, so subsequent polls follow the true cadence.
-    /// </remarks>
     internal static void EnsureNextRunAtInitialized(IEnumerable<AutomationTask> tasks)
     {
         var now = DateTimeOffset.UtcNow;
@@ -894,8 +740,7 @@ public sealed class AutomationOrchestrator
     }
 
     /// <summary>
-    /// Recomputes <see cref="AutomationTask.NextRunAt"/> after a run completed, using the just-finished run time
-    /// as <c>lastRunAtMs</c>.
+    /// Recomputes <see cref="AutomationTask.NextRunAt"/> after a run completed.
     /// </summary>
     internal static void RearmSchedule(AutomationTask task)
     {

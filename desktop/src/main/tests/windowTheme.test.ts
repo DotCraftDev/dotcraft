@@ -6,9 +6,13 @@ describe('resolveInitialTheme', () => {
     expect(resolveInitialTheme({ theme: 'light' })).toBe('light')
   })
 
-  it('defaults missing or unknown values to dark', () => {
-    expect(resolveInitialTheme({})).toBe('dark')
-    expect(resolveInitialTheme({ theme: 'system' as never })).toBe('dark')
+  it('uses persisted dark theme for the first frame', () => {
+    expect(resolveInitialTheme({ theme: 'dark' })).toBe('dark')
+  })
+
+  it('defaults missing or unknown values to light', () => {
+    expect(resolveInitialTheme({})).toBe('light')
+    expect(resolveInitialTheme({ theme: 'system' as never })).toBe('light')
   })
 })
 

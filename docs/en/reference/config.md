@@ -82,19 +82,13 @@ This page collects configuration fields in one place. For first-time setup, read
 |-------|-------------|---------|
 | `Automations.Enabled` | Enables the Automations orchestrator | `true` |
 | `Automations.LocalTasksRoot` | Local task root. Empty uses `.craft/tasks/` | Empty |
-| `Automations.WorkspaceRoot` | Task workspace root. Empty uses system temp | Empty |
 | `Automations.PollingInterval` | Polling interval | `00:00:30` |
-| `Automations.MaxConcurrentTasks` | Maximum concurrent tasks across sources | `3` |
+| `Automations.MaxConcurrentTasks` | Maximum concurrent local tasks | `3` |
 | `Automations.TurnTimeout` | Single-turn timeout | `00:30:00` |
 | `Automations.StallTimeout` | Stall timeout without response | `00:10:00` |
 | `Automations.MaxRetries` | Maximum retry count | `3` |
 | `Automations.RetryInitialDelay` | Initial retry delay | `00:00:30` |
 | `Automations.RetryMaxDelay` | Maximum retry delay | `00:10:00` |
-| `GitHubTracker.Enabled` | Enables GitHub source | `false` |
-| `GitHubTracker.IssuesWorkflowPath` | Issue `WORKFLOW.md` path | `WORKFLOW.md` |
-| `GitHubTracker.PullRequestWorkflowPath` | PR workflow path | Empty |
-| `GitHubTracker.Tracker.Repository` | GitHub repository as `owner/repo` | Empty |
-| `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` | Empty |
 | `Hooks.Enabled` | Enables Hooks | `true` |
 | `Hooks.Events` | Hook event configuration list | `[]` |
 | `Cron.Enabled` | Enables Cron scheduled tasks | `true` |

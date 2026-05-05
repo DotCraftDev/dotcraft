@@ -11,16 +11,11 @@ public sealed class AutomationsConfig
     /// <summary>When true, the Automations channel service is enabled (Gateway mode). Enabled by default.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Root directory under which per-task workspace directories are created.</summary>
-    public string WorkspaceRoot { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".craft", "automations", "workspaces");
-
-    /// <summary>How often the orchestrator polls each source for new tasks.</summary>
+    /// <summary>How often the orchestrator polls local task files for runnable tasks.</summary>
     public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Maximum concurrent tasks being dispatched across all sources.
+    /// Maximum concurrent local tasks being dispatched.
     /// Additional tasks wait in Pending state.
     /// </summary>
     public int MaxConcurrentTasks { get; set; } = 3;

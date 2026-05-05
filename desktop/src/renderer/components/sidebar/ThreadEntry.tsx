@@ -218,10 +218,10 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
 
     const raw = e.dataTransfer.getData(AUTOMATION_TASK_DRAG_MIME)
     const title = e.dataTransfer.getData('text/plain')
-    const [sourceName, taskId] = raw.split('::')
-    if (!sourceName || !taskId) return
+    const taskId = raw.trim()
+    if (!taskId) return
     const state = useAutomationsStore.getState()
-    const task = state.tasks.find((t) => t.sourceName === sourceName && t.id === taskId)
+    const task = state.tasks.find((t) => t.id === taskId)
     if (!task) {
       addToast(t('auto.dnd.bindFailed', { error: taskId }), 'error')
       setAnim('fail')

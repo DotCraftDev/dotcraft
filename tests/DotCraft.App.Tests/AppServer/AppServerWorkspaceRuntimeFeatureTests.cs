@@ -47,7 +47,6 @@ public sealed class AppServerWorkspaceRuntimeFeatureTests
         {
             Id = "task-1",
             Title = "Test Task",
-            SourceName = "test",
             Status = AutomationTaskStatus.Pending
         };
         automationFactory.Instance.EmitTaskUpdated(task);

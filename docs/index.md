@@ -40,7 +40,7 @@ lastUpdated: false
         </article>
         <article class="dc-card">
           <h3>统一会话模型</h3>
-          <p>Thread、Turn、Item 模型跨 CLI、Desktop、ACP、QQ、WeCom、GitHub Tracker 和自动化任务复用。</p>
+          <p>Thread、Turn、Item 模型跨 CLI、Desktop、ACP、QQ、WeCom 和自动化任务复用。</p>
         </article>
         <article class="dc-card">
           <h3>可观测与治理</h3>
@@ -91,14 +91,14 @@ lastUpdated: false
         <p class="dc-kicker">Automations</p>
         <h2>把 agent 工作流放进任务管线</h2>
         <p class="dc-section__text">
-          本地任务、Cron 和 GitHub Issue/PR 跟踪共享同一自动化编排器，支持调度、并发控制、人工审核和重新入队。
+          本地任务和 Cron 在工作区内提供调度、线程绑定、活动展示和重试能力。
         </p>
         <div class="dc-actions">
           <a class="dc-button dc-button--primary" href="./automations_guide">查看 Automations</a>
           <a class="dc-button" href="./hooks_guide">扩展 Hooks</a>
         </div>
       </div>
-      <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png" alt="DotCraft automations panel" />
+      <img src="https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_automations.png" alt="DotCraft automations panel" />
     </div>
   </section>
 

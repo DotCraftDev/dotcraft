@@ -74,13 +74,10 @@ public static class AppServerErrors
     public const int SubAgentProfileNotFoundCode = -32083;
     public const int SubAgentProfileValidationFailedCode = -32084;
     public const int SubAgentProfileProtectedCode = -32085;
-    public const int GitHubTrackerConfigValidationFailedCode = -32090;
-
     // ── Automation-specific codes (-32050 to -32059) ──
 
     public const int TaskNotFoundCode = -32051;
     public const int TaskInvalidStatusCode = -32052;
-    public const int SourceNotFoundCode = -32053;
     public const int TaskAlreadyExistsCode = -32054;
 
     // ── Factory methods ──
@@ -178,20 +175,13 @@ public static class AppServerErrors
     public static AppServerException SubAgentProfileProtected(string detail) =>
         new(SubAgentProfileProtectedCode, "SubAgent profile is protected", new { detail });
 
-    public static AppServerException GitHubTrackerConfigValidationFailed(string detail) =>
-        new(GitHubTrackerConfigValidationFailedCode, "GitHub tracker config validation failed", new { detail });
-
     public static AppServerException TaskAlreadyExists(string taskId) =>
         new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");
 
-    public static AppServerException TaskNotFound(string taskId, string? sourceName = null) =>
-        new(TaskNotFoundCode, sourceName is null
-            ? $"Task not found: {taskId}"
-            : $"Task '{taskId}' not found in source '{sourceName}'.");
+    public static AppServerException TaskNotFound(string taskId) =>
+        new(TaskNotFoundCode, $"Task not found: {taskId}");
 
     public static AppServerException TaskInvalidStatus(string detail) =>
         new(TaskInvalidStatusCode, detail);
 
-    public static AppServerException SourceNotFound(string sourceName) =>
-        new(SourceNotFoundCode, $"Source not found: {sourceName}");
 }

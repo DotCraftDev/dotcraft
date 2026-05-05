@@ -27,7 +27,6 @@ The Session Protocol is the active execution model for:
 - ACP
 - QQ
 - WeCom
-- GitHubTracker
 
 These channels create and resume server-managed threads whose canonical JSONL history lives under `.craft/threads/active|archived/`, while queryable metadata and agent session blobs live in `.craft/state.db`. They submit turns through Session Core and consume `SessionEvent` streams through thin adapters.
 
@@ -102,7 +101,7 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
 The server-managed session protocol is organized into five layers, ordered from closest to the user to closest to the model:
 
 1. **Transport Layer** (per channel)
-   - The raw communication mechanism: stdio JSON-RPC (ACP), WebSocket (QQ), HTTPS webhook (WeCom), in-process (CLI), internal (GitHubTracker).
+   - The raw communication mechanism: stdio JSON-RPC (ACP), WebSocket (QQ), HTTPS webhook (WeCom), in-process (CLI).
    - API and AG-UI have their own HTTP/SSE transports but bypass Session Core.
    - Each channel keeps its existing transport.
 
@@ -134,9 +133,9 @@ The server-managed session protocol is organized into five layers, ordered from 
 ```
 Server-managed channels
 
-  ACP      CLI      QQ      WeCom      GitHubTracker
-   │        │        │         │              │
-   └────────┴────────┴─────────┴──────────────┘
+  ACP      CLI      QQ      WeCom
+   │        │        │         │
+   └────────┴────────┴─────────┘
                          │
                     Adapter Layer
                          │
@@ -807,7 +806,7 @@ SessionEvent
   - Emitted for incremental content updates on streaming Items (`AgentMessage`, `ReasoningContent`, `CommandExecution`, and streamed `ToolCall` argument previews).
   - Payload: the delta-specific payload (e.g., `{ textDelta: "chunk of text" }`).
   - May be emitted many times per Item. Adapters that support streaming should forward these to the user progressively.
-  - Adapters that do not support streaming (e.g., GitHubTracker) may ignore deltas and wait for `item/completed`.
+  - Adapters that do not support streaming may ignore deltas and wait for `item/completed`.
   - Persistence still uses the final completed Item payload as source of truth; intermediate `ToolCall` argument preview deltas are for progressive rendering.
 
 - **`item/completed`**
@@ -1183,7 +1182,6 @@ The Session Protocol is now the active execution path for all **server-managed**
 - ACP
 - QQ
 - WeCom
-- GitHubTracker
 
 These channels create threads, submit turns through `ISessionService`, consume `SessionEvent`s, and persist state via rollout files plus `.craft/state.db`.
 
@@ -1366,7 +1364,7 @@ For each migrated channel:
 This specification no longer tracks implementation phases or completed checklists. The remaining validation work is:
 
 - Expand automated **Core Conformance** coverage for lifecycle, persistence, and failure handling.
-- Add per channel **Adapter Conformance** coverage for CLI, ACP, QQ, WeCom, and GitHubTracker.
+- Add per channel **Adapter Conformance** coverage for CLI, ACP, QQ, and WeCom.
 - Add **Cross-Channel Conformance** coverage for the CLI ↔ ACP shared thread pool.
 - Add **Per-Session Configuration** coverage for ACP-specific mode and MCP behavior.
 - Add **Social Channel Conformance** coverage for sender context, approval routing, and slash commands.
@@ -1383,7 +1381,6 @@ The Session Protocol applies only to server-managed channels:
 - ACP
 - QQ
 - WeCom
-- GitHubTracker
 
 For these channels, Session Core loads persisted session state, executes the turn, emits `SessionEvent`s, and persists updated thread/session state afterward.
 

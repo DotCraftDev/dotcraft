@@ -1,8 +1,13 @@
 /// <reference types="vite/client" />
 import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url'
 import hljsLightUrl from 'highlight.js/styles/github.css?url'
+import {
+  THEME_CHANGED_EVENT,
+  resolveThemeMode,
+  type ThemeMode
+} from '../../shared/theme'
 
-export type ThemeMode = 'dark' | 'light'
+export type { ThemeMode }
 
 const HLJS_LINK_ID = 'dotcraft-hljs-theme'
 
@@ -10,7 +15,7 @@ const HLJS_LINK_ID = 'dotcraft-hljs-theme'
  * Normalize persisted or unknown theme values to a valid mode.
  */
 export function resolveTheme(raw: unknown): ThemeMode {
-  return raw === 'light' ? 'light' : 'dark'
+  return resolveThemeMode(raw)
 }
 
 function getHljsHref(mode: ThemeMode): string {
@@ -25,6 +30,7 @@ export function applyTheme(
   options: { syncTitleBarOverlay?: boolean } = {}
 ): void {
   document.documentElement.setAttribute('data-theme', mode)
+  window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: { mode } }))
 
   let link = document.getElementById(HLJS_LINK_ID) as HTMLLinkElement | null
   if (!link) {

@@ -45,18 +45,10 @@ public sealed class AutomationsDashboardSnapshotProvider : IOrchestratorSnapshot
                 countsByStatus[key] = countsByStatus.GetValueOrDefault(key) + 1;
             }
 
-            var countsBySource = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var w in wires)
-            {
-                var key = string.IsNullOrEmpty(w.SourceName) ? "unknown" : w.SourceName;
-                countsBySource[key] = countsBySource.GetValueOrDefault(key) + 1;
-            }
-
             return new AutomationsDashboardSnapshot
             {
                 Tasks = wires,
                 CountsByStatus = countsByStatus,
-                CountsBySource = countsBySource,
                 GeneratedAt = DateTimeOffset.UtcNow.ToString("o")
             };
         }
@@ -86,8 +78,6 @@ public sealed class AutomationsDashboardSnapshot
     public List<AutomationTaskWire> Tasks { get; set; } = [];
 
     public Dictionary<string, int> CountsByStatus { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-    public Dictionary<string, int> CountsBySource { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string GeneratedAt { get; set; } = string.Empty;
 }
