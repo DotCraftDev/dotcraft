@@ -9,7 +9,9 @@
 - 会话状态持久化到模块专属状态目录
 - 支持流式回合回复与审批处理
 - 支持 `/new` 新建会话命令
-- 提供结构化渠道工具 `WeixinSendFilePreviewToCurrentChat`
+- 提供真实文件/图片发送工具：`WeixinSendFileToCurrentChat`、`WeixinSendImageToCurrentChat`
+- 支持结构化 `file` / `image` 投递（本地路径或 base64 数据源）
+- 微信 iLink 不提供 Markdown 渲染入口，普通回复和媒体 caption 会转为纯文本发送
 
 ## 安装
 
