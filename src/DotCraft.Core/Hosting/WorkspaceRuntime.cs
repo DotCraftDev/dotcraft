@@ -220,7 +220,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                         PathBlacklist = PathBlacklist,
                         BackgroundTerminalService = backgroundTerminalService,
                         CronTools = cronTools,
-                        McpClientManager = McpClientManager.Tools.Count > 0 ? McpClientManager : null,
+                        McpClientManager = McpClientManager,
                         LspServerManager = LspServerManager,
                         TraceCollector = traceCollector,
                         AcpExtensionProxy = wireAcpExtensionProxy,

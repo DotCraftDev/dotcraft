@@ -100,6 +100,31 @@ public sealed class McpClientManagerTests
     }
 
     [Fact]
+    public async Task WaitForStartupCompletionAsync_HangingServer_ReturnsAfterTimeout()
+    {
+        await using var manager = new McpClientManager();
+
+        await manager.ConnectAsync([HangingStdio("hung-server")]);
+        await manager.WaitForStartupCompletionAsync();
+
+        var status = Assert.Single(await manager.ListStatusesAsync());
+        Assert.Equal("error", status.StartupState);
+        Assert.Contains("startup timed out", status.LastError);
+    }
+
+    [Fact]
+    public async Task WaitForStartupCompletionAsync_DisabledServer_ReturnsWithoutStarting()
+    {
+        await using var manager = new McpClientManager();
+
+        await manager.ConnectAsync([DisabledStdio("disabled-server")]);
+        await manager.WaitForStartupCompletionAsync();
+
+        var status = Assert.Single(await manager.ListStatusesAsync());
+        Assert.Equal("disabled", status.StartupState);
+    }
+
+    [Fact]
     public async Task ConnectAsync_StaleBackgroundResult_DoesNotOverrideNewGeneration()
     {
         await using var manager = new McpClientManager();
@@ -135,6 +160,30 @@ public sealed class McpClientManagerTests
         Assert.DoesNotContain("public IReadOnlyDictionary<string, string> ToolServerMap => _toolServerMap;", source, StringComparison.Ordinal);
         Assert.Contains("Volatile.Read(ref _toolsSnapshot)", source, StringComparison.Ordinal);
         Assert.Contains("Volatile.Read(ref _toolServerMapSnapshot)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Source_DoesNotGateMcpContextOnCurrentToolCount()
+    {
+        var sourceRoot = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "src"));
+        var sourceFiles = new[]
+        {
+            Path.Combine(sourceRoot, "DotCraft.Core", "Hosting", "WorkspaceRuntime.cs"),
+            Path.Combine(sourceRoot, "DotCraft.Core", "Protocol", "SessionService.cs"),
+            Path.Combine(sourceRoot, "DotCraft.App", "Gateway", "GatewayHost.cs"),
+            Path.Combine(sourceRoot, "DotCraft.Agui", "AGUIChannelService.cs"),
+            Path.Combine(sourceRoot, "DotCraft.Api", "ApiChannelService.cs")
+        };
+
+        foreach (var sourceFile in sourceFiles)
+        {
+            var source = File.ReadAllText(sourceFile);
+            Assert.DoesNotContain("McpClientManager.Tools.Count > 0", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("mcpClientManager.Tools.Count > 0", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("AddRange(mcpManager.Tools)", source, StringComparison.Ordinal);
+        }
     }
 
     private static async Task<McpServerStatusSnapshot> WaitForStatusAsync(

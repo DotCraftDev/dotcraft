@@ -223,7 +223,7 @@ public sealed class ApiChannelService(
                 ApprovalService = approvalService,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                McpClientManager = mcpClientManager,
                 LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },

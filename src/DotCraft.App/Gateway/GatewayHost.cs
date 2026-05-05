@@ -220,7 +220,7 @@ public sealed class GatewayHost : IDotCraftHost
                 ApprovalService = approvalService,
                 PathBlacklist = pathBlacklist,
                 CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                McpClientManager = mcpClientManager,
                 LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },

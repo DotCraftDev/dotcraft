@@ -1492,7 +1492,7 @@ Each agent mode defines a **mode-specific tool set** that is injected (or remove
 
 MCP server connections are thread-scoped, not turn-scoped:
 
-- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers and adds their tools. The same applies when a thread with persisted `McpServers` is prepared for turn execution after a cold load (e.g. via `ResumeThread` from disk or `EnsureThreadLoaded` before `SubmitInput`). Purely read-only operations (`GetThread`, thread discovery) must not connect MCP servers solely because thread metadata was loaded.
+- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers, waits for the current startup attempt to settle, and adds ready tools before turn execution. Failed servers are reflected through MCP status and do not prevent agent construction unless the caller cancels. The same applies when a thread with persisted `McpServers` is prepared for turn execution after a cold load (e.g. via `ResumeThread` from disk or `EnsureThreadLoaded` before `SubmitInput`). Purely read-only operations (`GetThread`, thread discovery) must not connect MCP servers solely because thread metadata was loaded.
 - **Disconnect**: When a thread is archived or its MCP configuration changes, Session Core disconnects the previous servers.
 - **Lifecycle**: MCP connections live as long as the thread remains active.
 

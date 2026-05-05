@@ -154,6 +154,32 @@ public sealed class McpClientManager : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Waits until all currently enabled MCP servers have left the startup phase.
+    /// This does not initiate connections; it only observes the current runtime state.
+    /// </summary>
+    public async Task WaitForStartupCompletionAsync(CancellationToken cancellationToken = default)
+    {
+        var deadline = DateTimeOffset.UtcNow + await GetCurrentStartupWaitBudgetAsync(cancellationToken);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!await HasStartingServersAsync(cancellationToken))
+                return;
+
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                return;
+
+            var delay = remaining < TimeSpan.FromMilliseconds(50)
+                ? remaining
+                : TimeSpan.FromMilliseconds(50);
+            await Task.Delay(delay, cancellationToken);
+        }
+    }
+
     public async Task<McpServerStatusSnapshot> UpsertAsync(McpServerConfig config, CancellationToken cancellationToken = default)
     {
         var clone = config.Clone();
@@ -379,6 +405,44 @@ public sealed class McpClientManager : IAsyncDisposable
             Origin = status.Origin.Clone(),
             ReadOnly = status.ReadOnly
         };
+
+    private async Task<TimeSpan> GetCurrentStartupWaitBudgetAsync(CancellationToken cancellationToken)
+    {
+        await _mutex.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            var starting = _servers.Values
+                .Where(s => IsStarting(s.Status))
+                .Select(s => GetStartupTimeout(s.Config))
+                .ToList();
+
+            return starting.Count == 0
+                ? TimeSpan.Zero
+                : starting.Max() + TimeSpan.FromMilliseconds(250);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private async Task<bool> HasStartingServersAsync(CancellationToken cancellationToken)
+    {
+        await _mutex.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            return _servers.Values.Any(s => IsStarting(s.Status));
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private static bool IsStarting(McpServerStatusSnapshot status) =>
+        status.Enabled && string.Equals(status.StartupState, "starting", StringComparison.OrdinalIgnoreCase);
 
     private async Task UpdateStatusAsync(
         string name,

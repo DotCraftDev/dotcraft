@@ -2934,6 +2934,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 NodeReplProxy = baseCtx.NodeReplProxy,
                 CronTools = baseCtx.CronTools,
+                McpClientManager = baseCtx.McpClientManager,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
                 ExternalCliSessionStore = externalCliSessionStore,
                 AutomationTaskDirectory = config.AutomationTaskDirectory,
@@ -2951,6 +2952,25 @@ public sealed class SessionService(
             };
         }
 
+        var toolContext = scopedContext ?? threadBaseContext;
+        if (config.McpServers is { Length: > 0 })
+        {
+            if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
+                await oldManager.DisposeAsync();
+
+            var threadMcpManager = new McpClientManager();
+            await threadMcpManager.ConnectAsync(config.McpServers, ct);
+            await threadMcpManager.WaitForStartupCompletionAsync(ct);
+            _threadMcpManagers[threadId] = threadMcpManager;
+            toolContext = CloneContextWithMcpManager(toolContext, threadMcpManager);
+        }
+        else if (toolContext.McpClientManager != null)
+        {
+            await toolContext.McpClientManager.WaitForStartupCompletionAsync(ct);
+        }
+
+        toolContext.DeferredToolRegistry = null;
+
         List<AITool>? profileTools = null;
         if (!string.IsNullOrEmpty(config.ToolProfile))
         {
@@ -2961,107 +2981,23 @@ public sealed class SessionService(
                 throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
             }
 
-            var toolCtx = scopedContext ?? threadBaseContext;
-            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
+            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolContext);
         }
 
         if (config.UseToolProfileOnly)
         {
             if (profileTools is not { Count: > 0 })
                 throw new InvalidOperationException("UseToolProfileOnly requires a registered ToolProfile with at least one tool.");
-            var toolCtx2 = scopedContext ?? threadBaseContext;
             ApplyThreadToolFilters(profileTools, config);
-            return agentFactory.CreateAgentWithTools(profileTools, mm, toolCtx2, config.AgentInstructions);
+            return agentFactory.CreateAgentWithTools(profileTools, mm, toolContext, config.AgentInstructions);
         }
 
-        if (config.McpServers is not { Length: > 0 })
-        {
-            if (scopedContext != null)
-            {
-                var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
-                if (profileTools != null)
-                    tools.AddRange(profileTools);
-                AppendChannelTools(tools, thread);
-                ApplyThreadToolFilters(tools, config);
-                return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
-            }
-
-            if (profileTools != null)
-            {
-                var tools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
-                tools.AddRange(profileTools);
-                AppendChannelTools(tools, thread);
-                ApplyThreadToolFilters(tools, config);
-                return agentFactory.CreateAgentWithTools(tools, mm, threadBaseContext);
-            }
-
-            var modeTools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
-            AppendChannelTools(modeTools, thread);
-            ApplyThreadToolFilters(modeTools, config);
-            return agentFactory.CreateAgentWithTools(modeTools, mm, threadBaseContext);
-        }
-
-        // Dispose previous per-thread MCP manager if replacing config
-        if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
-            await oldManager.DisposeAsync();
-
-        var mcpManager = new McpClientManager();
-        await mcpManager.ConnectAsync(config.McpServers, ct);
-        _threadMcpManagers[threadId] = mcpManager;
-
-        if (scopedContext != null)
-        {
-            var effectiveContext = new ToolProviderContext
-            {
-                Config = scopedContext.Config,
-                ChatClient = scopedContext.ChatClient,
-                OpenAIClientProvider = scopedContext.OpenAIClientProvider,
-                EffectiveMainModel = scopedContext.EffectiveMainModel,
-                WorkspacePath = scopedContext.WorkspacePath,
-                BotPath = scopedContext.BotPath,
-                MemoryStore = scopedContext.MemoryStore,
-                SkillsLoader = scopedContext.SkillsLoader,
-                ApprovalService = scopedContext.ApprovalService,
-                PathBlacklist = scopedContext.PathBlacklist,
-                BackgroundTerminalService = scopedContext.BackgroundTerminalService,
-                TraceCollector = scopedContext.TraceCollector,
-                McpClientManager = mcpManager,
-                LspServerManager = scopedContext.LspServerManager,
-                AcpExtensionProxy = scopedContext.AcpExtensionProxy,
-                NodeReplProxy = scopedContext.NodeReplProxy,
-                CronTools = scopedContext.CronTools,
-                DeferredToolRegistry = scopedContext.DeferredToolRegistry,
-                ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
-                AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
-                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace,
-                CurrentThreadId = scopedContext.CurrentThreadId,
-                CurrentThreadSource = scopedContext.CurrentThreadSource,
-                CurrentOriginChannel = scopedContext.CurrentOriginChannel,
-                CurrentChannelContext = scopedContext.CurrentChannelContext,
-                AgentControlToolAccess = scopedContext.AgentControlToolAccess,
-                AllowedAgentControlTools = scopedContext.AllowedAgentControlTools,
-                ToolAllowList = scopedContext.ToolAllowList,
-                ToolDenyList = scopedContext.ToolDenyList,
-                PromptProfile = scopedContext.PromptProfile,
-                RoleInstructions = scopedContext.RoleInstructions
-            };
-
-            var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
-            if (profileTools != null)
-                modeTools.AddRange(profileTools);
-            modeTools.AddRange(mcpManager.Tools);
-            AppendChannelTools(modeTools, thread);
-            ApplyThreadToolFilters(modeTools, config);
-            return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
-        }
-
-        var toolsWithMcp = agentFactory.CreateToolsForMode(mode, threadBaseContext);
+        var toolsWithMcp = agentFactory.CreateToolsForMode(mode, toolContext);
         if (profileTools != null)
             toolsWithMcp.AddRange(profileTools);
-        toolsWithMcp.AddRange(mcpManager.Tools);
         AppendChannelTools(toolsWithMcp, thread);
         ApplyThreadToolFilters(toolsWithMcp, config);
-        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, threadBaseContext);
+        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, toolContext);
     }
 
     private static void ApplyThreadToolFilters(List<AITool> tools, ThreadConfiguration config)
@@ -3178,6 +3114,45 @@ public sealed class SessionService(
         };
         return cloned;
     }
+
+    private static ToolProviderContext CloneContextWithMcpManager(
+        ToolProviderContext source,
+        McpClientManager mcpClientManager) =>
+        new()
+        {
+            Config = source.Config,
+            ChatClient = source.ChatClient,
+            OpenAIClientProvider = source.OpenAIClientProvider,
+            EffectiveMainModel = source.EffectiveMainModel,
+            WorkspacePath = source.WorkspacePath,
+            BotPath = source.BotPath,
+            MemoryStore = source.MemoryStore,
+            SkillsLoader = source.SkillsLoader,
+            SkillMutationApplier = source.SkillMutationApplier,
+            ApprovalService = source.ApprovalService,
+            PathBlacklist = source.PathBlacklist,
+            BackgroundTerminalService = source.BackgroundTerminalService,
+            CronTools = source.CronTools,
+            McpClientManager = mcpClientManager,
+            LspServerManager = source.LspServerManager,
+            TraceCollector = source.TraceCollector,
+            AcpExtensionProxy = source.AcpExtensionProxy,
+            NodeReplProxy = source.NodeReplProxy,
+            ExternalCliSessionStore = source.ExternalCliSessionStore,
+            AgentFileSystem = source.AgentFileSystem,
+            AutomationTaskDirectory = source.AutomationTaskDirectory,
+            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,
+            CurrentThreadId = source.CurrentThreadId,
+            CurrentThreadSource = source.CurrentThreadSource,
+            CurrentOriginChannel = source.CurrentOriginChannel,
+            CurrentChannelContext = source.CurrentChannelContext,
+            AgentControlToolAccess = source.AgentControlToolAccess,
+            AllowedAgentControlTools = source.AllowedAgentControlTools,
+            ToolAllowList = source.ToolAllowList,
+            ToolDenyList = source.ToolDenyList,
+            PromptProfile = source.PromptProfile,
+            RoleInstructions = source.RoleInstructions
+        };
 
     private static IReadOnlySet<string>? ToSet(IEnumerable<string>? values)
     {
