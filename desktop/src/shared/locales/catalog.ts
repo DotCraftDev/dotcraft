@@ -85,7 +85,7 @@ const MESSAGES_EN = {
   'settings.personalization.welcomeSuggestionsSaveFailed': 'Failed to save welcome suggestions setting: {{error}}',
   'settings.personalization.selfLearning': 'Enable self-learning',
   'settings.personalization.selfLearningHint':
-    'Allow the agent to learn skills from completed tasks and save them in this workspace. Restart AppServer to apply changes.',
+    'Allow DotCraft to learn skills from completed tasks and save them in this workspace.',
   'settings.personalization.selfLearningSaveFailed': 'Failed to save self-learning setting: {{error}}',
   'settings.personalization.selfLearningRestartBanner': 'Self-learning changes are saved. Restart AppServer to apply them.',
   'settings.personalization.selfLearningRestartBannerRemote':
@@ -1917,7 +1917,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.welcomeSuggestionsSaveFailed': '保存欢迎建议设置失败：{{error}}',
   'settings.personalization.selfLearning': '启用自我学习',
   'settings.personalization.selfLearningHint':
-    '允许 DotCraft 从已完成的任务中学习技能，并保存到当前工作区。重启 AppServer 后生效。',
+    '允许 DotCraft 从已完成的任务中学习技能，并保存到当前工作区。',
   'settings.personalization.selfLearningSaveFailed': '保存自我学习设置失败：{{error}}',
   'settings.personalization.selfLearningRestartBanner': '自我学习设置已保存。重启 AppServer 后生效。',
   'settings.personalization.selfLearningRestartBannerRemote':
