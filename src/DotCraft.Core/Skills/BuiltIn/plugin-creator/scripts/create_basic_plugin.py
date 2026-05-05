@@ -35,23 +35,24 @@ def display_name_from_id(plugin_id: str) -> str:
     return " ".join(part.capitalize() for part in plugin_id.split("-") if part)
 
 
-def namespace_from_id(plugin_id: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_]+", "_", plugin_id).strip("_") or "plugin"
-
-
 def build_manifest(
     plugin_id: str,
     skill_name: str | None,
-    with_process_tool: bool,
-    tool_name: str,
+    with_mcp: bool,
     with_assets: bool,
 ) -> dict[str, Any]:
     display_name = display_name_from_id(plugin_id)
     capabilities = []
+    interface_capabilities = []
     if skill_name:
         capabilities.append("skill")
-    if with_process_tool:
-        capabilities.append("tool")
+        interface_capabilities.append("Skill")
+    if with_mcp:
+        capabilities.append("mcp")
+        interface_capabilities.append("MCP")
+    if not capabilities:
+        capabilities.append("metadata")
+        interface_capabilities.append("Metadata")
 
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
@@ -66,7 +67,7 @@ def build_manifest(
             "longDescription": "[TODO: Concise plugin detail description.]",
             "developerName": "[TODO: Developer or team name]",
             "category": "Coding",
-            "capabilities": ["Skill"] if skill_name and not with_process_tool else ["Skill", "Tool"] if skill_name else ["Tool"],
+            "capabilities": interface_capabilities,
             "defaultPrompt": f"Use {display_name}.",
             "brandColor": "#2563EB",
         },
@@ -74,41 +75,26 @@ def build_manifest(
 
     if skill_name:
         manifest["skills"] = "./skills/"
-
+    if with_mcp:
+        manifest["mcpServers"] = "./.mcp.json"
     if with_assets:
         manifest["interface"]["composerIcon"] = "./assets/plugin-icon.svg"
         manifest["interface"]["logo"] = "./assets/plugin-logo.svg"
 
-    if with_process_tool:
-        manifest["tools"] = [
-            {
-                "namespace": namespace_from_id(plugin_id),
-                "name": tool_name,
-                "description": "[TODO: Describe what the model can do with this tool.]",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                    },
-                    "required": ["text"],
-                },
-                "backend": {
-                    "kind": "process",
-                    "processId": "demo",
-                    "toolName": tool_name,
-                },
-            }
-        ]
-        manifest["processes"] = {
+    return manifest
+
+
+def build_mcp_config() -> dict[str, Any]:
+    return {
+        "mcpServers": {
             "demo": {
-                "command": "python",
-                "args": ["./tools/demo_tool.py"],
-                "workingDirectory": "./",
-                "toolTimeoutSeconds": 20,
+                "transport": "stdio",
+                "command": "node",
+                "args": ["./mcp-server/index.js"],
+                "cwd": "./",
             }
         }
-
-    return manifest
+    }
 
 
 def write_json(path: Path, data: dict[str, Any], force: bool) -> None:
@@ -125,7 +111,7 @@ def write_text(path: Path, content: str, force: bool) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def build_skill_md(skill_name: str, plugin_id: str) -> str:
+def build_skill_md(skill_name: str) -> str:
     title = display_name_from_id(skill_name)
     return f"""---
 name: {skill_name}
@@ -142,91 +128,6 @@ description: "[TODO: Describe when DotCraft should use this plugin-provided skil
 
 - [TODO: Explain how to confirm this skill worked.]
 """
-
-
-def build_process_tool_py(tool_name: str) -> str:
-    return f'''#!/usr/bin/env python3
-"""JSON-RPC stdio process for a DotCraft dynamic tool."""
-
-from __future__ import annotations
-
-import json
-import sys
-
-
-TOOL_NAME = "{tool_name}"
-
-
-def write_response(response: dict) -> None:
-    sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\\n")
-    sys.stdout.flush()
-
-
-def handle_initialize(request: dict) -> dict:
-    return {{
-        "jsonrpc": "2.0",
-        "id": request.get("id"),
-        "result": {{"success": True}},
-    }}
-
-
-def handle_tool_call(request: dict) -> dict:
-    params = request.get("params") or {{}}
-    arguments = params.get("arguments") or {{}}
-    text = str(arguments.get("text", ""))
-    result = {{
-        "success": True,
-        "contentItems": [
-            {{
-                "type": "text",
-                "text": f"Echo from {{TOOL_NAME}}: {{text}}",
-            }}
-        ],
-        "structuredResult": {{
-            "text": text,
-            "tool": TOOL_NAME,
-        }},
-    }}
-    return {{
-        "jsonrpc": "2.0",
-        "id": request.get("id"),
-        "result": result,
-    }}
-
-
-def handle_request(request: dict) -> dict:
-    method = request.get("method")
-    if method == "plugin/initialize":
-        return handle_initialize(request)
-    if method == "plugin/toolCall":
-        return handle_tool_call(request)
-    return {{
-        "jsonrpc": "2.0",
-        "id": request.get("id"),
-        "error": {{"code": -32601, "message": f"Unknown method: {{method}}"}},
-    }}
-
-
-def main() -> None:
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-            response = handle_request(request)
-        except Exception as exc:
-            response = {{
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {{"code": -32000, "message": str(exc)}},
-            }}
-        write_response(response)
-
-
-if __name__ == "__main__":
-    main()
-'''
 
 
 def build_icon_svg(label: str, color: str) -> str:
@@ -262,26 +163,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skill-name", help="Skill directory/name. Defaults to the plugin id.")
     parser.add_argument(
-        "--with-process-tool",
-        dest="with_process_tool",
+        "--with-mcp",
         action="store_true",
-        help="Add an external process dynamic tool declaration and Python stdio process scaffold.",
-    )
-    parser.add_argument(
-        "--with-function",
-        dest="with_process_tool",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--tool-name",
-        default="DemoTool",
-        help="Tool name for --with-process-tool. Must be a valid model-visible tool name.",
-    )
-    parser.add_argument(
-        "--function-name",
-        dest="tool_name",
-        help=argparse.SUPPRESS,
+        help="Create a plugin-bundled .mcp.json placeholder.",
     )
     parser.add_argument("--with-assets", action="store_true", help="Create plugin-level SVG icon/logo placeholders.")
     parser.add_argument("--force", action="store_true", help="Overwrite generated files that already exist.")
@@ -296,15 +180,9 @@ def main() -> None:
         print(f"Note: Normalized plugin id from '{raw_plugin_id}' to '{plugin_id}'.")
     validate_plugin_id(plugin_id)
 
-    if not args.with_skill and not args.with_process_tool:
-        raise ValueError("A plugin must include --with-skill or --with-process-tool.")
-
     skill_name = normalize_plugin_id(args.skill_name or plugin_id) if args.with_skill else None
     if skill_name:
         validate_plugin_id(skill_name)
-
-    if args.with_process_tool and not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", args.tool_name):
-        raise ValueError("--tool-name must match ^[A-Za-z_][A-Za-z0-9_]*$.")
 
     parent = Path(args.path).expanduser().resolve()
     plugin_root = parent / plugin_id
@@ -312,26 +190,24 @@ def main() -> None:
 
     write_json(
         manifest_path,
-        build_manifest(plugin_id, skill_name, args.with_process_tool, args.tool_name, args.with_assets),
+        build_manifest(plugin_id, skill_name, args.with_mcp, args.with_assets),
         args.force,
     )
 
     if skill_name:
-        write_text(plugin_root / "skills" / skill_name / "SKILL.md", build_skill_md(skill_name, plugin_id), args.force)
-
+        write_text(plugin_root / "skills" / skill_name / "SKILL.md", build_skill_md(skill_name), args.force)
+    if args.with_mcp:
+        write_json(plugin_root / ".mcp.json", build_mcp_config(), args.force)
     if args.with_assets:
         write_text(plugin_root / "assets" / "plugin-icon.svg", build_icon_svg(plugin_id, "#2563EB"), args.force)
         write_text(plugin_root / "assets" / "plugin-logo.svg", build_icon_svg(plugin_id, "#0F766E"), args.force)
-
-    if args.with_process_tool:
-        write_text(plugin_root / "tools" / "demo_tool.py", build_process_tool_py(args.tool_name), args.force)
 
     print(f"Created plugin scaffold: {plugin_root}")
     print(f"Plugin manifest: {manifest_path}")
     if skill_name:
         print(f"Plugin skill: {plugin_root / 'skills' / skill_name / 'SKILL.md'}")
-    if args.with_process_tool:
-        print(f"Plugin tool process: {plugin_root / 'tools' / 'demo_tool.py'}")
+    if args.with_mcp:
+        print(f"Plugin MCP config: {plugin_root / '.mcp.json'}")
 
 
 if __name__ == "__main__":

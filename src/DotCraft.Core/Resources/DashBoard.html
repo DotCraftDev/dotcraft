@@ -375,6 +375,7 @@ body {
 }
 
 .trace-event:hover { background: var(--bg-hover); }
+.trace-event.is-expanded { background: color-mix(in srgb, var(--bg-hover) 76%, transparent); }
 
 .trace-event.type-Request { border-left-color: var(--info); }
 .trace-event.type-Response { border-left-color: var(--success); }
@@ -423,8 +424,41 @@ body {
   font-size: 13px;
   color: var(--text-secondary);
   word-break: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+.trace-content.mono {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.trace-content.error { color: var(--error); }
+.trace-expand-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.trace-expand-toggle:hover,
+.trace-expand-toggle.open { color: var(--text-secondary); }
+.trace-expand-toggle::before {
+  content: '▶';
+  font-size: 10px;
+  transition: transform var(--transition);
+  display: inline-block;
+}
+.trace-expand-toggle.open::before { transform: rotate(90deg); }
 
 .trace-detail {
   margin-top: 6px;
@@ -1514,6 +1548,7 @@ let selectedSession = null;
 let eventSource = null;
 let allTraceEvents = [];
 let allSessions = [];
+const traceExpandableText = new Map();
 
 let automationsAvailable = false;
 let automationsSourceFilter = 'all';
@@ -1722,6 +1757,44 @@ function inlinePreview(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
 
+function renderExpandableTraceText(id, text, limit, options = {}) {
+  const content = text == null ? '' : String(text);
+  const preview = truncate(content, limit);
+  const expandable = content.length > limit;
+  const contentId = id + '-content';
+  const safeContentId = escapeHtml(contentId);
+  const safeId = escapeHtml(id);
+  const classes = ['trace-content'];
+  if (options.mono) classes.push('mono');
+  if (options.tone) classes.push(options.tone);
+
+  if (expandable) {
+    traceExpandableText.set(id, { full: content, preview });
+  }
+
+  return `<div class="${classes.join(' ')}" id="${safeContentId}">${escapeHtml(preview)}</div>${
+    expandable
+      ? `<button type="button" class="trace-expand-toggle" data-trace-expand-id="${safeId}" onclick="toggleInlineTraceText(this)" aria-expanded="false" aria-controls="${safeContentId}">Show full</button>`
+      : ''
+  }`;
+}
+
+function toggleInlineTraceText(toggle) {
+  const id = toggle.dataset.traceExpandId;
+  if (!id) return;
+  const entry = traceExpandableText.get(id);
+  const content = document.getElementById(id + '-content');
+  if (!entry || !content) return;
+
+  const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+  content.textContent = expanded ? entry.full : entry.preview;
+  toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  toggle.textContent = expanded ? 'Hide' : 'Show full';
+  toggle.classList.toggle('open', expanded);
+  const eventCard = toggle.closest('.trace-event');
+  if (eventCard) eventCard.classList.toggle('is-expanded', expanded);
+}
+
 function getSessionByKey(sessionKey) {
   return allSessions.find(s => s.sessionKey === sessionKey) || null;
 }
@@ -1928,6 +2001,7 @@ function renderTraceTimeline(events) {
     return;
   }
 
+  traceExpandableText.clear();
   container.innerHTML = filtered.map(e => renderTraceEvent(e)).join('');
 
   if (autoScroll) {
@@ -1955,9 +2029,8 @@ function renderTraceEvent(e) {
         <div class="trace-icon">💬</div>
         <div class="trace-body">
           <div class="trace-label request">Request${e.sessionKey && !selectedSession ? ' <span class="badge badge-info">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
-          <div class="trace-content">${escapeHtml(truncate(e.content, 500))}</div>
+          ${renderExpandableTraceText(evtId, e.content, 500)}
           ${metaLine}
-          ${e.content && e.content.length > 500 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
         </div></div>`;
 
     case 'Response':
@@ -1966,10 +2039,9 @@ function renderTraceEvent(e) {
         <div class="trace-icon">✨</div>
         <div class="trace-body">
           <div class="trace-label response">Response${e.sessionKey && !selectedSession ? ' <span class="badge badge-success">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
-          <div class="trace-content">${escapeHtml(truncate(e.content, 500))}</div>
+          ${renderExpandableTraceText(evtId, e.content, 500)}
           ${metaLine}
           ${e.metadataJson ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}-meta', this)">Metadata</div><div class="collapsible-content trace-detail" id="${evtId}-meta">${escapeHtml(e.metadataJson)}</div>` : ''}
-          ${e.content && e.content.length > 500 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
         </div></div>`;
 
     case 'ToolCallStarted':
@@ -1979,7 +2051,7 @@ function renderTraceEvent(e) {
         <div class="trace-body">
           <div class="trace-label tool-start">${escapeHtml(e.toolName || 'Tool')} <span class="badge badge-warning">started</span></div>
           ${metaLine}
-          ${e.toolArguments ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Arguments</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.toolArguments)}</div>` : ''}
+          ${e.toolArguments ? renderExpandableTraceText(`${evtId}-args`, e.toolArguments, 800, { mono: true }) : ''}
         </div></div>`;
 
     case 'ToolCallCompleted':
@@ -1991,7 +2063,7 @@ function renderTraceEvent(e) {
           <div class="trace-label tool-complete">${escapeHtml(e.toolName || 'Tool')} <span class="badge badge-accent">completed</span></div>
           ${dur}
           ${metaLine}
-          ${e.toolResult ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Result</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.toolResult)}</div>` : ''}
+          ${e.toolResult ? renderExpandableTraceText(`${evtId}-result`, e.toolResult, 800, { mono: true }) : ''}
         </div></div>`;
 
     case 'ToolInjection':
@@ -2000,7 +2072,7 @@ function renderTraceEvent(e) {
         <div class="trace-icon">${e.toolIcon || '🔌'}</div>
         <div class="trace-body">
           <div class="trace-label">${escapeHtml(e.toolName || 'Tools injected')} <span class="badge badge-info">injected</span></div>
-          <div class="trace-content">${escapeHtml(e.content || '')}</div>
+          ${renderExpandableTraceText(evtId, e.content, 500)}
         </div></div>`;
 
     case 'TokenUsage':
@@ -2022,7 +2094,7 @@ function renderTraceEvent(e) {
         <div class="trace-icon">❌</div>
         <div class="trace-body">
           <div class="trace-label error">Error</div>
-          <div class="trace-content" style="color:var(--error)">${escapeHtml(e.content || '')}</div>
+          ${renderExpandableTraceText(evtId, e.content, 500, { tone: 'error' })}
         </div></div>`;
 
     case 'ContextCompaction':
@@ -2031,7 +2103,7 @@ function renderTraceEvent(e) {
         <div class="trace-icon">🗜️</div>
         <div class="trace-body">
           <div class="trace-label compaction">Context Compaction</div>
-          <div class="trace-content">${escapeHtml(e.content || '')}</div>
+          ${renderExpandableTraceText(evtId, e.content, 500)}
         </div></div>`;
 
     case 'Thinking':
@@ -2040,9 +2112,8 @@ function renderTraceEvent(e) {
         <div class="trace-icon">💭</div>
         <div class="trace-body">
           <div class="trace-label thinking">Thinking${e.sessionKey && !selectedSession ? ' <span class="badge badge-info">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
-          <div class="trace-content">${escapeHtml(truncate(e.content, 300))}</div>
+          ${renderExpandableTraceText(evtId, e.content, 300)}
           ${metaLine}
-          ${e.content && e.content.length > 300 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
         </div></div>`;
 
     default:

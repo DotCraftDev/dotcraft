@@ -275,6 +275,7 @@ public sealed class AppServerHost(
             dashboardUrl: _runtime.DashboardUrl,
             wireAcpExtensionProxy: _runtime.WireAcpExtensionProxy,
             wireNodeReplProxy: _runtime.WireNodeReplProxy,
+            wireDynamicToolProxy: _runtime.WireDynamicToolProxy,
             channelStatusProvider: _runtime.ChannelStatusProvider,
             mcpClientManager: _runtime.McpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
@@ -306,7 +307,7 @@ public sealed class AppServerHost(
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, _runtime.WireDynamicToolProxy, cancellationToken);
         }
         finally
         {
@@ -358,7 +359,7 @@ public sealed class AppServerHost(
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, _runtime.WireDynamicToolProxy, cancellationToken);
         }
         finally
         {
@@ -512,7 +513,7 @@ public sealed class AppServerHost(
 
                         // Not a channel adapter — fall through to normal RunLoopAsync
                         // (initialize already processed, loop will handle subsequent messages)
-                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, hostCt);
+                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, _runtime.WireDynamicToolProxy, hostCt);
                         return;
                     }
 
@@ -527,7 +528,7 @@ public sealed class AppServerHost(
                     }
                 }
 
-                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, hostCt);
+                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _runtime.WireAcpExtensionProxy, _runtime.WireNodeReplProxy, _runtime.WireDynamicToolProxy, hostCt);
             } // end try
             finally
             {
@@ -556,6 +557,7 @@ public sealed class AppServerHost(
         AppServerRequestHandler handler,
         WireAcpExtensionProxy? wireAcpProxy,
         WireNodeReplProxy? wireNodeReplProxy,
+        WireDynamicToolProxy? wireDynamicToolProxy,
         CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -612,6 +614,7 @@ public sealed class AppServerHost(
         connection.CancelAllSubscriptions();
         wireAcpProxy?.UnbindTransport(transport);
         wireNodeReplProxy?.UnbindTransport(transport);
+        wireDynamicToolProxy?.UnbindTransport(transport);
     }
 
     private static async Task ProcessRequestAsync(
@@ -691,7 +694,15 @@ public sealed class AppServerHost(
             ResourceCount = e.Status.ResourceCount,
             ResourceTemplateCount = e.Status.ResourceTemplateCount,
             LastError = e.Status.LastError,
-            Transport = e.Status.Transport
+            Transport = e.Status.Transport,
+            Origin = new McpServerOriginWire
+            {
+                Kind = e.Status.Origin.Kind,
+                PluginId = e.Status.Origin.PluginId,
+                PluginDisplayName = e.Status.Origin.PluginDisplayName,
+                DeclaredName = e.Status.Origin.DeclaredName
+            },
+            ReadOnly = e.Status.ReadOnly
         });
     }
 

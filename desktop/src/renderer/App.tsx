@@ -342,6 +342,7 @@ export function App(): JSX.Element {
       .get()
       .then((s) => {
         applyTheme(resolveTheme(s.theme))
+        useUIStore.getState().setShowThinkingContent(s.showThinkingContent !== false)
       })
       .catch(() => {})
   }, [])

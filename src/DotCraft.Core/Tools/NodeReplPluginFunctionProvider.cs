@@ -2,28 +2,21 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Plugins;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools;
 
 /// <summary>
-/// Provides Desktop-hosted Node REPL plugin functions when the current thread is bound
+/// Provides Desktop-hosted Node REPL runtime tools when the current thread is bound
 /// to a browser-use capable AppServer client.
 /// </summary>
-public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
+public sealed class NodeReplPluginFunctionProvider : IAgentToolProvider
 {
     public const string PluginId = PluginIds.BrowserUse;
 
     public int Priority => 120;
 
-    public IEnumerable<PluginFunctionDescriptor> CreateKnownFunctions(ToolProviderContext context)
-    {
-        if (!IsBrowserUsePluginEnabledAndInstalled(context))
-            yield break;
-
-        yield return CreateDescriptor();
-    }
-
-    public IEnumerable<PluginFunctionRegistration> CreateFunctions(ToolProviderContext context)
+    public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
         if (!IsBrowserUsePluginEnabledAndInstalled(context))
             yield break;
@@ -32,9 +25,10 @@ public sealed class NodeReplPluginFunctionProvider : IPluginFunctionProvider
         if (proxy?.IsAvailable != true)
             yield break;
 
-        yield return new PluginFunctionRegistration(
-            CreateDescriptor(),
-            new NodeReplJsInvoker(proxy));
+        yield return new PluginFunctionRuntimeFunction(
+            new PluginFunctionRegistration(
+                CreateDescriptor(),
+                new NodeReplJsInvoker(proxy)));
 
     }
 

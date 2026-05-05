@@ -3,7 +3,17 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { GetUpdatesResp, SendMessageReq, WeixinMessage } from "./weixin-types.js";
+import {
+  MessageItemType,
+  MessageState,
+  MessageType,
+  type CDNMedia,
+  type GetUpdatesResp,
+  type GetUploadUrlReq,
+  type GetUploadUrlResp,
+  type SendMessageReq,
+  type WeixinMessage,
+} from "./weixin-types.js";
 
 const DEFAULT_LONG_POLL_MS = 35_000;
 const DEFAULT_API_TIMEOUT_MS = 15_000;
@@ -115,6 +125,20 @@ export async function sendMessage(
   });
 }
 
+export async function getUploadUrl(
+  opts: WeixinApiOptions & { body: GetUploadUrlReq },
+): Promise<GetUploadUrlResp> {
+  const rawText = await apiFetch({
+    baseUrl: opts.baseUrl,
+    endpoint: "ilink/bot/getuploadurl",
+    body: JSON.stringify({ ...opts.body, base_info: buildBaseInfo() }),
+    token: opts.token,
+    timeoutMs: opts.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
+    label: "getUploadUrl",
+  });
+  return JSON.parse(rawText) as GetUploadUrlResp;
+}
+
 export function buildTextMessageReq(params: {
   toUserId: string;
   text: string;
@@ -129,11 +153,70 @@ export function buildTextMessageReq(params: {
     from_user_id: "",
     to_user_id: params.toUserId,
     client_id: params.clientId,
-    message_type: 2,
+    message_type: MessageType.BOT,
+    message_state: MessageState.FINISH,
     item_list: item_list.length ? item_list : undefined,
     context_token: params.contextToken,
   };
   return { msg };
+}
+
+export function buildFileMessageReq(params: {
+  toUserId: string;
+  fileName: string;
+  media: CDNMedia;
+  byteLength: number;
+  contextToken?: string;
+  clientId: string;
+}): SendMessageReq {
+  return {
+    msg: {
+      from_user_id: "",
+      to_user_id: params.toUserId,
+      client_id: params.clientId,
+      message_type: MessageType.BOT,
+      message_state: MessageState.FINISH,
+      context_token: params.contextToken,
+      item_list: [
+        {
+          type: MessageItemType.FILE,
+          file_item: {
+            media: params.media,
+            file_name: params.fileName,
+            len: String(params.byteLength),
+          },
+        },
+      ],
+    },
+  };
+}
+
+export function buildImageMessageReq(params: {
+  toUserId: string;
+  media: CDNMedia;
+  ciphertextByteLength: number;
+  contextToken?: string;
+  clientId: string;
+}): SendMessageReq {
+  return {
+    msg: {
+      from_user_id: "",
+      to_user_id: params.toUserId,
+      client_id: params.clientId,
+      message_type: MessageType.BOT,
+      message_state: MessageState.FINISH,
+      context_token: params.contextToken,
+      item_list: [
+        {
+          type: MessageItemType.IMAGE,
+          image_item: {
+            media: params.media,
+            mid_size: params.ciphertextByteLength,
+          },
+        },
+      ],
+    },
+  };
 }
 
 /** Session expired (openclaw-weixin session-guard). */

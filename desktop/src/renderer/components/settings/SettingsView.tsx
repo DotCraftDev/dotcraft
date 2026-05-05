@@ -298,6 +298,16 @@ function createEmptyMcpServer(): McpServerConfigWire {
   }
 }
 
+function isPluginManagedMcpServer(server: McpServerConfigWire, originsEnabled: boolean): boolean {
+  return (originsEnabled && server.origin?.kind === 'plugin') || server.readOnly === true
+}
+
+function mcpPluginSourceLabel(server: McpServerConfigWire, t: (key: MessageKey | string, vars?: Record<string, string | number>) => string): string {
+  return t('settings.mcp.origin.fromPlugin', {
+    plugin: server.origin?.pluginDisplayName || server.origin?.pluginId || 'plugin'
+  })
+}
+
 function getStatusTone(
   t: (key: MessageKey | string, vars?: Record<string, string | number>) => string,
   status?: McpServerStatusWire
@@ -433,6 +443,20 @@ function secondaryActionButtonStyle(disabled = false): CSSProperties {
   }
 }
 
+function mcpSourcePillStyle(): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    minHeight: 20,
+    padding: '2px 7px',
+    borderRadius: 999,
+    backgroundColor: 'var(--bg-tertiary)',
+    color: 'var(--text-secondary)',
+    fontSize: 11,
+    fontWeight: 600
+  }
+}
+
 function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return '0'
   return new Intl.NumberFormat(undefined, {
@@ -529,6 +553,8 @@ export function SettingsView({
   const confirm = useConfirmDialog()
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
+  const showThinkingContent = useUIStore((s) => s.showThinkingContent)
+  const setShowThinkingContent = useUIStore((s) => s.setShowThinkingContent)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const setExpectedRestart = useConnectionStore((s) => s.setExpectedRestart)
   const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
@@ -664,6 +690,7 @@ export function SettingsView({
   const [subAgentRefreshTick, setSubAgentRefreshTick] = useState(0)
 
   const mcpEnabled = capabilities?.mcpManagement === true
+  const mcpOriginsEnabled = capabilities?.mcpServerOrigins === true
   const subAgentEnabled = capabilities?.subAgentManagement === true
   const pluginManagementEnabled = capabilities?.pluginManagement === true
   const browserUsePlugin = plugins.find((plugin) => plugin.id === 'browser-use') ?? null
@@ -839,6 +866,25 @@ export function SettingsView({
     [memoryAutoConsolidateEnabled, reloadWorkspaceCore, t]
   )
 
+  const handleShowThinkingContentToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = showThinkingContent
+      setShowThinkingContent(checked)
+      try {
+        await window.api.settings.set({ showThinkingContent: checked })
+      } catch (err) {
+        setShowThinkingContent(previous)
+        addToast(
+          t('settings.saveFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      }
+    },
+    [setShowThinkingContent, showThinkingContent, t]
+  )
+
   const handleDefaultApprovalPolicyChange = useCallback(
     async (nextPolicy: VisibleApprovalPolicy): Promise<boolean> => {
       if (nextPolicy === defaultApprovalPolicy || applyingDefaultApprovalPolicy) return false
@@ -932,6 +978,7 @@ export function SettingsView({
         setProxyBinaryPath(s.proxy?.binaryPath ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
+        setShowThinkingContent(s.showThinkingContent !== false)
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
         setBrowserUseApprovalMode((s.browserUse?.approvalMode ?? 'alwaysAsk') as BrowserUseApprovalMode)
         setBrowserUseBlockedDomains([...(s.browserUse?.blockedDomains ?? [])])
@@ -1310,6 +1357,7 @@ export function SettingsView({
   }
 
   function startMcpDraft(server?: McpServerConfigWire): void {
+    if (server && isPluginManagedMcpServer(server, mcpOriginsEnabled)) return
     const next = server
       ? {
           ...createEmptyMcpServer(),
@@ -1434,6 +1482,7 @@ export function SettingsView({
   }
 
   async function handleMcpQuickToggle(server: McpServerConfigWire, nextEnabled: boolean): Promise<void> {
+    if (isPluginManagedMcpServer(server, mcpOriginsEnabled)) return
     setTogglingServerName(server.name)
     try {
       await window.api.appServer.sendRequest('mcp/upsert', {
@@ -1466,6 +1515,18 @@ export function SettingsView({
       addToast(`Failed to remove MCP server: ${err instanceof Error ? err.message : String(err)}`, 'error')
     } finally {
       setDeletingMcp(false)
+    }
+  }
+
+  async function handleViewPluginMcp(server: McpServerConfigWire): Promise<void> {
+    const pluginId = server.origin?.pluginId?.trim()
+    if (!pluginId) return
+
+    try {
+      await usePluginStore.getState().selectPlugin(pluginId)
+      setActiveMainView('skills')
+    } catch (err) {
+      addToast(`Failed to open plugin: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
   }
 
@@ -2423,6 +2484,19 @@ export function SettingsView({
                       />
                     }
                   />
+                  <SettingsRow
+                    label={t('settings.personalization.showThinkingContent')}
+                    description={t('settings.personalization.showThinkingContentHint')}
+                    control={
+                      <PillSwitch
+                        checked={showThinkingContent}
+                        aria-label={t('settings.personalization.showThinkingContent')}
+                        onChange={(checked) => {
+                          void handleShowThinkingContentToggle(checked)
+                        }}
+                      />
+                    }
+                  />
                 </SettingsGroup>
               </div>
               </GeneralPanel>
@@ -3176,6 +3250,7 @@ export function SettingsView({
                         const status = mcpStatuses[server.name.trim().toLowerCase()]
                         const tone = getStatusTone(t, status)
                         const isToggling = togglingServerName === server.name
+                        const isPluginManaged = isPluginManagedMcpServer(server, mcpOriginsEnabled)
                         const transportLabel =
                           server.transport === 'stdio'
                             ? t('settings.mcp.transport.stdio')
@@ -3187,11 +3262,12 @@ export function SettingsView({
                         return (
                           <div
                             key={server.name}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Edit MCP server ${server.name}`}
-                            onClick={() => startMcpDraft(server)}
+                            role={isPluginManaged ? undefined : 'button'}
+                            tabIndex={isPluginManaged ? undefined : 0}
+                            aria-label={isPluginManaged ? `MCP server ${server.name}` : `Edit MCP server ${server.name}`}
+                            onClick={isPluginManaged ? undefined : () => startMcpDraft(server)}
                             onKeyDown={(event) => {
+                              if (isPluginManaged) return
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault()
                                 startMcpDraft(server)
@@ -3203,7 +3279,7 @@ export function SettingsView({
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               gap: '16px',
-                              cursor: 'pointer',
+                              cursor: isPluginManaged ? 'default' : 'pointer',
                               textAlign: 'left',
                               opacity: isToggling ? 0.7 : 1
                             }}
@@ -3224,6 +3300,14 @@ export function SettingsView({
                                 }}
                               >
                                 <span>{transportLabel}</span>
+                                {isPluginManaged && (
+                                  <>
+                                    <span aria-hidden>·</span>
+                                    <span style={mcpSourcePillStyle()}>
+                                      {mcpPluginSourceLabel(server, t)}
+                                    </span>
+                                  </>
+                                )}
                                 <span aria-hidden>·</span>
                                 <span style={{ color: tone.color, fontWeight: 500 }}>{tone.label}</span>
                                 {toolCountLabel && (
@@ -3239,20 +3323,33 @@ export function SettingsView({
                                 </div>
                               )}
                             </div>
-                            <span
-                              onClick={(event) => event.stopPropagation()}
-                              onKeyDown={(event) => event.stopPropagation()}
-                              style={{ flexShrink: 0, display: 'inline-flex' }}
-                            >
-                              <PillSwitch
-                                checked={server.enabled}
-                                disabled={isToggling}
-                                onChange={(checked) => {
-                                  void handleMcpQuickToggle(server, checked)
+                            {isPluginManaged ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleViewPluginMcp(server)
                                 }}
-                                aria-label={`Toggle MCP server ${server.name}`}
-                              />
-                            </span>
+                                style={secondaryButtonStyle(false)}
+                              >
+                                {t('settings.mcp.viewPlugin')}
+                              </button>
+                            ) : (
+                              <span
+                                onClick={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                style={{ flexShrink: 0, display: 'inline-flex' }}
+                              >
+                                <PillSwitch
+                                  checked={server.enabled}
+                                  disabled={isToggling}
+                                  onChange={(checked) => {
+                                    void handleMcpQuickToggle(server, checked)
+                                  }}
+                                  aria-label={`Toggle MCP server ${server.name}`}
+                                />
+                              </span>
+                            )}
                           </div>
                         )
                       })}

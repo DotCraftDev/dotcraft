@@ -3,6 +3,13 @@ import { create } from 'zustand'
 export type McpTransport = 'stdio' | 'streamableHttp'
 export type McpStartupState = 'idle' | 'starting' | 'ready' | 'error' | 'disabled'
 
+export interface McpServerOriginWire {
+  kind: 'workspace' | 'plugin'
+  pluginId?: string | null
+  pluginDisplayName?: string | null
+  declaredName?: string | null
+}
+
 export interface McpServerConfigWire {
   name: string
   enabled: boolean
@@ -18,6 +25,8 @@ export interface McpServerConfigWire {
   envHttpHeaders?: Record<string, string> | null
   startupTimeoutSec?: number | null
   toolTimeoutSec?: number | null
+  origin?: McpServerOriginWire | null
+  readOnly?: boolean
 }
 
 export interface McpServerStatusWire {
@@ -29,6 +38,8 @@ export interface McpServerStatusWire {
   resourceTemplateCount?: number | null
   lastError?: string | null
   transport: McpTransport
+  origin?: McpServerOriginWire | null
+  readOnly?: boolean
 }
 
 interface McpStore {

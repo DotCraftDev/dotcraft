@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { ActionTooltip } from '../ui/ActionTooltip'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 
@@ -21,19 +22,27 @@ export function ThinkingIndicator({
   reasoning,
   streaming = false
 }: ThinkingIndicatorProps): JSX.Element {
+  const t = useT()
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
   const canExpand = !!reasoning
 
   const label = streaming
-    ? 'Thinking...'
-    : `Thought ${elapsedSeconds ?? 0}s`
+    ? t('conversation.thinking.streaming')
+    : t('conversation.thinking.completed', { seconds: elapsedSeconds ?? 0 })
   const rowColor = hovered || expanded ? 'var(--text-secondary)' : 'var(--text-dimmed)'
 
   return (
     <div style={{ marginBottom: '6px' }}>
       {/* Summary line */}
-      <ActionTooltip label={canExpand ? 'Click to expand reasoning' : 'Agent is thinking...'} placement="top">
+      <ActionTooltip
+        label={
+          canExpand
+            ? t('conversation.thinking.expandTooltip')
+            : t('conversation.thinking.statusTooltip')
+        }
+        placement="top"
+      >
         <button
           onClick={() => canExpand && setExpanded((v) => !v)}
           onMouseEnter={() => setHovered(true)}

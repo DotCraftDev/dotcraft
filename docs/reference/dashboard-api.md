@@ -17,6 +17,8 @@ Dashboard API 面向调试界面和内部工具。普通用户通常只需要使
 | `approval.completed` | 审批完成 |
 | `error` | 运行错误 |
 
+Dashboard 的 `Thinking` 和 `Response` trace 事件按连续 streaming 内容段记录，而不是按每个 chunk 记录，也不是整轮强制合并为单条。`ThinkingCount` 和 `ResponseCount` 因此表示对应内容段数量。实时事件流会在当前段结束并落库时发送该段事件；历史 trace 不迁移，旧数据可能仍保留旧粒度。
+
 ## 端点
 
 ### `GET /DashBoard`

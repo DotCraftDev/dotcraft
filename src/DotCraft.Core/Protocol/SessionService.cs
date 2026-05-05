@@ -9,6 +9,7 @@ using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
 using DotCraft.Plugins;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
@@ -67,7 +68,9 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, int> _turnsSinceConsolidation = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadPluginFunctionToolNames = new();
+    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadDynamicToolNames = new();
     private static readonly IReadOnlySet<string> EmptyPluginFunctionToolNames = new HashSet<string>(StringComparer.Ordinal);
+    private static readonly IReadOnlySet<string> EmptyDynamicToolNames = new HashSet<string>(StringComparer.Ordinal);
     private static readonly HttpClient QueuedInputHttpClient = new();
     private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
     private volatile bool _forcePerThreadAgents;
@@ -648,6 +651,7 @@ public sealed class SessionService(
         _threadAgents.TryRemove(thread.Id, out _);
         _threadModeManagers.TryRemove(thread.Id, out _);
         _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
+        _threadDynamicToolNames.TryRemove(thread.Id, out _);
         if (backgroundTerminalService != null)
             await backgroundTerminalService.CleanThreadAsync(thread.Id, ct);
         await PersistThreadStatusAsync(thread, ct);
@@ -691,12 +695,12 @@ public sealed class SessionService(
         _materializedThreads.TryRemove(threadId, out _);
         _turnsSinceConsolidation.TryRemove(threadId, out _);
         _threadPluginFunctionToolNames.TryRemove(threadId, out _);
+        _threadDynamicToolNames.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
         if (backgroundTerminalService != null)
             await backgroundTerminalService.CleanThreadAsync(threadId, ct);
 
-        _threadsPendingPermanentDeletion.TryRemove(threadId, out _);
         ThreadDeletedForBroadcast?.Invoke(threadId);
     }
 
@@ -1262,9 +1266,11 @@ public sealed class SessionService(
 
                 // Step 5g: Run agent
                 var pluginFunctionCallIds = new HashSet<string>(StringComparer.Ordinal);
+                var dynamicToolCallIds = new HashSet<string>(StringComparer.Ordinal);
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
                 var pluginFunctionToolNames = GetPluginFunctionToolNames(threadId);
+                var dynamicToolNames = GetDynamicToolNames(threadId);
 
                 // SubAgent progress aggregator: lazily created when SpawnAgent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
@@ -1436,7 +1442,8 @@ public sealed class SessionService(
                                             : null;
                                     if (string.IsNullOrWhiteSpace(resolvedToolName))
                                         break;
-                                    if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName))
+                                    if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName)
+                                        || IsDynamicTool(dynamicToolNames, resolvedToolName))
                                         break;
 
                                     FinalizeStreamingReasoning();
@@ -1481,8 +1488,11 @@ public sealed class SessionService(
                                 case FunctionCallContent fc:
                                 {
                                     var isPluginFunctionTool = IsPluginFunctionTool(pluginFunctionToolNames, fc.Name);
+                                    var isDynamicTool = IsDynamicTool(dynamicToolNames, fc.Name);
                                     if (isPluginFunctionTool && !string.IsNullOrWhiteSpace(fc.CallId))
                                         pluginFunctionCallIds.Add(fc.CallId);
+                                    if (isDynamicTool && !string.IsNullOrWhiteSpace(fc.CallId))
+                                        dynamicToolCallIds.Add(fc.CallId);
                                     FinalizeStreamingReasoning();
                                     RegisterCommandExecutionIfNeeded(
                                         fc,
@@ -1491,7 +1501,7 @@ public sealed class SessionService(
                                         eventChannel,
                                         supportsCommandExecutionStreaming,
                                         effectiveWorkspacePath);
-                                    if (isPluginFunctionTool)
+                                    if (isPluginFunctionTool || isDynamicTool)
                                         break;
                                     RegisterToolExecutionIfNeeded(
                                         fc,
@@ -1583,6 +1593,14 @@ public sealed class SessionService(
                                         // items emitted from the plugin function wrapper.
                                         // Even when toolResult is suppressed, keep text segmentation aligned
                                         // with normal tools so post-tool text starts a new agent message item.
+                                        FinalizeStreamingAgentMessage();
+                                        break;
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(fr.CallId)
+                                        && dynamicToolCallIds.Remove(fr.CallId))
+                                    {
+                                        // Runtime dynamic tools are represented by dynamicToolCall
+                                        // items emitted from the dynamic tool wrapper.
                                         FinalizeStreamingAgentMessage();
                                         break;
                                     }
@@ -2916,6 +2934,7 @@ public sealed class SessionService(
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 NodeReplProxy = baseCtx.NodeReplProxy,
                 CronTools = baseCtx.CronTools,
+                McpClientManager = baseCtx.McpClientManager,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
                 ExternalCliSessionStore = externalCliSessionStore,
                 AutomationTaskDirectory = config.AutomationTaskDirectory,
@@ -2933,6 +2952,25 @@ public sealed class SessionService(
             };
         }
 
+        var toolContext = scopedContext ?? threadBaseContext;
+        if (config.McpServers is { Length: > 0 })
+        {
+            if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
+                await oldManager.DisposeAsync();
+
+            var threadMcpManager = new McpClientManager();
+            await threadMcpManager.ConnectAsync(config.McpServers, ct);
+            await threadMcpManager.WaitForStartupCompletionAsync(ct);
+            _threadMcpManagers[threadId] = threadMcpManager;
+            toolContext = CloneContextWithMcpManager(toolContext, threadMcpManager);
+        }
+        else if (toolContext.McpClientManager != null)
+        {
+            await toolContext.McpClientManager.WaitForStartupCompletionAsync(ct);
+        }
+
+        toolContext.DeferredToolRegistry = null;
+
         List<AITool>? profileTools = null;
         if (!string.IsNullOrEmpty(config.ToolProfile))
         {
@@ -2943,107 +2981,23 @@ public sealed class SessionService(
                 throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
             }
 
-            var toolCtx = scopedContext ?? threadBaseContext;
-            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
+            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolContext);
         }
 
         if (config.UseToolProfileOnly)
         {
             if (profileTools is not { Count: > 0 })
                 throw new InvalidOperationException("UseToolProfileOnly requires a registered ToolProfile with at least one tool.");
-            var toolCtx2 = scopedContext ?? threadBaseContext;
             ApplyThreadToolFilters(profileTools, config);
-            return agentFactory.CreateAgentWithTools(profileTools, mm, toolCtx2, config.AgentInstructions);
+            return agentFactory.CreateAgentWithTools(profileTools, mm, toolContext, config.AgentInstructions);
         }
 
-        if (config.McpServers is not { Length: > 0 })
-        {
-            if (scopedContext != null)
-            {
-                var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
-                if (profileTools != null)
-                    tools.AddRange(profileTools);
-                AppendChannelTools(tools, thread);
-                ApplyThreadToolFilters(tools, config);
-                return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
-            }
-
-            if (profileTools != null)
-            {
-                var tools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
-                tools.AddRange(profileTools);
-                AppendChannelTools(tools, thread);
-                ApplyThreadToolFilters(tools, config);
-                return agentFactory.CreateAgentWithTools(tools, mm, threadBaseContext);
-            }
-
-            var modeTools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
-            AppendChannelTools(modeTools, thread);
-            ApplyThreadToolFilters(modeTools, config);
-            return agentFactory.CreateAgentWithTools(modeTools, mm, threadBaseContext);
-        }
-
-        // Dispose previous per-thread MCP manager if replacing config
-        if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
-            await oldManager.DisposeAsync();
-
-        var mcpManager = new McpClientManager();
-        await mcpManager.ConnectAsync(config.McpServers, ct);
-        _threadMcpManagers[threadId] = mcpManager;
-
-        if (scopedContext != null)
-        {
-            var effectiveContext = new ToolProviderContext
-            {
-                Config = scopedContext.Config,
-                ChatClient = scopedContext.ChatClient,
-                OpenAIClientProvider = scopedContext.OpenAIClientProvider,
-                EffectiveMainModel = scopedContext.EffectiveMainModel,
-                WorkspacePath = scopedContext.WorkspacePath,
-                BotPath = scopedContext.BotPath,
-                MemoryStore = scopedContext.MemoryStore,
-                SkillsLoader = scopedContext.SkillsLoader,
-                ApprovalService = scopedContext.ApprovalService,
-                PathBlacklist = scopedContext.PathBlacklist,
-                BackgroundTerminalService = scopedContext.BackgroundTerminalService,
-                TraceCollector = scopedContext.TraceCollector,
-                McpClientManager = mcpManager,
-                LspServerManager = scopedContext.LspServerManager,
-                AcpExtensionProxy = scopedContext.AcpExtensionProxy,
-                NodeReplProxy = scopedContext.NodeReplProxy,
-                CronTools = scopedContext.CronTools,
-                DeferredToolRegistry = scopedContext.DeferredToolRegistry,
-                ExternalCliSessionStore = scopedContext.ExternalCliSessionStore,
-                AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
-                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace,
-                CurrentThreadId = scopedContext.CurrentThreadId,
-                CurrentThreadSource = scopedContext.CurrentThreadSource,
-                CurrentOriginChannel = scopedContext.CurrentOriginChannel,
-                CurrentChannelContext = scopedContext.CurrentChannelContext,
-                AgentControlToolAccess = scopedContext.AgentControlToolAccess,
-                AllowedAgentControlTools = scopedContext.AllowedAgentControlTools,
-                ToolAllowList = scopedContext.ToolAllowList,
-                ToolDenyList = scopedContext.ToolDenyList,
-                PromptProfile = scopedContext.PromptProfile,
-                RoleInstructions = scopedContext.RoleInstructions
-            };
-
-            var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
-            if (profileTools != null)
-                modeTools.AddRange(profileTools);
-            modeTools.AddRange(mcpManager.Tools);
-            AppendChannelTools(modeTools, thread);
-            ApplyThreadToolFilters(modeTools, config);
-            return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
-        }
-
-        var toolsWithMcp = agentFactory.CreateToolsForMode(mode, threadBaseContext);
+        var toolsWithMcp = agentFactory.CreateToolsForMode(mode, toolContext);
         if (profileTools != null)
             toolsWithMcp.AddRange(profileTools);
-        toolsWithMcp.AddRange(mcpManager.Tools);
         AppendChannelTools(toolsWithMcp, thread);
         ApplyThreadToolFilters(toolsWithMcp, config);
-        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, threadBaseContext);
+        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, toolContext);
     }
 
     private static void ApplyThreadToolFilters(List<AITool> tools, ThreadConfiguration config)
@@ -3080,12 +3034,21 @@ public sealed class SessionService(
             .ToHashSet(StringComparer.Ordinal);
 
         if (pluginFunctionToolNames.Count == 0)
-        {
             _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
-            return;
-        }
+        else
+            _threadPluginFunctionToolNames[thread.Id] = pluginFunctionToolNames;
 
-        _threadPluginFunctionToolNames[thread.Id] = pluginFunctionToolNames;
+        var dynamicToolNames = tools
+            .OfType<IDynamicToolRuntimeTool>()
+            .Select(tool => tool.Spec.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (dynamicToolNames.Count == 0)
+            _threadDynamicToolNames.TryRemove(thread.Id, out _);
+        else
+            _threadDynamicToolNames[thread.Id] = dynamicToolNames;
     }
 
     private IReadOnlySet<string> GetPluginFunctionToolNames(string threadId)
@@ -3093,6 +3056,12 @@ public sealed class SessionService(
 
     private static bool IsPluginFunctionTool(IReadOnlySet<string> pluginFunctionToolNames, string? toolName)
         => !string.IsNullOrWhiteSpace(toolName) && pluginFunctionToolNames.Contains(toolName);
+
+    private IReadOnlySet<string> GetDynamicToolNames(string threadId)
+        => _threadDynamicToolNames.GetValueOrDefault(threadId, EmptyDynamicToolNames);
+
+    private static bool IsDynamicTool(IReadOnlySet<string> dynamicToolNames, string? toolName)
+        => !string.IsNullOrWhiteSpace(toolName) && dynamicToolNames.Contains(toolName);
 
     private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, string effectiveMainModel) =>
         baseContext.OpenAIClientProvider.TryGetChatClient(baseContext.Config, effectiveMainModel, out var chatClient)
@@ -3145,6 +3114,45 @@ public sealed class SessionService(
         };
         return cloned;
     }
+
+    private static ToolProviderContext CloneContextWithMcpManager(
+        ToolProviderContext source,
+        McpClientManager mcpClientManager) =>
+        new()
+        {
+            Config = source.Config,
+            ChatClient = source.ChatClient,
+            OpenAIClientProvider = source.OpenAIClientProvider,
+            EffectiveMainModel = source.EffectiveMainModel,
+            WorkspacePath = source.WorkspacePath,
+            BotPath = source.BotPath,
+            MemoryStore = source.MemoryStore,
+            SkillsLoader = source.SkillsLoader,
+            SkillMutationApplier = source.SkillMutationApplier,
+            ApprovalService = source.ApprovalService,
+            PathBlacklist = source.PathBlacklist,
+            BackgroundTerminalService = source.BackgroundTerminalService,
+            CronTools = source.CronTools,
+            McpClientManager = mcpClientManager,
+            LspServerManager = source.LspServerManager,
+            TraceCollector = source.TraceCollector,
+            AcpExtensionProxy = source.AcpExtensionProxy,
+            NodeReplProxy = source.NodeReplProxy,
+            ExternalCliSessionStore = source.ExternalCliSessionStore,
+            AgentFileSystem = source.AgentFileSystem,
+            AutomationTaskDirectory = source.AutomationTaskDirectory,
+            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,
+            CurrentThreadId = source.CurrentThreadId,
+            CurrentThreadSource = source.CurrentThreadSource,
+            CurrentOriginChannel = source.CurrentOriginChannel,
+            CurrentChannelContext = source.CurrentChannelContext,
+            AgentControlToolAccess = source.AgentControlToolAccess,
+            AllowedAgentControlTools = source.AllowedAgentControlTools,
+            ToolAllowList = source.ToolAllowList,
+            ToolDenyList = source.ToolDenyList,
+            PromptProfile = source.PromptProfile,
+            RoleInstructions = source.RoleInstructions
+        };
 
     private static IReadOnlySet<string>? ToSet(IEnumerable<string>? values)
     {

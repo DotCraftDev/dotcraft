@@ -4,6 +4,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { SettingsView } from '../components/settings/SettingsView'
 import { useConnectionStore } from '../stores/connectionStore'
 import { usePendingRestartStore } from '../stores/pendingRestartStore'
+import { useUIStore } from '../stores/uiStore'
 
 const settingsGet = vi.fn()
 const settingsSet = vi.fn()
@@ -40,6 +41,7 @@ describe('SettingsView self-learning settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     usePendingRestartStore.getState().clear()
+    useUIStore.getState().setShowThinkingContent(true)
     delete (window as Window & { __confirmDialog?: unknown }).__confirmDialog
 
     const core = {
@@ -181,6 +183,37 @@ describe('SettingsView self-learning settings', () => {
     const toggle = await screen.findByRole('switch', { name: 'Enable self-learning' })
 
     expect(toggle).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('defaults thinking content display on when the setting is absent', async () => {
+    renderView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Personalization' }))
+    const toggle = await screen.findByRole('switch', { name: 'Show thinking content' })
+
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('loads and saves the thinking content display preference', async () => {
+    settingsGet.mockResolvedValueOnce({
+      locale: 'en',
+      connectionMode: 'stdio',
+      visibleChannels: [],
+      showThinkingContent: false
+    })
+
+    renderView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Personalization' }))
+    const toggle = await screen.findByRole('switch', { name: 'Show thinking content' })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalledWith({ showThinkingContent: true })
+    })
+    expect(useUIStore.getState().showThinkingContent).toBe(true)
   })
 
   it('saves long-term memory toggle without restart banner', async () => {

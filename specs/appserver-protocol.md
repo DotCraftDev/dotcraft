@@ -339,6 +339,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "modelCatalogManagement": true,
     "workspaceConfigManagement": true,
     "mcpManagement": true,
+    "mcpServerOrigins": true,
     "externalChannelManagement": true,
     "mcpStatus": true,
     "extensions": {
@@ -369,6 +370,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
+| `capabilities.mcpServerOrigins` | boolean | Server annotates MCP config/status DTOs with `origin` and `readOnly` so clients can show plugin-bundled MCP servers as read-only runtime entries. |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
 | `capabilities.subAgentManagement` | boolean | Server supports SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
@@ -401,8 +403,45 @@ Create a new thread. The server generates a Thread ID and persists initial state
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Channel identity for thread ownership. See [Session Core, Section 4.1.4](session-core.md#414-sessionidentity). |
 | `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
+| `dynamicTools` | DynamicToolSpec[] | no | Thread-scoped runtime tools implemented by the AppServer client that creates the thread. |
 | `historyMode` | string | no | `"server"` (default) or `"client"`. |
 | `displayName` | string | no | Explicit thread display name. |
+
+#### 4.1.0 Runtime Dynamic Tools
+
+`dynamicTools` lets an AppServer client expose thread-scoped callback tools to the agent. The tools are bound to the connection that creates the thread and are invoked through the server-to-client `item/tool/call` request. They are not plugin manifest tools and are not a general remote tool transport; external reusable services should use MCP.
+
+Dynamic tool spec:
+
+```json
+{
+  "namespace": "oratorio",
+  "name": "SubmitReviewDraft",
+  "description": "Submit a structured code review draft.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "body": { "type": "string" }
+    },
+    "required": ["body"]
+  },
+  "deferLoading": false,
+  "approval": {
+    "kind": "remoteResource",
+    "targetArgument": "body",
+    "operation": "submit-review-draft"
+  }
+}
+```
+
+Rules:
+
+- `name` and `description` are required.
+- `namespace` is optional. When present it must be non-empty after trimming.
+- `inputSchema` is required and must be a valid JSON Schema object.
+- `(namespace, name)` pairs must be unique within a `thread/start` request.
+- `approval`, when present, uses the same descriptive approval metadata as channel tools: `file`, `shell`, or `remoteResource`. DotCraft evaluates approval before dispatching `item/tool/call`.
+- If the creating connection closes, dynamic tools bound to that thread become unavailable and calls fail with a structured failed `dynamicToolCall` item.
 
 #### 4.1.1 `ThreadConfiguration` Wire Shape
 
@@ -1310,6 +1349,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
 | `toolExecution` | Runtime lifecycle enhancement for a normal tool invocation. Payload uses `callId`, `toolName`, `status`, `success`, `durationMs`, `resultPreview`, and `errorMessage`. It is emitted only when the client advertises `capabilities.toolExecutionLifecycle = true`. |
 | `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` -> `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin discovery and manifest architecture are defined in [plugin-architecture.md](plugin-architecture.md). |
+| `dynamicToolCall` | Runtime dynamic tool payload uses camelCase fields such as `namespace`, `toolName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. Dynamic tools are thread-scoped AppServer client callbacks declared on `thread/start`; the server emits `item/started` -> `item/completed` for `dynamicToolCall` and does not emit companion `toolCall`/`toolResult` items. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1447,6 +1487,7 @@ Compatibility rule:
 - `toolExecution` does not replace `toolCall` or `toolResult`. `toolCall` remains the model-request and final-arguments item; `toolResult` remains the complete, authoritative model-visible result.
 - `resultPreview` is a UI preview only. It is sanitized text and may be truncated to 4096 characters. Clients should replace it with the matching `toolResult.result` when that result arrives.
 - Plugin-backed tools do not emit companion `toolExecution`; their lifecycle is already represented by `pluginFunctionCall`.
+- Runtime dynamic tools do not emit companion `toolExecution`; their lifecycle is represented by `dynamicToolCall`.
 - Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
 
 **Params**:
@@ -2303,6 +2344,39 @@ Structured runtime tool invocation for adapter-declared channel tools.
 }
 ```
 
+### 11.3 `item/tool/call`
+
+Runtime dynamic tool invocation for client-declared `thread/start.dynamicTools`.
+
+**Direction**: server -> client (request, requires response)
+
+**Params**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Thread in which the tool is being executed. |
+| `turnId` | string | Turn that owns the tool call. |
+| `callId` | string | Server-generated tool call identifier. |
+| `namespace` | string? | Optional namespace from the dynamic tool spec. |
+| `tool` | string | Declared dynamic tool name. |
+| `arguments` | object | Validated tool arguments matching `inputSchema`. |
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "contentItems": [
+    { "type": "text", "text": "Review draft recorded." }
+  ],
+  "structuredResult": {
+    "draftId": "draft_123"
+  }
+}
+```
+
+If the tool fails, the client returns `{ "success": false, "errorCode": "...", "errorMessage": "..." }`. If the client disconnects, times out, or returns an invalid result, DotCraft completes the `dynamicToolCall` item as failed.
+
 When `success` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
 
 - `UnsupportedTool`
@@ -2596,7 +2670,7 @@ ws://HOST:PORT/ws
 The same HTTP server also serves the health probe endpoints:
 
 - `GET /healthz` — returns `200 OK` with body `{"status":"ok"}` when the server process is alive.
-- `GET /readyz` — returns `200 OK` when the server has completed startup and is ready to accept connections.
+- `GET /readyz` — returns `200 OK` when the server has completed protocol startup and is ready to accept connections. Readiness does not wait for workspace or plugin MCP servers to finish connecting; MCP readiness and failures are reported through `mcp/status/list`.
 
 The default listen address binds to `127.0.0.1` only. Binding to `0.0.0.0` or a public interface must be explicitly configured and requires authentication to be enabled (see §15.4).
 
@@ -3456,7 +3530,7 @@ On success, the server removes the skill from `Skills.DisabledSkills`, deletes a
 
 ### 18.9 Plugin Management Methods
 
-Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, built-in backend rules, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, plugin-bundled MCP servers, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
 
 #### `plugin/list`
 
@@ -3492,8 +3566,17 @@ Returns discovered plugins, including disabled installed plugins and installable
         "capabilities": ["Interactive", "Read", "Write"],
         "defaultPrompt": "Test my checkout flow on localhost"
       },
-      "functions": [{ "name": "NodeReplJs", "namespace": "node_repl" }],
-      "skills": [{ "name": "browser-use", "displayName": "Browser Use", "enabled": true }]
+      "functions": [],
+      "skills": [{ "name": "browser-use", "displayName": "Browser Use", "enabled": true }],
+      "mcpServers": [
+        {
+          "name": "review",
+          "runtimeName": "review-tools:review",
+          "transport": "stdio",
+          "enabled": true,
+          "active": true
+        }
+      ]
     }
   ],
   "diagnostics": []
@@ -3519,6 +3602,20 @@ Returns one plugin by id.
 | `installed` | boolean | True when the plugin exists in a discovered local plugin root and can contribute runtime behavior. |
 | `installable` | boolean | True for known built-in catalog entries that are not installed in the workspace. |
 | `removable` | boolean | True for DotCraft-managed built-in plugin directories that carry a `.builtin` marker. |
+| `functions` | `PluginFunctionInfo[]` | Compatibility field for older clients; manifest native tools are no longer supported, so this is empty for plugin manifest contributions. |
+| `skills` | `PluginSkillInfo[]` | Plugin-contained skills declared by the bundle. |
+| `mcpServers` | `PluginMcpServerInfo[]` | Plugin-bundled MCP declarations. This is declaration metadata for the plugin detail page, not an editable workspace MCP config. |
+
+`PluginMcpServerInfo` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Declared server name inside the plugin `.mcp.json`, for example `review`. |
+| `runtimeName` | string | Effective runtime name, usually `{pluginId}:{name}`. |
+| `transport` | `"stdio" \| "streamableHttp"` | MCP transport after normalization. |
+| `enabled` | boolean | Whether the bundled server declaration is enabled. |
+| `active` | boolean | True when the plugin is installed, enabled, the server is enabled, and it is not shadowed by workspace or higher-priority plugin MCP. |
+| `shadowedBy` | `"workspace" \| "plugin"` | Optional reason the bundled server is not active. |
 
 #### `plugin/install`
 
@@ -3532,7 +3629,7 @@ Installs a known built-in plugin into the workspace.
 
 **Result**: `{ "plugin": PluginInfo }`
 
-On success, the server deploys the built-in resources to `.craft/plugins/<id>`, removes that id from `Plugins.DisabledPlugins`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/install"` and `regions: ["plugins", "skills"]`.
+On success, the server deploys the built-in resources to `.craft/plugins/<id>`, removes that id from `Plugins.DisabledPlugins`, refreshes plugin-contributed skill sources, reconciles effective MCP runtime state, and emits `workspace/configChanged` with `source: "plugin/install"` and `regions: ["plugins", "skills", "mcp"]`.
 
 #### `plugin/remove`
 
@@ -3546,7 +3643,7 @@ Removes a DotCraft-managed built-in plugin from the workspace.
 
 **Result**: `{ "plugin": PluginInfo }`
 
-The server deletes only workspace plugin directories that carry the `.builtin` marker and are inside `.craft/plugins`. User-owned plugin directories are rejected. On success, the server refreshes plugin-contributed skill sources and emits `workspace/configChanged` with `source: "plugin/remove"` and `regions: ["plugins", "skills"]`.
+The server deletes only workspace plugin directories that carry the `.builtin` marker and are inside `.craft/plugins`. User-owned plugin directories are rejected. On success, the server refreshes plugin-contributed skill sources, reconciles effective MCP runtime state, and emits `workspace/configChanged` with `source: "plugin/remove"` and `regions: ["plugins", "skills", "mcp"]`.
 
 #### `plugin/setEnabled`
 
@@ -3561,7 +3658,7 @@ Enables or disables an installed plugin for the workspace.
 
 **Result**: `{ "plugin": PluginInfo }`
 
-`plugin/setEnabled` does not install a built-in catalog entry. If the plugin is not installed, the server rejects the request. On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills"]`.
+`plugin/setEnabled` does not install a built-in catalog entry. If the plugin is not installed, the server rejects the request. On success, the server persists `Plugins.DisabledPlugins`, normalizes legacy `node-repl` entries to `browser-use`, refreshes plugin-contributed skill sources, reconciles effective MCP runtime state, and emits `workspace/configChanged` with `source: "plugin/setEnabled"` and `regions: ["plugins", "skills", "mcp"]`.
 
 ### 18.9 Error Codes
 
@@ -3922,7 +4019,9 @@ Clients must check `capabilities.mcpManagement` before calling `mcp/list`, `mcp/
   "args": ["serve-sqlite"],
   "env": { "DB_PATH": "./test.db" },
   "envVars": ["OPENAI_API_KEY"],
-  "cwd": "./tools"
+  "cwd": "./tools",
+  "origin": { "kind": "workspace" },
+  "readOnly": false
 }
 ```
 
@@ -3942,6 +4041,8 @@ Supported fields:
 - `envHttpHeaders?: Record<string, string>`
 - `startupTimeoutSec?: number | null`
 - `toolTimeoutSec?: number | null`
+- `origin?: { kind: "workspace" | "plugin", pluginId?: string, pluginDisplayName?: string, declaredName?: string }`
+- `readOnly?: boolean`
 
 Validation rules:
 
@@ -3949,10 +4050,11 @@ Validation rules:
 - `stdio` only allows `command`, `args`, `env`, `envVars`, and `cwd`.
 - `streamableHttp` only allows `url`, `bearerTokenEnvVar`, `httpHeaders`, and `envHttpHeaders`.
 - `mcp/test` validates and probes a temporary configuration but does not persist it.
+- When `capabilities.mcpServerOrigins` is true, `mcp/list`, `mcp/get`, `mcp/status/list`, and `mcp/status/updated` include origin metadata. Workspace-origin servers are editable. Plugin-origin servers are read-only runtime entries derived from plugin `.mcp.json`.
 
 ### 22.3 `mcp/list`
 
-Returns all configured MCP servers for the current workspace.
+Returns effective MCP runtime servers for the current workspace. The result includes workspace MCP servers and active plugin-bundled MCP servers. Workspace MCP takes precedence when a runtime name conflicts; shadowed plugin MCP remains visible on `plugin/list` / `plugin/view` as declaration metadata but is not returned by `mcp/list`.
 
 **Result**:
 
@@ -3964,7 +4066,21 @@ Returns all configured MCP servers for the current workspace.
       "enabled": true,
       "transport": "stdio",
       "command": "openai-dev-mcp",
-      "args": ["serve-sqlite"]
+      "args": ["serve-sqlite"],
+      "origin": { "kind": "workspace" },
+      "readOnly": false
+    },
+    {
+      "name": "review-tools:review",
+      "enabled": true,
+      "transport": "stdio",
+      "origin": {
+        "kind": "plugin",
+        "pluginId": "review-tools",
+        "pluginDisplayName": "Review Tools",
+        "declaredName": "review"
+      },
+      "readOnly": true
     }
   ]
 }
@@ -3982,7 +4098,7 @@ Returns one configured MCP server by name.
 
 ### 22.5 `mcp/upsert`
 
-Creates or replaces one MCP server definition.
+Creates or replaces one workspace-origin MCP server definition. Clients MUST NOT send plugin-origin servers back to `mcp/upsert`.
 
 **Params**:
 
@@ -4001,12 +4117,13 @@ Creates or replaces one MCP server definition.
 **Semantics**:
 
 - Upsert replaces the full logical server entry.
-- Persistence shape and storage location are server-defined.
+- Persistence shape and storage location are server-defined, but only workspace-origin servers are persisted to workspace config.
+- If the target name currently resolves to a plugin-origin server, the server returns `McpServerReadOnly`.
 - On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/upsert"` and `regions: ["mcp"]`.
 
 ### 22.6 `mcp/remove`
 
-Removes one MCP server definition by name.
+Removes one workspace-origin MCP server definition by name. Removing a plugin-origin server returns `McpServerReadOnly`; plugin-bundled MCP is controlled through plugin install/enable/remove lifecycle, not MCP settings persistence.
 
 On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/remove"` and `regions: ["mcp"]`.
 
@@ -4027,8 +4144,8 @@ On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-
 
 Runtime status is separate from config truth:
 
-- `mcp/list` describes persisted configuration.
-- `mcp/status/list` and `mcp/status/updated` describe runtime state.
+- `mcp/list` describes effective runtime configuration and may include plugin-origin read-only entries.
+- `mcp/status/list` and `mcp/status/updated` describe runtime state. MCP startup runs in the background and must not block AppServer readiness or unrelated MCP management requests.
 
 ### 22.8 `mcp/status/list`
 
@@ -4085,6 +4202,7 @@ Server notification emitted when one server's runtime status changes.
 | `-32072` | `McpServerValidationFailed` | MCP config payload is invalid for the selected transport. |
 | `-32073` | `McpServerTestFailed` | Temporary test/probe failed. |
 | `-32074` | `McpServerNameConflict` | Name conflicts with an existing logical key after case-insensitive comparison. |
+| `-32075` | `McpServerReadOnly` | A write method attempted to modify a plugin-origin read-only MCP server. |
 
 ## 23. External Channel Management Methods
 
@@ -4610,7 +4728,7 @@ Current `regions` taxonomy:
 | `plugins` | `plugin/install`, `plugin/remove`, `plugin/setEnabled` |
 | `memory` | `workspace/config/update` |
 | `workspace.defaultApprovalPolicy` | `workspace/config/update` |
-| `mcp` | `mcp/upsert`, `mcp/remove` |
+| `mcp` | `mcp/upsert`, `mcp/remove`, `plugin/install`, `plugin/remove`, `plugin/setEnabled` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
 | `subagent` | `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove` |
 

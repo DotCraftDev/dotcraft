@@ -27,7 +27,7 @@ public sealed class NodeReplToolProviderTests
     [Fact]
     public void CreateTools_WithoutAvailableProxy_ReturnsNoTools()
     {
-        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]);
+        var provider = new NodeReplPluginFunctionProvider();
         var tools = provider.CreateTools(CreateContext(new FakeNodeReplProxy(false))).ToList();
         Assert.Empty(tools);
     }
@@ -35,7 +35,7 @@ public sealed class NodeReplToolProviderTests
     [Fact]
     public void CreateTools_WithAvailableProxy_ReturnsNodeReplTools()
     {
-        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]);
+        var provider = new NodeReplPluginFunctionProvider();
         var tools = provider.CreateTools(CreateContext(new FakeNodeReplProxy(true))).ToList();
         Assert.Contains(tools, t => t.Name == "NodeReplJs");
         Assert.Single(tools);
@@ -44,7 +44,7 @@ public sealed class NodeReplToolProviderTests
     [Fact]
     public void CreateTools_WhenPluginDisabled_ReturnsNoTools()
     {
-        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]);
+        var provider = new NodeReplPluginFunctionProvider();
         var context = CreateContext(new FakeNodeReplProxy(true));
         context.Config.Plugins.DisabledPlugins.Add(NodeReplPluginFunctionProvider.PluginId);
 
@@ -56,7 +56,7 @@ public sealed class NodeReplToolProviderTests
     [Fact]
     public async Task NodeReplJs_WhenProxyReturnsError_ReturnsToolResultText()
     {
-        var provider = new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]);
+        var provider = new NodeReplPluginFunctionProvider();
         var proxy = new FakeNodeReplProxy(true, new NodeReplEvaluateResult
         {
             Error = "NodeReplJs timed out after 1000ms."

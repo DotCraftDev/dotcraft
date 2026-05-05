@@ -30,6 +30,15 @@ export interface PluginSkillInfo {
   enabled: boolean
 }
 
+export interface PluginMcpServerInfo {
+  name: string
+  runtimeName: string
+  transport: 'stdio' | 'streamableHttp'
+  enabled: boolean
+  active: boolean
+  shadowedBy?: 'workspace' | 'plugin' | null
+}
+
 export interface PluginEntry {
   id: string
   displayName: string
@@ -44,6 +53,7 @@ export interface PluginEntry {
   interface?: PluginInterface | null
   functions: PluginFunctionInfo[]
   skills: PluginSkillInfo[]
+  mcpServers: PluginMcpServerInfo[]
   diagnostics?: Array<{ severity: string; code: string; message: string; pluginId?: string; path?: string }>
 }
 
@@ -87,7 +97,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
       const result = (await window.api.appServer.sendRequest('plugin/list', {
         includeDisabled: true
       })) as { plugins?: PluginEntry[]; diagnostics?: PluginDiagnosticEntry[] }
-      const plugins = result.plugins ?? []
+      const plugins = (result.plugins ?? []).map(normalizePlugin)
       const diagnostics = result.diagnostics ?? []
       set((state) => ({
         plugins,
@@ -110,7 +120,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     set({ selectedPluginId: id, selectedPlugin: null, detailLoading: true })
     try {
       const result = (await window.api.appServer.sendRequest('plugin/view', { id })) as { plugin?: PluginEntry }
-      const plugin = result.plugin ?? null
+      const plugin = result.plugin ? normalizePlugin(result.plugin) : null
       set({ selectedPlugin: plugin, detailLoading: false })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -125,7 +135,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
   async installPlugin(id: string) {
     try {
       const result = (await window.api.appServer.sendRequest('plugin/install', { id })) as { plugin?: PluginEntry }
-      const updated = result.plugin
+      const updated = result.plugin ? normalizePlugin(result.plugin) : undefined
       if (updated) {
         set((state) => ({
           plugins: upsertPlugin(state.plugins, updated),
@@ -143,7 +153,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
   async removePlugin(id: string) {
     try {
       const result = (await window.api.appServer.sendRequest('plugin/remove', { id })) as { plugin?: PluginEntry }
-      const updated = result.plugin
+      const updated = result.plugin ? normalizePlugin(result.plugin) : undefined
       if (updated) {
         set((state) => ({
           plugins: upsertPlugin(state.plugins, updated),
@@ -167,7 +177,7 @@ export const usePluginStore = create<PluginState>((set, get) => ({
         id,
         enabled
       })) as { plugin?: PluginEntry }
-      const updated = result.plugin
+      const updated = result.plugin ? normalizePlugin(result.plugin) : undefined
       if (updated) {
         set((state) => ({
           plugins: upsertPlugin(state.plugins, updated),
@@ -182,6 +192,15 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     }
   }
 }))
+
+function normalizePlugin(plugin: PluginEntry): PluginEntry {
+  return {
+    ...plugin,
+    functions: plugin.functions ?? [],
+    skills: plugin.skills ?? [],
+    mcpServers: plugin.mcpServers ?? []
+  }
+}
 
 function upsertPlugin(plugins: PluginEntry[], updated: PluginEntry): PluginEntry[] {
   const found = plugins.some((plugin) => plugin.id === updated.id)

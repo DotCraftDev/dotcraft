@@ -67,6 +67,7 @@ public static class AppServerErrors
     public const int McpServerValidationFailedCode = -32072;
     public const int McpServerTestFailedCode = -32073;
     public const int McpServerNameConflictCode = -32074;
+    public const int McpServerReadOnlyCode = -32075;
     public const int ExternalChannelNotFoundCode = -32080;
     public const int ExternalChannelValidationFailedCode = -32081;
     public const int ExternalChannelNameConflictCode = -32082;
@@ -155,6 +156,9 @@ public static class AppServerErrors
 
     public static AppServerException McpServerNameConflict(string detail) =>
         new(McpServerNameConflictCode, "MCP server name conflict", new { detail });
+
+    public static AppServerException McpServerReadOnly(string name) =>
+        new(McpServerReadOnlyCode, $"MCP server is read-only: {name}");
 
     public static AppServerException ExternalChannelNotFound(string name) =>
         new(ExternalChannelNotFoundCode, $"External channel not found: {name}");

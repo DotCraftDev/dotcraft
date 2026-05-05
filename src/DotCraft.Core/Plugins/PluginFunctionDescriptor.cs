@@ -103,22 +103,6 @@ public interface IPluginFunctionTool
 }
 
 /// <summary>
-/// Produces process-scoped plugin functions.
-/// </summary>
-public interface IPluginFunctionProvider
-{
-    int Priority => 100;
-
-    /// <summary>
-    /// Describes built-in backend functions known to this provider, including functions
-    /// that may be unavailable in the current tool context.
-    /// </summary>
-    IEnumerable<PluginFunctionDescriptor> CreateKnownFunctions(ToolProviderContext context) => [];
-
-    IEnumerable<PluginFunctionRegistration> CreateFunctions(ToolProviderContext context);
-}
-
-/// <summary>
 /// Produces thread-scoped plugin functions.
 /// </summary>
 public interface IThreadPluginFunctionProvider

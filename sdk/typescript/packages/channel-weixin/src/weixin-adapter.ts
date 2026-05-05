@@ -30,6 +30,12 @@ import { runMonitorLoop } from "./monitor.js";
 import { WeixinState, type WeixinCredentials } from "./state.js";
 import type { WeixinConfig } from "./weixin-config.js";
 import { buildTextMessageReq, sendMessage } from "./weixin-api.js";
+import {
+  WEIXIN_SEND_FILE_TOOL,
+  WEIXIN_SEND_IMAGE_TOOL,
+  WeixinMediaError,
+  WeixinMediaTools,
+} from "./weixin-media-tools.js";
 
 /** Match QQ/WeCom keyword-style approval (plain text). */
 function parseApprovalDecision(text: string): string | null {
@@ -111,6 +117,7 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
   private monitorAbortController: AbortController | undefined;
   private authAbortController: AbortController | undefined;
   private authFlowInProgress = false;
+  private readonly mediaTools = new WeixinMediaTools();
 
   /** userId -> waiter for active approval */
   private readonly approvalWaiters = new Map<
@@ -415,42 +422,11 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
   }
 
   protected override getDeliveryCapabilities(): Record<string, unknown> | null {
-    return {
-      structuredDelivery: true,
-      media: {
-        file: {
-          supportsHostPath: false,
-          supportsUrl: false,
-          supportsBase64: true,
-          supportsCaption: true,
-          allowedMimeTypes: ["text/plain", "application/pdf"],
-        },
-      },
-    };
+    return this.mediaTools.getDeliveryCapabilities();
   }
 
   protected override getChannelTools(): Record<string, unknown>[] | null {
-    return [
-      {
-        name: "WeixinSendFilePreviewToCurrentChat",
-        description: "Send a file-style preview message to the current Weixin chat.",
-        requiresChatContext: true,
-        approval: {
-          required: true,
-          kind: "file",
-          targetArgument: "fileName",
-          operation: "read",
-        },
-        inputSchema: {
-          type: "object",
-          properties: {
-            fileName: { type: "string" },
-            caption: { type: "string" },
-          },
-          required: ["fileName"],
-        },
-      },
-    ];
+    return this.mediaTools.getChannelTools();
   }
 
   protected override async onSend(
@@ -463,32 +439,46 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
       return await super.onSend(target, message, metadata);
     }
 
-    if (kind !== "file") {
+    if (kind !== "file" && kind !== "image") {
       return {
         delivered: false,
         errorCode: "UnsupportedDeliveryKind",
-        errorMessage: `Weixin example does not implement structured '${kind}' delivery.`,
+        errorMessage: `Weixin channel does not support structured '${kind}' delivery.`,
       };
     }
 
-    const fileName = String(message.fileName ?? "attachment");
-    const caption = String(message.caption ?? "");
-    const preview = caption ? `[structured:file] ${fileName}\n${caption}` : `[structured:file] ${fileName}`;
-    const delivered = await this.onDeliver(target, preview, metadata);
-    return delivered
-      ? { delivered: true }
-      : {
-          delivered: false,
-          errorCode: "AdapterDeliveryFailed",
-          errorMessage: `Failed to deliver structured preview for ${fileName}.`,
-        };
+    try {
+      const userId = target.replace(/^user:/, "");
+      const caption = String(message.caption ?? "");
+      if (caption.trim()) {
+        await this.sendWeixinText(userId, caption);
+      }
+      const result = await this.mediaTools.sendStructuredMessage({
+        baseUrl: this.apiBaseUrl,
+        token: this.getBotToken(),
+        toUserId: userId,
+        contextToken: this.contextTokens[userId],
+        clientId: `dotcraft-weixin-${randomUUID()}`,
+        message,
+      });
+      return result;
+    } catch (error) {
+      if (error instanceof WeixinMediaError) {
+        return { delivered: false, errorCode: error.code, errorMessage: error.message };
+      }
+      return {
+        delivered: false,
+        errorCode: "AdapterDeliveryFailed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   protected override async onToolCall(
     request: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const tool = String(request.tool ?? "");
-    if (tool !== "WeixinSendFilePreviewToCurrentChat") {
+    if (tool !== WEIXIN_SEND_FILE_TOOL && tool !== WEIXIN_SEND_IMAGE_TOOL) {
       return {
         success: false,
         errorCode: "UnsupportedTool",
@@ -507,26 +497,31 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
       };
     }
 
-    const fileName = String(args.fileName ?? "attachment");
-    const caption = String(args.caption ?? "");
-    const preview = caption ? `[tool:file] ${fileName}\n${caption}` : `[tool:file] ${fileName}`;
-    const delivered = await this.onDeliver(target, preview, {});
-    return delivered
-      ? {
-          success: true,
-          contentItems: [
-            {
-              type: "text",
-              text: `Sent a file preview for ${fileName} to the current Weixin chat.`,
-            },
-          ],
-          structuredResult: { delivered: true, fileName },
-        }
-      : {
-          success: false,
-          errorCode: "AdapterToolCallFailed",
-          errorMessage: `Failed to send preview for ${fileName}.`,
-        };
+    try {
+      const caption = String(args.caption ?? "");
+      if (caption.trim()) {
+        await this.sendWeixinText(target, caption);
+      }
+      const result = await this.mediaTools.executeToolCall({
+        baseUrl: this.apiBaseUrl,
+        token: this.getBotToken(),
+        toUserId: target,
+        contextToken: this.contextTokens[target],
+        clientId: `dotcraft-weixin-${randomUUID()}`,
+        toolName: tool,
+        args,
+      });
+      return result;
+    } catch (error) {
+      if (error instanceof WeixinMediaError) {
+        return { success: false, errorCode: error.code, errorMessage: error.message };
+      }
+      return {
+        success: false,
+        errorCode: "AdapterToolCallFailed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async onApprovalRequest(request: Record<string, unknown>): Promise<string> {
@@ -570,10 +565,9 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
     _threadId: string,
     _turnId: string,
     segmentText: string,
-    isFinal: boolean,
+    _isFinal: boolean,
     channelContext: string,
   ): Promise<void> {
-    if (!isFinal) return;
     if (!segmentText.trim()) return;
     try {
       await this.sendWeixinText(channelContext, segmentText);

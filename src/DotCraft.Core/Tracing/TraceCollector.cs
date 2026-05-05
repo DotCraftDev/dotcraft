@@ -45,12 +45,13 @@ public sealed class TraceCollector(TraceStore store)
         });
     }
 
-    public void RecordResponse(string sessionKey, string? response)
+    public void RecordResponse(string sessionKey, string? response, DateTimeOffset? timestamp = null)
     {
         store.Record(new TraceEvent
         {
             Type = TraceEventType.Response,
             SessionKey = sessionKey,
+            Timestamp = timestamp ?? DateTimeOffset.UtcNow,
             Content = response ?? "(empty)"
         });
     }
@@ -62,12 +63,14 @@ public sealed class TraceCollector(TraceStore store)
         string? messageId,
         string? modelId,
         string? finishReason,
-        object? metadata = null)
+        object? metadata = null,
+        DateTimeOffset? timestamp = null)
     {
         store.Record(new TraceEvent
         {
             Type = TraceEventType.Response,
             SessionKey = sessionKey,
+            Timestamp = timestamp ?? DateTimeOffset.UtcNow,
             Content = response ?? "(empty)",
             ResponseId = responseId,
             MessageId = messageId,
@@ -165,12 +168,13 @@ public sealed class TraceCollector(TraceStore store)
         });
     }
 
-    public void RecordThinking(string sessionKey, string content)
+    public void RecordThinking(string sessionKey, string content, DateTimeOffset? timestamp = null)
     {
         store.Record(new TraceEvent
         {
             Type = TraceEventType.Thinking,
             SessionKey = sessionKey,
+            Timestamp = timestamp ?? DateTimeOffset.UtcNow,
             Content = content
         });
     }

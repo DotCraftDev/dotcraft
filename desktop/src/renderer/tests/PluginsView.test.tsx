@@ -5,6 +5,7 @@ import { PluginsView } from '../components/plugins/PluginsView'
 import { useConnectionStore } from '../stores/connectionStore'
 import { usePluginStore, type PluginEntry } from '../stores/pluginStore'
 import { useSkillsStore, type SkillEntry } from '../stores/skillsStore'
+import { useUIStore } from '../stores/uiStore'
 
 const appServerSendRequest = vi.fn()
 const settingsGet = vi.fn()
@@ -29,7 +30,8 @@ const browserUsePlugin: PluginEntry = {
     category: 'Coding'
   },
   functions: [{ name: 'NodeReplJs', namespace: 'node_repl', description: 'Evaluate JavaScript.' }],
-  skills: [{ name: 'browser-use', description: 'Browser Use', enabled: false }]
+  skills: [{ name: 'browser-use', description: 'Browser Use', enabled: false }],
+  mcpServers: []
 }
 
 const localPlugin: PluginEntry = {
@@ -53,7 +55,39 @@ const localPlugin: PluginEntry = {
     termsOfServiceUrl: 'https://example.com/terms'
   },
   functions: [{ name: 'EchoText', namespace: 'demo', description: 'Echo text.' }],
-  skills: [{ name: 'external-process-echo', description: 'Echo plugin skill', enabled: true }]
+  skills: [{ name: 'external-process-echo', description: 'Echo plugin skill', enabled: true }],
+  mcpServers: []
+}
+
+const mcpOnlyPlugin: PluginEntry = {
+  id: 'review-tools-mcp',
+  displayName: 'Review Tools MCP',
+  description: 'Review workflows and MCP tools.',
+  version: '0.1.0',
+  enabled: true,
+  installed: true,
+  installable: false,
+  removable: true,
+  source: 'workspace',
+  rootPath: 'F:\\dotcraft\\.craft\\plugins\\review-tools-mcp',
+  interface: {
+    displayName: 'Review Tools MCP',
+    shortDescription: 'Review workflows and MCP tools.',
+    developerName: 'Example Labs',
+    category: 'Coding',
+    defaultPrompt: 'Review this change.'
+  },
+  functions: [],
+  skills: [],
+  mcpServers: [
+    {
+      name: 'review',
+      runtimeName: 'review-tools-mcp:review',
+      transport: 'stdio',
+      enabled: true,
+      active: true
+    }
+  ]
 }
 
 const memorySkill: SkillEntry = {
@@ -114,6 +148,7 @@ describe('PluginsView local plugin visibility', () => {
       skillContent: null,
       contentLoading: false
     })
+    useUIStore.setState({ welcomeDraft: null, activeMainView: 'conversation' })
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -299,5 +334,37 @@ describe('PluginsView local plugin visibility', () => {
     expect(await screen.findByText('Plugins 2')).toBeInTheDocument()
     expect(await screen.findByPlaceholderText('Search installed plugins')).toBeInTheDocument()
     expect(screen.getByText('External Process Echo')).toBeInTheDocument()
+  })
+
+  it('shows plugin-bundled MCP content on plugin details', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') return { plugins: [mcpOnlyPlugin], diagnostics: [] }
+      if (method === 'plugin/view') return { plugin: mcpOnlyPlugin }
+      return {}
+    })
+
+    renderPluginsView()
+
+    fireEvent.click(await screen.findByText('Review Tools MCP'))
+
+    expect(await screen.findByText('review-tools-mcp:review')).toBeInTheDocument()
+    expect(screen.getByText('MCP server')).toBeInTheDocument()
+    expect(screen.getByText('STDIO · Active')).toBeInTheDocument()
+  })
+
+  it('does not generate a skill mention for MCP-only plugin try in chat', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'plugin/list') return { plugins: [mcpOnlyPlugin], diagnostics: [] }
+      if (method === 'plugin/view') return { plugin: mcpOnlyPlugin }
+      return {}
+    })
+
+    renderPluginsView()
+
+    fireEvent.click(await screen.findByText('Review Tools MCP'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Try in chat' }))
+
+    expect(useUIStore.getState().welcomeDraft?.text).toBe('Review this change.')
+    expect(useUIStore.getState().welcomeDraft?.segments).toEqual([])
   })
 })

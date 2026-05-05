@@ -95,6 +95,9 @@ const MESSAGES_EN = {
   'settings.personalization.longTermMemoryHint':
     'Let DotCraft progressively accumulate facts about you and the workspace so future sessions can reference them.',
   'settings.personalization.longTermMemorySaveFailed': 'Failed to save long-term memory setting: {{error}}',
+  'settings.personalization.showThinkingContent': 'Show thinking content',
+  'settings.personalization.showThinkingContentHint':
+    'When off, DotCraft still shows the live thinking status but hides reasoning text.',
   'settings.permissions.description':
     'Choose the default approval behavior for new threads in this workspace. Channels without per-thread controls use this setting.',
   'settings.permissions.workspaceDefault.label': 'Workspace default permissions',
@@ -522,6 +525,10 @@ const MESSAGES_EN = {
   'toast.imageMessage': 'Image message',
   'toast.fileReferenceMessage': 'File reference message',
   'toast.attachmentMessage': 'Attachment message',
+  'conversation.thinking.streaming': 'Thinking...',
+  'conversation.thinking.completed': 'Thought {{seconds}}s',
+  'conversation.thinking.expandTooltip': 'Click to expand reasoning',
+  'conversation.thinking.statusTooltip': 'Agent is thinking...',
   'conversation.copyMessage': 'Copy message',
   'conversation.editMessage': 'Edit message',
   'conversation.editTextarea': 'Edit message text',
@@ -654,6 +661,12 @@ const MESSAGES_EN = {
   'plugins.defaultPromptFallback': 'Use this plugin in the current conversation',
   'plugins.content.skill': 'Skill',
   'plugins.content.tool': 'Tool',
+  'plugins.content.mcpServer': 'MCP server',
+  'plugins.content.mcp.active': 'Active',
+  'plugins.content.mcp.inactive': 'Inactive',
+  'plugins.content.mcp.disabled': 'Disabled',
+  'plugins.content.mcp.shadowedWorkspace': 'Shadowed by workspace',
+  'plugins.content.mcp.shadowedPlugin': 'Shadowed by plugin',
   'plugins.detail.contents': 'Included content',
   'plugins.detail.about': 'About',
   'plugins.detail.info': 'Info',
@@ -1534,6 +1547,8 @@ const MESSAGES_EN = {
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.error': 'Error',
   'settings.mcp.status.idle': 'Idle',
+  'settings.mcp.origin.fromPlugin': 'From {{plugin}}',
+  'settings.mcp.viewPlugin': 'View plugin',
 
   // Sub Agents
   'settings.subAgents.title': 'Sub-Agents',
@@ -1927,6 +1942,9 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.personalization.longTermMemoryHint':
     '让 DotCraft 在对话期间逐步积累关于你和工作区的事实，下次会话仍可被引用。',
   'settings.personalization.longTermMemorySaveFailed': '保存长期记忆设置失败：{{error}}',
+  'settings.personalization.showThinkingContent': '显示思考内容',
+  'settings.personalization.showThinkingContentHint':
+    '关闭后仍会显示正在思考状态，但不会展开或保留思考文本。',
   'settings.permissions.description':
     '选择此工作区中新会话的默认审批行为。没有单会话选项的渠道会使用此设置。',
   'settings.permissions.workspaceDefault.label': '工作区默认权限',
@@ -2278,6 +2296,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'toast.imageMessage': '图片消息',
   'toast.fileReferenceMessage': '文件引用消息',
   'toast.attachmentMessage': '附件消息',
+  'conversation.thinking.streaming': '正在思考...',
+  'conversation.thinking.completed': '思考 {{seconds}} 秒',
+  'conversation.thinking.expandTooltip': '点击展开思考内容',
+  'conversation.thinking.statusTooltip': 'Agent 正在思考...',
   'conversation.copyMessage': '复制消息',
   'conversation.editMessage': '编辑消息',
   'conversation.editTextarea': '编辑消息文本',
@@ -2404,6 +2426,12 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'plugins.defaultPromptFallback': '在当前对话中使用这个插件',
   'plugins.content.skill': '技能',
   'plugins.content.tool': '工具',
+  'plugins.content.mcpServer': 'MCP 服务器',
+  'plugins.content.mcp.active': '已激活',
+  'plugins.content.mcp.inactive': '未激活',
+  'plugins.content.mcp.disabled': '已禁用',
+  'plugins.content.mcp.shadowedWorkspace': '被工作区覆盖',
+  'plugins.content.mcp.shadowedPlugin': '被插件覆盖',
   'plugins.detail.contents': '包含内容',
   'plugins.detail.about': '关于',
   'plugins.detail.info': '信息',
@@ -3269,6 +3297,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.mcp.status.connecting': '连接中',
   'settings.mcp.status.error': '错误',
   'settings.mcp.status.idle': '空闲',
+  'settings.mcp.origin.fromPlugin': '来自 {{plugin}}',
+  'settings.mcp.viewPlugin': '查看插件',
 
   // Sub Agents
   'settings.subAgents.title': '子 Agent',

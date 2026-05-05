@@ -27,6 +27,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
         AgentFactory agentFactory,
         WireAcpExtensionProxy wireAcpExtensionProxy,
         WireNodeReplProxy wireNodeReplProxy,
+        WireDynamicToolProxy wireDynamicToolProxy,
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggestService,
         WelcomeSuggestionService welcomeSuggestionService,
@@ -43,6 +44,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
         public WireAcpExtensionProxy WireAcpExtensionProxy { get; } = wireAcpExtensionProxy;
 
         public WireNodeReplProxy WireNodeReplProxy { get; } = wireNodeReplProxy;
+
+        public WireDynamicToolProxy WireDynamicToolProxy { get; } = wireDynamicToolProxy;
 
         public ISessionService SessionService { get; } = sessionService;
 
@@ -131,6 +134,8 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
 
     public WireNodeReplProxy WireNodeReplProxy => EnsureStarted().WireNodeReplProxy;
 
+    public WireDynamicToolProxy WireDynamicToolProxy => EnsureStarted().WireDynamicToolProxy;
+
     public IReadOnlyList<ConfigSchemaSection> ConfigSchema => EnsureStarted().ConfigSchema;
 
     public string? DashboardUrl => EnsureStarted().AppServerFeature?.DashboardUrl;
@@ -184,6 +189,10 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
             var planStore = new PlanStore(Paths.CraftPath, Services.GetRequiredService<StateRuntime>());
             var wireAcpExtensionProxy = new WireAcpExtensionProxy();
             var wireNodeReplProxy = new WireNodeReplProxy();
+            var wireDynamicToolProxy =
+                Services.GetServices<IThreadRuntimeToolProvider>().OfType<WireDynamicToolProxy>().FirstOrDefault()
+                ?? Services.GetService<WireDynamicToolProxy>()
+                ?? new WireDynamicToolProxy();
 
             AgentFactory? agentFactory = null;
             HeartbeatService? heartbeatService = null;
@@ -211,7 +220,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                         PathBlacklist = PathBlacklist,
                         BackgroundTerminalService = backgroundTerminalService,
                         CronTools = cronTools,
-                        McpClientManager = McpClientManager.Tools.Count > 0 ? McpClientManager : null,
+                        McpClientManager = McpClientManager,
                         LspServerManager = LspServerManager,
                         TraceCollector = traceCollector,
                         AcpExtensionProxy = wireAcpExtensionProxy,
@@ -308,6 +317,7 @@ public sealed class WorkspaceRuntime : IAsyncDisposable
                     agentFactory,
                     wireAcpExtensionProxy,
                     wireNodeReplProxy,
+                    wireDynamicToolProxy,
                     sessionService,
                     commitMessageSuggestService,
                     welcomeSuggestionService,

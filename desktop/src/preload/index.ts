@@ -1002,6 +1002,7 @@ const api = {
       activeModuleVariants?: Record<string, string>
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      showThinkingContent?: boolean
       visibleChannels?: string[]
       lastOpenEditorId?: EditorId
       browserUse?: {
@@ -1040,6 +1041,7 @@ const api = {
       activeModuleVariants?: Record<string, string>
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      showThinkingContent?: boolean
       visibleChannels?: string[]
       lastOpenEditorId?: EditorId
       browserUse?: {

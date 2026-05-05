@@ -1,6 +1,6 @@
 ---
 name: plugin-creator
-description: Create and scaffold DotCraft local plugin directories with `.craft-plugin/plugin.json`, plugin-contained skills, optional assets, and optional process-backed dynamic tools. Use when developing DotCraft plugins or creating a skill-only plugin bundle for `.craft/plugins` or `~/.craft/plugins`.
+description: Create and scaffold DotCraft local plugin directories with `.craft-plugin/plugin.json`, plugin-contained skills, optional plugin-bundled MCP server config, and optional assets. Use when developing DotCraft plugins or creating a skill/MCP plugin bundle for `.craft/plugins` or `~/.craft/plugins`.
 ---
 
 # Plugin Creator
@@ -31,32 +31,34 @@ python .craft/skills/plugin-creator/scripts/create_basic_plugin.py "My Plugin" -
 
 - Normalize plugin ids to lowercase hyphen-case, max 64 characters.
 - Create `<parent>/<plugin-id>/.craft-plugin/plugin.json`.
-- Create a skill-only plugin by default with `skills: "./skills/"`.
+- Create a skill plugin by default with `skills: "./skills/"`.
 - Create `skills/<skill-name>/SKILL.md`; `--skill-name` defaults to the plugin id.
+- Add `--with-mcp` to create a plugin-bundled `.mcp.json` placeholder.
 - Add `--with-assets` to create plugin-level icon/logo placeholders.
-- Add `--with-process-tool` to create a process-backed dynamic tool scaffold using `tools` + `processes`.
 
 ## Manifest Rules
 
-DotCraft schema version `1` allows a plugin to contribute skills, dynamic tools, or both.
+DotCraft schema version `1` allows a plugin to contribute skills, MCP servers, interface metadata, or a combination of these.
 
 - Skill-only plugins are valid when `skills` points to a plugin-contained skills directory.
-- Dynamic tools should be declared with `tools`.
-- Process-backed tools must use `backend.kind = "process"` and reference a `processes` entry.
-- MCP servers are configured separately through `McpServers`; do not add MCP server declarations to plugin manifests.
+- MCP-only plugins are valid when `mcpServers` points to a plugin-bundled MCP config or a root `.mcp.json` exists.
+- Interface-only plugins are valid for catalog or UI metadata.
+- Manifest fields `tools`, `functions`, and `processes` are unsupported legacy native tool fields and must not be generated for new plugins.
+- Reusable executable capabilities should be exposed through MCP.
+- Thread-scoped AppServer client callbacks should use Runtime Dynamic Tools, not plugin manifest fields.
 - Manifest-relative paths must start with `./`, stay inside the plugin root, and never contain `..`.
 
 For exact examples, read `references/plugin-json-spec.md`.
 
-## External Process Tool Template
+## MCP Plugin Template
 
-Use this when creating a plugin with a local stdio process dynamic tool:
+Use this when creating a plugin that bundles MCP configuration:
 
 ```powershell
-python .craft/skills/plugin-creator/scripts/create_basic_plugin.py external-process-echo --with-process-tool --tool-name EchoText
+python .craft/skills/plugin-creator/scripts/create_basic_plugin.py review-tools --with-mcp
 ```
 
-After generation, replace placeholder descriptions and edit `tools/demo_tool.py` with the tool behavior. The generated Python process speaks JSON-RPC 2.0 over stdio and handles `plugin/initialize` plus `plugin/toolCall`.
+After generation, replace placeholder descriptions and edit `.mcp.json` to point at the real MCP server command or HTTPS endpoint.
 
 ## Validation
 
@@ -65,5 +67,5 @@ After scaffolding:
 1. Inspect `.craft-plugin/plugin.json` and replace TODO placeholders.
 2. Confirm every manifest-relative path starts with `./`.
 3. If the plugin has skills, confirm each child skill has `SKILL.md`.
-4. If the plugin has a process-backed tool, run the process script locally or install the plugin and invoke the tool from chat.
+4. If the plugin has MCP servers, confirm `.mcp.json` uses the same schema as workspace `McpServers`.
 5. Run relevant DotCraft tests when changing the runtime, or start DotCraft and confirm `plugin/list` and `skills/list` show the plugin.

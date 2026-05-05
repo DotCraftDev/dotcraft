@@ -9,7 +9,9 @@
 - Session persistence under module-scoped state directory
 - Streaming turn delivery and approval handling
 - `/new` command support to start a fresh conversation
-- Structured channel tool: `WeixinSendFilePreviewToCurrentChat`
+- Real file/image tools: `WeixinSendFileToCurrentChat`, `WeixinSendImageToCurrentChat`
+- Structured `file` / `image` delivery with local path or base64 sources
+- Weixin iLink does not expose a Markdown rendering entry, so regular replies and media captions are flattened to plain text
 
 ## Installation
 

@@ -4,6 +4,43 @@ using System.Text.Json.Serialization;
 
 namespace DotCraft.Mcp;
 
+public sealed class McpServerOrigin
+{
+    public string Kind { get; set; } = "workspace";
+
+    public string? PluginId { get; set; }
+
+    public string? PluginDisplayName { get; set; }
+
+    public string? DeclaredName { get; set; }
+
+    [JsonIgnore]
+    public bool IsPlugin => string.Equals(Kind, "plugin", StringComparison.OrdinalIgnoreCase);
+
+    [JsonIgnore]
+    public bool IsWorkspace => !IsPlugin;
+
+    public static McpServerOrigin Workspace() => new() { Kind = "workspace" };
+
+    public static McpServerOrigin Plugin(string pluginId, string? pluginDisplayName, string declaredName) =>
+        new()
+        {
+            Kind = "plugin",
+            PluginId = pluginId,
+            PluginDisplayName = pluginDisplayName,
+            DeclaredName = declaredName
+        };
+
+    public McpServerOrigin Clone() =>
+        new()
+        {
+            Kind = string.IsNullOrWhiteSpace(Kind) ? "workspace" : Kind,
+            PluginId = PluginId,
+            PluginDisplayName = PluginDisplayName,
+            DeclaredName = DeclaredName
+        };
+}
+
 [ConfigSection(
     "McpServers",
     DisplayName = "MCP Servers",
@@ -13,6 +50,8 @@ namespace DotCraft.Mcp;
     HasDefaultReload = true)]
 public sealed class McpServerConfig
 {
+    private McpServerOrigin _origin = McpServerOrigin.Workspace();
+
     public string Name { get; set; } = string.Empty;
 
     public bool Enabled { get; set; } = true;
@@ -110,6 +149,16 @@ public sealed class McpServerConfig
     public double? ToolTimeoutSec { get; set; }
 
     [JsonIgnore]
+    public McpServerOrigin Origin
+    {
+        get => _origin;
+        set => _origin = value ?? McpServerOrigin.Workspace();
+    }
+
+    [JsonIgnore]
+    public bool ReadOnly => Origin.IsPlugin;
+
+    [JsonIgnore]
     public string NormalizedTransport =>
         Transport.Equals("streamableHttp", StringComparison.OrdinalIgnoreCase) ||
         Transport.Equals("streamable-http", StringComparison.OrdinalIgnoreCase) ||
@@ -133,7 +182,8 @@ public sealed class McpServerConfig
             EnvHttpHeaders = new Dictionary<string, string>(EnvHttpHeaders, StringComparer.Ordinal),
             BearerTokenEnvVar = BearerTokenEnvVar,
             StartupTimeoutSec = StartupTimeoutSec,
-            ToolTimeoutSec = ToolTimeoutSec
+            ToolTimeoutSec = ToolTimeoutSec,
+            Origin = Origin.Clone()
         };
 }
 
@@ -155,7 +205,10 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
             {
                 var cfg = item.Deserialize<McpServerConfig>(options);
                 if (cfg != null)
+                {
+                    ApplyWireAliases(cfg, item, options);
                     list.Add(cfg);
+                }
             }
             return list;
         }
@@ -165,6 +218,7 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
             foreach (var prop in root.EnumerateObject())
             {
                 var cfg = prop.Value.Deserialize<McpServerConfig>(options) ?? new McpServerConfig();
+                ApplyWireAliases(cfg, prop.Value, options);
                 if (string.IsNullOrWhiteSpace(cfg.Name))
                     cfg.Name = prop.Name;
                 list.Add(cfg);
@@ -187,5 +241,52 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
         }
 
         writer.WriteEndObject();
+    }
+
+    private static void ApplyWireAliases(McpServerConfig cfg, JsonElement element, JsonSerializerOptions options)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+
+        if (!HasProperty(element, "arguments")
+            && cfg.Arguments.Count == 0
+            && TryGetProperty(element, "args", out var argsElement))
+        {
+            cfg.Arguments = argsElement.Deserialize<List<string>>(options) ?? [];
+        }
+
+        if (!HasProperty(element, "environmentVariables")
+            && cfg.EnvironmentVariables.Count == 0
+            && TryGetProperty(element, "env", out var envElement))
+        {
+            cfg.EnvironmentVariables = envElement.Deserialize<Dictionary<string, string>>(options)
+                                       ?? new Dictionary<string, string>();
+        }
+
+        if (!HasProperty(element, "headers")
+            && cfg.Headers.Count == 0
+            && TryGetProperty(element, "httpHeaders", out var headersElement))
+        {
+            cfg.Headers = headersElement.Deserialize<Dictionary<string, string>>(options)
+                          ?? new Dictionary<string, string>();
+        }
+    }
+
+    private static bool HasProperty(JsonElement element, string name) =>
+        TryGetProperty(element, name, out _);
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.NameEquals(name) || string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

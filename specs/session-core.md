@@ -300,6 +300,7 @@ Fields:
   - `ToolExecution` — Server-observed runtime lifecycle for a normal tool invocation. Payload includes call id, tool name, status, duration, and optional preview/error text.
   - `ToolCall` — Agent invokes a tool. Payload includes tool name and arguments.
   - `PluginFunctionCall` — Agent invokes a Plugin Function. Payload includes plugin identity, function name, arguments, content items, structured result, and success/failure metadata. Plugin-backed tools do not create companion `ToolResult` items.
+  - `DynamicToolCall` — Agent invokes a runtime dynamic tool declared by an AppServer client. Payload includes optional namespace, tool name, arguments, content items, structured result, and success/failure metadata. Runtime dynamic tools do not create companion `ToolCall` / `ToolResult` items.
   - `ToolResult` — Result of a tool invocation. Payload includes result text and success/failure.
   - `ApprovalRequest` — Agent requests user approval for a sensitive operation.
   - `ApprovalResponse` — User's approval decision (approved/rejected).
@@ -446,6 +447,31 @@ Delta payload (during streaming):
 ```
 
 Plugin Function invocations are represented by this single item. Session Core does not emit a paired `ToolResult` item for the same call.
+
+#### DynamicToolCall
+
+```
+{
+  "namespace": string,      // Optional client-declared namespace
+  "toolName": string,       // Runtime dynamic tool name
+  "callId": string,         // Correlation ID for the runtime dynamic tool call
+  "arguments": object,      // Tool arguments as key-value pairs
+  "contentItems": [         // Optional rich result content
+    {
+      "type": string,       // "text" | "image"
+      "text": string,       // Text content when type is "text"
+      "mediaType": string,  // Image media type when type is "image"
+      "dataBase64": string  // Base64 image data when type is "image"
+    }
+  ],
+  "structuredResult": any,  // Optional structured JSON result
+  "success": boolean,      // Whether the dynamic tool call succeeded
+  "errorCode": string,     // Optional machine-readable failure code
+  "errorMessage": string   // Optional human-readable failure message
+}
+```
+
+Runtime Dynamic Tool invocations are represented by this single item. Session Core does not emit paired `ToolCall` / `ToolResult` items for the same call.
 
 #### ToolResult
 
@@ -666,9 +692,10 @@ rather than part of the model conversation.
   - The Item's payload contains the final accumulated value.
 
 - `Started` → `Completed` (for non-streaming items)
-  - Items like `ToolResult`, `ApprovalRequest`, `ApprovalResponse`, `Error` are created with their full payload and immediately completed.
-  - `ToolCall` is usually completed directly, but hosts may expose an intermediate streaming preview of argument construction before the final completed payload is persisted.
-  - `PluginFunctionCall` starts when the plugin wrapper begins execution and completes with the plugin result payload.
+    - Items like `ToolResult`, `ApprovalRequest`, `ApprovalResponse`, `Error` are created with their full payload and immediately completed.
+    - `ToolCall` is usually completed directly, but hosts may expose an intermediate streaming preview of argument construction before the final completed payload is persisted.
+    - `PluginFunctionCall` starts when the plugin wrapper begins execution and completes with the plugin result payload.
+    - `DynamicToolCall` starts when the runtime dynamic tool wrapper begins execution and completes with the AppServer client callback result payload.
 
 **Invariants**:
 
@@ -683,7 +710,7 @@ A typical Turn produces Items in this order:
 ```
 1. UserMessage (input)
 2. [ReasoningContent] (if model exposes thinking)
-3. [ToolCall → ToolResult | PluginFunctionCall]* (zero or more tool invocations)
+3. [ToolCall → ToolResult | PluginFunctionCall | DynamicToolCall]* (zero or more tool invocations)
    3a. [ApprovalRequest → ApprovalResponse] (within a tool call, if approval needed)
 4. AgentMessage (final response, streamed)
 5. [Error] (if something went wrong)
@@ -1465,7 +1492,7 @@ Each agent mode defines a **mode-specific tool set** that is injected (or remove
 
 MCP server connections are thread-scoped, not turn-scoped:
 
-- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers and adds their tools. The same applies when a thread with persisted `McpServers` is prepared for turn execution after a cold load (e.g. via `ResumeThread` from disk or `EnsureThreadLoaded` before `SubmitInput`). Purely read-only operations (`GetThread`, thread discovery) must not connect MCP servers solely because thread metadata was loaded.
+- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers, waits for the current startup attempt to settle, and adds ready tools before turn execution. Failed servers are reflected through MCP status and do not prevent agent construction unless the caller cancels. The same applies when a thread with persisted `McpServers` is prepared for turn execution after a cold load (e.g. via `ResumeThread` from disk or `EnsureThreadLoaded` before `SubmitInput`). Purely read-only operations (`GetThread`, thread discovery) must not connect MCP servers solely because thread metadata was loaded.
 - **Disconnect**: When a thread is archived or its MCP configuration changes, Session Core disconnects the previous servers.
 - **Lifecycle**: MCP connections live as long as the thread remains active.
 
