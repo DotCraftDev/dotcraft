@@ -553,6 +553,8 @@ export function SettingsView({
   const confirm = useConfirmDialog()
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
+  const showThinkingContent = useUIStore((s) => s.showThinkingContent)
+  const setShowThinkingContent = useUIStore((s) => s.setShowThinkingContent)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const setExpectedRestart = useConnectionStore((s) => s.setExpectedRestart)
   const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
@@ -864,6 +866,25 @@ export function SettingsView({
     [memoryAutoConsolidateEnabled, reloadWorkspaceCore, t]
   )
 
+  const handleShowThinkingContentToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = showThinkingContent
+      setShowThinkingContent(checked)
+      try {
+        await window.api.settings.set({ showThinkingContent: checked })
+      } catch (err) {
+        setShowThinkingContent(previous)
+        addToast(
+          t('settings.saveFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      }
+    },
+    [setShowThinkingContent, showThinkingContent, t]
+  )
+
   const handleDefaultApprovalPolicyChange = useCallback(
     async (nextPolicy: VisibleApprovalPolicy): Promise<boolean> => {
       if (nextPolicy === defaultApprovalPolicy || applyingDefaultApprovalPolicy) return false
@@ -957,6 +978,7 @@ export function SettingsView({
         setProxyBinaryPath(s.proxy?.binaryPath ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
+        setShowThinkingContent(s.showThinkingContent !== false)
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
         setBrowserUseApprovalMode((s.browserUse?.approvalMode ?? 'alwaysAsk') as BrowserUseApprovalMode)
         setBrowserUseBlockedDomains([...(s.browserUse?.blockedDomains ?? [])])
@@ -2458,6 +2480,19 @@ export function SettingsView({
                         aria-label={t('settings.personalization.longTermMemory')}
                         onChange={(checked) => {
                           void handleMemoryAutoConsolidateToggle(checked)
+                        }}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.personalization.showThinkingContent')}
+                    description={t('settings.personalization.showThinkingContentHint')}
+                    control={
+                      <PillSwitch
+                        checked={showThinkingContent}
+                        aria-label={t('settings.personalization.showThinkingContent')}
+                        onChange={(checked) => {
+                          void handleShowThinkingContentToggle(checked)
                         }}
                       />
                     }

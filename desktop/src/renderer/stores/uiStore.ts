@@ -112,6 +112,8 @@ export interface UIState {
   welcomeDraft: WelcomeDraft | null
   /** Per-turn dismissal marker for the plan approval composer. */
   planApprovalDismissed: Record<string, boolean>
+  /** User preference for rendering reasoning text in the conversation. */
+  showThinkingContent: boolean
 }
 
 interface UIStore extends UIState {
@@ -184,6 +186,7 @@ interface UIStore extends UIState {
   setWelcomeDraft(draft: Omit<WelcomeDraft, 'updatedAt'> | null): void
   clearWelcomeDraft(): void
   dismissPlanApproval(turnId: string): void
+  setShowThinkingContent(visible: boolean): void
   resetPlanApprovalDismissed(): void
 }
 
@@ -239,6 +242,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   pendingWelcomeTurn: null,
   welcomeDraft: null,
   planApprovalDismissed: {},
+  showThinkingContent: true,
 
   setActiveMainView(view) {
     set({ activeMainView: view })
@@ -544,6 +548,10 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         [turnId]: true
       }
     }))
+  },
+
+  setShowThinkingContent(visible) {
+    set({ showThinkingContent: visible })
   },
 
   resetPlanApprovalDismissed() {

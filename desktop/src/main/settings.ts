@@ -69,6 +69,8 @@ export interface AppSettings {
   theme?: UiTheme
   /** Display language (BCP 47); omitted or invalid values are treated as English */
   locale?: AppLocale
+  /** Renderer-only preference; omitted or invalid values are treated as true */
+  showThinkingContent?: boolean
   proxy?: ProxySettings
   recentWorkspaces?: RecentWorkspace[]
   /**
@@ -205,6 +207,12 @@ function normalizeActiveModuleVariants(settings: AppSettings): Record<string, st
   return Object.keys(normalized).length > 0 ? normalized : undefined
 }
 
+function normalizeShowThinkingContent(settings: AppSettings): boolean | undefined {
+  return typeof settings.showThinkingContent === 'boolean'
+    ? settings.showThinkingContent
+    : undefined
+}
+
 function getSettingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')
 }
@@ -222,6 +230,7 @@ export function loadSettings(): AppSettings {
       raw.proxy = normalizeProxySettings(raw)
       raw.browserUse = normalizeBrowserUseSettings(raw)
       raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
+      raw.showThinkingContent = normalizeShowThinkingContent(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
       } else {
@@ -251,6 +260,7 @@ export function saveSettings(settings: AppSettings): void {
     settings.proxy = normalizeProxySettings(settings)
     settings.browserUse = normalizeBrowserUseSettings(settings)
     settings.activeModuleVariants = normalizeActiveModuleVariants(settings)
+    settings.showThinkingContent = normalizeShowThinkingContent(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
   } catch {
     // Non-fatal

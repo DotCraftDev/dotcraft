@@ -16,6 +16,7 @@ import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
 import { isToolItemLive } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
+import { useUIStore } from '../../stores/uiStore'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
@@ -63,6 +64,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
+  const showThinkingContent = useUIStore((s) => s.showThinkingContent)
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
 
@@ -122,12 +124,16 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       } else if (item.type === 'reasoningContent') {
         const isLiveStreaming =
           isRunning && item.status === 'streaming' && item.id === activeItemId
+        if (!showThinkingContent && !isLiveStreaming) {
+          i++
+          continue
+        }
         const displayReasoning = isLiveStreaming ? streamingReasoning : (item.reasoning ?? '')
         nodes.push(
           <ThinkingIndicator
             key={item.id}
             elapsedSeconds={item.elapsedSeconds}
-            reasoning={displayReasoning}
+            reasoning={showThinkingContent ? displayReasoning : undefined}
             streaming={isLiveStreaming}
           />
         )

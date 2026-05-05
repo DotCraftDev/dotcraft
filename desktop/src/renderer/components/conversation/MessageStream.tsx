@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
 import { useT } from '../../contexts/LocaleContext'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
@@ -74,6 +75,7 @@ export function MessageStream(): JSX.Element {
   const streamingReasoning = useConversationStore((s) => s.streamingReasoning)
   const systemLabel = useConversationStore((s) => s.systemLabel)
   const workspacePath = useConversationStore((s) => s.workspacePath)
+  const showThinkingContent = useUIStore((s) => s.showThinkingContent)
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
   const activeThread = useThreadStore((s) => s.activeThread)
   const [editing, setEditing] = useState<InlineEditState | null>(null)
@@ -81,7 +83,9 @@ export function MessageStream(): JSX.Element {
 
   // Use total character count + turn count as a proxy for content size changes
   const contentLength = turns.reduce((acc, t) => acc + t.items.length, 0) +
-    streamingMessage.length + streamingReasoning.length + (systemLabel?.length ?? 0)
+    streamingMessage.length +
+    (showThinkingContent ? streamingReasoning.length : 0) +
+    (systemLabel?.length ?? 0)
 
   const { scrollRef, showScrollButton, scrollToBottom } = useAutoScroll(contentLength)
 

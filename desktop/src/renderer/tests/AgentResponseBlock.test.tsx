@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AgentResponseBlock } from '../components/conversation/AgentResponseBlock'
+import { useUIStore } from '../stores/uiStore'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
 
 function makeToolCallItem(
@@ -62,6 +63,10 @@ function expectDisclosureInsideTitleGroup(container: HTMLElement): HTMLElement {
   expect(titleGroup.style.flex).toBe('0 1 auto')
   return disclosureIcon
 }
+
+beforeEach(() => {
+  useUIStore.getState().setShowThinkingContent(true)
+})
 
 describe('AgentResponseBlock subagent transcript rendering', () => {
   beforeEach(() => {
@@ -599,6 +604,83 @@ describe('AgentResponseBlock reasoning timeline rendering', () => {
     fireEvent.click(button)
 
     expect(screen.getByText('live reasoning')).toBeInTheDocument()
+  })
+
+  it('hides completed reasoning rows when thinking content is disabled', () => {
+    useUIStore.getState().setShowThinkingContent(false)
+    const turn: ConversationTurn = {
+      id: 'turn-reasoning-hidden',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T11:19:40.000Z',
+      completedAt: '2026-04-18T11:19:45.000Z',
+      items: [
+        {
+          id: 'reasoning-hidden',
+          type: 'reasoningContent',
+          status: 'completed',
+          reasoning: 'private reasoning',
+          elapsedSeconds: 4,
+          createdAt: '2026-04-18T11:19:41.000Z'
+        },
+        {
+          id: 'assistant-final',
+          type: 'agentMessage',
+          status: 'completed',
+          text: 'final answer',
+          createdAt: '2026-04-18T11:19:44.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText('Thought 4s')).toBeNull()
+    expect(screen.queryByText('private reasoning')).toBeNull()
+    expect(screen.queryByText(/Processed in/)).toBeNull()
+    expect(screen.getByText('final answer')).toBeInTheDocument()
+  })
+
+  it('shows only a non-expandable live thinking row when thinking content is disabled', () => {
+    useUIStore.getState().setShowThinkingContent(false)
+    const turn: ConversationTurn = {
+      id: 'turn-reasoning-streaming-hidden',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:19:50.000Z',
+      items: [
+        {
+          id: 'reasoning-streaming-hidden',
+          type: 'reasoningContent',
+          status: 'streaming',
+          reasoning: '',
+          createdAt: '2026-04-18T11:19:51.000Z'
+        }
+      ]
+    }
+
+    const { container } = render(
+      <LocaleProvider>
+        <AgentResponseBlock
+          turn={turn}
+          isRunning
+          activeItemIdOverride="reasoning-streaming-hidden"
+          streamingReasoning="hidden live reasoning"
+        />
+      </LocaleProvider>
+    )
+
+    const button = screen.getByRole('button', { name: 'Thinking...' })
+    expect(screen.getByText('Thinking...')).toHaveClass('tool-running-gradient-text')
+    expect(container.querySelector('[data-testid="tool-disclosure-icon"]')).toBeNull()
+
+    fireEvent.click(button)
+
+    expect(screen.queryByText('hidden live reasoning')).toBeNull()
   })
 })
 
