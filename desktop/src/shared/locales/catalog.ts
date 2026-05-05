@@ -654,6 +654,12 @@ const MESSAGES_EN = {
   'plugins.defaultPromptFallback': 'Use this plugin in the current conversation',
   'plugins.content.skill': 'Skill',
   'plugins.content.tool': 'Tool',
+  'plugins.content.mcpServer': 'MCP server',
+  'plugins.content.mcp.active': 'Active',
+  'plugins.content.mcp.inactive': 'Inactive',
+  'plugins.content.mcp.disabled': 'Disabled',
+  'plugins.content.mcp.shadowedWorkspace': 'Shadowed by workspace',
+  'plugins.content.mcp.shadowedPlugin': 'Shadowed by plugin',
   'plugins.detail.contents': 'Included content',
   'plugins.detail.about': 'About',
   'plugins.detail.info': 'Info',
@@ -1534,6 +1540,8 @@ const MESSAGES_EN = {
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.error': 'Error',
   'settings.mcp.status.idle': 'Idle',
+  'settings.mcp.origin.fromPlugin': 'From {{plugin}}',
+  'settings.mcp.viewPlugin': 'View plugin',
 
   // Sub Agents
   'settings.subAgents.title': 'Sub-Agents',
@@ -2404,6 +2412,12 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'plugins.defaultPromptFallback': '在当前对话中使用这个插件',
   'plugins.content.skill': '技能',
   'plugins.content.tool': '工具',
+  'plugins.content.mcpServer': 'MCP 服务器',
+  'plugins.content.mcp.active': '已激活',
+  'plugins.content.mcp.inactive': '未激活',
+  'plugins.content.mcp.disabled': '已禁用',
+  'plugins.content.mcp.shadowedWorkspace': '被工作区覆盖',
+  'plugins.content.mcp.shadowedPlugin': '被插件覆盖',
   'plugins.detail.contents': '包含内容',
   'plugins.detail.about': '关于',
   'plugins.detail.info': '信息',
@@ -3269,6 +3283,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.mcp.status.connecting': '连接中',
   'settings.mcp.status.error': '错误',
   'settings.mcp.status.idle': '空闲',
+  'settings.mcp.origin.fromPlugin': '来自 {{plugin}}',
+  'settings.mcp.viewPlugin': '查看插件',
 
   // Sub Agents
   'settings.subAgents.title': '子 Agent',

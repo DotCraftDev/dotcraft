@@ -598,6 +598,12 @@ public sealed class AppServerServerCapabilities
     public bool McpManagement { get; set; }
 
     /// <summary>
+    /// Server annotates MCP config/status DTOs with workspace/plugin origin metadata.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool McpServerOrigins { get; set; }
+
+    /// <summary>
     /// Server supports external channel configuration management methods
     /// (<c>externalChannel/list</c>, <c>externalChannel/upsert</c>, etc.).
     /// </summary>
@@ -1468,7 +1474,25 @@ public sealed class PluginInfoWire
 
     public List<PluginSkillInfoWire> Skills { get; set; } = [];
 
+    public List<PluginMcpServerInfoWire> McpServers { get; set; } = [];
+
     public List<PluginDiagnosticWire> Diagnostics { get; set; } = [];
+}
+
+public sealed class PluginMcpServerInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string RuntimeName { get; set; } = string.Empty;
+
+    public string Transport { get; set; } = "stdio";
+
+    public bool Enabled { get; set; }
+
+    public bool Active { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ShadowedBy { get; set; }
 }
 
 public sealed class PluginInterfaceWire
@@ -2210,6 +2234,26 @@ public sealed class McpServerConfigWire
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? ToolTimeoutSec { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public McpServerOriginWire? Origin { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReadOnly { get; set; }
+}
+
+public sealed class McpServerOriginWire
+{
+    public string Kind { get; set; } = "workspace";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluginDisplayName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeclaredName { get; set; }
 }
 
 public sealed class McpListResult
@@ -2266,6 +2310,12 @@ public sealed class McpStatusInfoWire
     public string? LastError { get; set; }
 
     public string Transport { get; set; } = "stdio";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public McpServerOriginWire? Origin { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReadOnly { get; set; }
 }
 
 public sealed class McpStatusListResult

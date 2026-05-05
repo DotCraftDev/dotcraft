@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, MouseEvent } from 'react'
-import { Box, ChevronLeft, Ellipsis, ExternalLink, Link, MessageCircle, Settings, Trash2, Wrench } from 'lucide-react'
+import { Box, ChevronLeft, Ellipsis, ExternalLink, Link, MessageCircle, Server, Settings, Trash2, Wrench } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
+import type { MessageKey } from '../../../shared/locales'
 import { usePluginStore, type PluginDiagnosticEntry, type PluginEntry } from '../../stores/pluginStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useSkillsStore } from '../../stores/skillsStore'
@@ -585,6 +586,13 @@ function PluginDetailView({
       kind: t('plugins.content.tool'),
       title: fn.name,
       description: fn.description
+    })),
+    ...(plugin.mcpServers ?? []).map((server) => ({
+      key: `mcp:${server.runtimeName}`,
+      type: 'mcp' as const,
+      kind: t('plugins.content.mcpServer'),
+      title: server.runtimeName,
+      description: describePluginMcpServer(server, t)
     }))
   ]
   return (
@@ -644,7 +652,13 @@ function PluginDetailView({
             {contents.map((item) => (
               <div key={item.key} style={contentItem}>
                 <span style={contentIcon}>
-                  {item.type === 'skill' ? <Box size={16} aria-hidden /> : <Wrench size={16} aria-hidden />}
+                  {item.type === 'skill' ? (
+                    <Box size={16} aria-hidden />
+                  ) : item.type === 'mcp' ? (
+                    <Server size={16} aria-hidden />
+                  ) : (
+                    <Wrench size={16} aria-hidden />
+                  )}
                 </span>
                 <span style={pluginText}>
                   <strong style={rowTitle}>{item.title} <span style={contentKind}>{item.kind}</span></strong>
@@ -841,13 +855,13 @@ function displayCategory(category: string | null | undefined, t: ReturnType<type
 
 function tryPluginInChat(plugin: PluginEntry): void {
   const prompt = plugin.interface?.defaultPrompt || ''
-  const skillName = plugin.skills.find((skill) => skill.enabled)?.name ?? plugin.skills[0]?.name ?? plugin.id
-  const text = `$${skillName}${prompt ? ` ${prompt}` : ''}`
+  const skillName = plugin.skills.find((skill) => skill.enabled)?.name ?? plugin.skills[0]?.name ?? null
+  const text = skillName ? `$${skillName}${prompt ? ` ${prompt}` : ''}` : (prompt || pluginTitle(plugin))
   const ui = useUIStore.getState()
   const existing = ui.welcomeDraft
   ui.setWelcomeDraft({
     text,
-    segments: [{ type: 'skill', skillName }],
+    segments: skillName ? [{ type: 'skill', skillName }] : [],
     selectionStart: text.length,
     selectionEnd: text.length,
     images: [],
@@ -857,6 +871,19 @@ function tryPluginInChat(plugin: PluginEntry): void {
     approvalPolicy: existing?.approvalPolicy ?? 'default'
   })
   ui.goToNewChat()
+}
+
+function describePluginMcpServer(
+  server: NonNullable<PluginEntry['mcpServers']>[number],
+  t: (key: MessageKey, vars?: Record<string, string>) => string
+): string {
+  const transport =
+    server.transport === 'stdio' ? t('settings.mcp.transport.stdio') : t('settings.mcp.transport.http')
+  let state = server.active ? t('plugins.content.mcp.active') : t('plugins.content.mcp.inactive')
+  if (!server.enabled) state = t('plugins.content.mcp.disabled')
+  if (server.shadowedBy === 'workspace') state = t('plugins.content.mcp.shadowedWorkspace')
+  if (server.shadowedBy === 'plugin') state = t('plugins.content.mcp.shadowedPlugin')
+  return `${transport} · ${state}`
 }
 
 function filterVisibleDiagnostics(diagnostics: PluginDiagnosticEntry[]): PluginDiagnosticEntry[] {

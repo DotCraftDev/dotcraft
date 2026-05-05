@@ -323,6 +323,7 @@ public sealed class AppServerRequestHandler(
             ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && mcpClientManager != null,
+            McpServerOrigins = mcpClientManager != null,
             ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SubAgentManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             SubAgentSessions = true,
@@ -655,18 +656,32 @@ public sealed class AppServerRequestHandler(
     {
         var p = GetParams<McpUpsertParams>(msg);
         EnsureMcpManagementAvailable();
-        var mcpManager = mcpClientManager!;
         ValidateMcpConfigWire(p.Server);
 
         var server = MapWireToMcpConfig(p.Server);
-        await mcpManager.UpsertAsync(server, ct);
-        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpManager, ct);
+        server.Origin = McpServerOrigin.Workspace();
+
+        var existing = await mcpClientManager!.GetConfigAsync(server.Name, ct);
+        if (existing?.ReadOnly == true)
+            throw AppServerErrors.McpServerReadOnly(server.Name);
+
+        var workspaceServers = await GetWorkspaceMcpServersAsync(ct);
+        var existingIndex = workspaceServers.FindIndex(
+            candidate => string.Equals(candidate.Name, server.Name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+            workspaceServers[existingIndex] = server;
+        else
+            workspaceServers.Add(server);
+
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, workspaceServers, ct);
+        SetCurrentWorkspaceMcpServers(workspaceServers);
+        await ReconnectEffectiveMcpRuntimeAsync(workspaceServers, ct);
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.McpUpsert,
             [ConfigChangeRegions.Mcp]);
 
-        var updated = await mcpManager.GetConfigAsync(server.Name, ct) ?? server;
-        var status = (await mcpManager.ListStatusesAsync(ct))
+        var updated = await mcpClientManager.GetConfigAsync(server.Name, ct) ?? server;
+        var status = (await mcpClientManager.ListStatusesAsync(ct))
             .FirstOrDefault(s => string.Equals(s.Name, updated.Name, StringComparison.OrdinalIgnoreCase));
         if (status != null)
             broadcastMcpStatusChanged?.Invoke(MapMcpStatusToWire(status));
@@ -681,11 +696,21 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(p.Name))
             throw AppServerErrors.InvalidParams("'name' is required.");
 
-        var removed = await mcpClientManager!.RemoveAsync(p.Name, ct);
+        var existing = await mcpClientManager!.GetConfigAsync(p.Name, ct);
+        if (existing == null)
+            throw AppServerErrors.McpServerNotFound(p.Name);
+        if (existing.ReadOnly)
+            throw AppServerErrors.McpServerReadOnly(p.Name);
+
+        var workspaceServers = await GetWorkspaceMcpServersAsync(ct);
+        var removed = workspaceServers.RemoveAll(
+            candidate => string.Equals(candidate.Name, p.Name, StringComparison.OrdinalIgnoreCase)) > 0;
         if (!removed)
             throw AppServerErrors.McpServerNotFound(p.Name);
 
-        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpClientManager, ct);
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, workspaceServers, ct);
+        SetCurrentWorkspaceMcpServers(workspaceServers);
+        await ReconnectEffectiveMcpRuntimeAsync(workspaceServers, ct);
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.McpRemove,
             [ConfigChangeRegions.Mcp]);
@@ -1629,6 +1654,73 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.MethodNotFound("subagent/profiles/*");
     }
 
+    private async Task<List<McpServerConfig>> GetWorkspaceMcpServersAsync(CancellationToken ct)
+    {
+        var source = appConfigMonitor?.Current.McpServers;
+        if (source is not { Count: > 0 } && mcpClientManager != null)
+            source = (await mcpClientManager.ListConfigsAsync(ct))
+                .Where(server => !server.ReadOnly)
+                .ToList();
+
+        return (source ?? [])
+            .Where(server => !server.ReadOnly)
+            .Select(CloneAsWorkspaceMcpServer)
+            .ToList();
+    }
+
+    private List<McpServerConfig> GetWorkspaceMcpServersSnapshot()
+    {
+        return (appConfigMonitor?.Current.McpServers ?? [])
+            .Where(server => !server.ReadOnly)
+            .Select(CloneAsWorkspaceMcpServer)
+            .ToList();
+    }
+
+    private void SetCurrentWorkspaceMcpServers(IReadOnlyList<McpServerConfig> servers)
+    {
+        if (appConfigMonitor == null)
+            return;
+
+        appConfigMonitor.Current.McpServers = servers
+            .Select(CloneAsWorkspaceMcpServer)
+            .ToList();
+    }
+
+    private async Task ReconnectEffectiveMcpRuntimeAsync(
+        IReadOnlyList<McpServerConfig> workspaceServers,
+        CancellationToken ct)
+    {
+        if (mcpClientManager == null)
+            return;
+
+        var current = appConfigMonitor?.Current ?? new AppConfig();
+        current.McpServers = workspaceServers
+            .Select(CloneAsWorkspaceMcpServer)
+            .ToList();
+
+        var effective = PluginMcpServerResolver.LoadEffectiveServers(
+            current,
+            ResolveHostWorkspacePath(),
+            workspaceCraftPath ?? Path.Combine(ResolveHostWorkspacePath(), ".craft"),
+            out var diagnostics);
+        PluginDiagnosticsStore.Shared.Append(diagnostics);
+        PluginDiagnosticsLogger.Write(diagnostics);
+
+        await mcpClientManager.ConnectAsync(effective, ct);
+    }
+
+    private string ResolveHostWorkspacePath() =>
+        _hostWorkspacePath
+        ?? (workspaceCraftPath == null ? Directory.GetCurrentDirectory() : Directory.GetParent(workspaceCraftPath)?.FullName)
+        ?? Directory.GetCurrentDirectory();
+
+    private static McpServerConfig CloneAsWorkspaceMcpServer(McpServerConfig server)
+    {
+        var clone = server.Clone();
+        clone.Origin = McpServerOrigin.Workspace();
+        return clone;
+    }
+
     private static McpServerConfigWire MapMcpConfigToWire(McpServerConfig config) => new()
     {
         Name = config.Name,
@@ -1644,7 +1736,9 @@ public sealed class AppServerRequestHandler(
         HttpHeaders = config.Headers.Count > 0 ? new Dictionary<string, string>(config.Headers) : null,
         EnvHttpHeaders = config.EnvHttpHeaders.Count > 0 ? new Dictionary<string, string>(config.EnvHttpHeaders) : null,
         StartupTimeoutSec = config.StartupTimeoutSec,
-        ToolTimeoutSec = config.ToolTimeoutSec
+        ToolTimeoutSec = config.ToolTimeoutSec,
+        Origin = MapMcpOriginToWire(config.Origin),
+        ReadOnly = config.ReadOnly
     };
 
     private static McpStatusInfoWire MapMcpStatusToWire(McpServerStatusSnapshot status) => new()
@@ -1656,7 +1750,9 @@ public sealed class AppServerRequestHandler(
         ResourceCount = status.ResourceCount,
         ResourceTemplateCount = status.ResourceTemplateCount,
         LastError = status.LastError,
-        Transport = status.Transport
+        Transport = status.Transport,
+        Origin = MapMcpOriginToWire(status.Origin),
+        ReadOnly = status.ReadOnly
     };
 
     private static McpServerConfig MapWireToMcpConfig(McpServerConfigWire wire) => new()
@@ -1674,8 +1770,18 @@ public sealed class AppServerRequestHandler(
         Headers = wire.HttpHeaders ?? new Dictionary<string, string>(),
         EnvHttpHeaders = wire.EnvHttpHeaders ?? new Dictionary<string, string>(),
         StartupTimeoutSec = wire.StartupTimeoutSec,
-        ToolTimeoutSec = wire.ToolTimeoutSec
+        ToolTimeoutSec = wire.ToolTimeoutSec,
+        Origin = McpServerOrigin.Workspace()
     };
+
+    private static McpServerOriginWire MapMcpOriginToWire(McpServerOrigin origin) =>
+        new()
+        {
+            Kind = origin.IsPlugin ? "plugin" : "workspace",
+            PluginId = origin.PluginId,
+            PluginDisplayName = origin.PluginDisplayName,
+            DeclaredName = origin.DeclaredName
+        };
 
     private static string NormalizeMcpTransport(string? transport) =>
         transport?.Equals("streamableHttp", StringComparison.OrdinalIgnoreCase) == true
@@ -1874,24 +1980,27 @@ public sealed class AppServerRequestHandler(
 
     private static async Task SaveWorkspaceMcpServersAsync(
         string workspaceCraftPath,
-        McpClientManager manager,
+        IReadOnlyList<McpServerConfig> servers,
         CancellationToken ct)
     {
+        _ = ct;
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         Directory.CreateDirectory(workspaceCraftPath);
         var root = LoadWorkspaceConfigObject(configPath);
 
         var key = FindCaseInsensitiveKey(root, "McpServers") ?? "McpServers";
-        var servers = await manager.ListConfigsAsync(ct);
         var serverObject = new JsonObject();
-        foreach (var server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var server in servers
+                     .Where(server => !server.ReadOnly && server.Origin.IsWorkspace)
+                     .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(server.Name))
                 continue;
 
-            var serverNode = JsonSerializer.SerializeToNode(server, AppConfig.SerializerOptions);
+            var workspaceServer = CloneAsWorkspaceMcpServer(server);
+            var serverNode = JsonSerializer.SerializeToNode(workspaceServer, AppConfig.SerializerOptions);
             if (serverNode != null)
-                serverObject[server.Name] = serverNode;
+                serverObject[workspaceServer.Name] = serverNode;
         }
 
         root[key] = serverObject;
@@ -2515,16 +2624,18 @@ public sealed class AppServerRequestHandler(
 
         var p = GetParams<PluginListParams>(msg);
         var discovery = RefreshPluginRuntime();
+        var diagnostics = discovery.Diagnostics.ToList();
+        var mcpSummaries = BuildPluginMcpSummaryIndex(discovery, diagnostics);
         var plugins = discovery.Plugins
             .Where(plugin => p.IncludeDisabled != false || plugin.Enabled)
-            .Select(plugin => MapPluginToWire(plugin, discovery.Diagnostics))
+            .Select(plugin => MapPluginToWire(plugin, diagnostics, mcpSummaries))
             .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return Task.FromResult<object?>(new PluginListResult
         {
             Plugins = plugins,
-            Diagnostics = discovery.Diagnostics.Select(MapPluginDiagnosticToWire).ToList()
+            Diagnostics = diagnostics.Select(MapPluginDiagnosticToWire).ToList()
         });
     }
 
@@ -2539,6 +2650,8 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams("'id' is required.");
 
         var discovery = RefreshPluginRuntime();
+        var diagnostics = discovery.Diagnostics.ToList();
+        var mcpSummaries = BuildPluginMcpSummaryIndex(discovery, diagnostics);
         var plugin = discovery.Plugins.FirstOrDefault(
             candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, p.Id));
         if (plugin == null)
@@ -2546,13 +2659,12 @@ public sealed class AppServerRequestHandler(
 
         return Task.FromResult<object?>(new PluginViewResult
         {
-            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
+            Plugin = MapPluginToWire(plugin, diagnostics, mcpSummaries)
         });
     }
 
-    private Task<object?> HandlePluginSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    private async Task<object?> HandlePluginSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = ct;
         if (string.IsNullOrEmpty(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.PluginSetEnabled);
 
@@ -2580,23 +2692,25 @@ public sealed class AppServerRequestHandler(
         current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
 
         var discovery = RefreshPluginRuntime();
+        await ReconnectEffectiveMcpRuntimeAsync(await GetWorkspaceMcpServersAsync(ct), ct);
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.PluginSetEnabled,
-            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills, ConfigChangeRegions.Mcp]);
 
+        var diagnostics = discovery.Diagnostics.ToList();
+        var mcpSummaries = BuildPluginMcpSummaryIndex(discovery, diagnostics);
         var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
         if (plugin == null)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
 
-        return Task.FromResult<object?>(new PluginSetEnabledResult
+        return new PluginSetEnabledResult
         {
-            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
-        });
+            Plugin = MapPluginToWire(plugin, diagnostics, mcpSummaries)
+        };
     }
 
-    private Task<object?> HandlePluginInstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    private async Task<object?> HandlePluginInstallAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = ct;
         if (string.IsNullOrEmpty(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.PluginInstall);
 
@@ -2607,18 +2721,20 @@ public sealed class AppServerRequestHandler(
         var pluginId = PluginIds.Canonicalize(p.Id.Trim());
         var current = appConfigMonitor?.Current ?? new AppConfig();
         var before = RefreshPluginRuntime();
+        var beforeDiagnostics = before.Diagnostics.ToList();
+        var beforeMcpSummaries = BuildPluginMcpSummaryIndex(before, beforeDiagnostics);
         var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
         if (beforePlugin == null)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
         if (beforePlugin.Installed)
-            return Task.FromResult<object?>(new PluginInstallResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+            return new PluginInstallResult { Plugin = MapPluginToWire(beforePlugin, beforeDiagnostics, beforeMcpSummaries) };
         if (!beforePlugin.Installable)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' is not installable.");
 
-        var diagnostics = new BuiltInPluginDeployer(Path.Combine(workspaceCraftPath, "plugins")).DeployPlugin(pluginId);
-        PluginDiagnosticsStore.Shared.Append(diagnostics);
-        PluginDiagnosticsLogger.Write(diagnostics);
-        if (diagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error || d.Code == "BuiltInPluginNotFound"))
+        var deployDiagnostics = new BuiltInPluginDeployer(Path.Combine(workspaceCraftPath, "plugins")).DeployPlugin(pluginId);
+        PluginDiagnosticsStore.Shared.Append(deployDiagnostics);
+        PluginDiagnosticsLogger.Write(deployDiagnostics);
+        if (deployDiagnostics.Any(d => d.Severity == PluginDiagnosticSeverity.Error || d.Code == "BuiltInPluginNotFound"))
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
 
         var disabled = PluginsConfigPersistence.NormalizeDisabledPluginIds(current.Plugins.DisabledPlugins).ToList();
@@ -2628,23 +2744,25 @@ public sealed class AppServerRequestHandler(
         current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
 
         var discovery = RefreshPluginRuntime();
+        await ReconnectEffectiveMcpRuntimeAsync(await GetWorkspaceMcpServersAsync(ct), ct);
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.PluginInstall,
-            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills, ConfigChangeRegions.Mcp]);
 
+        var diagnostics = discovery.Diagnostics.ToList();
+        var mcpSummaries = BuildPluginMcpSummaryIndex(discovery, diagnostics);
         var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
         if (plugin == null || !plugin.Installed)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' could not be installed.");
 
-        return Task.FromResult<object?>(new PluginInstallResult
+        return new PluginInstallResult
         {
-            Plugin = MapPluginToWire(plugin, discovery.Diagnostics)
-        });
+            Plugin = MapPluginToWire(plugin, diagnostics, mcpSummaries)
+        };
     }
 
-    private Task<object?> HandlePluginRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    private async Task<object?> HandlePluginRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = ct;
         if (string.IsNullOrEmpty(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.PluginRemove);
 
@@ -2654,11 +2772,13 @@ public sealed class AppServerRequestHandler(
 
         var pluginId = PluginIds.Canonicalize(p.Id.Trim());
         var before = RefreshPluginRuntime();
+        var beforeDiagnostics = before.Diagnostics.ToList();
+        var beforeMcpSummaries = BuildPluginMcpSummaryIndex(before, beforeDiagnostics);
         var beforePlugin = before.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
         if (beforePlugin == null)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' was not found.");
         if (!beforePlugin.Installed)
-            return Task.FromResult<object?>(new PluginRemoveResult { Plugin = MapPluginToWire(beforePlugin, before.Diagnostics) });
+            return new PluginRemoveResult { Plugin = MapPluginToWire(beforePlugin, beforeDiagnostics, beforeMcpSummaries) };
         if (!beforePlugin.Removable)
             throw AppServerErrors.InvalidParams($"Plugin '{pluginId}' cannot be removed by DotCraft.");
 
@@ -2678,15 +2798,18 @@ public sealed class AppServerRequestHandler(
         current.Plugins.EnabledPlugins.RemoveAll(id => PluginIds.EqualsCanonical(id, pluginId));
 
         var discovery = RefreshPluginRuntime();
+        await ReconnectEffectiveMcpRuntimeAsync(await GetWorkspaceMcpServersAsync(ct), ct);
         appConfigMonitor?.NotifyChanged(
             AppServerMethods.PluginRemove,
-            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills]);
+            [ConfigChangeRegions.Plugins, ConfigChangeRegions.Skills, ConfigChangeRegions.Mcp]);
 
+        var diagnostics = discovery.Diagnostics.ToList();
+        var mcpSummaries = BuildPluginMcpSummaryIndex(discovery, diagnostics);
         var plugin = discovery.Plugins.FirstOrDefault(candidate => PluginIds.EqualsCanonical(candidate.Manifest.Id, pluginId));
-        return Task.FromResult<object?>(new PluginRemoveResult
+        return new PluginRemoveResult
         {
-            Plugin = plugin == null ? null : MapPluginToWire(plugin, discovery.Diagnostics)
-        });
+            Plugin = plugin == null ? null : MapPluginToWire(plugin, diagnostics, mcpSummaries)
+        };
     }
 
     private Task<object?> HandleCommandListAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -2806,9 +2929,18 @@ public sealed class AppServerRequestHandler(
             PluginDiagnosticsStore.Shared);
     }
 
+    private IReadOnlyDictionary<string, IReadOnlyList<PluginMcpServerSummary>> BuildPluginMcpSummaryIndex(
+        PluginDiscoveryResult discovery,
+        List<PluginDiagnostic> diagnostics) =>
+        PluginMcpServerResolver.BuildPluginMcpServerSummaries(
+            discovery.Plugins,
+            GetWorkspaceMcpServersSnapshot(),
+            diagnostics);
+
     private PluginInfoWire MapPluginToWire(
         DiscoveredPlugin plugin,
-        IReadOnlyList<PluginDiagnostic> diagnostics)
+        IReadOnlyList<PluginDiagnostic> diagnostics,
+        IReadOnlyDictionary<string, IReadOnlyList<PluginMcpServerSummary>> mcpSummaries)
     {
         var manifest = plugin.Manifest;
         return new PluginInfoWire
@@ -2826,12 +2958,26 @@ public sealed class AppServerRequestHandler(
             Interface = MapPluginInterfaceToWire(manifest.Interface),
             Functions = [],
             Skills = MapPluginSkillsToWire(plugin),
+            McpServers = mcpSummaries.TryGetValue(manifest.Id, out var servers)
+                ? servers.Select(MapPluginMcpServerToWire).ToList()
+                : [],
             Diagnostics = diagnostics
                 .Where(d => string.Equals(d.PluginId, manifest.Id, StringComparison.OrdinalIgnoreCase))
                 .Select(MapPluginDiagnosticToWire)
                 .ToList()
         };
     }
+
+    private static PluginMcpServerInfoWire MapPluginMcpServerToWire(PluginMcpServerSummary server) =>
+        new()
+        {
+            Name = server.Name,
+            RuntimeName = server.RuntimeName,
+            Transport = server.Transport,
+            Enabled = server.Enabled,
+            Active = server.Active,
+            ShadowedBy = server.ShadowedBy
+        };
 
     private static bool IsPathWithin(string path, string root)
     {

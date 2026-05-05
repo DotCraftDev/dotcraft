@@ -52,6 +52,14 @@ Plugins must declare at least one supported contribution: a plugin-contained `sk
 
 `mcpServers` is an optional manifest-relative path to a plugin-contained MCP configuration file. If omitted, DotCraft looks for `./.mcp.json` in the plugin root. The MCP file may use either `{ "mcpServers": { ... } }` or a direct server map. Plugin-bundled MCP servers use the same runtime as workspace `McpServers`; relative MCP `cwd` values resolve under the plugin root. At runtime, contributed server names are prefixed as `{pluginId}:{serverName}` to avoid collisions with workspace MCP servers and other plugins.
 
+Effective MCP merge rules:
+
+- Workspace `McpServers` are loaded first and remain editable workspace configuration.
+- Enabled, installed plugin MCP servers are then added as read-only runtime entries with origin metadata (`kind=plugin`, `pluginId`, display name, and declared server name).
+- If a plugin runtime name conflicts with a workspace server or a higher-priority plugin server, the plugin declaration is marked shadowed in plugin metadata and is not connected.
+- `mcp/list` returns the effective runtime view. Workspace config writes (`mcp/upsert`, `mcp/remove`, and config persistence) never write plugin-origin servers into `.craft/config.json`.
+- Plugin-bundled MCP startup is non-fatal. A missing command, bad endpoint, timeout, or protocol error is reported through MCP runtime status (`mcp/status/list` / `mcp/status/updated`) and diagnostics where applicable; it must not prevent plugin discovery, AppServer readiness, or Desktop connection.
+
 Example MCP plugin:
 
 ```json
@@ -199,7 +207,7 @@ Installed built-in plugins and local manifest plugins are enabled by default unl
 
 `node-repl` in `DisabledPlugins` is treated as a legacy alias for `browser-use`; new writes normalize to `browser-use`.
 
-Workspace-level MCP configuration continues to use `McpServers`. Plugin-bundled MCP servers are contributed by enabled plugins and merged into the effective MCP runtime configuration.
+Workspace-level MCP configuration continues to use `McpServers`. Plugin-bundled MCP servers are contributed by enabled plugins and merged into the effective MCP runtime configuration as read-only runtime entries. Desktop and other clients should show plugin MCP alongside workspace MCP in runtime settings, but edits and deletes apply only to workspace-origin entries.
 
 ---
 

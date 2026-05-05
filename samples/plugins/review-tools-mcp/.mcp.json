@@ -4,7 +4,8 @@
       "transport": "stdio",
       "command": "node",
       "args": ["./mcp-server/index.js"],
-      "cwd": "./"
+      "cwd": "./",
+      "startupTimeoutSec": 5
     }
   }
 }

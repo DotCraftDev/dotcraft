@@ -28,23 +28,21 @@ public static class PluginMcpServerLoader
 
         var servers = new List<McpServerConfig>();
         foreach (var plugin in discovery.Plugins)
-        {
-            var path = plugin.Manifest.McpServersPath;
-            if (string.IsNullOrWhiteSpace(path))
-                continue;
-
-            servers.AddRange(LoadPluginServers(plugin.Manifest, path, allDiagnostics));
-        }
+            servers.AddRange(LoadPluginServers(plugin, allDiagnostics));
 
         diagnostics = allDiagnostics;
         return servers;
     }
 
-    private static IReadOnlyList<McpServerConfig> LoadPluginServers(
-        PluginManifest manifest,
-        string path,
+    public static IReadOnlyList<McpServerConfig> LoadPluginServers(
+        DiscoveredPlugin plugin,
         List<PluginDiagnostic> diagnostics)
     {
+        var manifest = plugin.Manifest;
+        var path = manifest.McpServersPath;
+        if (string.IsNullOrWhiteSpace(path))
+            return [];
+
         JsonElement root;
         try
         {
@@ -90,7 +88,8 @@ public static class PluginMcpServerLoader
         var result = new List<McpServerConfig>();
         foreach (var server in parsed)
         {
-            if (string.IsNullOrWhiteSpace(server.Name))
+            var declaredName = server.Name.Trim();
+            if (string.IsNullOrWhiteSpace(declaredName))
             {
                 diagnostics.Add(PluginDiagnostic.Warning(
                     "InvalidPluginMcpServer",
@@ -101,7 +100,11 @@ public static class PluginMcpServerLoader
             }
 
             var clone = server.Clone();
-            clone.Name = $"{manifest.Id}:{clone.Name.Trim()}";
+            clone.Name = $"{manifest.Id}:{declaredName}";
+            clone.Origin = McpServerOrigin.Plugin(
+                manifest.Id,
+                manifest.Interface?.DisplayName ?? manifest.DisplayName,
+                declaredName);
             if (!string.IsNullOrWhiteSpace(clone.Cwd) && !Path.IsPathRooted(clone.Cwd))
                 clone.Cwd = Path.GetFullPath(Path.Combine(manifest.RootPath, clone.Cwd));
             result.Add(clone);

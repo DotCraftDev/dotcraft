@@ -1,4 +1,5 @@
 using DotCraft.Configuration;
+using DotCraft.Mcp;
 using DotCraft.Plugins;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
@@ -112,6 +113,95 @@ public sealed class AppServerPluginManagementTests : IDisposable
             plugin.GetProperty("skills").EnumerateArray(),
             item => item.GetProperty("name").GetString() == "review-tools"
                     && item.GetProperty("enabled").GetBoolean());
+        var mcpServer = Assert.Single(plugin.GetProperty("mcpServers").EnumerateArray());
+        Assert.Equal("review", mcpServer.GetProperty("name").GetString());
+        Assert.Equal("review-tools:review", mcpServer.GetProperty("runtimeName").GetString());
+        Assert.Equal("stdio", mcpServer.GetProperty("transport").GetString());
+        Assert.True(mcpServer.GetProperty("enabled").GetBoolean());
+        Assert.True(mcpServer.GetProperty("active").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PluginList_WhenWorkspaceMcpShadowsPlugin_MarksPluginMcpShadowed()
+    {
+        WriteMcpPlugin(Path.Combine(_workspaceCraftPath, "plugins", "review-tools"));
+        var config = new AppConfig();
+        config.McpServers.Add(new McpServerConfig
+        {
+            Name = "review-tools:review",
+            Enabled = false,
+            Transport = "stdio",
+            Command = "node"
+        });
+        using var harness = CreateHarness(config);
+        await harness.InitializeAsync();
+
+        var msg = harness.BuildRequest(AppServerMethods.PluginList, new { includeDisabled = true });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        var plugins = response.RootElement.GetProperty("result").GetProperty("plugins").EnumerateArray().ToArray();
+        var plugin = Assert.Single(plugins, item => item.GetProperty("id").GetString() == "review-tools");
+        var mcpServer = Assert.Single(plugin.GetProperty("mcpServers").EnumerateArray());
+        Assert.False(mcpServer.GetProperty("active").GetBoolean());
+        Assert.Equal("workspace", mcpServer.GetProperty("shadowedBy").GetString());
+    }
+
+    [Fact]
+    public async Task McpList_ReturnsPluginOriginReadOnlyMetadata()
+    {
+        var manager = new McpClientManager();
+        await manager.ConnectAsync([
+            new McpServerConfig
+            {
+                Name = "review-tools:review",
+                Enabled = false,
+                Transport = "stdio",
+                Command = "node",
+                Origin = McpServerOrigin.Plugin("review-tools", "Review Tools", "review")
+            }
+        ]);
+        using var harness = CreateHarness(mcpClientManager: manager);
+        await harness.InitializeAsync();
+
+        var msg = harness.BuildRequest(AppServerMethods.McpList, new { });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        var server = Assert.Single(response.RootElement.GetProperty("result").GetProperty("servers").EnumerateArray());
+        Assert.Equal("review-tools:review", server.GetProperty("name").GetString());
+        Assert.True(server.GetProperty("readOnly").GetBoolean());
+        var origin = server.GetProperty("origin");
+        Assert.Equal("plugin", origin.GetProperty("kind").GetString());
+        Assert.Equal("review-tools", origin.GetProperty("pluginId").GetString());
+        Assert.Equal("Review Tools", origin.GetProperty("pluginDisplayName").GetString());
+        Assert.Equal("review", origin.GetProperty("declaredName").GetString());
+    }
+
+    [Fact]
+    public async Task McpRemove_WhenPluginOrigin_ReturnsReadOnlyError()
+    {
+        var manager = new McpClientManager();
+        await manager.ConnectAsync([
+            new McpServerConfig
+            {
+                Name = "review-tools:review",
+                Enabled = false,
+                Transport = "stdio",
+                Command = "node",
+                Origin = McpServerOrigin.Plugin("review-tools", "Review Tools", "review")
+            }
+        ]);
+        using var harness = CreateHarness(mcpClientManager: manager);
+        await harness.InitializeAsync();
+
+        var msg = harness.BuildRequest(AppServerMethods.McpRemove, new { name = "review-tools:review" });
+        await harness.ExecuteRequestAsync(msg);
+
+        using var response = await harness.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(response, AppServerErrors.McpServerReadOnlyCode);
     }
 
     [Fact]
@@ -282,14 +372,18 @@ public sealed class AppServerPluginManagementTests : IDisposable
         Assert.False(plugin.GetProperty("enabled").GetBoolean());
     }
 
-    private AppServerTestHarness CreateHarness(AppConfig? config = null, SkillsLoader? loader = null)
+    private AppServerTestHarness CreateHarness(
+        AppConfig? config = null,
+        SkillsLoader? loader = null,
+        McpClientManager? mcpClientManager = null)
     {
         config ??= new AppConfig();
         loader ??= CreateSkillsLoader(config);
         return new AppServerTestHarness(
             workspaceCraftPath: _workspaceCraftPath,
             skillsLoader: loader,
-            appConfigMonitor: new AppConfigMonitor(config));
+            appConfigMonitor: new AppConfigMonitor(config),
+            mcpClientManager: mcpClientManager);
     }
 
     private SkillsLoader CreateSkillsLoader(AppConfig config)

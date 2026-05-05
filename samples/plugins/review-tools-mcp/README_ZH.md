@@ -16,4 +16,4 @@
 Copy-Item -Recurse samples/plugins/review-tools-mcp .craft/plugins/review-tools-mcp
 ```
 
-然后编辑 `.mcp.json`，让 `review` server 指向真实的 MCP server 命令或 HTTPS endpoint。
+内置的示例 MCP server 不需要额外依赖，复制后可以直接试用。如果要接入真实 review 服务，再编辑 `.mcp.json`，让 `review` server 指向你的 MCP 命令或 HTTPS endpoint。

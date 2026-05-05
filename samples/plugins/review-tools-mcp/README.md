@@ -16,4 +16,4 @@ Copy this folder into a workspace plugin root:
 Copy-Item -Recurse samples/plugins/review-tools-mcp .craft/plugins/review-tools-mcp
 ```
 
-Then edit `.mcp.json` so the `review` server points at a real MCP server command or HTTPS endpoint.
+The bundled sample MCP server is dependency-free and can be used immediately. To integrate a real review service, edit `.mcp.json` so the `review` server points at your MCP command or HTTPS endpoint.

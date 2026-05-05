@@ -1,6 +1,6 @@
 import { useEffect, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { Box, Wrench, X } from 'lucide-react'
+import { Box, Server, Wrench, X } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import type { PluginEntry } from '../../stores/pluginStore'
 import { PluginIcon, pluginSubtitle, pluginTitle } from './PluginCatalogItem'
@@ -63,6 +63,9 @@ export function PluginInstallDialog({
             ))}
             {plugin.functions.map((fn) => (
               <span key={`tool:${fn.name}`} style={chip}><Wrench size={12} aria-hidden />{fn.name}</span>
+            ))}
+            {(plugin.mcpServers ?? []).map((server) => (
+              <span key={`mcp:${server.runtimeName}`} style={chip}><Server size={12} aria-hidden />{server.runtimeName}</span>
             ))}
           </div>
           <Divider />

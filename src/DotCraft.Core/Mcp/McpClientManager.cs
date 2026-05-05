@@ -14,6 +14,8 @@ public sealed class McpServerStatusSnapshot
     public int ResourceTemplateCount { get; set; }
     public string? LastError { get; set; }
     public string Transport { get; set; } = "stdio";
+    public McpServerOrigin Origin { get; set; } = McpServerOrigin.Workspace();
+    public bool ReadOnly { get; set; }
 }
 
 public sealed class McpServerStatusChangedEventArgs : EventArgs
@@ -23,12 +25,15 @@ public sealed class McpServerStatusChangedEventArgs : EventArgs
 
 public sealed class McpClientManager : IAsyncDisposable
 {
+    private const double DefaultStartupTimeoutSeconds = 5;
+
     private sealed class ServerRuntimeState
     {
         public McpServerConfig Config { get; set; } = new();
         public McpClient? Client { get; set; }
         public McpServerStatusSnapshot Status { get; set; } = new();
         public List<McpClientTool> CachedTools { get; set; } = [];
+        public long Generation { get; set; }
     }
 
     private readonly ILogger<McpClientManager>? _logger;
@@ -37,6 +42,9 @@ public sealed class McpClientManager : IAsyncDisposable
     private IReadOnlyDictionary<string, string> _toolServerMapSnapshot =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _mutex = new(1, 1);
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private long _nextGeneration;
+    private bool _disposed;
 
     public IReadOnlyList<McpClientTool> Tools => Volatile.Read(ref _toolsSnapshot);
     public IReadOnlyDictionary<string, string> ToolServerMap => Volatile.Read(ref _toolServerMapSnapshot);
@@ -50,24 +58,40 @@ public sealed class McpClientManager : IAsyncDisposable
 
     public async Task ConnectAsync(IEnumerable<McpServerConfig> servers, CancellationToken cancellationToken = default)
     {
+        var configs = servers
+            .Select(s => s.Clone())
+            .Where(s => !string.IsNullOrWhiteSpace(s.Name))
+            .GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+        var clientsToDispose = new List<McpClient>();
+        var statusesToNotify = new List<McpServerStatusSnapshot>();
+        var connectWork = new List<(McpServerConfig Config, long Generation)>();
+
         await _mutex.WaitAsync(cancellationToken);
         try
         {
-            await DisposeAllClientsUnsafeAsync();
+            ThrowIfDisposed();
+            CollectClientsUnsafe(clientsToDispose);
             _servers.Clear();
 
-            foreach (var server in servers)
+            foreach (var config in configs)
             {
-                var clone = server.Clone();
-                _servers[clone.Name] = new ServerRuntimeState
+                var generation = NextGenerationUnsafe();
+                var startupState = config.Enabled ? "starting" : "disabled";
+                var state = new ServerRuntimeState
                 {
-                    Config = clone,
-                    Status = CreateStatus(clone, clone.Enabled ? "idle" : "disabled")
+                    Config = config,
+                    Status = CreateStatus(config, startupState),
+                    Generation = generation
                 };
-            }
 
-            foreach (var state in _servers.Values.OrderBy(s => s.Config.Name, StringComparer.OrdinalIgnoreCase))
-                await ConnectServerUnsafeAsync(state, cancellationToken);
+                _servers[config.Name] = state;
+                statusesToNotify.Add(CloneStatus(state.Status));
+
+                if (config.Enabled)
+                    connectWork.Add((config.Clone(), generation));
+            }
 
             RebuildToolIndexUnsafe();
         }
@@ -75,6 +99,14 @@ public sealed class McpClientManager : IAsyncDisposable
         {
             _mutex.Release();
         }
+
+        foreach (var status in statusesToNotify)
+            OnStatusChanged(status);
+
+        await DisposeClientsAsync(clientsToDispose);
+
+        foreach (var (config, generation) in connectWork)
+            StartConnectInBackground(config, generation);
     }
 
     public async Task<McpServerConfig?> GetConfigAsync(string name, CancellationToken cancellationToken = default)
@@ -124,52 +156,73 @@ public sealed class McpClientManager : IAsyncDisposable
 
     public async Task<McpServerStatusSnapshot> UpsertAsync(McpServerConfig config, CancellationToken cancellationToken = default)
     {
+        var clone = config.Clone();
+        var clientsToDispose = new List<McpClient>();
+        McpServerStatusSnapshot status;
+        long generation;
+
         await _mutex.WaitAsync(cancellationToken);
         try
         {
-            if (_servers.TryGetValue(config.Name, out var existing))
+            ThrowIfDisposed();
+            generation = NextGenerationUnsafe();
+            if (_servers.TryGetValue(clone.Name, out var existing))
             {
-                await DisposeClientUnsafeAsync(existing);
-                existing.Config = config.Clone();
-                existing.Status = CreateStatus(existing.Config, existing.Config.Enabled ? "idle" : "disabled");
-                await ConnectServerUnsafeAsync(existing, cancellationToken);
+                CollectClientUnsafe(existing, clientsToDispose);
+                existing.Config = clone;
+                existing.Generation = generation;
+                existing.Status = CreateStatus(existing.Config, existing.Config.Enabled ? "starting" : "disabled");
+                status = CloneStatus(existing.Status);
             }
             else
             {
                 var state = new ServerRuntimeState
                 {
-                    Config = config.Clone(),
-                    Status = CreateStatus(config, config.Enabled ? "idle" : "disabled")
+                    Config = clone,
+                    Status = CreateStatus(clone, clone.Enabled ? "starting" : "disabled"),
+                    Generation = generation
                 };
-                _servers[config.Name] = state;
-                await ConnectServerUnsafeAsync(state, cancellationToken);
+                _servers[clone.Name] = state;
+                status = CloneStatus(state.Status);
             }
 
             RebuildToolIndexUnsafe();
-            return CloneStatus(_servers[config.Name].Status);
         }
         finally
         {
             _mutex.Release();
         }
+
+        OnStatusChanged(status);
+        await DisposeClientsAsync(clientsToDispose);
+
+        if (clone.Enabled)
+            StartConnectInBackground(clone.Clone(), generation);
+
+        return status;
     }
 
     public async Task<bool> RemoveAsync(string name, CancellationToken cancellationToken = default)
     {
+        var clientsToDispose = new List<McpClient>();
+
         await _mutex.WaitAsync(cancellationToken);
         try
         {
+            ThrowIfDisposed();
             if (!_servers.Remove(name, out var state))
                 return false;
 
-            await DisposeClientUnsafeAsync(state);
+            CollectClientUnsafe(state, clientsToDispose);
             RebuildToolIndexUnsafe();
-            return true;
         }
         finally
         {
             _mutex.Release();
         }
+
+        await DisposeClientsAsync(clientsToDispose);
+        return true;
     }
 
     public async Task<McpServerStatusSnapshot> TestAsync(McpServerConfig config, CancellationToken cancellationToken = default)
@@ -181,10 +234,17 @@ public sealed class McpClientManager : IAsyncDisposable
         McpClient? client = null;
         try
         {
-            client = await CreateClientAsync(config, cancellationToken);
-            var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+            using var timeoutCts = CreateStartupTimeoutToken(config, cancellationToken);
+            client = await CreateClientAsync(config, timeoutCts.Token);
+            var tools = await client.ListToolsAsync(cancellationToken: timeoutCts.Token);
             status.StartupState = "ready";
             status.ToolCount = tools.Count;
+            return status;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            status.StartupState = "error";
+            status.LastError = CreateStartupTimeoutMessage(config);
             return status;
         }
         catch (Exception ex)
@@ -196,69 +256,77 @@ public sealed class McpClientManager : IAsyncDisposable
         finally
         {
             if (client != null)
-            {
-                try
-                {
-                    await client.DisposeAsync();
-                }
-                catch
-                {
-                    // Best-effort temp client cleanup
-                }
-            }
+                await DisposeClientAsync(client);
         }
     }
 
-    private async Task ConnectServerUnsafeAsync(ServerRuntimeState state, CancellationToken cancellationToken)
+    private void StartConnectInBackground(McpServerConfig config, long generation)
     {
-        state.Status = CreateStatus(state.Config, state.Config.Enabled ? "starting" : "disabled");
-        OnStatusChanged(state.Status);
-
-        if (!state.Config.Enabled)
+        var lifetimeToken = _lifetimeCts.Token;
+        _ = Task.Run(async () =>
         {
-            state.CachedTools.Clear();
-            return;
-        }
+            try
+            {
+                await ConnectServerAsync(config, generation, lifetimeToken);
+            }
+            catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested)
+            {
+                // Runtime is shutting down.
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Unhandled MCP background connection error for {ServerName}", config.Name);
+            }
+        }, CancellationToken.None);
+    }
+
+    private async Task ConnectServerAsync(McpServerConfig config, long generation, CancellationToken lifetimeToken)
+    {
+        await UpdateStatusAsync(config.Name, generation, CreateStatus(config, "starting"), lifetimeToken);
 
         McpClient? client = null;
+        IReadOnlyList<McpClientTool> tools = [];
+        McpServerStatusSnapshot status;
         try
         {
-            client = await CreateClientAsync(state.Config, cancellationToken);
-            var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+            using var timeoutCts = CreateStartupTimeoutToken(config, lifetimeToken);
+            client = await CreateClientAsync(config, timeoutCts.Token);
+            tools = [.. await client.ListToolsAsync(cancellationToken: timeoutCts.Token)];
 
-            state.Client = client;
-            client = null; // ownership transferred to state
-            state.CachedTools = [.. tools];
-            state.Status = CreateStatus(state.Config, "ready");
-            state.Status.ToolCount = state.CachedTools.Count;
-
+            status = CreateStatus(config, "ready");
+            status.ToolCount = tools.Count;
             _logger?.LogInformation(
                 "MCP connected to {ServerName} with {ToolCount} tools",
-                state.Config.Name,
+                config.Name,
                 tools.Count);
-            AnsiConsole.MarkupLine(
-                $"[grey][[MCP]][/] [green]Connected to {Markup.Escape(state.Config.Name)} ({tools.Count} tools)[/]");
+            TryWriteMcpConsoleLine(
+                $"[grey][[MCP]][/] [green]Connected to {Markup.Escape(config.Name)} ({tools.Count} tools)[/]");
+        }
+        catch (OperationCanceledException) when (!lifetimeToken.IsCancellationRequested)
+        {
+            status = CreateStatus(config, "error");
+            status.LastError = CreateStartupTimeoutMessage(config);
+
+            _logger?.LogError("MCP connection to {ServerName} timed out", config.Name);
+            TryWriteMcpConsoleLine(
+                $"[grey][[MCP]][/] [red]Failed to connect to {Markup.Escape(config.Name)}: {Markup.Escape(status.LastError)}[/]");
         }
         catch (Exception ex)
         {
-            state.CachedTools.Clear();
-            state.Status = CreateStatus(state.Config, "error");
-            state.Status.LastError = ex.Message;
+            status = CreateStatus(config, "error");
+            status.LastError = ex.Message;
 
-            _logger?.LogError(ex, "MCP connection to {ServerName} failed", state.Config.Name);
-            AnsiConsole.MarkupLine(
-                $"[grey][[MCP]][/] [red]Failed to connect to {Markup.Escape(state.Config.Name)}: {Markup.Escape(ex.Message)}[/]");
-        }
-        finally
-        {
-            if (client != null)
-            {
-                try { await client.DisposeAsync(); }
-                catch { /* best-effort cleanup */ }
-            }
+            _logger?.LogError(ex, "MCP connection to {ServerName} failed", config.Name);
+            TryWriteMcpConsoleLine(
+                $"[grey][[MCP]][/] [red]Failed to connect to {Markup.Escape(config.Name)}: {Markup.Escape(ex.Message)}[/]");
         }
 
-        OnStatusChanged(state.Status);
+        var accepted = await ApplyConnectResultAsync(config, generation, status, tools, client, lifetimeToken);
+        if (accepted)
+            client = null;
+
+        if (client != null)
+            await DisposeClientAsync(client);
     }
 
     private void RebuildToolIndexUnsafe()
@@ -292,7 +360,9 @@ public sealed class McpClientManager : IAsyncDisposable
             ResourceCount = 0,
             ResourceTemplateCount = 0,
             LastError = null,
-            Transport = config.NormalizedTransport
+            Transport = config.NormalizedTransport,
+            Origin = config.Origin.Clone(),
+            ReadOnly = config.ReadOnly
         };
 
     private static McpServerStatusSnapshot CloneStatus(McpServerStatusSnapshot status) =>
@@ -305,8 +375,75 @@ public sealed class McpClientManager : IAsyncDisposable
             ResourceCount = status.ResourceCount,
             ResourceTemplateCount = status.ResourceTemplateCount,
             LastError = status.LastError,
-            Transport = status.Transport
+            Transport = status.Transport,
+            Origin = status.Origin.Clone(),
+            ReadOnly = status.ReadOnly
         };
+
+    private async Task UpdateStatusAsync(
+        string name,
+        long generation,
+        McpServerStatusSnapshot status,
+        CancellationToken cancellationToken)
+    {
+        McpServerStatusSnapshot? snapshot = null;
+        await _mutex.WaitAsync(cancellationToken);
+        try
+        {
+            if (_servers.TryGetValue(name, out var state) && state.Generation == generation)
+            {
+                state.Status = status;
+                snapshot = CloneStatus(state.Status);
+            }
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+
+        if (snapshot != null)
+            OnStatusChanged(snapshot);
+    }
+
+    private async Task<bool> ApplyConnectResultAsync(
+        McpServerConfig config,
+        long generation,
+        McpServerStatusSnapshot status,
+        IReadOnlyList<McpClientTool> tools,
+        McpClient? client,
+        CancellationToken cancellationToken)
+    {
+        McpClient? previousClient = null;
+        McpServerStatusSnapshot? snapshot = null;
+        var accepted = false;
+
+        await _mutex.WaitAsync(cancellationToken);
+        try
+        {
+            if (_servers.TryGetValue(config.Name, out var state) && state.Generation == generation)
+            {
+                previousClient = state.Client;
+                state.Client = status.StartupState == "ready" ? client : null;
+                state.CachedTools = status.StartupState == "ready" ? [.. tools] : [];
+                state.Status = status;
+                RebuildToolIndexUnsafe();
+                snapshot = CloneStatus(state.Status);
+                accepted = status.StartupState == "ready";
+            }
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+
+        if (previousClient != null)
+            await DisposeClientAsync(previousClient);
+
+        if (snapshot != null)
+            OnStatusChanged(snapshot);
+
+        return accepted;
+    }
 
     private void OnStatusChanged(McpServerStatusSnapshot status)
     {
@@ -316,31 +453,82 @@ public sealed class McpClientManager : IAsyncDisposable
         });
     }
 
-    private async Task DisposeClientUnsafeAsync(ServerRuntimeState state)
+    private static void TryWriteMcpConsoleLine(string markup)
     {
-        if (state.Client == null)
-            return;
-
         try
         {
-            await state.Client.DisposeAsync();
+            AnsiConsole.MarkupLine(markup);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Console output is best-effort; tests and embedded hosts may replace or close it.
+        }
+        catch (IOException)
+        {
+            // Best-effort console output.
+        }
+    }
+
+    private static void CollectClientUnsafe(ServerRuntimeState state, List<McpClient> clients)
+    {
+        if (state.Client != null)
+            clients.Add(state.Client);
+
+        state.Client = null;
+        state.CachedTools.Clear();
+    }
+
+    private void CollectClientsUnsafe(List<McpClient> clients)
+    {
+        foreach (var state in _servers.Values)
+            CollectClientUnsafe(state, clients);
+    }
+
+    private async Task DisposeClientsAsync(IEnumerable<McpClient> clients)
+    {
+        foreach (var client in clients)
+            await DisposeClientAsync(client);
+    }
+
+    private async Task DisposeClientAsync(McpClient client)
+    {
+        try
+        {
+            await client.DisposeAsync();
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "MCP client disposal error");
         }
-        finally
-        {
-            state.Client = null;
-            state.CachedTools.Clear();
-        }
     }
 
-    private async Task DisposeAllClientsUnsafeAsync()
+    private long NextGenerationUnsafe() => unchecked(++_nextGeneration);
+
+    private void ThrowIfDisposed()
     {
-        foreach (var state in _servers.Values)
-            await DisposeClientUnsafeAsync(state);
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(McpClientManager));
     }
+
+    private static CancellationTokenSource CreateStartupTimeoutToken(
+        McpServerConfig config,
+        CancellationToken cancellationToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(GetStartupTimeout(config));
+        return cts;
+    }
+
+    private static TimeSpan GetStartupTimeout(McpServerConfig config)
+    {
+        var seconds = config.StartupTimeoutSec is > 0
+            ? config.StartupTimeoutSec.Value
+            : DefaultStartupTimeoutSeconds;
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static string CreateStartupTimeoutMessage(McpServerConfig config) =>
+        $"MCP server '{config.Name}' startup timed out after {GetStartupTimeout(config).TotalSeconds:0.###}s.";
 
     private static async Task<McpClient> CreateClientAsync(McpServerConfig server, CancellationToken cancellationToken)
     {
@@ -389,9 +577,7 @@ public sealed class McpClientManager : IAsyncDisposable
                 environmentVariables[key] = value;
 
             foreach (var envVar in server.EnvVars.Where(v => !string.IsNullOrWhiteSpace(v)))
-            {
                 environmentVariables[envVar] = Environment.GetEnvironmentVariable(envVar);
-            }
 
             var options = new StdioClientTransportOptions
             {
@@ -417,10 +603,17 @@ public sealed class McpClientManager : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        var clientsToDispose = new List<McpClient>();
+        _lifetimeCts.Cancel();
+
         await _mutex.WaitAsync();
         try
         {
-            await DisposeAllClientsUnsafeAsync();
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            CollectClientsUnsafe(clientsToDispose);
             _servers.Clear();
             Volatile.Write(ref _toolsSnapshot, []);
             Volatile.Write(
@@ -431,6 +624,9 @@ public sealed class McpClientManager : IAsyncDisposable
         {
             _mutex.Release();
             _mutex.Dispose();
+            _lifetimeCts.Dispose();
         }
+
+        await DisposeClientsAsync(clientsToDispose);
     }
 }

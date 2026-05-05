@@ -228,7 +228,7 @@ public static class ServiceProviderExtensions
         var paths = provider.GetRequiredService<DotCraftPaths>();
         var mcpManager = provider.GetRequiredService<McpClientManager>();
         var lspManager = provider.GetRequiredService<LspServerManager>();
-        var pluginMcpServers = PluginMcpServerLoader.LoadEnabledPluginServers(
+        var effectiveMcpServers = PluginMcpServerResolver.LoadEffectiveServers(
             config,
             paths.WorkspacePath,
             paths.CraftPath,
@@ -236,10 +236,7 @@ public static class ServiceProviderExtensions
         PluginDiagnosticsStore.Shared.Append(pluginMcpDiagnostics);
         PluginDiagnosticsLogger.Write(pluginMcpDiagnostics);
 
-        var effectiveMcpServers = config.McpServers
-            .Concat(pluginMcpServers)
-            .ToArray();
-        if (effectiveMcpServers.Length > 0)
+        if (effectiveMcpServers.Count > 0)
         {
             await mcpManager.ConnectAsync(effectiveMcpServers);
         }

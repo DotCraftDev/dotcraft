@@ -694,7 +694,15 @@ public sealed class AppServerHost(
             ResourceCount = e.Status.ResourceCount,
             ResourceTemplateCount = e.Status.ResourceTemplateCount,
             LastError = e.Status.LastError,
-            Transport = e.Status.Transport
+            Transport = e.Status.Transport,
+            Origin = new McpServerOriginWire
+            {
+                Kind = e.Status.Origin.Kind,
+                PluginId = e.Status.Origin.PluginId,
+                PluginDisplayName = e.Status.Origin.PluginDisplayName,
+                DeclaredName = e.Status.Origin.DeclaredName
+            },
+            ReadOnly = e.Status.ReadOnly
         });
     }
 
