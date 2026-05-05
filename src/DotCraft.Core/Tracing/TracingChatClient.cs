@@ -165,8 +165,73 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
         // Record request only on first call
         RecordRequestIfFirst(sessionKey, messages, state);
 
+        var thinkingBuffer = new StringBuilder();
         var responseBuffer = new StringBuilder();
+        DateTimeOffset? thinkingStartedAt = null;
+        DateTimeOffset? responseStartedAt = null;
+        ChatResponseUpdate? responseLastUpdate = null;
         long inputTokens = 0, outputTokens = 0;
+
+        void FlushThinking()
+        {
+            if (thinkingBuffer.Length == 0)
+                return;
+
+            collector.RecordThinking(
+                sessionKey,
+                thinkingBuffer.ToString(),
+                thinkingStartedAt);
+            thinkingBuffer.Clear();
+            thinkingStartedAt = null;
+        }
+
+        void FlushResponse(bool includeFinishReason)
+        {
+            if (responseBuffer.Length == 0)
+                return;
+
+            var segmentUpdate = responseLastUpdate ?? state.LastUpdate;
+            var finalUpdate = includeFinishReason ? state.LastUpdate : null;
+            collector.RecordResponse(
+                sessionKey,
+                responseBuffer.ToString(),
+                segmentUpdate?.ResponseId ?? finalUpdate?.ResponseId,
+                segmentUpdate?.MessageId ?? finalUpdate?.MessageId,
+                segmentUpdate?.ModelId ?? finalUpdate?.ModelId,
+                includeFinishReason ? (finalUpdate?.FinishReason ?? segmentUpdate?.FinishReason)?.ToString() : null,
+                segmentUpdate?.AdditionalProperties ?? finalUpdate?.AdditionalProperties,
+                responseStartedAt);
+            responseBuffer.Clear();
+            responseStartedAt = null;
+            responseLastUpdate = null;
+        }
+
+        void FlushPendingSegments(bool includeResponseFinishReason)
+        {
+            FlushThinking();
+            FlushResponse(includeResponseFinishReason);
+        }
+
+        void AppendThinking(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            FlushResponse(includeFinishReason: false);
+            thinkingStartedAt ??= DateTimeOffset.UtcNow;
+            thinkingBuffer.Append(text);
+        }
+
+        void AppendResponse(string text, ChatResponseUpdate update)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            FlushThinking();
+            responseStartedAt ??= DateTimeOffset.UtcNow;
+            responseBuffer.Append(text);
+            responseLastUpdate = update;
+        }
 
         IAsyncEnumerable<ChatResponseUpdate> stream;
         try
@@ -179,9 +244,25 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
             throw;
         }
 
-        await foreach (var update in stream.WithCancellation(cancellationToken))
+        await using var enumerator = stream.WithCancellation(cancellationToken).GetAsyncEnumerator();
+        while (true)
         {
+            ChatResponseUpdate update;
+            try
+            {
+                if (!await enumerator.MoveNextAsync())
+                    break;
+                update = enumerator.Current;
+            }
+            catch (Exception ex)
+            {
+                FlushPendingSegments(includeResponseFinishReason: false);
+                collector.RecordError(sessionKey, ex.Message);
+                throw;
+            }
+
             state.LastUpdate = update;
+            var sawTextContent = false;
 
             foreach (var content in update.Contents)
             {
@@ -190,12 +271,20 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
                     case TextReasoningContent reasoning:
                     {
                         if (ReasoningContentHelper.TryGetText(reasoning, out var text))
-                            collector.RecordThinking(sessionKey, text);
+                            AppendThinking(text);
+                        break;
+                    }
+
+                    case TextContent text:
+                    {
+                        sawTextContent = true;
+                        AppendResponse(text.Text, update);
                         break;
                     }
 
                     case FunctionCallContent fc:
                     {
+                        FlushPendingSegments(includeResponseFinishReason: false);
                         var callId = fc.CallId ?? "";
                         if (state.ProcessedCallIds.Add($"call:{callId}"))
                         {
@@ -210,6 +299,7 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
                     }
                     case FunctionResultContent fr:
                     {
+                        FlushPendingSegments(includeResponseFinishReason: false);
                         var resultCallId = fr.CallId;
                         if (state.ProcessedCallIds.Add($"result:{resultCallId}"))
                         {
@@ -235,24 +325,13 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
                 }
             }
 
-            if (!string.IsNullOrEmpty(update.Text))
-                responseBuffer.Append(update.Text);
+            if (!sawTextContent && !string.IsNullOrEmpty(update.Text))
+                AppendResponse(update.Text, update);
 
             yield return update;
         }
 
-        if (responseBuffer.Length > 0)
-        {
-            var lastUpdate = state.LastUpdate;
-            collector.RecordResponse(
-                sessionKey,
-                responseBuffer.ToString(),
-                lastUpdate?.ResponseId,
-                lastUpdate?.MessageId,
-                lastUpdate?.ModelId,
-                lastUpdate?.FinishReason?.ToString(),
-                lastUpdate?.AdditionalProperties);
-        }
+        FlushPendingSegments(includeResponseFinishReason: true);
 
         if (inputTokens > 0 || outputTokens > 0)
             collector.RecordTokenUsage(sessionKey, inputTokens, outputTokens);
