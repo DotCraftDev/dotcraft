@@ -238,6 +238,8 @@ public sealed class BackgroundTerminalService : IBackgroundTerminalService, IAsy
         {
             if (waitMs > 0 && !active.Process.HasExited)
                 await Task.Delay(Math.Min(waitMs, _config.MaxYieldTimeMs), ct).ConfigureAwait(false);
+            if (active.Process.HasExited)
+                await active.WaitForCompletionMetadataAsync(ct).ConfigureAwait(false);
             return active.CreateSnapshot(maxOutputChars: maxOutputChars ?? _config.DefaultReadMaxOutputChars);
         }
 
