@@ -38,7 +38,7 @@ public static class ToolProviderCollector
         if (includeSystemProviders)
         {
             providers.Add(new CoreToolProvider());
-            providers.Add(new PluginFunctionToolProvider([new NodeReplPluginFunctionProvider()]));
+            providers.Add(new NodeReplPluginFunctionProvider());
             providers.Add(new CronToolProvider());
 
             // When deferred loading is enabled, DeferredToolProvider replaces McpToolProvider.

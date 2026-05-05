@@ -4,10 +4,22 @@ using Microsoft.Extensions.AI;
 namespace DotCraft.Abstractions;
 
 /// <summary>
-/// Produces thread-scoped runtime channel tools for the matching origin channel.
+/// Produces thread-scoped runtime tools.
 /// </summary>
 public interface IChannelRuntimeToolProvider
 {
+    IReadOnlyList<AITool> CreateToolsForThread(
+        SessionThread thread,
+        IReadOnlySet<string> reservedToolNames);
+}
+
+/// <summary>
+/// Produces one family of thread-scoped runtime tools.
+/// </summary>
+public interface IThreadRuntimeToolProvider
+{
+    int Priority => 100;
+
     IReadOnlyList<AITool> CreateToolsForThread(
         SessionThread thread,
         IReadOnlySet<string> reservedToolNames);

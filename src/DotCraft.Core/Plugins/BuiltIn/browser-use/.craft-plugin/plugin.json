@@ -20,25 +20,5 @@
     "websiteUrl": "https://github.com/DotHarness/dotcraft",
     "privacyPolicyUrl": "https://github.com/DotHarness/dotcraft",
     "termsOfServiceUrl": "https://github.com/DotHarness/dotcraft"
-  },
-  "functions": [
-    {
-      "namespace": "node_repl",
-      "name": "NodeReplJs",
-      "description": "Evaluate JavaScript in the Desktop persistent Node REPL for the current thread. The runtime supports top-level state, agent.browser, display(), and screenshot image output.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "code": { "type": "string" },
-          "timeoutSeconds": { "type": "integer" }
-        },
-        "required": ["code"]
-      },
-      "backend": {
-        "kind": "builtin",
-        "providerId": "browser-use",
-        "functionName": "NodeReplJs"
-      }
-    }
-  ]
+  }
 }

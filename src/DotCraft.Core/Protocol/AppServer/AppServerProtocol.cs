@@ -224,6 +224,23 @@ public sealed class ChannelToolDescriptor
     public bool? DeferLoading { get; set; }
 }
 
+public sealed class DynamicToolSpec
+{
+    public string? Namespace { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string Description { get; set; } = string.Empty;
+
+    public JsonObject? InputSchema { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeferLoading { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelToolApprovalDescriptor? Approval { get; set; }
+}
+
 public sealed class ChannelToolApprovalDescriptor
 {
     /// <summary>
@@ -247,6 +264,35 @@ public sealed class ChannelToolApprovalDescriptor
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OperationArgument { get; set; }
+}
+
+public sealed class DynamicToolCallParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string TurnId { get; set; } = string.Empty;
+
+    public string CallId { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; set; }
+
+    public string Tool { get; set; } = string.Empty;
+
+    public JsonObject Arguments { get; set; } = new();
+}
+
+public sealed class DynamicToolCallResult
+{
+    public bool Success { get; set; }
+
+    public List<ExtChannelToolContentItem>? ContentItems { get; set; }
+
+    public JsonNode? StructuredResult { get; set; }
+
+    public string? ErrorCode { get; set; }
+
+    public string? ErrorMessage { get; set; }
 }
 
 public sealed class ChannelToolDisplay
@@ -600,6 +646,9 @@ public sealed class ThreadStartParams
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ThreadConfiguration? Config { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<DynamicToolSpec>? DynamicTools { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? HistoryMode { get; set; }
@@ -2588,6 +2637,7 @@ public static class AppServerMethods
 
     // Server → Client request (bidirectional approval)
     public const string ItemApprovalRequest = "item/approval/request";
+    public const string ItemToolCall = "item/tool/call";
 
     // Server → Client notification (SubAgent progress)
     public const string SubAgentProgress = "subagent/progress";

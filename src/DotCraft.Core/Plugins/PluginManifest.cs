@@ -22,11 +22,6 @@ public sealed record PluginManifest
 
     public IReadOnlyList<string> Capabilities { get; init; } = [];
 
-    public IReadOnlyList<PluginManifestFunction> Functions { get; init; } = [];
-
-    public IReadOnlyDictionary<string, PluginManifestProcess> Processes { get; init; } =
-        new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
-
     public IReadOnlyDictionary<string, string> Paths { get; init; } = new Dictionary<string, string>();
 
     [JsonPropertyName("interface")]
@@ -34,86 +29,11 @@ public sealed record PluginManifest
 
     public string? SkillsPath { get; init; }
 
+    public string? McpServersPath { get; init; }
+
     public required string RootPath { get; init; }
 
     public required string ManifestPath { get; init; }
-}
-
-/// <summary>
-/// Function declaration inside a DotCraft plugin manifest.
-/// </summary>
-public sealed record PluginManifestFunction
-{
-    public string? Namespace { get; init; }
-
-    public required string Name { get; init; }
-
-    public required string Description { get; init; }
-
-    public JsonObject? InputSchema { get; init; }
-
-    public JsonObject? OutputSchema { get; init; }
-
-    public PluginFunctionDisplay? Display { get; init; }
-
-    public PluginFunctionApprovalDescriptor? Approval { get; init; }
-
-    public bool RequiresChatContext { get; init; }
-
-    public bool? DeferLoading { get; init; }
-
-    public required PluginManifestBackend Backend { get; init; }
-
-    public PluginFunctionDescriptor ToDescriptor(string pluginId) =>
-        new()
-        {
-            PluginId = pluginId,
-            Namespace = Namespace,
-            Name = Name,
-            Description = Description,
-            InputSchema = InputSchema?.DeepClone() as JsonObject,
-            OutputSchema = OutputSchema?.DeepClone() as JsonObject,
-            Display = Display,
-            Approval = Approval,
-            RequiresChatContext = RequiresChatContext,
-            DeferLoading = DeferLoading
-        };
-}
-
-/// <summary>
-/// Backend declaration inside a DotCraft plugin manifest function.
-/// </summary>
-public sealed record PluginManifestBackend
-{
-    public required string Kind { get; init; }
-
-    public string? ProviderId { get; init; }
-
-    public string? FunctionName { get; init; }
-
-    public string? ProcessId { get; init; }
-
-    public string? ToolName { get; init; }
-}
-
-/// <summary>
-/// External process declaration for plugin dynamic tools.
-/// </summary>
-public sealed record PluginManifestProcess
-{
-    public required string Id { get; init; }
-
-    public required string Command { get; init; }
-
-    public IReadOnlyList<string> Args { get; init; } = [];
-
-    public string? WorkingDirectory { get; init; }
-
-    public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
-
-    public double? StartupTimeoutSeconds { get; init; }
-
-    public double? ToolTimeoutSeconds { get; init; }
 }
 
 public sealed record PluginInterfaceMetadata
@@ -245,19 +165,24 @@ public static partial class PluginManifestParser
             raw.Id,
             manifestPath,
             diagnostics);
+        var mcpServersPath = ResolveOptionalMcpServersPath(
+            pluginRoot,
+            raw.McpServers,
+            raw.Id,
+            manifestPath,
+            diagnostics);
         var interfaceMetadata = ParseInterface(
             pluginRoot,
             raw.Interface,
             raw.Id,
             manifestPath,
             diagnostics);
-        var processes = ParseProcesses(pluginRoot, raw, manifestPath, diagnostics);
-        var functions = ParseFunctions(raw, manifestPath, diagnostics);
-        if (skillsPath == null && functions.Count == 0)
+        AddUnsupportedNativeToolsDiagnostics(raw, manifestPath, diagnostics);
+        if (skillsPath == null && mcpServersPath == null && interfaceMetadata == null)
         {
             diagnostics.Add(PluginDiagnostic.Error(
                 "MissingPluginCapabilities",
-                "Plugin manifest must declare a skills path or at least one tool.",
+                "Plugin manifest must declare skills, mcpServers, or interface metadata.",
                 raw.Id,
                 path: manifestPath));
         }
@@ -277,11 +202,10 @@ public static partial class PluginManifestParser
                 .Select(capability => capability.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
-            Functions = functions,
-            Processes = processes,
             Paths = resolvedPaths,
             Interface = interfaceMetadata,
             SkillsPath = skillsPath,
+            McpServersPath = mcpServersPath,
             RootPath = Path.GetFullPath(pluginRoot),
             ManifestPath = Path.GetFullPath(manifestPath)
         };
@@ -307,197 +231,52 @@ public static partial class PluginManifestParser
     public static bool IsValidFunctionName(string? value) =>
         !string.IsNullOrWhiteSpace(value) && FunctionNameRegex().IsMatch(value);
 
-    /// <summary>
-    /// Returns whether a string is a valid plugin process id.
-    /// </summary>
-    public static bool IsValidProcessId(string? value) =>
-        !string.IsNullOrWhiteSpace(value) && ProcessIdRegex().IsMatch(value);
-
-    private static IReadOnlyList<PluginManifestFunction> ParseFunctions(
+    private static void AddUnsupportedNativeToolsDiagnostics(
         RawPluginManifest raw,
         string manifestPath,
         List<PluginDiagnostic> diagnostics)
     {
-        var rawFunctions = new List<RawPluginFunction>();
-        if (raw.Functions is { Count: > 0 })
-            rawFunctions.AddRange(raw.Functions);
-        if (raw.Tools is { Count: > 0 })
-            rawFunctions.AddRange(raw.Tools);
+        var unsupportedFields = new List<string>();
+        if (HasDeclaredValue(raw.Tools))
+            unsupportedFields.Add("tools");
+        if (HasDeclaredValue(raw.Functions))
+            unsupportedFields.Add("functions");
+        if (HasDeclaredValue(raw.Processes))
+            unsupportedFields.Add("processes");
 
-        if (rawFunctions.Count == 0)
-            return [];
+        if (unsupportedFields.Count == 0)
+            return;
 
-        var functions = new List<PluginManifestFunction>();
-        foreach (var function in rawFunctions)
-        {
-            if (!IsValidFunctionName(function.Name))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginFunctionName",
-                    "Plugin function name is required and must be a valid model-visible function name.",
-                    raw.Id,
-                    function.Name,
-                    manifestPath));
-                continue;
-            }
-
-            if (string.IsNullOrWhiteSpace(function.Description))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "MissingPluginFunctionDescription",
-                    $"Plugin function '{function.Name}' must declare a description.",
-                    raw.Id,
-                    function.Name,
-                    manifestPath));
-                continue;
-            }
-
-            var inputSchema = function.InputSchema ?? new JsonObject { ["type"] = "object" };
-            if (!PluginFunctionSchemaValidator.TryValidateSchema(inputSchema, out var schemaError))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginFunctionInputSchema",
-                    $"Plugin function '{function.Name}' has an invalid inputSchema: {schemaError}",
-                    raw.Id,
-                    function.Name,
-                    manifestPath));
-                continue;
-            }
-
-            if (function.OutputSchema != null
-                && !PluginFunctionSchemaValidator.TryValidateSchema(function.OutputSchema, out schemaError))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginFunctionOutputSchema",
-                    $"Plugin function '{function.Name}' has an invalid outputSchema: {schemaError}",
-                    raw.Id,
-                    function.Name,
-                    manifestPath));
-                continue;
-            }
-
-            if (function.Backend == null || string.IsNullOrWhiteSpace(function.Backend.Kind))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "MissingPluginFunctionBackend",
-                    $"Plugin function '{function.Name}' must declare a backend.",
-                    raw.Id,
-                    function.Name,
-                    manifestPath));
-                continue;
-            }
-
-            functions.Add(new PluginManifestFunction
-            {
-                Namespace = NormalizeOptional(function.Namespace),
-                Name = function.Name!.Trim(),
-                Description = function.Description!.Trim(),
-                InputSchema = inputSchema.DeepClone() as JsonObject,
-                OutputSchema = function.OutputSchema?.DeepClone() as JsonObject,
-                Display = function.Display,
-                Approval = function.Approval,
-                RequiresChatContext = function.RequiresChatContext,
-                DeferLoading = function.DeferLoading,
-                Backend = new PluginManifestBackend
-                {
-                    Kind = function.Backend.Kind.Trim(),
-                    ProviderId = NormalizeOptional(function.Backend.ProviderId),
-                    FunctionName = NormalizeOptional(function.Backend.FunctionName),
-                    ProcessId = NormalizeOptional(function.Backend.ProcessId),
-                    ToolName = NormalizeOptional(function.Backend.ToolName)
-                }
-            });
-        }
-
-        return functions;
+        diagnostics.Add(PluginDiagnostic.Warning(
+            "UnsupportedPluginNativeTools",
+            "Plugin manifest native tool fields are no longer supported and will be ignored: "
+            + string.Join(", ", unsupportedFields)
+            + ". Use plugin-bundled MCP servers for reusable tools or AppServer runtime Dynamic Tools for thread-scoped callbacks.",
+            raw.Id,
+            path: manifestPath));
     }
 
-    private static IReadOnlyDictionary<string, PluginManifestProcess> ParseProcesses(
+    private static bool HasDeclaredValue(JsonNode? node)
+        => node switch
+        {
+            JsonArray array => array.Count > 0,
+            JsonObject obj => obj.Count > 0,
+            JsonValue => true,
+            _ => false
+        };
+
+    private static string? ResolveOptionalMcpServersPath(
         string pluginRoot,
-        RawPluginManifest raw,
+        string? relativePath,
+        string? pluginId,
         string manifestPath,
         List<PluginDiagnostic> diagnostics)
     {
-        if (raw.Processes == null || raw.Processes.Count == 0)
-            return new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(relativePath))
+            return ResolveOptionalManifestPath(pluginRoot, relativePath, "mcpServers", pluginId, manifestPath, diagnostics);
 
-        var processes = new Dictionary<string, PluginManifestProcess>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (rawId, process) in raw.Processes)
-        {
-            var id = NormalizeOptional(rawId);
-            if (!IsValidProcessId(id))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginProcessId",
-                    "Plugin process id is required and may contain only ASCII letters, digits, '.', '_', or '-'.",
-                    raw.Id,
-                    path: manifestPath));
-                continue;
-            }
-
-            if (process == null || string.IsNullOrWhiteSpace(process.Command))
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginProcess",
-                    $"Plugin process '{id}' must declare a command.",
-                    raw.Id,
-                    path: manifestPath));
-                continue;
-            }
-
-            if (process.WorkingDirectory != null
-                && ResolveManifestPath(pluginRoot, process.WorkingDirectory, out var workingDirectoryError) == null)
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginProcessWorkingDirectory",
-                    $"Plugin process '{id}' has invalid workingDirectory: {workingDirectoryError}",
-                    raw.Id,
-                    path: manifestPath));
-                continue;
-            }
-
-            if (process.Command.StartsWith("./", StringComparison.Ordinal)
-                && ResolveManifestPath(pluginRoot, process.Command, out var commandError) == null)
-            {
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginProcessCommand",
-                    $"Plugin process '{id}' has invalid command path: {commandError}",
-                    raw.Id,
-                    path: manifestPath));
-                continue;
-            }
-
-            var args = process.Args
-                .Where(arg => !string.IsNullOrWhiteSpace(arg))
-                .Select(arg => arg.Trim())
-                .ToArray();
-            var invalidArg = args.FirstOrDefault(arg =>
-                arg.StartsWith("./", StringComparison.Ordinal)
-                && ResolveManifestPath(pluginRoot, arg, out _) == null);
-            if (invalidArg != null)
-            {
-                _ = ResolveManifestPath(pluginRoot, invalidArg, out var argError);
-                diagnostics.Add(PluginDiagnostic.Error(
-                    "InvalidPluginProcessArgument",
-                    $"Plugin process '{id}' has invalid manifest-relative argument '{invalidArg}': {argError}",
-                    raw.Id,
-                    path: manifestPath));
-                continue;
-            }
-
-            processes[id!] = new PluginManifestProcess
-            {
-                Id = id!,
-                Command = process.Command.Trim(),
-                Args = args,
-                WorkingDirectory = NormalizeOptional(process.WorkingDirectory),
-                Env = process.Env ?? new Dictionary<string, string>(StringComparer.Ordinal),
-                StartupTimeoutSeconds = process.StartupTimeoutSeconds,
-                ToolTimeoutSeconds = process.ToolTimeoutSeconds
-            };
-        }
-
-        return processes;
+        var defaultPath = Path.Combine(pluginRoot, ".mcp.json");
+        return File.Exists(defaultPath) ? Path.GetFullPath(defaultPath) : null;
     }
 
     private static IReadOnlyDictionary<string, string> ResolvePaths(
@@ -649,9 +428,6 @@ public static partial class PluginManifestParser
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex FunctionNameRegex();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]*$")]
-    private static partial Regex ProcessIdRegex();
-
     private sealed class RawPluginManifest
     {
         public int SchemaVersion { get; set; }
@@ -670,14 +446,16 @@ public static partial class PluginManifestParser
 
         public string? Skills { get; set; }
 
+        public string? McpServers { get; set; }
+
         [JsonPropertyName("interface")]
         public RawPluginInterface? Interface { get; set; }
 
-        public List<RawPluginFunction>? Functions { get; set; }
+        public JsonNode? Functions { get; set; }
 
-        public List<RawPluginFunction>? Tools { get; set; }
+        public JsonNode? Tools { get; set; }
 
-        public Dictionary<string, RawPluginProcess>? Processes { get; set; }
+        public JsonNode? Processes { get; set; }
     }
 
     private sealed class RawPluginInterface
@@ -709,54 +487,4 @@ public static partial class PluginManifestParser
         public string? TermsOfServiceUrl { get; set; }
     }
 
-    private sealed class RawPluginFunction
-    {
-        public string? Namespace { get; set; }
-
-        public string? Name { get; set; }
-
-        public string? Description { get; set; }
-
-        public JsonObject? InputSchema { get; set; }
-
-        public JsonObject? OutputSchema { get; set; }
-
-        public PluginFunctionDisplay? Display { get; set; }
-
-        public PluginFunctionApprovalDescriptor? Approval { get; set; }
-
-        public bool RequiresChatContext { get; set; }
-
-        public bool? DeferLoading { get; set; }
-
-        public RawPluginBackend? Backend { get; set; }
-    }
-
-    private sealed class RawPluginProcess
-    {
-        public string? Command { get; set; }
-
-        public List<string> Args { get; set; } = [];
-
-        public string? WorkingDirectory { get; set; }
-
-        public Dictionary<string, string>? Env { get; set; }
-
-        public double? StartupTimeoutSeconds { get; set; }
-
-        public double? ToolTimeoutSeconds { get; set; }
-    }
-
-    private sealed class RawPluginBackend
-    {
-        public string? Kind { get; set; }
-
-        public string? ProviderId { get; set; }
-
-        public string? FunctionName { get; set; }
-
-        public string? ProcessId { get; set; }
-
-        public string? ToolName { get; set; }
-    }
 }

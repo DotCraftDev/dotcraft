@@ -59,9 +59,7 @@ public sealed class AppServerPluginManagementTests : IDisposable
         Assert.False(plugin.GetProperty("installed").GetBoolean());
         Assert.True(plugin.GetProperty("installable").GetBoolean());
         Assert.Equal("Browser Use", plugin.GetProperty("displayName").GetString());
-        Assert.Contains(
-            plugin.GetProperty("functions").EnumerateArray(),
-            item => item.GetProperty("name").GetString() == "NodeReplJs");
+        Assert.Empty(plugin.GetProperty("functions").EnumerateArray());
         Assert.Contains(
             plugin.GetProperty("skills").EnumerateArray(),
             item => item.GetProperty("name").GetString() == "browser-use");
@@ -90,9 +88,9 @@ public sealed class AppServerPluginManagementTests : IDisposable
     }
 
     [Fact]
-    public async Task PluginList_ReturnsWorkspaceProcessToolPlugin()
+    public async Task PluginList_ReturnsWorkspaceMcpPlugin()
     {
-        WriteProcessToolPlugin(Path.Combine(_workspaceCraftPath, "plugins", "external-process-echo"));
+        WriteMcpPlugin(Path.Combine(_workspaceCraftPath, "plugins", "review-tools"));
         using var harness = CreateHarness();
         await harness.InitializeAsync();
 
@@ -102,20 +100,17 @@ public sealed class AppServerPluginManagementTests : IDisposable
         using var response = await harness.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(response);
         var plugins = response.RootElement.GetProperty("result").GetProperty("plugins").EnumerateArray().ToArray();
-        var plugin = Assert.Single(plugins, item => item.GetProperty("id").GetString() == "external-process-echo");
-        Assert.Equal("External Process Echo", plugin.GetProperty("displayName").GetString());
+        var plugin = Assert.Single(plugins, item => item.GetProperty("id").GetString() == "review-tools");
+        Assert.Equal("Review Tools", plugin.GetProperty("displayName").GetString());
         Assert.True(plugin.GetProperty("enabled").GetBoolean());
         Assert.True(plugin.GetProperty("installed").GetBoolean());
         Assert.False(plugin.GetProperty("installable").GetBoolean());
         Assert.True(plugin.GetProperty("removable").GetBoolean());
         Assert.Equal("workspace", plugin.GetProperty("source").GetString());
-        Assert.Contains(
-            plugin.GetProperty("functions").EnumerateArray(),
-            item => item.GetProperty("name").GetString() == "EchoText"
-                    && item.GetProperty("namespace").GetString() == "demo");
+        Assert.Empty(plugin.GetProperty("functions").EnumerateArray());
         Assert.Contains(
             plugin.GetProperty("skills").EnumerateArray(),
-            item => item.GetProperty("name").GetString() == "external-process-echo"
+            item => item.GetProperty("name").GetString() == "review-tools"
                     && item.GetProperty("enabled").GetBoolean());
     }
 
@@ -217,12 +212,12 @@ public sealed class AppServerPluginManagementTests : IDisposable
     [Fact]
     public async Task PluginRemove_RemovesWorkspaceLocalUserPluginDirectory()
     {
-        var pluginRoot = Path.Combine(_workspaceCraftPath, "plugins", "external-process-echo");
-        WriteProcessToolPlugin(pluginRoot);
+        var pluginRoot = Path.Combine(_workspaceCraftPath, "plugins", "review-tools");
+        WriteMcpPlugin(pluginRoot);
         using var harness = CreateHarness();
         await harness.InitializeAsync();
 
-        var msg = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "external-process-echo" });
+        var msg = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "review-tools" });
         await harness.ExecuteRequestAsync(msg);
 
         using var response = await harness.Transport.ReadNextSentAsync();
@@ -237,14 +232,14 @@ public sealed class AppServerPluginManagementTests : IDisposable
         AppServerTestHarness.AssertIsSuccessResponse(listResponse);
         Assert.DoesNotContain(
             listResponse.RootElement.GetProperty("result").GetProperty("plugins").EnumerateArray(),
-            item => item.GetProperty("id").GetString() == "external-process-echo");
+            item => item.GetProperty("id").GetString() == "review-tools");
     }
 
     [Fact]
     public async Task PluginRemove_ExplicitPluginRootIsRejected()
     {
-        var pluginRoot = Path.Combine(_tempRoot, "external-plugins", "external-process-echo");
-        WriteProcessToolPlugin(pluginRoot);
+        var pluginRoot = Path.Combine(_tempRoot, "external-plugins", "review-tools");
+        WriteMcpPlugin(pluginRoot);
         var config = new AppConfig();
         config.Plugins.PluginRoots.Add(Path.Combine(_tempRoot, "external-plugins"));
         using var harness = CreateHarness(config);
@@ -257,11 +252,11 @@ public sealed class AppServerPluginManagementTests : IDisposable
         AppServerTestHarness.AssertIsSuccessResponse(listResponse);
         var plugin = Assert.Single(
             listResponse.RootElement.GetProperty("result").GetProperty("plugins").EnumerateArray(),
-            item => item.GetProperty("id").GetString() == "external-process-echo");
+            item => item.GetProperty("id").GetString() == "review-tools");
         Assert.Equal("explicit", plugin.GetProperty("source").GetString());
         Assert.False(plugin.GetProperty("removable").GetBoolean());
 
-        var remove = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "external-process-echo" });
+        var remove = harness.BuildRequest(AppServerMethods.PluginRemove, new { id = "review-tools" });
         await harness.ExecuteRequestAsync(remove);
 
         using var removeResponse = await harness.Transport.ReadNextSentAsync();
@@ -336,60 +331,46 @@ public sealed class AppServerPluginManagementTests : IDisposable
 """);
     }
 
-    private static void WriteProcessToolPlugin(string pluginRoot)
+    private static void WriteMcpPlugin(string pluginRoot)
     {
         Directory.CreateDirectory(Path.Combine(pluginRoot, ".craft-plugin"));
-        Directory.CreateDirectory(Path.Combine(pluginRoot, "skills", "external-process-echo"));
-        Directory.CreateDirectory(Path.Combine(pluginRoot, "tools"));
+        Directory.CreateDirectory(Path.Combine(pluginRoot, "skills", "review-tools"));
         File.WriteAllText(
-            Path.Combine(pluginRoot, "skills", "external-process-echo", "SKILL.md"),
-            "---\nname: external-process-echo\ndescription: Echo plugin skill\n---\n# Echo");
-        File.WriteAllText(Path.Combine(pluginRoot, "tools", "demo_tool.py"), "print('ready')");
+            Path.Combine(pluginRoot, "skills", "review-tools", "SKILL.md"),
+            "---\nname: review-tools\ndescription: Review plugin skill\n---\n# Review");
+        File.WriteAllText(
+            Path.Combine(pluginRoot, ".mcp.json"),
+            """
+{
+  "mcpServers": {
+    "review": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["server.js"],
+      "cwd": "./server"
+    }
+  }
+}
+""");
         File.WriteAllText(
             Path.Combine(pluginRoot, ".craft-plugin", "plugin.json"),
             """
 {
   "schemaVersion": 1,
-  "id": "external-process-echo",
+  "id": "review-tools",
   "version": "0.1.0",
-  "displayName": "External Process Echo",
-  "description": "Echo text through a plugin-owned local process.",
-  "capabilities": ["skill", "tool"],
+  "displayName": "Review Tools",
+  "description": "Review workflows and MCP tools.",
+  "capabilities": ["skill", "mcp"],
   "skills": "./skills/",
-  "tools": [
-    {
-      "namespace": "demo",
-      "name": "EchoText",
-      "description": "Echo text through an external plugin process.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "text": { "type": "string" }
-        },
-        "required": ["text"]
-      },
-      "backend": {
-        "kind": "process",
-        "processId": "demo",
-        "toolName": "EchoText"
-      }
-    }
-  ],
-  "processes": {
-    "demo": {
-      "command": "python",
-      "args": ["./tools/demo_tool.py"],
-      "workingDirectory": "./",
-      "toolTimeoutSeconds": 20
-    }
-  },
+  "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "External Process Echo",
-    "shortDescription": "Run an echo tool in a plugin process",
+    "displayName": "Review Tools",
+    "shortDescription": "Review workflows and MCP tools",
     "developerName": "DotHarness",
     "category": "Coding",
-    "capabilities": ["Skill", "Tool"],
-    "defaultPrompt": "Echo text through the external process plugin.",
+    "capabilities": ["Skill", "MCP"],
+    "defaultPrompt": "Review this change.",
     "brandColor": "#2563EB"
   }
 }

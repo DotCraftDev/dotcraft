@@ -30,6 +30,7 @@ public enum ItemType
     ToolExecution,
     ToolCall,
     PluginFunctionCall,
+    DynamicToolCall,
     ToolResult,
     ApprovalRequest,
     ApprovalResponse,

@@ -401,8 +401,45 @@ Create a new thread. The server generates a Thread ID and persists initial state
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Channel identity for thread ownership. See [Session Core, Section 4.1.4](session-core.md#414-sessionidentity). |
 | `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
+| `dynamicTools` | DynamicToolSpec[] | no | Thread-scoped runtime tools implemented by the AppServer client that creates the thread. |
 | `historyMode` | string | no | `"server"` (default) or `"client"`. |
 | `displayName` | string | no | Explicit thread display name. |
+
+#### 4.1.0 Runtime Dynamic Tools
+
+`dynamicTools` lets an AppServer client expose thread-scoped callback tools to the agent. The tools are bound to the connection that creates the thread and are invoked through the server-to-client `item/tool/call` request. They are not plugin manifest tools and are not a general remote tool transport; external reusable services should use MCP.
+
+Dynamic tool spec:
+
+```json
+{
+  "namespace": "oratorio",
+  "name": "SubmitReviewDraft",
+  "description": "Submit a structured code review draft.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "body": { "type": "string" }
+    },
+    "required": ["body"]
+  },
+  "deferLoading": false,
+  "approval": {
+    "kind": "remoteResource",
+    "targetArgument": "body",
+    "operation": "submit-review-draft"
+  }
+}
+```
+
+Rules:
+
+- `name` and `description` are required.
+- `namespace` is optional. When present it must be non-empty after trimming.
+- `inputSchema` is required and must be a valid JSON Schema object.
+- `(namespace, name)` pairs must be unique within a `thread/start` request.
+- `approval`, when present, uses the same descriptive approval metadata as channel tools: `file`, `shell`, or `remoteResource`. DotCraft evaluates approval before dispatching `item/tool/call`.
+- If the creating connection closes, dynamic tools bound to that thread become unavailable and calls fail with a structured failed `dynamicToolCall` item.
 
 #### 4.1.1 `ThreadConfiguration` Wire Shape
 
@@ -1310,6 +1347,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
 | `toolExecution` | Runtime lifecycle enhancement for a normal tool invocation. Payload uses `callId`, `toolName`, `status`, `success`, `durationMs`, `resultPreview`, and `errorMessage`. It is emitted only when the client advertises `capabilities.toolExecutionLifecycle = true`. |
 | `pluginFunctionCall` | Plugin function payload uses camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. For plugin-backed tools, including adapter-declared channel tools, this is the only conversation-item projection: the server emits `item/started` -> `item/completed` for `pluginFunctionCall` and does not emit companion `toolCall`/`toolResult` items. Plugin discovery and manifest architecture are defined in [plugin-architecture.md](plugin-architecture.md). |
+| `dynamicToolCall` | Runtime dynamic tool payload uses camelCase fields such as `namespace`, `toolName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`. Dynamic tools are thread-scoped AppServer client callbacks declared on `thread/start`; the server emits `item/started` -> `item/completed` for `dynamicToolCall` and does not emit companion `toolCall`/`toolResult` items. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1447,6 +1485,7 @@ Compatibility rule:
 - `toolExecution` does not replace `toolCall` or `toolResult`. `toolCall` remains the model-request and final-arguments item; `toolResult` remains the complete, authoritative model-visible result.
 - `resultPreview` is a UI preview only. It is sanitized text and may be truncated to 4096 characters. Clients should replace it with the matching `toolResult.result` when that result arrives.
 - Plugin-backed tools do not emit companion `toolExecution`; their lifecycle is already represented by `pluginFunctionCall`.
+- Runtime dynamic tools do not emit companion `toolExecution`; their lifecycle is represented by `dynamicToolCall`.
 - Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
 
 **Params**:
@@ -2302,6 +2341,39 @@ Structured runtime tool invocation for adapter-declared channel tools.
   }
 }
 ```
+
+### 11.3 `item/tool/call`
+
+Runtime dynamic tool invocation for client-declared `thread/start.dynamicTools`.
+
+**Direction**: server -> client (request, requires response)
+
+**Params**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Thread in which the tool is being executed. |
+| `turnId` | string | Turn that owns the tool call. |
+| `callId` | string | Server-generated tool call identifier. |
+| `namespace` | string? | Optional namespace from the dynamic tool spec. |
+| `tool` | string | Declared dynamic tool name. |
+| `arguments` | object | Validated tool arguments matching `inputSchema`. |
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "contentItems": [
+    { "type": "text", "text": "Review draft recorded." }
+  ],
+  "structuredResult": {
+    "draftId": "draft_123"
+  }
+}
+```
+
+If the tool fails, the client returns `{ "success": false, "errorCode": "...", "errorMessage": "..." }`. If the client disconnects, times out, or returns an invalid result, DotCraft completes the `dynamicToolCall` item as failed.
 
 When `success` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
 
@@ -3456,7 +3528,7 @@ On success, the server removes the skill from `Skills.DisabledSkills`, deletes a
 
 ### 18.9 Plugin Management Methods
 
-Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, built-in backend rules, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
+Clients must check `capabilities.pluginManagement` before calling any `plugin/*` method. These methods expose local plugin discovery and workspace enablement state for Desktop and other UI clients. Plugin architecture, manifest fields, plugin-bundled MCP servers, and plugin-contained skills are defined in [Plugin Architecture](plugin-architecture.md).
 
 #### `plugin/list`
 
@@ -3492,7 +3564,7 @@ Returns discovered plugins, including disabled installed plugins and installable
         "capabilities": ["Interactive", "Read", "Write"],
         "defaultPrompt": "Test my checkout flow on localhost"
       },
-      "functions": [{ "name": "NodeReplJs", "namespace": "node_repl" }],
+      "functions": [],
       "skills": [{ "name": "browser-use", "displayName": "Browser Use", "enabled": true }]
     }
   ],

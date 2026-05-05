@@ -5,62 +5,15 @@ using Microsoft.Extensions.AI;
 namespace DotCraft.Plugins;
 
 /// <summary>
-/// Bridges process-scoped plugin function providers into the existing agent tool provider pipeline.
-/// </summary>
-public sealed class PluginFunctionToolProvider(
-    IEnumerable<IPluginFunctionProvider> providers,
-    PluginDiagnosticsStore? diagnosticsStore = null,
-    PluginDynamicToolProcessManager? processManager = null) : IAgentToolProvider
-{
-    private int _processManagerRegisteredForDisposal;
-
-    public int Priority => 120;
-
-    public IEnumerable<AITool> CreateTools(ToolProviderContext context)
-    {
-        processManager ??= new PluginDynamicToolProcessManager();
-        if (Interlocked.Exchange(ref _processManagerRegisteredForDisposal, 1) == 0)
-            context.DisposableResources.Add(processManager);
-
-        var diagnostics = new List<PluginDiagnostic>();
-        var fallbackRegistrations = providers
-            .OrderBy(provider => provider.Priority)
-            .SelectMany(provider => provider.CreateFunctions(context))
-            .ToArray();
-        var knownBuiltinBackends = providers
-            .OrderBy(provider => provider.Priority)
-            .SelectMany(provider => provider.CreateKnownFunctions(context))
-            .ToArray();
-
-        var discovery = new PluginDiscoveryService().Discover(
-            context.Config,
-            context.WorkspacePath,
-            context.BotPath);
-        diagnostics.AddRange(discovery.Diagnostics);
-
-        var bound = PluginFunctionManifestBinder.Bind(
-            fallbackRegistrations,
-            discovery.Plugins,
-            diagnostics,
-            processManager,
-            knownBuiltinBackends);
-        var resolved = PluginFunctionConflictResolver.ResolveRegistrations(bound, diagnostics);
-        diagnosticsStore ??= PluginDiagnosticsStore.Shared;
-        diagnosticsStore.Replace(diagnostics);
-        PluginDiagnosticsLogger.Write(diagnostics);
-
-        return resolved.Select(registration => (AITool)new PluginFunctionRuntimeFunction(registration));
-    }
-}
-
-/// <summary>
 /// Bridges thread-scoped plugin function providers into Session Core's runtime tool hook.
 /// </summary>
 public sealed class ThreadPluginFunctionToolProvider(
     IEnumerable<IThreadPluginFunctionProvider> providers,
     PluginDiagnosticsStore? diagnosticsStore = null)
-    : IChannelRuntimeToolProvider, IReservedRuntimeToolNameConfigurator
+    : IThreadRuntimeToolProvider, IReservedRuntimeToolNameConfigurator
 {
+    public int Priority => 100;
+
     private readonly IReadOnlyList<IThreadPluginFunctionProvider> _providers =
         providers.OrderBy(provider => provider.Priority).ToArray();
 
@@ -86,6 +39,46 @@ public sealed class ThreadPluginFunctionToolProvider(
         return resolved
             .Select(registration => (AITool)new PluginFunctionRuntimeFunction(registration))
             .ToArray();
+    }
+
+    public void ConfigureReservedToolNames(IEnumerable<string> toolNames)
+    {
+        foreach (var provider in _providers)
+        {
+            if (provider is IReservedRuntimeToolNameConfigurator configurator)
+                configurator.ConfigureReservedToolNames(toolNames);
+        }
+    }
+}
+
+/// <summary>
+/// Combines all thread-scoped runtime tool providers into the Session Core hook.
+/// </summary>
+public sealed class CompositeChannelRuntimeToolProvider(IEnumerable<IThreadRuntimeToolProvider> providers)
+    : IChannelRuntimeToolProvider, IReservedRuntimeToolNameConfigurator
+{
+    private readonly IReadOnlyList<IThreadRuntimeToolProvider> _providers =
+        providers.OrderBy(provider => provider.Priority).ToArray();
+
+    public IReadOnlyList<AITool> CreateToolsForThread(
+        SessionThread thread,
+        IReadOnlySet<string> reservedToolNames)
+    {
+        var tools = new List<AITool>();
+        var reserved = new HashSet<string>(reservedToolNames, StringComparer.Ordinal);
+
+        foreach (var provider in _providers)
+        {
+            var provided = provider.CreateToolsForThread(thread, reserved);
+            if (provided.Count == 0)
+                continue;
+
+            tools.AddRange(provided);
+            foreach (var tool in provided)
+                reserved.Add(tool.Name);
+        }
+
+        return tools;
     }
 
     public void ConfigureReservedToolNames(IEnumerable<string> toolNames)

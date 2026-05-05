@@ -9,6 +9,7 @@ using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
 using DotCraft.Plugins;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
@@ -67,7 +68,9 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, int> _turnsSinceConsolidation = new();
     private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadPluginFunctionToolNames = new();
+    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadDynamicToolNames = new();
     private static readonly IReadOnlySet<string> EmptyPluginFunctionToolNames = new HashSet<string>(StringComparer.Ordinal);
+    private static readonly IReadOnlySet<string> EmptyDynamicToolNames = new HashSet<string>(StringComparer.Ordinal);
     private static readonly HttpClient QueuedInputHttpClient = new();
     private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
     private volatile bool _forcePerThreadAgents;
@@ -648,6 +651,7 @@ public sealed class SessionService(
         _threadAgents.TryRemove(thread.Id, out _);
         _threadModeManagers.TryRemove(thread.Id, out _);
         _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
+        _threadDynamicToolNames.TryRemove(thread.Id, out _);
         if (backgroundTerminalService != null)
             await backgroundTerminalService.CleanThreadAsync(thread.Id, ct);
         await PersistThreadStatusAsync(thread, ct);
@@ -691,12 +695,12 @@ public sealed class SessionService(
         _materializedThreads.TryRemove(threadId, out _);
         _turnsSinceConsolidation.TryRemove(threadId, out _);
         _threadPluginFunctionToolNames.TryRemove(threadId, out _);
+        _threadDynamicToolNames.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
         if (backgroundTerminalService != null)
             await backgroundTerminalService.CleanThreadAsync(threadId, ct);
 
-        _threadsPendingPermanentDeletion.TryRemove(threadId, out _);
         ThreadDeletedForBroadcast?.Invoke(threadId);
     }
 
@@ -1262,9 +1266,11 @@ public sealed class SessionService(
 
                 // Step 5g: Run agent
                 var pluginFunctionCallIds = new HashSet<string>(StringComparer.Ordinal);
+                var dynamicToolCallIds = new HashSet<string>(StringComparer.Ordinal);
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
                 var pluginFunctionToolNames = GetPluginFunctionToolNames(threadId);
+                var dynamicToolNames = GetDynamicToolNames(threadId);
 
                 // SubAgent progress aggregator: lazily created when SpawnAgent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
@@ -1436,7 +1442,8 @@ public sealed class SessionService(
                                             : null;
                                     if (string.IsNullOrWhiteSpace(resolvedToolName))
                                         break;
-                                    if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName))
+                                    if (IsPluginFunctionTool(pluginFunctionToolNames, resolvedToolName)
+                                        || IsDynamicTool(dynamicToolNames, resolvedToolName))
                                         break;
 
                                     FinalizeStreamingReasoning();
@@ -1481,8 +1488,11 @@ public sealed class SessionService(
                                 case FunctionCallContent fc:
                                 {
                                     var isPluginFunctionTool = IsPluginFunctionTool(pluginFunctionToolNames, fc.Name);
+                                    var isDynamicTool = IsDynamicTool(dynamicToolNames, fc.Name);
                                     if (isPluginFunctionTool && !string.IsNullOrWhiteSpace(fc.CallId))
                                         pluginFunctionCallIds.Add(fc.CallId);
+                                    if (isDynamicTool && !string.IsNullOrWhiteSpace(fc.CallId))
+                                        dynamicToolCallIds.Add(fc.CallId);
                                     FinalizeStreamingReasoning();
                                     RegisterCommandExecutionIfNeeded(
                                         fc,
@@ -1491,7 +1501,7 @@ public sealed class SessionService(
                                         eventChannel,
                                         supportsCommandExecutionStreaming,
                                         effectiveWorkspacePath);
-                                    if (isPluginFunctionTool)
+                                    if (isPluginFunctionTool || isDynamicTool)
                                         break;
                                     RegisterToolExecutionIfNeeded(
                                         fc,
@@ -1583,6 +1593,14 @@ public sealed class SessionService(
                                         // items emitted from the plugin function wrapper.
                                         // Even when toolResult is suppressed, keep text segmentation aligned
                                         // with normal tools so post-tool text starts a new agent message item.
+                                        FinalizeStreamingAgentMessage();
+                                        break;
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(fr.CallId)
+                                        && dynamicToolCallIds.Remove(fr.CallId))
+                                    {
+                                        // Runtime dynamic tools are represented by dynamicToolCall
+                                        // items emitted from the dynamic tool wrapper.
                                         FinalizeStreamingAgentMessage();
                                         break;
                                     }
@@ -3080,12 +3098,21 @@ public sealed class SessionService(
             .ToHashSet(StringComparer.Ordinal);
 
         if (pluginFunctionToolNames.Count == 0)
-        {
             _threadPluginFunctionToolNames.TryRemove(thread.Id, out _);
-            return;
-        }
+        else
+            _threadPluginFunctionToolNames[thread.Id] = pluginFunctionToolNames;
 
-        _threadPluginFunctionToolNames[thread.Id] = pluginFunctionToolNames;
+        var dynamicToolNames = tools
+            .OfType<IDynamicToolRuntimeTool>()
+            .Select(tool => tool.Spec.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (dynamicToolNames.Count == 0)
+            _threadDynamicToolNames.TryRemove(thread.Id, out _);
+        else
+            _threadDynamicToolNames[thread.Id] = dynamicToolNames;
     }
 
     private IReadOnlySet<string> GetPluginFunctionToolNames(string threadId)
@@ -3093,6 +3120,12 @@ public sealed class SessionService(
 
     private static bool IsPluginFunctionTool(IReadOnlySet<string> pluginFunctionToolNames, string? toolName)
         => !string.IsNullOrWhiteSpace(toolName) && pluginFunctionToolNames.Contains(toolName);
+
+    private IReadOnlySet<string> GetDynamicToolNames(string threadId)
+        => _threadDynamicToolNames.GetValueOrDefault(threadId, EmptyDynamicToolNames);
+
+    private static bool IsDynamicTool(IReadOnlySet<string> dynamicToolNames, string? toolName)
+        => !string.IsNullOrWhiteSpace(toolName) && dynamicToolNames.Contains(toolName);
 
     private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, string effectiveMainModel) =>
         baseContext.OpenAIClientProvider.TryGetChatClient(baseContext.Config, effectiveMainModel, out var chatClient)

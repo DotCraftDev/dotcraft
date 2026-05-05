@@ -639,6 +639,7 @@ public static class SessionWireMapper
             ErrorPayload => "error",
             ToolCallPayload => "toolCall",
             PluginFunctionCallPayload => "pluginFunctionCall",
+            DynamicToolCallPayload => "dynamicToolCall",
             ToolResultPayload => "toolResult",
             UserMessagePayload => "userMessage",
             AgentMessagePayload => "agentMessage",

@@ -343,6 +343,30 @@ public sealed record PluginFunctionCallPayload
 }
 
 /// <summary>
+/// Payload for Runtime Dynamic Tool call items.
+/// </summary>
+public sealed record DynamicToolCallPayload
+{
+    public string? Namespace { get; init; }
+
+    public string ToolName { get; init; } = string.Empty;
+
+    public string CallId { get; init; } = string.Empty;
+
+    public JsonObject? Arguments { get; init; }
+
+    public IReadOnlyList<PluginFunctionContentItem>? ContentItems { get; init; }
+
+    public JsonNode? StructuredResult { get; init; }
+
+    public bool Success { get; init; }
+
+    public string? ErrorCode { get; init; }
+
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>
 /// Payload for ToolResult items.
 /// </summary>
 public sealed record ToolResultPayload

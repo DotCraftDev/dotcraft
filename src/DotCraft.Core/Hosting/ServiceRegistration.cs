@@ -225,11 +225,23 @@ public static class ServiceProviderExtensions
     public static async Task InitializeServicesAsync(this IServiceProvider provider)
     {
         var config = provider.GetRequiredService<AppConfig>();
+        var paths = provider.GetRequiredService<DotCraftPaths>();
         var mcpManager = provider.GetRequiredService<McpClientManager>();
         var lspManager = provider.GetRequiredService<LspServerManager>();
-        if (config.McpServers.Count > 0)
+        var pluginMcpServers = PluginMcpServerLoader.LoadEnabledPluginServers(
+            config,
+            paths.WorkspacePath,
+            paths.CraftPath,
+            out var pluginMcpDiagnostics);
+        PluginDiagnosticsStore.Shared.Append(pluginMcpDiagnostics);
+        PluginDiagnosticsLogger.Write(pluginMcpDiagnostics);
+
+        var effectiveMcpServers = config.McpServers
+            .Concat(pluginMcpServers)
+            .ToArray();
+        if (effectiveMcpServers.Length > 0)
         {
-            await mcpManager.ConnectAsync(config.McpServers);
+            await mcpManager.ConnectAsync(effectiveMcpServers);
         }
 
         await lspManager.InitializeAsync();

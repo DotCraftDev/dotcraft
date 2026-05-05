@@ -46,6 +46,7 @@ public sealed class AppServerRequestHandler(
     string? dashboardUrl = null,
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
     WireNodeReplProxy? wireNodeReplProxy = null,
+    WireDynamicToolProxy? wireDynamicToolProxy = null,
     CommandRegistry? commandRegistry = null,
     IChannelStatusProvider? channelStatusProvider = null,
     McpClientManager? mcpClientManager = null,
@@ -363,6 +364,9 @@ public sealed class AppServerRequestHandler(
     private async Task<object?> HandleThreadStartAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadStartParams>(msg);
+        if (!WireDynamicToolProxy.TryValidateSpecs(p.DynamicTools, out var dynamicToolError))
+            throw AppServerErrors.InvalidParams(dynamicToolError);
+
         var identity = NormalizeIdentityWorkspace(p.Identity);
 
         var historyMode = p.HistoryMode?.ToLowerInvariant() == "client"
@@ -378,8 +382,21 @@ public sealed class AppServerRequestHandler(
 
         if (wireAcpExtensionProxy != null && connection.HasAcpExtensions)
             wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
+        var shouldRefreshAgent = false;
         if (wireNodeReplProxy != null && connection.HasNodeRepl && connection.HasBrowserUse)
-            await BindNodeReplThreadAndRefreshAgentAsync(thread.Id, ct);
+        {
+            wireNodeReplProxy.BindThread(thread.Id, transport, connection);
+            shouldRefreshAgent = true;
+        }
+
+        if (p.DynamicTools is { Count: > 0 } && wireDynamicToolProxy != null)
+        {
+            wireDynamicToolProxy.BindThread(thread.Id, transport, connection, p.DynamicTools);
+            shouldRefreshAgent = true;
+        }
+
+        if (shouldRefreshAgent && sessionService is IThreadAgentRefreshService refreshService)
+            await refreshService.RefreshThreadAgentAsync(thread.Id, ct);
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
@@ -2807,14 +2824,7 @@ public sealed class AppServerRequestHandler(
             Source = plugin.SourceKind.ToString().ToLowerInvariant(),
             RootPath = manifest.RootPath,
             Interface = MapPluginInterfaceToWire(manifest.Interface),
-            Functions = manifest.Functions
-                .Select(function => new PluginFunctionInfoWire
-                {
-                    Name = function.Name,
-                    Namespace = function.Namespace,
-                    Description = function.Description
-                })
-                .ToList(),
+            Functions = [],
             Skills = MapPluginSkillsToWire(plugin),
             Diagnostics = diagnostics
                 .Where(d => string.Equals(d.PluginId, manifest.Id, StringComparison.OrdinalIgnoreCase))

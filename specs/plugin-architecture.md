@@ -2,61 +2,30 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 1.1.0 |
+| **Version** | 1.2.0 |
 | **Status** | Living |
-| **Date** | 2026-05-03 |
+| **Date** | 2026-05-05 |
 | **Related Specs** | [AppServer Protocol](appserver-protocol.md), [Session Core](session-core.md), [External Channel Adapter](external-channel-adapter.md), [Desktop Client](desktop-client.md) |
 
-Purpose: define the durable architecture for DotCraft plugins, including plugin-contained skills, plugin dynamic tools, local plugin manifests, process-backed tool execution, built-in tool bindings, and the TypeScript external channel module contract.
+Purpose: define the durable architecture for DotCraft plugins, including plugin-contained skills, local plugin manifests, plugin-bundled MCP servers, client-facing plugin metadata, and the TypeScript external channel module contract.
 
 ---
 
 ## 1. Architecture Overview
 
-DotCraft plugins are host-integrated capabilities that can contribute skills and model-callable dynamic tools without requiring the agent pipeline to know each integration's implementation details.
+DotCraft plugins are host-integrated capability bundles. They distribute skills, MCP server declarations, and optional client-facing metadata without requiring the agent pipeline to know each integration's implementation details.
 
-The v1 plugin contribution model is:
+The plugin contribution model is:
 
 1. **Skills**: plugin-contained DotCraft/Codex-compatible `SKILL.md` directories.
-2. **Tools**: static manifest-declared DotCraft dynamic tools. They are conceptually aligned with Codex dynamic tools and may execute through a plugin-owned local stdio process.
+2. **MCP Servers**: plugin-contained MCP server declarations loaded into DotCraft's MCP runtime.
+3. **Interface Metadata**: optional client-facing presentation metadata.
 
-The architecture has three layers:
-
-1. **Plugin metadata** describes identity, display information, capabilities, configuration, skill directories, tool declarations, and process declarations.
-2. **Plugin loading and binding** discovers enabled plugins, validates metadata, binds tool declarations to owned runtimes, and produces runtime registrations.
-3. **Runtime execution** validates arguments, applies approval routing, invokes the bound runtime, and projects results into Session Core and AppServer events.
-
-Plugin-backed model tools are exposed as Microsoft.Extensions.AI `AIFunction` instances, but DotCraft owns the descriptor, execution lifecycle, result mapping, diagnostics, and conversation projection.
-
-MCP is intentionally outside plugin manifests. MCP servers continue to use the separate `McpServers` configuration source and runtime.
+Plugin manifests do not declare model-callable native tools. Legacy manifest fields `tools`, `functions`, and `processes` are unsupported and ignored with diagnostics. External reusable services should use MCP. Thread-scoped client callback tools should use Runtime Dynamic Tools (`thread/start.dynamicTools` and `item/tool/call`) defined in [AppServer Protocol](appserver-protocol.md).
 
 ---
 
-## 2. Dynamic Tool Model
-
-Plugin tools are model-callable dynamic tools provided by a plugin.
-
-Each tool has:
-
-- `pluginId`: stable plugin identity, such as `external-process-echo`.
-- `namespace`: optional namespace.
-- `name`: flat model-visible tool name exported as `AIFunction.Name`.
-- `description`: model-facing tool description.
-- `inputSchema`: JSON Schema for arguments.
-- `outputSchema`: optional JSON Schema for structured output.
-- `display`: optional client-facing display metadata.
-- `approval`: optional server-owned approval target metadata.
-- `requiresChatContext`: whether execution requires originating channel chat context.
-- `deferLoading`: reserved for lazy-loading behavior.
-- `backend`: execution binding for the tool.
-
-The model-facing name remains flat for Microsoft.Extensions.AI compatibility. If multiple enabled tools in one agent tool set use the same model-visible name, DotCraft keeps the first registration and rejects later registrations with diagnostics.
-
-Dynamic tool invocations continue to be represented by Session Core `pluginFunctionCall` items for protocol compatibility. Plugin-backed tools do not emit companion `toolCall` or `toolResult` items. AppServer serializes this payload with camelCase fields such as `pluginId`, `namespace`, `functionName`, `callId`, `arguments`, `contentItems`, `structuredResult`, `success`, `errorCode`, and `errorMessage`.
-
----
-
-## 3. Local Plugin Manifest
+## 2. Local Plugin Manifest
 
 Local plugins use this manifest path:
 
@@ -76,50 +45,33 @@ Manifest metadata includes:
 - `capabilities`
 - `interface`
 - `skills`
-- `tools`
-- `processes`
+- `mcpServers`
+- `paths`
 
-Plugins must declare at least one supported contribution: a plugin-contained `skills` path, one or more `tools`, or both. Skill-only plugins are valid and do not register model-callable tools.
+Plugins must declare at least one supported contribution: a plugin-contained `skills` path, plugin-bundled MCP servers, or interface metadata. Skill-only, MCP-only, and interface-only plugins are valid.
 
-`tools` is the user-facing manifest field for plugin dynamic tools. DotCraft also accepts the legacy `functions` field for existing manifests and normalizes it into the same internal descriptor model.
+`mcpServers` is an optional manifest-relative path to a plugin-contained MCP configuration file. If omitted, DotCraft looks for `./.mcp.json` in the plugin root. The MCP file may use either `{ "mcpServers": { ... } }` or a direct server map. Plugin-bundled MCP servers use the same runtime as workspace `McpServers`; relative MCP `cwd` values resolve under the plugin root. At runtime, contributed server names are prefixed as `{pluginId}:{serverName}` to avoid collisions with workspace MCP servers and other plugins.
 
-Example process-backed dynamic tool:
+Example MCP plugin:
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "external-process-echo",
+  "id": "review-tools",
   "version": "0.1.0",
-  "displayName": "External Process Echo",
-  "description": "Echo text through a plugin-owned local process.",
-  "capabilities": ["skill", "tool"],
+  "displayName": "Review Tools",
+  "description": "Adds review-oriented instructions and MCP tools.",
+  "capabilities": ["skill", "mcp"],
   "skills": "./skills/",
-  "tools": [
-    {
-      "namespace": "demo",
-      "name": "EchoText",
-      "description": "Echo text through an external plugin process.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "text": { "type": "string" }
-        },
-        "required": ["text"]
-      },
-      "backend": {
-        "kind": "process",
-        "processId": "demo",
-        "toolName": "EchoText"
-      }
-    }
-  ],
-  "processes": {
-    "demo": {
-      "command": "python",
-      "args": ["./tools/demo_tool.py"],
-      "workingDirectory": "./",
-      "toolTimeoutSeconds": 20
-    }
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Review Tools",
+    "shortDescription": "Review workflows and MCP tools.",
+    "developerName": "DotCraft",
+    "category": "Coding",
+    "capabilities": ["Skill", "MCP"],
+    "defaultPrompt": "Review this change.",
+    "brandColor": "#2563EB"
   }
 }
 ```
@@ -140,7 +92,7 @@ When multiple roots contain the same plugin id, higher-priority roots win and lo
 
 ---
 
-## 4. Manifest Path Rules
+## 3. Manifest Path Rules
 
 Manifest-relative paths must:
 
@@ -149,116 +101,58 @@ Manifest-relative paths must:
 - Not contain `..`.
 - Resolve to a path that stays inside the plugin root.
 
-These rules apply to `skills`, interface asset paths, process `workingDirectory`, and process command or argument entries that start with `./`.
+These rules apply to `skills`, `mcpServers`, `paths`, and interface asset paths.
 
 ---
 
-## 5. Loading, Binding, and Diagnostics
+## 4. Loading and Diagnostics
 
 Plugin loading has three responsibilities:
 
-1. The manifest parser reads `.craft-plugin/plugin.json`, validates fields, normalizes paths, and returns metadata plus diagnostics.
-2. The discovery service scans roots, resolves duplicate plugin ids, applies plugin enablement config, and produces enabled plugin records.
-3. The tool loader binds enabled plugin tool declarations to available runtimes and returns runtime registrations.
+1. The manifest parser reads `.craft-plugin/plugin.json`, validates supported fields, normalizes paths, and returns metadata plus diagnostics.
+2. The discovery service scans roots, resolves duplicate plugin ids, applies plugin enablement config, and produces plugin records.
+3. Enabled plugins contribute skill sources and plugin-bundled MCP server declarations to the workspace runtime.
 
-Diagnostics are non-fatal and available to logs and future UI surfaces. They cover invalid JSON, missing fields, missing supported plugin capabilities, invalid ids or names, invalid schemas, unsupported backends, invalid or missing process declarations, escaping manifest-relative paths, duplicate plugin ids, duplicate model-visible tool names, disabled plugins, and missing roots.
+Diagnostics are non-fatal and available to logs and UI surfaces. They cover invalid JSON, missing fields, missing supported plugin capabilities, invalid ids, invalid manifest-relative paths, unsupported legacy native tool fields, duplicate plugin ids, disabled plugins, invalid MCP declarations, and missing roots.
 
-Discovery or binding failures for one plugin must not prevent other plugins from loading.
+If a manifest declares `tools`, `functions`, or `processes`, DotCraft emits `UnsupportedPluginNativeTools` and ignores those fields. If no supported contribution remains, DotCraft also emits `MissingPluginCapabilities` and the plugin is not loaded.
+
+Discovery or loading failures for one plugin must not prevent other plugins from loading.
 
 ---
 
-## 6. Backend Model
+## 5. Built-In and External Tool Sources
 
-### Process Backend
+### Browser Use Built-In Plugin
 
-The `process` backend binds a manifest tool to a plugin-declared local stdio process:
+DotCraft ships Browser Use as the built-in plugin `browser-use`. It contributes:
 
-```json
-{
-  "kind": "process",
-  "processId": "demo",
-  "toolName": "EchoText"
-}
-```
+- The `browser-use` skill, loaded from the plugin's `skills` directory.
+- Client-facing metadata for Desktop and plugin-management views.
 
-`processId` must refer to a top-level `processes` entry. `toolName` is optional and defaults to the manifest tool `name`.
+When Browser Use is installed and enabled, DotCraft may expose the server-owned `NodeReplJs` runtime tool for threads bound to an AppServer client that advertises both Node REPL and Browser Use support. `NodeReplJs` is not declared in the plugin manifest.
 
-DotCraft starts one stdio process per enabled plugin process declaration and workspace context. The process is initialized once and can serve multiple tool calls for the tools bound to that process.
+The legacy plugin id `node-repl` is accepted only as a configuration alias for disabling Browser Use. New manifests, diagnostics, and configuration writes use `browser-use`.
 
-Process declarations support:
+### External Channel Tools
 
-- `command`: executable name or `./` plugin-relative executable path.
-- `args`: command arguments. Entries that start with `./` resolve under the plugin root.
-- `workingDirectory`: optional `./` plugin-relative working directory.
-- `env`: optional environment variables.
-- `startupTimeoutSeconds`: optional initialize timeout.
-- `toolTimeoutSeconds`: optional per-tool-call timeout.
+External channel tools are runtime-declared by channel adapters during AppServer `initialize`. Static plugin manifests are not required for external-channel runtime tools. Execution continues to use the `ext/channel/toolCall` server-to-client request defined by [External Channel Adapter](external-channel-adapter.md).
 
-v1 supports local stdio processes only. The manifest declares static tool metadata; the process executes those tools but does not dynamically declare additional tools.
+External channel tool invocations may still be projected as Session Core `pluginFunctionCall` items for wire compatibility. This projection is a runtime adapter detail, not a plugin manifest native-tool capability.
 
-### Process Dynamic Tool Protocol
+### Runtime Dynamic Tools
 
-Transport: JSON-RPC 2.0 over stdio.
+Runtime Dynamic Tools are declared by AppServer clients on `thread/start.dynamicTools` and are invoked through the `item/tool/call` server-to-client request. They are bound to the creating connection and are suitable for client-owned, thread-scoped capabilities such as an Oratorio review runner submitting a draft back to Oratorio.
 
-Startup request:
+Runtime Dynamic Tools are not plugin manifest tools.
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "1",
-  "method": "plugin/initialize",
-  "params": {
-    "pluginId": "external-process-echo",
-    "pluginRoot": "...",
-    "workspaceRoot": "...",
-    "tools": []
-  }
-}
-```
+### MCP Tools
 
-Tool call request:
+MCP tools are configured through workspace `McpServers`, per-thread `ThreadConfiguration.McpServers`, or plugin-bundled MCP declarations. They are discovered by the MCP runtime and injected through the MCP tool path.
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "2",
-  "method": "plugin/toolCall",
-  "params": {
-    "callId": "...",
-    "threadId": "...",
-    "turnId": "...",
-    "tool": "EchoText",
-    "namespace": "demo",
-    "arguments": {},
-    "workspaceRoot": "...",
-    "pluginRoot": "..."
-  }
-}
-```
+---
 
-Tool responses are JSON-RPC results with:
-
-- `success`
-- `contentItems`
-- `structuredResult`
-- `errorCode`
-- `errorMessage`
-
-JSON-RPC errors and malformed responses are mapped to failed plugin tool results.
-
-### Built-In Backend
-
-The `builtin` backend binds a manifest declaration to a known C# provider function owned by DotCraft:
-
-```json
-{
-  "kind": "builtin",
-  "providerId": "browser-use",
-  "functionName": "NodeReplJs"
-}
-```
-
-For `builtin` backends, `providerId` must match the manifest `id`. This backend is for DotCraft-owned built-in plugins, not the normal extension path for user plugins.
+## 6. Built-In Plugin Lifecycle
 
 Built-in plugin manifests are embedded resources exposed through a built-in catalog. Catalog entries are visible to clients before installation, but they are not active until installed into workspace `.craft/plugins/<pluginId>`.
 
@@ -272,30 +166,7 @@ Installed built-ins carry a `.builtin` marker:
 
 ---
 
-## 7. Built-In and External Tool Sources
-
-### Browser Use Built-In Plugin
-
-DotCraft ships Browser Use as the built-in plugin `browser-use`. It contributes:
-
-- `NodeReplJs`, backed by the Desktop thread-bound Node REPL C# provider.
-- The `browser-use` skill, loaded from the plugin's `skills` directory.
-
-The legacy plugin id `node-repl` is accepted only as a configuration alias for disabling Browser Use. New manifests, diagnostics, and configuration writes use `browser-use`.
-
-### External Channel Tools
-
-External channel tools are runtime-declared by channel adapters during AppServer `initialize`. DotCraft converts validated channel tool descriptors into thread-scoped plugin tool registrations using plugin ids such as `external-channel:<channelName>`.
-
-Static plugin manifests are not required for external-channel runtime tools. Execution continues to use the `ext/channel/toolCall` server-to-client request defined by [External Channel Adapter](external-channel-adapter.md).
-
-### MCP Tools
-
-MCP tools are configured through `McpServers`, discovered by the MCP runtime, and injected through the MCP tool path. MCP servers are not declared in plugin manifests and are not plugin tool backends.
-
----
-
-## 8. TypeScript External Channel Modules
+## 7. TypeScript External Channel Modules
 
 A TypeScript external channel module is the SDK-facing unit that represents one external channel integration variant, such as a first-party Feishu module or an enterprise Feishu module.
 
@@ -316,7 +187,7 @@ Desktop may expose discoverable channel modules in the Channels workflow, but li
 
 ---
 
-## 9. Configuration
+## 8. Configuration
 
 The `Plugins` config section contains:
 
@@ -328,11 +199,11 @@ Installed built-in plugins and local manifest plugins are enabled by default unl
 
 `node-repl` in `DisabledPlugins` is treated as a legacy alias for `browser-use`; new writes normalize to `browser-use`.
 
-MCP configuration remains outside `Plugins` and continues to use `McpServers`.
+Workspace-level MCP configuration continues to use `McpServers`. Plugin-bundled MCP servers are contributed by enabled plugins and merged into the effective MCP runtime configuration.
 
 ---
 
-## 10. Protocol Boundaries
+## 9. Protocol Boundaries
 
 - AppServer JSON-RPC methods and capability negotiation are defined in [AppServer Protocol](appserver-protocol.md).
 - Session item payloads, including `pluginFunctionCall`, are defined in [Session Core](session-core.md).

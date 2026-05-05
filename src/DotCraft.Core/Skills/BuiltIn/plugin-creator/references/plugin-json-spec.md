@@ -24,86 +24,64 @@
 }
 ```
 
-## Plugin with an external process dynamic tool
+## MCP plugin
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "external-process-echo",
+  "id": "review-tools",
   "version": "0.1.0",
-  "displayName": "External Process Echo",
-  "description": "Echo text through a plugin-owned local process.",
-  "capabilities": ["skill", "tool"],
+  "displayName": "Review Tools",
+  "description": "Review instructions and MCP tools.",
+  "capabilities": ["skill", "mcp"],
   "skills": "./skills/",
-  "tools": [
-    {
-      "namespace": "external_process_echo",
-      "name": "EchoText",
-      "description": "Echo text through an external plugin process.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "text": { "type": "string" }
-        },
-        "required": ["text"]
-      },
-      "backend": {
-        "kind": "process",
-        "processId": "demo",
-        "toolName": "EchoText"
-      }
-    }
-  ],
-  "processes": {
-    "demo": {
-      "command": "python",
-      "args": ["./tools/demo_tool.py"],
-      "workingDirectory": "./",
-      "toolTimeoutSeconds": 20
-    }
-  },
+  "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "External Process Echo",
-    "shortDescription": "Run an echo tool in a plugin process.",
-    "longDescription": "A sample plugin that contributes a skill and a process-backed dynamic tool.",
+    "displayName": "Review Tools",
+    "shortDescription": "Review workflows and MCP tools.",
+    "longDescription": "A plugin that contributes review guidance and MCP server configuration.",
     "developerName": "DotCraft",
     "category": "Coding",
-    "capabilities": ["Skill", "Tool"],
-    "defaultPrompt": "Echo text through the external process plugin.",
+    "capabilities": ["Skill", "MCP"],
+    "defaultPrompt": "Review this change.",
     "brandColor": "#2563EB"
   }
 }
 ```
 
-## Approval examples
+Matching `.mcp.json`:
 
 ```json
 {
-  "approval": {
-    "kind": "file",
-    "targetArgument": "path",
-    "operation": "write",
-    "operationArgument": "operation"
+  "mcpServers": {
+    "review": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["./mcp-server/index.js"],
+      "cwd": "./"
+    }
   }
 }
 ```
 
-```json
-{
-  "approval": {
-    "kind": "shell",
-    "targetArgument": "workingDirectory",
-    "operationArgument": "command"
-  }
-}
-```
+## Interface-only plugin
 
 ```json
 {
-  "approval": {
-    "kind": "remoteResource",
-    "targetArgument": "url",
-    "operation": "fetch"
+  "schemaVersion": 1,
+  "id": "team-workflows",
+  "version": "0.1.0",
+  "displayName": "Team Workflows",
+  "description": "Catalog metadata for team workflows.",
+  "capabilities": ["metadata"],
+  "interface": {
+    "displayName": "Team Workflows",
+    "shortDescription": "Team-specific workflow entry points.",
+    "developerName": "DotCraft",
+    "category": "Coding",
+    "capabilities": ["Metadata"],
+    "defaultPrompt": "Use the team workflow.",
+    "brandColor": "#2563EB"
   }
 }
 ```
@@ -113,9 +91,8 @@
 - `schemaVersion` must be `1`.
 - `id` must contain only ASCII letters, digits, `.`, `_`, `-`, or `:`.
 - `displayName` is required.
-- At least one supported contribution is required: `skills` or one valid `tools` entry.
-- `tools` may be omitted for skill-only plugins.
-- Existing manifests that use `functions` are still accepted for compatibility, but new manifests should use `tools`.
-- Process-backed tools use `backend.kind = "process"` and must reference a top-level `processes` entry.
-- MCP servers are configured separately through `McpServers`, not plugin manifests.
+- At least one supported contribution is required: `skills`, `mcpServers` or default root `.mcp.json`, or `interface`.
+- Plugin-bundled MCP servers use the same schema as workspace `McpServers`.
+- If `mcpServers` is omitted, DotCraft looks for `.mcp.json` in the plugin root.
 - Manifest paths must start with `./`, must not contain `..`, and must stay inside the plugin root.
+- `tools`, `functions`, and `processes` are unsupported legacy native tool fields; new plugins must not use them.
