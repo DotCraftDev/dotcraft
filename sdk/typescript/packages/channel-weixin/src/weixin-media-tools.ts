@@ -1,6 +1,6 @@
-import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 import {
   buildFileMessageReq,
@@ -15,6 +15,7 @@ export const WEIXIN_SEND_FILE_TOOL = "WeixinSendFileToCurrentChat";
 export const WEIXIN_SEND_IMAGE_TOOL = "WeixinSendImageToCurrentChat";
 
 const DEFAULT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
+const MAX_CDN_UPLOAD_ATTEMPTS = 3;
 
 export class WeixinMediaError extends Error {
   readonly code: string;
@@ -141,6 +142,9 @@ export class WeixinMediaTools {
       delivered: true,
       remoteMediaId: uploaded.media.encrypt_query_param ?? null,
       effectiveSourceKind: prepared.sourceKind,
+      uploadStage: "completed",
+      sendStage: "completed",
+      mediaKind: kind,
       fileName: prepared.fileName,
       md5: prepared.md5,
       bytes: prepared.bytes.length,
@@ -207,8 +211,9 @@ export class WeixinMediaTools {
     prepared: PreparedMedia,
   ): Promise<{ body: SendMessageReq; media: CDNMedia }> {
     const aesKey = randomBytes(16);
-    const aesKeyForWeixin = encodeAesKeyForWeixin(aesKey, "file");
-    const upload = await this.requestUploadUrl(opts, prepared, aesKey, UploadMediaType.FILE, aesKeyForWeixin, true);
+    const aesKeyHex = aesKey.toString("hex");
+    const mediaAesKey = encodeMediaAesKey(aesKeyHex);
+    const upload = await this.requestUploadUrl(opts, prepared, UploadMediaType.FILE, aesKeyHex);
     const media = await this.uploadBufferToCdn({
       buf: prepared.bytes,
       uploadFullUrl: upload.upload_full_url,
@@ -216,7 +221,7 @@ export class WeixinMediaTools {
       filekey: prepared.fileKey,
       label: "file",
       aesKey,
-      aesKeyForWeixin,
+      mediaAesKey,
     });
     return {
       media,
@@ -226,7 +231,6 @@ export class WeixinMediaTools {
         clientId: opts.clientId,
         fileName: prepared.fileName,
         media,
-        md5: prepared.md5,
         byteLength: prepared.bytes.length,
       }),
     };
@@ -237,8 +241,9 @@ export class WeixinMediaTools {
     prepared: PreparedMedia,
   ): Promise<{ body: SendMessageReq; media: CDNMedia }> {
     const aesKey = randomBytes(16);
-    const aesKeyForWeixin = encodeAesKeyForWeixin(aesKey, "image");
-    const upload = await this.requestUploadUrl(opts, prepared, aesKey, UploadMediaType.IMAGE, aesKeyForWeixin, false);
+    const aesKeyHex = aesKey.toString("hex");
+    const mediaAesKey = encodeMediaAesKey(aesKeyHex);
+    const upload = await this.requestUploadUrl(opts, prepared, UploadMediaType.IMAGE, aesKeyHex);
     const media = await this.uploadBufferToCdn({
       buf: prepared.bytes,
       uploadFullUrl: upload.upload_full_url,
@@ -246,15 +251,7 @@ export class WeixinMediaTools {
       filekey: prepared.fileKey,
       label: "image",
       aesKey,
-      aesKeyForWeixin,
-    });
-    const thumbMedia = await this.uploadBufferToCdn({
-      buf: prepared.bytes,
-      uploadParam: upload.thumb_upload_param,
-      filekey: prepared.fileKey,
-      label: "image thumbnail",
-      aesKey,
-      aesKeyForWeixin,
+      mediaAesKey,
     });
     return {
       media,
@@ -263,10 +260,7 @@ export class WeixinMediaTools {
         contextToken: opts.contextToken,
         clientId: opts.clientId,
         media,
-        thumbMedia,
-        aesKeyHex: aesKey.toString("hex"),
-        byteLength: prepared.bytes.length,
-        thumbByteLength: prepared.bytes.length,
+        ciphertextByteLength: aesEcbPaddedSize(prepared.bytes.length),
       }),
     };
   }
@@ -274,10 +268,8 @@ export class WeixinMediaTools {
   private async requestUploadUrl(
     opts: WeixinMediaDeliveryOptions,
     prepared: PreparedMedia,
-    aesKey: Buffer,
     mediaType: number,
-    aesKeyForWeixin: string,
-    noNeedThumb: boolean,
+    aesKeyHex: string,
   ): Promise<GetUploadUrlResp> {
     const body: GetUploadUrlReq = {
       filekey: prepared.fileKey,
@@ -286,14 +278,9 @@ export class WeixinMediaTools {
       rawsize: prepared.bytes.length,
       rawfilemd5: prepared.md5,
       filesize: aesEcbPaddedSize(prepared.bytes.length),
-      no_need_thumb: noNeedThumb,
-      aeskey: aesKeyForWeixin,
+      no_need_thumb: true,
+      aeskey: aesKeyHex,
     };
-    if (!noNeedThumb) {
-      body.thumb_rawsize = prepared.bytes.length;
-      body.thumb_rawfilemd5 = prepared.md5;
-      body.thumb_filesize = aesEcbPaddedSize(prepared.bytes.length);
-    }
     return await this.api.getUploadUrl({
       baseUrl: opts.baseUrl,
       token: opts.token,
@@ -308,7 +295,7 @@ export class WeixinMediaTools {
     filekey: string;
     label: string;
     aesKey: Buffer;
-    aesKeyForWeixin: string;
+    mediaAesKey: string;
   }): Promise<CDNMedia> {
     const uploadUrl = buildCdnUploadUrl({
       cdnBaseUrl: this.cdnBaseUrl,
@@ -317,25 +304,32 @@ export class WeixinMediaTools {
       uploadParam: params.uploadParam,
     });
     const encrypted = encryptAesEcb(params.buf, params.aesKey);
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: new Uint8Array(encrypted),
-    });
-    if (!response.ok) {
-      throw new WeixinMediaError(
-        "CdnUploadFailed",
-        `${params.label} upload failed: HTTP ${response.status} ${await response.text()}`,
-      );
+    let lastFailure = "";
+    for (let attempt = 1; attempt <= MAX_CDN_UPLOAD_ATTEMPTS; attempt += 1) {
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: new Uint8Array(encrypted),
+      });
+      if (response.ok) {
+        const downloadParam = response.headers.get("x-encrypted-param") ?? "";
+        if (!downloadParam) {
+          throw new WeixinMediaError("CdnUploadFailed", `${params.label} upload response missing x-encrypted-param.`);
+        }
+        return {
+          encrypt_query_param: downloadParam,
+          aes_key: params.mediaAesKey,
+          encrypt_type: 1,
+        };
+      }
+
+      const detail = await formatCdnErrorDetail(response);
+      lastFailure = `${params.label} upload failed: HTTP ${response.status}${detail ? ` ${detail}` : ""}`;
+      if (response.status < 500 || response.status >= 600 || attempt === MAX_CDN_UPLOAD_ATTEMPTS) {
+        break;
+      }
     }
-    const downloadParam = response.headers.get("x-encrypted-param") ?? "";
-    if (!downloadParam) {
-      throw new WeixinMediaError("CdnUploadFailed", `${params.label} upload response missing x-encrypted-param.`);
-    }
-    return {
-      encrypt_query_param: downloadParam,
-      aes_key: params.aesKeyForWeixin,
-    };
+    throw new WeixinMediaError("CdnUploadFailed", lastFailure);
   }
 }
 
@@ -372,7 +366,7 @@ async function prepareMediaSource(
   return {
     bytes,
     fileName,
-    fileKey: `${randomUUID()}${extname(fileName) || ".bin"}`,
+    fileKey: randomBytes(16).toString("hex"),
     md5: md5Hex(bytes),
     sourceKind: kind,
   };
@@ -406,9 +400,14 @@ export function buildCdnUploadUrl(params: {
   return `${params.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(params.filekey)}`;
 }
 
-function encodeAesKeyForWeixin(key: Buffer, mediaKind: "file" | "image"): string {
-  if (mediaKind === "image") return key.toString("base64");
-  return Buffer.from(key.toString("hex"), "utf-8").toString("base64");
+function encodeMediaAesKey(aesKeyHex: string): string {
+  return Buffer.from(aesKeyHex, "utf-8").toString("base64");
+}
+
+async function formatCdnErrorDetail(response: Response): Promise<string> {
+  const header = response.headers.get("x-error-message")?.trim();
+  const body = (await response.text()).trim();
+  return [header, body].filter(Boolean).join(" ");
 }
 
 function decodeBase64(value: string): Buffer {

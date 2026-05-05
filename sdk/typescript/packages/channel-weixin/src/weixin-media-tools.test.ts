@@ -48,6 +48,17 @@ class TestWeixinAdapter extends WeixinAdapter {
   }
 }
 
+function assertHex(value: unknown, length: number): asserts value is string {
+  if (typeof value !== "string") {
+    assert.fail(`Expected hex string, got ${typeof value}`);
+  }
+  assert.match(value, new RegExp(`^[0-9a-f]{${length}}$`));
+}
+
+function base64OfUtf8(value: string): string {
+  return Buffer.from(value, "utf-8").toString("base64");
+}
+
 test("crypto helpers calculate AES padded size and md5 metadata", () => {
   assert.equal(aesEcbPaddedSize(0), 16);
   assert.equal(aesEcbPaddedSize(15), 16);
@@ -100,29 +111,41 @@ test("sendStructuredMessage sends a file_item after encrypted CDN upload", async
     });
 
     assert.equal(result.delivered, true);
+    assert.equal(result.uploadStage, "completed");
+    assert.equal(result.sendStage, "completed");
+    assert.equal(result.mediaKind, "file");
+    assert.equal(result.fileName, "report.txt");
+    assert.equal(result.bytes, 5);
     assert.equal(uploadedBytes, 16);
-    assert.equal(api.uploadBodies[0]?.media_type, 3);
-    assert.equal(api.uploadBodies[0]?.rawsize, 5);
-    assert.equal(api.uploadBodies[0]?.filesize, 16);
-    assert.equal(api.uploadBodies[0]?.no_need_thumb, true);
+    const uploadBody = api.uploadBodies[0];
+    assert.equal(uploadBody?.media_type, 3);
+    assertHex(uploadBody?.filekey, 32);
+    assertHex(uploadBody?.aeskey, 32);
+    assert.equal(uploadBody?.rawsize, 5);
+    assert.equal(uploadBody?.filesize, 16);
+    assert.equal(uploadBody?.no_need_thumb, true);
     const item = api.sentBodies[0]?.msg?.item_list?.[0];
     assert.equal(item?.type, MessageItemType.FILE);
     assert.equal(item?.file_item?.file_name, "report.txt");
     assert.equal(item?.file_item?.media?.encrypt_query_param, "download-file");
+    assert.equal(item?.file_item?.media?.aes_key, base64OfUtf8(uploadBody?.aeskey ?? ""));
+    assert.equal(item?.file_item?.media?.encrypt_type, 1);
     assert.equal(item?.file_item?.len, "5");
+    assert.equal(Object.hasOwn(item?.file_item ?? {}, "md5"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("sendStructuredMessage sends an image_item with thumbnail media", async () => {
+test("sendStructuredMessage sends an image_item without thumbnail upload", async () => {
   const originalFetch = globalThis.fetch;
   const api = new FakeWeixinApi({ upload_param: "image-upload", thumb_upload_param: "thumb-upload" });
   const uploadedUrls: string[] = [];
-  globalThis.fetch = (async (input: string | URL | Request) => {
+  let uploadedBytes = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     uploadedUrls.push(String(input));
-    const token = uploadedUrls.length === 1 ? "download-image" : "download-thumb";
-    return new Response("", { status: 200, headers: { "x-encrypted-param": token } });
+    uploadedBytes = Buffer.from((init?.body as Uint8Array) ?? []).length;
+    return new Response("", { status: 200, headers: { "x-encrypted-param": "download-image" } });
   }) as typeof fetch;
 
   try {
@@ -140,14 +163,69 @@ test("sendStructuredMessage sends an image_item with thumbnail media", async () 
       },
     });
 
-    assert.equal(api.uploadBodies[0]?.media_type, 1);
-    assert.equal(api.uploadBodies[0]?.thumb_rawsize, 11);
+    const uploadBody = api.uploadBodies[0];
+    assert.equal(uploadBody?.media_type, 1);
+    assertHex(uploadBody?.filekey, 32);
+    assertHex(uploadBody?.aeskey, 32);
+    assert.equal(uploadBody?.rawsize, 11);
+    assert.equal(uploadBody?.filesize, 16);
+    assert.equal(uploadBody?.no_need_thumb, true);
+    assert.equal(Object.hasOwn(uploadBody ?? {}, "thumb_rawsize"), false);
+    assert.equal(Object.hasOwn(uploadBody ?? {}, "thumb_filesize"), false);
+    assert.equal(uploadedBytes, 16);
+    assert.equal(uploadedUrls.length, 1);
     assert.equal(uploadedUrls[0]?.includes("encrypted_query_param=image-upload"), true);
-    assert.equal(uploadedUrls[1]?.includes("encrypted_query_param=thumb-upload"), true);
+    assert.equal(uploadedUrls[0]?.includes("thumb-upload"), false);
     const item = api.sentBodies[0]?.msg?.item_list?.[0];
     assert.equal(item?.type, MessageItemType.IMAGE);
     assert.equal(item?.image_item?.media?.encrypt_query_param, "download-image");
-    assert.equal(item?.image_item?.thumb_media?.encrypt_query_param, "download-thumb");
+    assert.equal(item?.image_item?.media?.aes_key, base64OfUtf8(uploadBody?.aeskey ?? ""));
+    assert.equal(item?.image_item?.media?.encrypt_type, 1);
+    assert.equal(item?.image_item?.mid_size, 16);
+    assert.equal(Object.hasOwn(item?.image_item ?? {}, "thumb_media"), false);
+    assert.equal(Object.hasOwn(item?.image_item ?? {}, "aeskey"), false);
+    assert.equal(Object.hasOwn(item?.image_item ?? {}, "hd_size"), false);
+    assert.equal(Object.hasOwn(item?.image_item ?? {}, "thumb_size"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CDN upload retries 5xx responses and preserves x-error-message", async () => {
+  const originalFetch = globalThis.fetch;
+  const api = new FakeWeixinApi({ upload_full_url: "https://upload.example/file" });
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts += 1;
+    return new Response("temporary body", {
+      status: 500,
+      headers: { "x-error-message": "cdn busy" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const tools = new WeixinMediaTools(api);
+    await assert.rejects(
+      async () =>
+        await tools.sendStructuredMessage({
+          baseUrl: "https://ilink.example",
+          token: "token",
+          toUserId: "user@im.wechat",
+          contextToken: "ctx",
+          clientId: "client-1",
+          message: {
+            kind: "image",
+            fileName: "image.jpg",
+            source: { kind: "dataBase64", dataBase64: Buffer.from("image-bytes").toString("base64") },
+          },
+        }),
+      (error: unknown) =>
+        error instanceof WeixinMediaError &&
+        error.code === "CdnUploadFailed" &&
+        error.message.includes("HTTP 500") &&
+        error.message.includes("cdn busy"),
+    );
+    assert.equal(attempts, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -221,9 +299,10 @@ test("adapter advertises real file and image media capabilities", () => {
   assert.equal(media.image?.supportsBase64, true);
 });
 
-test("adapter sends caption as normalized follow-up text after media delivery", async () => {
+test("adapter sends caption as normalized text before media delivery", async () => {
   const originalFetch = globalThis.fetch;
   const adapter = new TestWeixinAdapter();
+  const order: string[] = [];
   const internals = adapter as unknown as {
     apiBaseUrl: string;
     botToken: string;
@@ -239,6 +318,7 @@ test("adapter sends caption as normalized follow-up text after media delivery", 
   internals.contextTokens = { "user@im.wechat": "ctx" };
   internals.mediaTools = {
     async sendStructuredMessage(): Promise<Record<string, unknown>> {
+      order.push("media");
       return { delivered: true, remoteMediaId: "media-id" };
     },
     getDeliveryCapabilities(): Record<string, unknown> {
@@ -251,6 +331,7 @@ test("adapter sends caption as normalized follow-up text after media delivery", 
 
   let followUpBody: Record<string, unknown> = {};
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    order.push("caption");
     followUpBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return new Response("", { status: 200 });
   }) as typeof fetch;
@@ -262,6 +343,7 @@ test("adapter sends caption as normalized follow-up text after media delivery", 
       source: { kind: "dataBase64", dataBase64: Buffer.from("x").toString("base64") },
     });
     assert.equal(result.delivered, true);
+    assert.deepEqual(order, ["caption", "media"]);
     const msg = followUpBody.msg as Record<string, unknown>;
     const item = (msg.item_list as Array<Record<string, { text?: string }>>)[0];
     assert.equal(item?.text_item?.text, "hello site");

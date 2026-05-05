@@ -449,6 +449,10 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
 
     try {
       const userId = target.replace(/^user:/, "");
+      const caption = String(message.caption ?? "");
+      if (caption.trim()) {
+        await this.sendWeixinText(userId, caption);
+      }
       const result = await this.mediaTools.sendStructuredMessage({
         baseUrl: this.apiBaseUrl,
         token: this.getBotToken(),
@@ -457,10 +461,6 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
         clientId: `dotcraft-weixin-${randomUUID()}`,
         message,
       });
-      const caption = String(message.caption ?? "");
-      if (result.delivered && caption.trim()) {
-        await this.sendWeixinText(userId, caption);
-      }
       return result;
     } catch (error) {
       if (error instanceof WeixinMediaError) {
@@ -498,6 +498,10 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
     }
 
     try {
+      const caption = String(args.caption ?? "");
+      if (caption.trim()) {
+        await this.sendWeixinText(target, caption);
+      }
       const result = await this.mediaTools.executeToolCall({
         baseUrl: this.apiBaseUrl,
         token: this.getBotToken(),
@@ -507,10 +511,6 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
         toolName: tool,
         args,
       });
-      const caption = String(args.caption ?? "");
-      if (result.success && caption.trim()) {
-        await this.sendWeixinText(target, caption);
-      }
       return result;
     } catch (error) {
       if (error instanceof WeixinMediaError) {

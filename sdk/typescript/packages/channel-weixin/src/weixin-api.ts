@@ -165,7 +165,6 @@ export function buildFileMessageReq(params: {
   toUserId: string;
   fileName: string;
   media: CDNMedia;
-  md5: string;
   byteLength: number;
   contextToken?: string;
   clientId: string;
@@ -184,7 +183,6 @@ export function buildFileMessageReq(params: {
           file_item: {
             media: params.media,
             file_name: params.fileName,
-            md5: params.md5,
             len: String(params.byteLength),
           },
         },
@@ -196,10 +194,7 @@ export function buildFileMessageReq(params: {
 export function buildImageMessageReq(params: {
   toUserId: string;
   media: CDNMedia;
-  thumbMedia: CDNMedia;
-  aesKeyHex: string;
-  byteLength: number;
-  thumbByteLength: number;
+  ciphertextByteLength: number;
   contextToken?: string;
   clientId: string;
 }): SendMessageReq {
@@ -216,11 +211,7 @@ export function buildImageMessageReq(params: {
           type: MessageItemType.IMAGE,
           image_item: {
             media: params.media,
-            thumb_media: params.thumbMedia,
-            aeskey: params.aesKeyHex,
-            hd_size: params.byteLength,
-            mid_size: params.byteLength,
-            thumb_size: params.thumbByteLength,
+            mid_size: params.ciphertextByteLength,
           },
         },
       ],
