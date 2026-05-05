@@ -24,12 +24,7 @@ public sealed partial class AutomationsRequestHandler(
 
     public async Task<object?> HandleTaskListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        var p = GetParams<AutomationTaskListParams>(msg);
         var tasks = await orchestrator.GetAllTasksAsync(ct);
-
-        if (!string.IsNullOrEmpty(p.SourceName))
-            tasks = tasks.Where(t =>
-                string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase)).ToList();
 
         return new AutomationTaskListResult
         {
@@ -42,11 +37,10 @@ public sealed partial class AutomationsRequestHandler(
         var p = GetParams<AutomationTaskReadParams>(msg);
         var tasks = await orchestrator.GetAllTasksAsync(ct);
         var task = tasks.FirstOrDefault(t =>
-            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal)
-            && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal));
 
         if (task == null)
-            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+            throw AppServerErrors.TaskNotFound(p.TaskId);
 
         return ToWireDetailed(task);
     }
@@ -131,17 +125,14 @@ public sealed partial class AutomationsRequestHandler(
         var p = GetParams<AutomationTaskUpdateBindingParams>(msg);
         if (string.IsNullOrWhiteSpace(p.TaskId))
             throw AppServerErrors.InvalidParams("'taskId' is required.");
-        if (!string.Equals(p.SourceName, "local", StringComparison.OrdinalIgnoreCase))
-            throw AppServerErrors.InvalidParams("Binding updates are only supported for local tasks.");
 
         var tasks = await orchestrator.GetAllTasksAsync(ct);
         var task = tasks.FirstOrDefault(t =>
-            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal)
-            && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase))
+            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal))
             as LocalAutomationTask;
 
         if (task == null)
-            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+            throw AppServerErrors.TaskNotFound(p.TaskId);
 
         // Safety: don't rebind a task that is currently running; the frontend should confirm first.
         if (task.Status == AutomationTaskStatus.Running)
@@ -166,17 +157,14 @@ public sealed partial class AutomationsRequestHandler(
         var p = GetParams<AutomationTaskRunParams>(msg);
         if (string.IsNullOrWhiteSpace(p.TaskId))
             throw AppServerErrors.InvalidParams("'taskId' is required.");
-        if (!string.Equals(p.SourceName, "local", StringComparison.OrdinalIgnoreCase))
-            throw AppServerErrors.InvalidParams("Manual runs are only supported for local tasks.");
 
         var tasks = await orchestrator.GetAllTasksAsync(ct);
         var task = tasks.FirstOrDefault(t =>
-            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal)
-            && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase))
+            string.Equals(t.Id, p.TaskId, StringComparison.Ordinal))
             as LocalAutomationTask;
 
         if (task == null)
-            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+            throw AppServerErrors.TaskNotFound(p.TaskId);
 
         if (task.Status == AutomationTaskStatus.Running)
             throw AppServerErrors.TaskInvalidStatus(
@@ -351,13 +339,11 @@ public sealed partial class AutomationsRequestHandler(
         var p = GetParams<AutomationTaskDeleteParams>(msg);
         try
         {
-            await orchestrator.DeleteTaskAsync(p.SourceName, p.TaskId, ct);
+            await orchestrator.DeleteTaskAsync(p.TaskId, ct);
         }
         catch (KeyNotFoundException)
         {
-            throw p.SourceName.Contains('/')
-                ? AppServerErrors.SourceNotFound(p.SourceName)
-                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
+            throw AppServerErrors.TaskNotFound(p.TaskId);
         }
         catch (NotSupportedException ex)
         {
@@ -380,7 +366,6 @@ public sealed partial class AutomationsRequestHandler(
             Id = task.Id,
             Title = task.Title,
             Status = StatusToWire(task.Status),
-            SourceName = task.SourceName,
             ThreadId = task.ThreadId,
             CreatedAt = task.CreatedAt,
             UpdatedAt = task.UpdatedAt,
@@ -400,7 +385,6 @@ public sealed partial class AutomationsRequestHandler(
             Id = task.Id,
             Title = task.Title,
             Status = StatusToWire(task.Status),
-            SourceName = task.SourceName,
             ThreadId = task.ThreadId,
             Description = task.Description,
             AgentSummary = task.AgentSummary,

@@ -45,7 +45,6 @@ const zhSidebar: DefaultTheme.Sidebar = [
     text: '自动化工作流',
     items: [
       { text: 'Automations 入门', link: '/automations_guide' },
-      { text: 'GitHub 自动化', link: '/automations/github' },
       { text: 'Automations 参考', link: '/automations/reference' },
       { text: 'Hooks 入门', link: '/hooks_guide' },
       { text: 'Hooks 参考', link: '/hooks/reference' },
@@ -140,7 +139,6 @@ const enSidebar: DefaultTheme.Sidebar = [
     text: 'Automation Workflows',
     items: [
       { text: 'Automations Basics', link: '/en/automations_guide' },
-      { text: 'GitHub Automations', link: '/en/automations/github' },
       { text: 'Automations Reference', link: '/en/automations/reference' },
       { text: 'Hooks Basics', link: '/en/hooks_guide' },
       { text: 'Hooks Reference', link: '/en/hooks/reference' },

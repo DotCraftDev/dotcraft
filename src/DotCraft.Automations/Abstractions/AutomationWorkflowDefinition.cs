@@ -1,7 +1,7 @@
 namespace DotCraft.Automations.Abstractions;
 
 /// <summary>
-/// Workflow steps and round limit for an automation task (independent of GitHubTracker workflow files).
+/// Workflow steps and round limit for a local automation task.
 /// </summary>
 public sealed class AutomationWorkflowDefinition
 {

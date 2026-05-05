@@ -39,7 +39,7 @@ Returns trace events for one session.
 
 ### `GET /dashboard/api/orchestrators/automations/state`
 
-Returns Automations orchestrator state, including tasks, Cron, and GitHub source summaries.
+Returns Automations orchestrator state, including local tasks and Cron summaries.
 
 ### `POST /dashboard/api/orchestrators/automations/refresh`
 

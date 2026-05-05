@@ -82,19 +82,13 @@
 |--------|------|--------|
 | `Automations.Enabled` | 是否启用 Automations 编排器 | `true` |
 | `Automations.LocalTasksRoot` | 本地任务根目录，留空使用 `.craft/tasks/` | 空 |
-| `Automations.WorkspaceRoot` | 任务工作区根目录，留空使用系统临时目录 | 空 |
 | `Automations.PollingInterval` | 轮询间隔 | `00:00:30` |
-| `Automations.MaxConcurrentTasks` | 所有来源合计最大并发任务数 | `3` |
+| `Automations.MaxConcurrentTasks` | 本地任务最大并发数 | `3` |
 | `Automations.TurnTimeout` | 单轮对话超时时间 | `00:30:00` |
 | `Automations.StallTimeout` | 停顿超时时间 | `00:10:00` |
 | `Automations.MaxRetries` | 最大重试次数 | `3` |
 | `Automations.RetryInitialDelay` | 重试初始延迟 | `00:00:30` |
 | `Automations.RetryMaxDelay` | 重试最大延迟 | `00:10:00` |
-| `GitHubTracker.Enabled` | 是否启用 GitHub 来源 | `false` |
-| `GitHubTracker.IssuesWorkflowPath` | Issue `WORKFLOW.md` 路径 | `WORKFLOW.md` |
-| `GitHubTracker.PullRequestWorkflowPath` | PR workflow 路径 | 空 |
-| `GitHubTracker.Tracker.Repository` | GitHub 仓库，格式 `owner/repo` | 空 |
-| `GitHubTracker.Tracker.ApiKey` | GitHub Token，支持 `$ENV_VAR` | 空 |
 | `Hooks.Enabled` | 是否启用 Hooks | `true` |
 | `Hooks.Events` | Hook 事件配置列表 | `[]` |
 | `Cron.Enabled` | 是否启用 Cron 定时任务服务 | `true` |

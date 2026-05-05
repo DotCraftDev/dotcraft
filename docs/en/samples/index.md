@@ -21,7 +21,7 @@ Sample source files remain under [samples/](https://github.com/DotHarness/dotcra
 | Try a complete workspace | [Workspace Sample](./workspace.md) |
 | Call the OpenAI-compatible API | [API Samples](./api.md) |
 | Run the AG-UI frontend | [AG-UI Client](./ag-ui-client.md) |
-| Configure local / GitHub automations | [Automations Samples](./automations.md) |
+| Configure local automations | [Automations Samples](./automations.md) |
 | Write lifecycle hooks | [Hooks Samples](./hooks.md) |
 | Prepare project bootstrap context | [Bootstrap Samples](./bootstrap.md) |
 | Reuse built-in skill templates | [Skills Samples](./skills.md) |
@@ -30,7 +30,7 @@ Sample source files remain under [samples/](https://github.com/DotHarness/dotcra
 
 - Config snippets from samples can be moved into a real project's `.craft/config.json`.
 - Token-based samples should prefer environment variables; do not commit secrets.
-- Test automation and GitHub samples in a test repository first.
+- Test automation samples in a disposable workspace first.
 
 ## Troubleshooting
 

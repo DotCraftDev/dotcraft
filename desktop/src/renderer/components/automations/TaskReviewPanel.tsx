@@ -12,32 +12,6 @@ import type { SubAgentEntry } from '../../types/toolCall'
 import { ThreadPickerOverlay } from './ThreadPickerOverlay'
 import { addToast } from '../../stores/toastStore'
 
-function SourceBadge({
-  sourceName,
-  t
-}: {
-  sourceName: string
-  t: ReturnType<typeof useT>
-}): JSX.Element {
-  const label = sourceName === 'github' ? t('auto.source.github') : t('auto.source.local')
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '1px 6px',
-        borderRadius: '8px',
-        backgroundColor: 'var(--bg-tertiary)',
-        color: 'var(--text-secondary)',
-        fontSize: '11px',
-        fontWeight: 500,
-        lineHeight: '16px'
-      }}
-    >
-      {label}
-    </span>
-  )
-}
-
 function ApprovalPolicyBadge({
   policy,
   t
@@ -246,10 +220,7 @@ export function TaskReviewPanel(): JSX.Element {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
             {displayTask && <StatusBadge status={displayTask.status} />}
-            {displayTask && <SourceBadge sourceName={displayTask.sourceName} t={t} />}
-            {displayTask?.sourceName === 'local' && (
-              <ApprovalPolicyBadge policy={displayTask.approvalPolicy} t={t} />
-            )}
+            {displayTask && <ApprovalPolicyBadge policy={displayTask.approvalPolicy} t={t} />}
           </div>
         </div>
         <button
@@ -283,7 +254,7 @@ export function TaskReviewPanel(): JSX.Element {
         <div style={{ padding: '16px', fontSize: '13px', color: 'var(--error)' }}>{loadError}</div>
       )}
 
-      {displayTask && (isBound || displayTask.sourceName === 'local') && (
+      {displayTask && (
         <div
           style={{
             padding: '10px 14px',

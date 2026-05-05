@@ -123,7 +123,7 @@ If unsure, put the API key globally and everything else in the workspace.
 | Expose an OpenAI-compatible HTTP API | [API Mode Guide](./api_guide.md) |
 | Connect an IDE or editor | [ACP Mode Guide](./acp_guide.md) |
 | Build bots or external adapters | [SDK Overview](./sdk/index.md) |
-| Run local or GitHub automation tasks | [Automations Guide](./automations_guide.md) |
+| Run local automation tasks | [Automations Guide](./automations_guide.md) |
 | Inspect traces, tool calls, and merged configuration | [Dashboard Guide](./dash_board_guide.md) |
 
 ## Explore More
@@ -138,11 +138,11 @@ DotCraft integrates with Telegram, WeChat, Feishu/Lark, QQ, WeCom, and other soc
 
 ### Automations
 
-Automations are for running local tasks and GitHub-driven workflows. Scheduling, review, and retry flows are covered in the [Automations Guide](./automations_guide.md).
+Automations are for running local workspace tasks. Scheduling, thread binding, templates, and retry flows are covered in the [Automations Guide](./automations_guide.md).
 
-| Desktop Automations | GitHub tracker |
-|:---:|:---:|
-| ![Desktop automations panel](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png) | ![GitHub tracker example](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png) |
+| Desktop Automations |
+|:---:|
+| ![Desktop automations panel](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_automations.png) |
 
 ### Dashboard
 

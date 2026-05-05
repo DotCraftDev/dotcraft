@@ -1136,7 +1136,6 @@ describe('notification dispatch payload format', () => {
         params: {
           task: {
             id: `task-${status}`,
-            sourceName: 'local',
             title: status,
             status,
             threadId: null,

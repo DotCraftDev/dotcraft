@@ -10,7 +10,6 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { TaskCard } from './TaskCard'
 import { NewTaskDialog } from './NewTaskDialog'
-import { GitHubTrackerConfigPanel } from './GitHubTrackerConfigPanel'
 import { TaskReviewPanel } from './TaskReviewPanel'
 import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
@@ -44,7 +43,6 @@ export function AutomationsView(): JSX.Element {
   const capabilities = useConnectionStore((s) => s.capabilities)
   const hasTasks = capabilities?.automations === true
   const hasCron = capabilities?.cronManagement === true
-  const hasGitHubTrackerConfig = capabilities?.gitHubTrackerConfig === true
   const automationsTab = useUIStore((s) => s.automationsTab)
   const setAutomationsTab = useUIStore((s) => s.setAutomationsTab)
 
@@ -67,7 +65,6 @@ export function AutomationsView(): JSX.Element {
   const [newTaskTemplate, setNewTaskTemplate] = useState<AutomationTemplate | undefined>(undefined)
   const [newDialogTab, setNewDialogTab] = useState<'task' | 'template'>('task')
   const [editingTemplate, setEditingTemplate] = useState<AutomationTemplate | undefined>(undefined)
-  const [showGitHubConfig, setShowGitHubConfig] = useState(false)
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null)
   const [reviewAsDrawer, setReviewAsDrawer] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 980
@@ -98,15 +95,6 @@ export function AutomationsView(): JSX.Element {
       selectTask(null)
     }
   }, [activePanel, selectedCronJobId, selectedTaskId, selectCronJob, selectTask])
-
-  useEffect(() => {
-    if (!showGitHubConfig) return
-    if (selectedTaskId) {
-      useReviewPanelStore.getState().destroyReviewPanel()
-      selectTask(null)
-    }
-    if (selectedCronJobId) selectCronJob(null)
-  }, [showGitHubConfig, selectedCronJobId, selectedTaskId, selectCronJob, selectTask])
 
   useEffect(() => {
     function updateReviewMode(): void {
@@ -214,19 +202,6 @@ export function AutomationsView(): JSX.Element {
 
       <header style={browseHeader}>
         <div style={topActions}>
-          {hasGitHubTrackerConfig && activePanel === 'tasks' && (
-            <ActionTooltip label={t('auto.githubConfig.open')} placement="bottom">
-              <button
-                type="button"
-                onClick={() => setShowGitHubConfig((v) => !v)}
-                aria-label={t('auto.githubConfig.open')}
-                aria-pressed={showGitHubConfig}
-                style={showGitHubConfig ? iconButtonActive : iconButton}
-              >
-                <GitHubMark />
-              </button>
-            </ActionTooltip>
-          )}
           {activePanel === 'tasks' && (
             <button
               type="button"
@@ -254,15 +229,7 @@ export function AutomationsView(): JSX.Element {
 
       <div style={contentShell}>
         <div style={contentPane}>
-          {showGitHubConfig && hasGitHubTrackerConfig && (
-            <main style={browseMain}>
-              <div style={panelConstrained}>
-                <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
-              </div>
-            </main>
-          )}
-
-          {!showGitHubConfig && activePanel === 'tasks' && (
+          {activePanel === 'tasks' && (
             <main id="automations-task-list" role="tabpanel" style={browseMain}>
               {templateSections.map((section) => (
                 <CatalogSection key={section.key} title={section.title}>
@@ -308,7 +275,7 @@ export function AutomationsView(): JSX.Element {
                 {!loading && !error && sortedTasks.length > 0 && (
                   <div style={listConstrained}>
                     {sortedTasks.map((task) => (
-                      <TaskCard key={`${task.sourceName}::${task.id}`} task={task} />
+                      <TaskCard key={task.id} task={task} />
                     ))}
                   </div>
                 )}
@@ -316,7 +283,7 @@ export function AutomationsView(): JSX.Element {
             </main>
           )}
 
-          {!showGitHubConfig && activePanel === 'cron' && hasCron && (
+          {activePanel === 'cron' && hasCron && (
             <main id="automations-cron-list" role="tabpanel" style={browseMain}>
               <CatalogSection title={t('auto.cron.title')}>
                 {cronLoading && (
@@ -344,11 +311,11 @@ export function AutomationsView(): JSX.Element {
           )}
         </div>
 
-        {!showGitHubConfig && reviewPanel && !reviewAsDrawer && (
+        {reviewPanel && !reviewAsDrawer && (
           <aside style={reviewSidePanel}>{reviewPanel}</aside>
         )}
 
-        {!showGitHubConfig && reviewPanel && reviewAsDrawer && (
+        {reviewPanel && reviewAsDrawer && (
           <div style={reviewDrawerLayer} onMouseDown={closeReviewPanel}>
             <aside style={reviewDrawer} onMouseDown={(event) => event.stopPropagation()}>
               {reviewPanel}
@@ -561,14 +528,6 @@ function RetryState({ message, onRetry }: { message: string; onRetry(): void }):
   )
 }
 
-function GitHubMark(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor">
-      <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
-    </svg>
-  )
-}
-
 const page: CSSProperties = catalogStyles.page
 const browseHeader: CSSProperties = catalogStyles.browseHeader
 const topActions: CSSProperties = catalogStyles.topActions
@@ -585,19 +544,7 @@ const primaryCreateButton: CSSProperties = {
   fontWeight: 600
 }
 
-const iconButtonActive: CSSProperties = {
-  ...iconButton,
-  borderColor: 'var(--accent)',
-  backgroundColor: 'var(--bg-tertiary)',
-  color: 'var(--text-primary)'
-}
-
 const listConstrained: CSSProperties = {
-  maxWidth: '760px',
-  margin: '0 auto'
-}
-
-const panelConstrained: CSSProperties = {
   maxWidth: '760px',
   margin: '0 auto'
 }

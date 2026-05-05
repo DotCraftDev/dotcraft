@@ -1450,11 +1450,6 @@ body {
         <div class="panel-body">
           <div class="stats-grid" id="automationsStats"></div>
           <p id="automationsGeneratedAt" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px"></p>
-          <div class="filter-bar" style="margin-bottom:16px">
-            <button class="filter-chip active" data-autosrc="all" onclick="setAutomationsFilter('all')">All</button>
-            <button class="filter-chip" data-autosrc="local" onclick="setAutomationsFilter('local')">local</button>
-            <button class="filter-chip" data-autosrc="github" onclick="setAutomationsFilter('github')">github</button>
-          </div>
           <div id="automationsTable"><div class="empty-state">No automation tasks.</div></div>
         </div>
       </div>
@@ -1551,7 +1546,6 @@ let allSessions = [];
 const traceExpandableText = new Map();
 
 let automationsAvailable = false;
-let automationsSourceFilter = 'all';
 let _automationsLastData = null;
 
 function switchPanel(panel) {
@@ -3811,12 +3805,6 @@ function fmtRelative(ms) {
   return Math.ceil(diff / 60000) + 'm';
 }
 
-function setAutomationsFilter(filter) {
-  automationsSourceFilter = filter;
-  document.querySelectorAll('[data-autosrc]').forEach(c => c.classList.toggle('active', c.dataset.autosrc === filter));
-  if (_automationsLastData) renderAutomations(_automationsLastData);
-}
-
 function renderAutomations(data) {
   _automationsLastData = data;
   const statsEl = document.getElementById('automationsStats');
@@ -3839,12 +3827,7 @@ function renderAutomations(data) {
       : '<div class="stat-card"><div class="stat-label">Tasks</div><div class="stat-value accent">0</div></div>';
   }
 
-  let tasks = Array.isArray(data.tasks) ? data.tasks.slice() : [];
-  if (automationsSourceFilter === 'local') {
-    tasks = tasks.filter(t => String(t.sourceName || '').toLowerCase() === 'local');
-  } else if (automationsSourceFilter === 'github') {
-    tasks = tasks.filter(t => String(t.sourceName || '').toLowerCase() === 'github');
-  }
+  const tasks = Array.isArray(data.tasks) ? data.tasks.slice() : [];
 
   if (tasks.length === 0) {
     tableEl.innerHTML = '<div class="empty-state">No automation tasks.</div>';
@@ -3853,11 +3836,10 @@ function renderAutomations(data) {
 
   let html = '<table class="config-table">';
   html += '<thead><tr>';
-  html += '<th>Title</th><th>Source</th><th>Status</th><th>Thread</th><th>Updated</th>';
+  html += '<th>Title</th><th>Status</th><th>Thread</th><th>Updated</th>';
   html += '</tr></thead><tbody>';
   for (const t of tasks) {
     const title = escapeHtml(truncateText(t.title || t.id || '-', 64));
-    const src = escapeHtml(t.sourceName || '-');
     const st = escapeHtml(t.status || '-');
     const badgeCls = automationsStatusBadgeClass(t.status);
     const tid = t.threadId;
@@ -3867,7 +3849,6 @@ function renderAutomations(data) {
     const upd = t.updatedAt != null ? fmtIsoShort(t.updatedAt) : (t.createdAt != null ? fmtIsoShort(t.createdAt) : '-');
     html += '<tr>';
     html += `<td style="font-weight:500" title=${JSON.stringify(t.title || '')}>${title}</td>`;
-    html += `<td style="font-size:12px">${src}</td>`;
     html += `<td><span class="badge ${badgeCls}">${st}</span></td>`;
     html += `<td style="font-size:12px">${threadCell}</td>`;
     html += `<td style="font-size:12px;color:var(--text-secondary)">${upd}</td>`;

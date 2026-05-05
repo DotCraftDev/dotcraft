@@ -1,11 +1,9 @@
 using DotCraft.Abstractions;
-using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.DashBoard;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Protocol;
 using DotCraft.Automations.Templates;
-using DotCraft.Automations.Workspace;
 using DotCraft.Configuration;
 using DotCraft.DashBoard;
 using DotCraft.Modules;
@@ -18,7 +16,7 @@ namespace DotCraft.Automations;
 /// <summary>
 /// Automation task orchestration module (Gateway channel).
 /// </summary>
-[DotCraftModule("automations", Priority = 55, Description = "Local and remote automation task orchestrator")]
+[DotCraftModule("automations", Priority = 55, Description = "Local automation task orchestrator")]
 public sealed partial class AutomationsModule : ModuleBase
 {
     public override bool IsEnabled(AppConfig config) =>
@@ -37,12 +35,10 @@ public sealed partial class AutomationsModule : ModuleBase
     {
         var cfg = context.Config.GetSection<AutomationsConfig>("Automations");
         services.AddSingleton(cfg);
-        services.AddSingleton<AutomationWorkspaceManager>();
         services.AddSingleton<LocalTaskFileStore>();
         services.AddSingleton<UserTemplateFileStore>();
         services.AddSingleton<LocalWorkflowLoader>();
         services.AddSingleton<LocalAutomationSource>();
-        services.AddSingleton<IAutomationSource>(sp => sp.GetRequiredService<LocalAutomationSource>());
         services.AddSingleton<AutomationOrchestrator>();
         services.AddSingleton<AutomationsRequestHandler>();
         services.AddSingleton<IAutomationsRequestHandler>(sp => sp.GetRequiredService<AutomationsRequestHandler>());

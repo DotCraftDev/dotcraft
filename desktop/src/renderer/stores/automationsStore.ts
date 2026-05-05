@@ -37,7 +37,6 @@ export interface AutomationTask {
   id: string
   title: string
   status: AutomationTaskStatus
-  sourceName: string
   threadId: string | null
   description?: string
   agentSummary?: string | null
@@ -137,7 +136,7 @@ interface AutomationsState {
   deleteTemplate(id: string): Promise<void>
   selectTask(taskId: string | null): void
   upsertTask(task: AutomationTask): void
-  removeTask(taskId: string, sourceName: string): void
+  removeTask(taskId: string): void
 }
 
 export const useAutomationsStore = create<AutomationsState>((set, get) => ({
@@ -195,8 +194,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
 
   async runTaskNow(task: AutomationTask) {
     const result = (await window.api.appServer.sendRequest('automation/task/run', {
-      taskId: task.id,
-      sourceName: task.sourceName
+      taskId: task.id
     })) as { task?: AutomationTask }
     if (result.task) get().upsertTask(result.task)
     await get().fetchTasks({ silent: true })
@@ -204,8 +202,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
 
   async updateBinding(task: AutomationTask, binding: AutomationThreadBinding | null) {
     const params: Record<string, unknown> = {
-      taskId: task.id,
-      sourceName: task.sourceName
+      taskId: task.id
     }
     if (binding && binding.threadId) {
       params.threadBinding = {
@@ -292,8 +289,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
 
   async deleteTask(task: AutomationTask) {
     await window.api.appServer.sendRequest('automation/task/delete', {
-      taskId: task.id,
-      sourceName: task.sourceName
+      taskId: task.id
     })
     if (task.threadId) {
       try {
@@ -302,18 +298,16 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
         // Thread may already be gone; task folder is already removed.
       }
     }
-    get().removeTask(task.id, task.sourceName)
+    get().removeTask(task.id)
     if (get().selectedTaskId === task.id) {
       set({ selectedTaskId: null })
       useReviewPanelStore.getState().destroyReviewPanel()
     }
   },
 
-  removeTask(taskId: string, sourceName: string) {
+  removeTask(taskId: string) {
     set((state) => ({
-      tasks: state.tasks.filter(
-        (t) => !(t.id === taskId && t.sourceName === sourceName)
-      )
+      tasks: state.tasks.filter((t) => t.id !== taskId)
     }))
   },
 
@@ -323,9 +317,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
 
   upsertTask(task: AutomationTask) {
     set((state) => {
-      const idx = state.tasks.findIndex(
-        (t) => t.id === task.id && t.sourceName === task.sourceName
-      )
+      const idx = state.tasks.findIndex((t) => t.id === task.id)
       if (idx >= 0) {
         const updated = [...state.tasks]
         updated[idx] = { ...updated[idx], ...task }

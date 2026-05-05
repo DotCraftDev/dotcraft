@@ -235,12 +235,10 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
 
     const tasks = useAutomationsStore.getState().tasks
     const listTask = tasks.find((t) => t.id === taskId)
-    const sourceName = listTask?.sourceName ?? 'local'
 
     try {
       const readResult = (await window.api.appServer.sendRequest('automation/task/read', {
-        taskId,
-        sourceName
+        taskId
       })) as Record<string, unknown>
 
       // Check if this request is still valid (not stale)
@@ -897,7 +895,6 @@ function mapWireTaskToAutomationTask(raw: Record<string, unknown>): AutomationTa
     id: (raw.id as string) ?? (raw.Id as string) ?? (raw.taskId as string) ?? '',
     title: (raw.title as string) ?? (raw.Title as string) ?? '',
     status,
-    sourceName: (raw.sourceName as string) ?? (raw.SourceName as string) ?? 'local',
     threadId: (raw.threadId as string | null) ?? (raw.ThreadId as string | null) ?? null,
     description: (raw.description as string | undefined) ?? (raw.Description as string | undefined),
     agentSummary:

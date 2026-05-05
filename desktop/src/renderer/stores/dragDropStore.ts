@@ -14,7 +14,6 @@ export type DragSession =
   | {
       kind: 'automation-task'
       taskId: string
-      sourceName: string
       title: string
       alreadyBoundThreadId: string | null
     }

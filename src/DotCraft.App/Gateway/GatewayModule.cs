@@ -2,7 +2,6 @@ using DotCraft.Abstractions;
 using DotCraft.Automations;
 using DotCraft.Configuration;
 using DotCraft.ExternalChannel;
-using DotCraft.GitHubTracker;
 using DotCraft.Hosting;
 using DotCraft.Modules;
 using DotCraft.Plugins;
@@ -50,7 +49,6 @@ public sealed partial class GatewayModule : ModuleBase
         => config.IsSectionEnabled("WeComBot")
            || config.IsSectionEnabled("Api")
            || config.IsSectionEnabled("AgUi")
-           || config.GetSection<GitHubTrackerConfig>("GitHubTracker").Enabled
            || config.GetSection<AutomationsConfig>("Automations").Enabled
            || ExternalChannelManager.HasEnabledChannels(config);
 }

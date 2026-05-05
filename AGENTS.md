@@ -15,7 +15,7 @@ Prerequisite: .NET 10 SDK (preview).
 - Build: `dotnet build dotcraft.sln`
 - Package (Windows): `build.bat`
 - Package (Linux/macOS): `bash build_linux.bat`
-- Exclude optional modules: `build.bat --no-unity --no-github-tracker --no-agui --no-api`
+- Exclude optional modules: `build.bat --no-unity --no-agui --no-api`
 - Run: `dotnet run --project src/DotCraft.App/DotCraft.App.csproj`
 - Test: `dotnet test`
 - Single test: `dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"`
@@ -27,7 +27,7 @@ Prerequisite: .NET 10 SDK (preview).
   Host priority: CLI=0, API=10. Gateway runs when no higher-priority Host is active.
 - **Session Core**: defined in `specs/session-core.md` with `Thread -> Turn -> Item` model.
   `ISessionService` is the central API for thread lifecycle, input submission, and approvals.
-  Used by CLI, ACP, GitHubTracker, and external channel adapters; API and AG-UI use client-managed history.
+  Used by CLI, ACP, Automations, and external channel adapters; API and AG-UI use client-managed history.
 - **AppServer**: defined in `specs/appserver-protocol.md`.
   JSON-RPC 2.0 over stdio/WebSocket, projecting `ISessionService` to out-of-process clients.
   Used by TUI, Desktop, and external channel adapters (see `sdk/python/`).
@@ -39,7 +39,7 @@ Prerequisite: .NET 10 SDK (preview).
 ## Repo Map
 
 - Core and app: `src/DotCraft.Core/`, `src/DotCraft.App/`, `src/DotCraft.Gen/`
-- Feature modules: `src/DotCraft.{Unity,Api,AGUI,Automations,GitHubTracker,...}/`
+- Feature modules: `src/DotCraft.{Unity,Api,AGUI,Automations,...}/`
 - TypeScript channel packages: `sdk/typescript/packages/channel-{qq,wecom,feishu,weixin,telegram}/`
 - Specs and tests: `specs/`, `tests/`
 - SDKs and clients: `sdk/`, `tui/`, `desktop/`

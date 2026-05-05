@@ -28,7 +28,6 @@ Choose a document by goal. First-time users should start with [Getting Started](
 | Goal | Recommended doc |
 |------|-----------------|
 | Local tasks, Cron choice, and human review | [Automations Guide](./automations_guide.md) |
-| GitHub Issue/PR automation | [GitHub Automations](./automations/github.md) |
 | Automations fields, template variables, and tools | [Automations Reference](./automations/reference.md) |
 | Lifecycle Hooks and shell extension | [Hooks Guide](./hooks_guide.md) |
 | Hook events, payloads, exit codes, and examples | [Hooks Reference](./hooks/reference.md) |

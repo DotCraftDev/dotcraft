@@ -40,32 +40,6 @@ function relativeTime(iso: string, locale: AppLocale): string {
   return translate(locale, 'cron.last.dayAgo', { n: days })
 }
 
-function SourceBadgeSource({
-  sourceName,
-  t
-}: {
-  sourceName: string
-  t: ReturnType<typeof useT>
-}): JSX.Element {
-  const label = sourceName === 'github' ? t('auto.source.github') : t('auto.source.local')
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '1px 6px',
-        borderRadius: '8px',
-        backgroundColor: 'var(--bg-tertiary)',
-        color: 'var(--text-secondary)',
-        fontSize: '11px',
-        fontWeight: 500,
-        lineHeight: '16px'
-      }}
-    >
-      {label}
-    </span>
-  )
-}
-
 function formatSchedule(s: AutomationSchedule | null | undefined, t: ReturnType<typeof useT>): string | null {
   if (!s) return null
   if (s.kind === 'daily') {
@@ -98,8 +72,8 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
   const runTaskNow = useAutomationsStore((s) => s.runTaskNow)
   const threadList = useThreadStore((s) => s.threadList)
   const deletable = isTaskDeletable(task.status)
-  const draggable = task.sourceName === 'local'
-  const runnable = task.sourceName === 'local' && task.status !== 'running'
+  const draggable = true
+  const runnable = task.status !== 'running'
 
   const boundThreadName = useMemo(() => {
     const id = task.threadBinding?.threadId
@@ -115,14 +89,13 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
   )
 
   function handleDragStart(e: React.DragEvent): void {
-    e.dataTransfer.setData(AUTOMATION_TASK_DRAG_MIME, `${task.sourceName}::${task.id}`)
+    e.dataTransfer.setData(AUTOMATION_TASK_DRAG_MIME, task.id)
     // Provide a human-readable label for targets that surface it via effectAllowed.
     e.dataTransfer.setData('text/plain', task.title)
     e.dataTransfer.effectAllowed = 'link'
     useDragDropStore.getState().start({
       kind: 'automation-task',
       taskId: task.id,
-      sourceName: task.sourceName,
       title: task.title,
       alreadyBoundThreadId: task.threadBinding?.threadId ?? null
     })
@@ -216,7 +189,6 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
             flexWrap: 'wrap'
           }}
         >
-          <SourceBadgeSource sourceName={task.sourceName} t={t} />
           <span>{relativeTime(task.updatedAt, locale)}</span>
           {boundThreadName && (
             <span
@@ -268,9 +240,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
           disabledReason={
             task.status === 'running'
               ? t('auto.runNowAlreadyRunning')
-              : task.sourceName !== 'local'
-                ? t('auto.runNowLocalOnly')
-                : undefined
+              : undefined
           }
           placement="top"
         >

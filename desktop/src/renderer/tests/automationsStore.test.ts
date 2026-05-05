@@ -116,7 +116,6 @@ describe('automationsStore templates', () => {
         task: {
           id: 'weekly-report',
           title: 'Weekly report',
-          sourceName: 'local',
           status: 'pending',
           threadId: null,
           createdAt: '2026-05-04T00:00:00Z',
@@ -129,7 +128,6 @@ describe('automationsStore templates', () => {
     await useAutomationsStore.getState().runTaskNow({
       id: 'weekly-report',
       title: 'Weekly report',
-      sourceName: 'local',
       status: 'completed',
       threadId: null,
       createdAt: '2026-05-04T00:00:00Z',
@@ -137,8 +135,7 @@ describe('automationsStore templates', () => {
     })
 
     expect(sendRequest).toHaveBeenNthCalledWith(1, 'automation/task/run', {
-      taskId: 'weekly-report',
-      sourceName: 'local'
+      taskId: 'weekly-report'
     })
     expect(sendRequest).toHaveBeenNthCalledWith(2, 'automation/task/list', {})
   })

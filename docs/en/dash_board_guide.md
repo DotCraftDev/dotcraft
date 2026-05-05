@@ -73,7 +73,7 @@ Setting `Host` to `0.0.0.0` allows external network access. Dashboard can expose
 | Sessions | Session list and details |
 | Trace Timeline | Timeline view of Agent, tool, and error events |
 | Settings | Config schema, global config, workspace config, and merged config |
-| Automations | Local tasks, Cron, GitHub sources, and review state |
+| Automations | Local tasks, Cron, and activity state |
 
 ### API Reference
 

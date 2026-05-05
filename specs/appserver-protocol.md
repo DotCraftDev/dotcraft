@@ -343,7 +343,6 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "externalChannelManagement": true,
     "mcpStatus": true,
     "extensions": {
-      "githubTrackerConfig": true,
       "welcomeSuggestions": true
     }
   }
@@ -373,7 +372,6 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.mcpServerOrigins` | boolean | Server annotates MCP config/status DTOs with `origin` and `readOnly` so clients can show plugin-bundled MCP servers as read-only runtime entries. |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
 | `capabilities.subAgentManagement` | boolean | Server supports SubAgent profile management methods (`subagent/profiles/list`, `subagent/settings/update`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
-| `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
 | `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. Example: `capabilities.extensions.welcomeSuggestions = true` advertises support for `welcome/suggestions`. |
 
@@ -2001,16 +1999,15 @@ Errors follow the standard JSON-RPC 2.0 error response format:
 | `-32030` | Channel rejected | The channel adapter name is not registered in server configuration. |
 | `-32031` | Cron job not found | The specified cron job ID does not exist. |
 | `-32040` | Skill not found | The requested skill name does not exist in any source (workspace, user, or builtin). |
-| `-32051` | Task not found | `automation/*`: the specified task does not exist for the given source. |
+| `-32051` | Task not found | `automation/*`: the specified task does not exist. |
 | `-32052` | Task invalid status | `automation/*`: the operation is not valid for the task’s current status. |
-| `-32053` | Source not found | `automation/*`: the named automation source is not registered. |
 | `-32054` | Task already exists | `automation/task/create`: a task with the same ID already exists. |
 | `-32055` | Thread binding invalid | `automation/task/updateBinding` / `automation/task/create`: the target `threadId` does not exist or is archived. |
 
 Automation task methods are defined in full in [automations-lifecycle.md §13](automations-lifecycle.md). Summary of the v1 wire surface:
 
-- `automation/task/list`, `automation/task/read`, `automation/task/create`, `automation/task/updateBinding`, `automation/task/delete` — CRUD and binding updates for built-in automation tasks. Task-level review and cancel endpoints are not part of this surface.
-- `automation/task/updateBinding` `{ sourceName, taskId, threadBinding?: { threadId, mode } | null }` → `{ task }` — rewrites only the `thread_binding` block on disk; pass `null` to unbind.
+- `automation/task/list`, `automation/task/read`, `automation/task/create`, `automation/task/updateBinding`, `automation/task/delete` — CRUD and binding updates for local automation tasks. Task-level review and cancel endpoints are not part of this surface.
+- `automation/task/updateBinding` `{ taskId, threadBinding?: { threadId, mode } | null }` → `{ task }` — rewrites only the `thread_binding` block on disk; pass `null` to unbind.
 - `automation/template/list` `{}` → `{ templates: AutomationTemplateWire[] }` — returns the built-in local task templates followed by any user-authored templates so desktop clients can render the "Use template" picker without bundling a copy. User templates carry `isUser: true`; built-ins omit the field (default `false`). User templates also populate `createdAt` / `updatedAt` (ISO-8601 UTC).
 - `automation/template/save` `{ id?, title, description?, icon?, category?, workflowMarkdown, defaultSchedule?, defaultWorkspaceMode?, defaultApprovalPolicy?, needsThreadBinding, defaultTitle?, defaultDescription? }` → `{ template: AutomationTemplateWire }` — upsert a user template. When `id` is omitted the server assigns `"user-" + shortGuid`. Rejects built-in id collisions, path-traversal / invalid id shapes (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty `title` / `workflowMarkdown`, and overlong `title` (>200 chars).
 - `automation/template/delete` `{ id }` → `{ ok: true }` — delete a user template directory. Built-in ids and invalid id shapes are rejected with `-32602` Invalid params. Idempotent: missing directories return `{ ok: true }`.
@@ -2211,7 +2208,7 @@ The core wire protocol (Sections 3–10) covers the `ISessionService` surface. M
 - Core methods are owned by the AppServer protocol runtime. Module methods are contributed by loaded modules and routed by method name at runtime.
 - Module methods must not reuse a Core method name. If a module method is unavailable because the contributing module is not loaded or cannot operate in the current workspace, the server returns `-32601` (`Method not found`).
 - Server-to-client extension families continue to use the `ext/<namespace>/...` prefix (for example `ext/acp/...`).
-- Client-to-server module methods may use stable product namespaces such as `githubTracker/...`; they are standard protocol extensions even when implemented by a module instead of Core.
+- Client-to-server module methods may use stable product namespaces; they are standard protocol extensions even when implemented by a module instead of Core.
 - `initialize` may advertise extension availability in `capabilities.extensions`. Compatibility top-level capability fields may coexist during migration.
 - Clients must treat the spec as the source of truth for a documented extension's method names and payloads; implementation location inside the server is not wire-visible.
 
@@ -4743,207 +4740,7 @@ Semantics:
 - Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
 - Older servers may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
-## 26. GitHub Tracker Config Methods
-
-### 26.1 Scope
-
-These methods provide a server-authoritative read/write path for `GitHubTracker` configuration.
-
-Although the runtime implementation may be provided by the `DotCraft.GitHubTracker` module instead of AppServer Core, the wire contract in this section remains part of the documented AppServer protocol extension surface.
-
-Clients should check `capabilities.extensions.githubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. For compatibility, servers may also expose `capabilities.gitHubTrackerConfig`. If both are present, `capabilities.extensions.githubTrackerConfig` is authoritative. If the capability is absent or `false`, the server returns `-32601` (Method not found).
-
-Capability availability is based on whether the server supports persisted GitHub tracker configuration.
-
-### 26.2 `GitHubTrackerConfig` Wire DTO
-
-```json
-{
-  "enabled": true,
-  "issuesWorkflowPath": "WORKFLOW.md",
-  "pullRequestWorkflowPath": "PR_WORKFLOW.md",
-  "tracker": {
-    "endpoint": null,
-    "apiKey": "***",
-    "repository": "owner/repo",
-    "activeStates": ["Todo", "In Progress"],
-    "terminalStates": ["Done", "Closed", "Cancelled"],
-    "gitHubStateLabelPrefix": "status:",
-    "assigneeFilter": null,
-    "pullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
-    "pullRequestTerminalStates": ["Merged", "Closed", "Approved"]
-  },
-  "polling": {
-    "intervalMs": 30000
-  },
-  "workspace": {
-    "root": null
-  },
-  "agent": {
-    "maxConcurrentAgents": 3,
-    "maxTurns": 20,
-    "maxRetryBackoffMs": 300000,
-    "turnTimeoutMs": 3600000,
-    "stallTimeoutMs": 300000,
-    "maxConcurrentByState": {},
-    "maxConcurrentPullRequestAgents": 0
-  },
-  "hooks": {
-    "afterCreate": null,
-    "beforeRun": null,
-    "afterRun": null,
-    "beforeRemove": null,
-    "timeoutMs": 60000
-  }
-}
-```
-
-Supported fields:
-
-- `enabled: boolean`
-- `issuesWorkflowPath: string`
-- `pullRequestWorkflowPath: string`
-- `tracker.endpoint?: string | null`
-- `tracker.apiKey?: string | null`
-- `tracker.repository?: string | null`
-- `tracker.activeStates: string[]`
-- `tracker.terminalStates: string[]`
-- `tracker.gitHubStateLabelPrefix: string`
-- `tracker.assigneeFilter?: string | null`
-- `tracker.pullRequestActiveStates: string[]`
-- `tracker.pullRequestTerminalStates: string[]`
-- `polling.intervalMs: number`
-- `workspace.root?: string | null`
-- `agent.maxConcurrentAgents: number`
-- `agent.maxTurns: number`
-- `agent.maxRetryBackoffMs: number`
-- `agent.turnTimeoutMs: number`
-- `agent.stallTimeoutMs: number`
-- `agent.maxConcurrentByState: Record<string, number>`
-- `agent.maxConcurrentPullRequestAgents: number`
-- `hooks.afterCreate?: string | null`
-- `hooks.beforeRun?: string | null`
-- `hooks.afterRun?: string | null`
-- `hooks.beforeRemove?: string | null`
-- `hooks.timeoutMs: number`
-
-Validation rules:
-
-- When `enabled` is `true`, `tracker.repository` is required.
-- `tracker.activeStates` and `tracker.terminalStates` must not overlap, case-insensitively.
-- `tracker.pullRequestActiveStates` and `tracker.pullRequestTerminalStates` must not overlap, case-insensitively.
-- Numeric fields follow the same lower bounds enforced by the runtime config metadata (`intervalMs >= 1`, concurrency values `>= 0` or `>= 1` depending on the field).
-- `tracker.apiKey` is masked as `"***"` by `githubTracker/get` when a non-empty value exists. Sending `"***"` back to `githubTracker/update` preserves the existing stored value instead of overwriting it.
-
-### 26.3 `githubTracker/get`
-
-Returns the current workspace `GitHubTracker` configuration.
-
-**Direction**: client → server (request)
-
-**Result**:
-
-```json
-{
-  "config": {
-    "enabled": true,
-    "issuesWorkflowPath": "WORKFLOW.md",
-    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
-    "tracker": {
-      "apiKey": "***",
-      "repository": "owner/repo",
-      "activeStates": ["Todo", "In Progress"],
-      "terminalStates": ["Done", "Closed", "Cancelled"],
-      "gitHubStateLabelPrefix": "status:",
-      "pullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
-      "pullRequestTerminalStates": ["Merged", "Closed", "Approved"]
-    },
-    "polling": { "intervalMs": 30000 },
-    "workspace": { "root": null },
-    "agent": {
-      "maxConcurrentAgents": 3,
-      "maxTurns": 20,
-      "maxRetryBackoffMs": 300000,
-      "turnTimeoutMs": 3600000,
-      "stallTimeoutMs": 300000,
-      "maxConcurrentByState": {},
-      "maxConcurrentPullRequestAgents": 0
-    },
-    "hooks": {
-      "afterCreate": null,
-      "beforeRun": null,
-      "afterRun": null,
-      "beforeRemove": null,
-      "timeoutMs": 60000
-    }
-  }
-}
-```
-
-### 26.4 `githubTracker/update`
-
-Creates or replaces the workspace `GitHubTracker` section.
-
-**Direction**: client → server (request)
-
-**Params**:
-
-```json
-{
-  "config": {
-    "enabled": true,
-    "issuesWorkflowPath": "WORKFLOW.md",
-    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
-    "tracker": {
-      "apiKey": "***",
-      "repository": "owner/repo",
-      "activeStates": ["Todo", "In Progress"],
-      "terminalStates": ["Done", "Closed", "Cancelled"],
-      "gitHubStateLabelPrefix": "status:"
-    }
-  }
-}
-```
-
-**Semantics**:
-
-- The payload replaces the full logical `GitHubTracker` section.
-- The server preserves unrelated configuration state.
-- The server preserves the existing `tracker.apiKey` when the incoming value is `"***"`.
-- Changes are persisted for future runs; clients should assume a restart may be required before module behavior reflects the new values.
-
-**Result**:
-
-```json
-{
-  "config": {
-    "enabled": true,
-    "issuesWorkflowPath": "WORKFLOW.md",
-    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
-    "tracker": {
-      "apiKey": "***",
-      "repository": "owner/repo",
-      "activeStates": ["Todo", "In Progress"],
-      "terminalStates": ["Done", "Closed", "Cancelled"],
-      "gitHubStateLabelPrefix": "status:"
-    }
-  }
-}
-```
-
-### 26.5 Capability Advertisement
-
-Clients should check `capabilities.extensions.githubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. The legacy `capabilities.gitHubTrackerConfig` field may still be present for compatibility.
-
-### 26.6 Error Codes
-
-| Code | Constant | When |
-|------|----------|------|
-| `-32090` | `GitHubTrackerConfigValidationFailed` | The payload violates GitHub tracker config validation rules. |
-
----
-
-## 27. Design Inspiration
+## 26. Design Inspiration
 
 The DotCraft AppServer Protocol's architecture references the Codex App Server
 design. The overall structural approach - a JSON-RPC 2.0 surface layered around
