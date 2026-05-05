@@ -80,9 +80,3 @@ AppServer binary path is stored in `settings.json` under the app user data direc
 DotCraft Desktop --app-server /path/to/dotcraft
 DotCraft Desktop --workspace /path/to/project
 ```
-
----
-
-## License
-
-Apache License 2.0 — [../LICENSE](../LICENSE).

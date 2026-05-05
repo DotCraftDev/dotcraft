@@ -33,7 +33,7 @@ DotCraft SDKs are for external clients, social channel adapters, and automation 
 
 ## Advanced Topics
 
-- [TypeScript Channel Module Host Integration](../typescript-channel-module-host-integration.md)
+- [TypeScript Channel Module Host Integration](../typescript-module-integration.md)
 - [External CLI Subagents Guide](../external_cli_subagents_guide.md)
 - [AppServer Protocol Spec](https://github.com/DotHarness/dotcraft/blob/master/specs/appserver-protocol.md)
 

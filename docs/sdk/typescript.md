@@ -17,7 +17,7 @@ TypeScript 外部渠道能力由以下包构成：
 
 宿主侧模块加载与生命周期集成说明见：
 
-- `docs/typescript-channel-module-host-integration.md`
+- `docs/typescript-module-integration.md`
 
 ## 安装
 

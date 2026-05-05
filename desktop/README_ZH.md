@@ -78,9 +78,3 @@ AppServer 二进制路径保存在应用用户数据目录下的 `settings.json`
 DotCraft Desktop --app-server /path/to/dotcraft
 DotCraft Desktop --workspace /path/to/project
 ```
-
----
-
-## 许可证
-
-Apache License 2.0 —— 见 [../LICENSE](../LICENSE)。

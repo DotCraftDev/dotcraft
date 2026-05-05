@@ -117,8 +117,3 @@ await instance.start();
   - `npm run test --workspace @dotcraft/channel-telegram`
 - Dry-run package contents:
   - `cd sdk/typescript/packages/channel-telegram && npm pack --dry-run`
-
-## Notes
-
-- This package is the TypeScript/Desktop path for Telegram integration.
-- The Python Telegram example remains in the repository as a reference implementation and is no longer the recommended desktop integration path.

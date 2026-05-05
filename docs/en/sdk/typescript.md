@@ -17,7 +17,7 @@ The TypeScript external channel stack is delivered as these packages:
 
 For host-side module loading and lifecycle integration, see:
 
-- `docs/en/typescript-channel-module-host-integration.md`
+- `docs/en/typescript-module-integration.md`
 
 ## Install
 

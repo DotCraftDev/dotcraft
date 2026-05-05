@@ -117,8 +117,3 @@ await instance.start();
   - `npm run test --workspace @dotcraft/channel-telegram`
 - 预览打包内容：
   - `cd sdk/typescript/packages/channel-telegram && npm pack --dry-run`
-
-## 说明
-
-- 这个包是 Telegram 在 TypeScript/Desktop 路径下的一方集成实现。
-- 仓库中的 Python Telegram 示例会继续保留，作为参考实现，不再作为 desktop 的推荐接入方式。

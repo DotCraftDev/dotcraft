@@ -1,4 +1,4 @@
-# TypeScript 渠道模块宿主集成指南
+# TypeScript 模块集成
 
 本文档说明宿主进程（Desktop、CLI 工具或其他调度进程）如何基于 `dotcraft-wire` 模块契约集成 TypeScript 外部社交渠道模块。
 
