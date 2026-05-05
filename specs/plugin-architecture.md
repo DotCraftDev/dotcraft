@@ -50,7 +50,7 @@ Manifest metadata includes:
 
 Plugins must declare at least one supported contribution: a plugin-contained `skills` path, plugin-bundled MCP servers, or interface metadata. Skill-only, MCP-only, and interface-only plugins are valid.
 
-`mcpServers` is an optional manifest-relative path to a plugin-contained MCP configuration file. If omitted, DotCraft looks for `./.mcp.json` in the plugin root. The MCP file may use either `{ "mcpServers": { ... } }` or a direct server map. Plugin-bundled MCP servers use the same runtime as workspace `McpServers`; relative MCP `cwd` values resolve under the plugin root. At runtime, contributed server names are prefixed as `{pluginId}:{serverName}` to avoid collisions with workspace MCP servers and other plugins.
+`mcpServers` is an optional manifest-relative path to a plugin-contained MCP configuration file. If omitted, DotCraft looks for `./.mcp.json` in the plugin root. The MCP file may use either `{ "mcpServers": { ... } }` or a direct server map. Plugin MCP config should use canonical DotCraft fields such as `arguments`, `environmentVariables`, and `headers`; for compatibility with common MCP config files, DotCraft also accepts `args`, `env`, and `httpHeaders` as read aliases. Plugin-bundled MCP servers use the same runtime as workspace `McpServers`; relative MCP `cwd` values resolve under the plugin root. At runtime, contributed server names are prefixed as `{pluginId}:{serverName}` to avoid collisions with workspace MCP servers and other plugins.
 
 Effective MCP merge rules:
 

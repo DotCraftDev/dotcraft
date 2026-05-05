@@ -16,4 +16,4 @@ Copy this folder into a workspace plugin root:
 Copy-Item -Recurse samples/plugins/review-tools-mcp .craft/plugins/review-tools-mcp
 ```
 
-The bundled sample MCP server is dependency-free and can be used immediately. To integrate a real review service, edit `.mcp.json` so the `review` server points at your MCP command or HTTPS endpoint.
+The bundled sample MCP server is dependency-free and can be used immediately. To integrate a real review service, edit `.mcp.json` so the `review` server points at your MCP command or HTTPS endpoint. Use `arguments` for command-line arguments in plugin MCP config; DotCraft also accepts common MCP aliases such as `args` when reading existing configs.

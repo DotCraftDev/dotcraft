@@ -178,6 +178,7 @@ public sealed class PluginDiscoveryTests
         Assert.Equal("demo-plugin:review", server.Name);
         Assert.Equal("stdio", server.Transport);
         Assert.Equal("node", server.Command);
+        Assert.Equal(["server.js"], server.Arguments);
         Assert.Equal(Path.Combine(pluginRoot, "server"), server.Cwd);
     }
 

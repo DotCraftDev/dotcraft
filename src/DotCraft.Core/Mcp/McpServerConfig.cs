@@ -205,7 +205,10 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
             {
                 var cfg = item.Deserialize<McpServerConfig>(options);
                 if (cfg != null)
+                {
+                    ApplyWireAliases(cfg, item, options);
                     list.Add(cfg);
+                }
             }
             return list;
         }
@@ -215,6 +218,7 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
             foreach (var prop in root.EnumerateObject())
             {
                 var cfg = prop.Value.Deserialize<McpServerConfig>(options) ?? new McpServerConfig();
+                ApplyWireAliases(cfg, prop.Value, options);
                 if (string.IsNullOrWhiteSpace(cfg.Name))
                     cfg.Name = prop.Name;
                 list.Add(cfg);
@@ -237,5 +241,52 @@ public sealed class McpServerConfigListConverter : JsonConverter<List<McpServerC
         }
 
         writer.WriteEndObject();
+    }
+
+    private static void ApplyWireAliases(McpServerConfig cfg, JsonElement element, JsonSerializerOptions options)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+
+        if (!HasProperty(element, "arguments")
+            && cfg.Arguments.Count == 0
+            && TryGetProperty(element, "args", out var argsElement))
+        {
+            cfg.Arguments = argsElement.Deserialize<List<string>>(options) ?? [];
+        }
+
+        if (!HasProperty(element, "environmentVariables")
+            && cfg.EnvironmentVariables.Count == 0
+            && TryGetProperty(element, "env", out var envElement))
+        {
+            cfg.EnvironmentVariables = envElement.Deserialize<Dictionary<string, string>>(options)
+                                       ?? new Dictionary<string, string>();
+        }
+
+        if (!HasProperty(element, "headers")
+            && cfg.Headers.Count == 0
+            && TryGetProperty(element, "httpHeaders", out var headersElement))
+        {
+            cfg.Headers = headersElement.Deserialize<Dictionary<string, string>>(options)
+                          ?? new Dictionary<string, string>();
+        }
+    }
+
+    private static bool HasProperty(JsonElement element, string name) =>
+        TryGetProperty(element, name, out _);
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.NameEquals(name) || string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

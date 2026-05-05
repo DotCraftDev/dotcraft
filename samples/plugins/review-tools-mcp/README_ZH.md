@@ -16,4 +16,4 @@
 Copy-Item -Recurse samples/plugins/review-tools-mcp .craft/plugins/review-tools-mcp
 ```
 
-内置的示例 MCP server 不需要额外依赖，复制后可以直接试用。如果要接入真实 review 服务，再编辑 `.mcp.json`，让 `review` server 指向你的 MCP 命令或 HTTPS endpoint。
+内置的示例 MCP server 不需要额外依赖，复制后可以直接试用。如果要接入真实 review 服务，再编辑 `.mcp.json`，让 `review` server 指向你的 MCP 命令或 HTTPS endpoint。插件 MCP 配置中命令行参数推荐使用 `arguments`；DotCraft 读取已有配置时也兼容 `args` 等常见 MCP 别名。
