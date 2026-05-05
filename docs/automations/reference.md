@@ -1,6 +1,6 @@
 # DotCraft Automations 参考
 
-本页汇总 DotCraft 原生 Automations 的配置、任务文件、模板变量和工具。Automations 现在只负责工作区内的本地任务；GitHub Issue、Pull Request、审查轮次和派发由 Oratorio 接管。
+本页汇总 DotCraft 原生 Automations 的配置、任务文件、模板变量和工具。DotCraft 原生 Automations 仅覆盖本地任务。
 
 ## 配置字段
 

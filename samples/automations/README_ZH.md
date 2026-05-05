@@ -30,4 +30,4 @@ samples/automations/
 }
 ```
 
-GitHub Issue 和 Pull Request 编排由 Oratorio 提供，不属于这些原生 Automations 示例。
+DotCraft 原生 Automations 仅覆盖本地任务。

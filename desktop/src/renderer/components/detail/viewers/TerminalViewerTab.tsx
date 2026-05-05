@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useViewerTabStore } from '../../../stores/viewerTabStore'
 import { useConversationStore } from '../../../stores/conversationStore'
+import { createTerminalThemeFromDocument, useDocumentThemeMode } from './viewerTheme'
 
 interface TerminalViewerTabProps {
   tabId: string
@@ -16,6 +17,7 @@ function formatExitMessage(code: number | null): string {
 }
 
 export function TerminalViewerTab({ tabId }: TerminalViewerTabProps): JSX.Element {
+  const themeMode = useDocumentThemeMode()
   const currentThreadId = useViewerTabStore((s) => s.currentThreadId)
   const hasStarted = useViewerTabStore((s) => {
     const threadId = s.currentThreadId
@@ -46,9 +48,7 @@ export function TerminalViewerTab({ tabId }: TerminalViewerTabProps): JSX.Elemen
       scrollback: 5000,
       fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-      theme: {
-        background: '#1e1e1e'
-      }
+      theme: createTerminalThemeFromDocument()
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
@@ -113,6 +113,11 @@ export function TerminalViewerTab({ tabId }: TerminalViewerTabProps): JSX.Elemen
       startedRef.current = false
     }
   }, [tabId])
+
+  useEffect(() => {
+    if (!terminalRef.current) return
+    terminalRef.current.options.theme = createTerminalThemeFromDocument()
+  }, [themeMode])
 
   useEffect(() => {
     const term = terminalRef.current

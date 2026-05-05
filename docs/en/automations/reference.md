@@ -1,6 +1,6 @@
 # DotCraft Automations Reference
 
-This page collects the configuration, task files, template variables, and tools for DotCraft native Automations. Automations now handles local workspace tasks only; GitHub Issues, Pull Requests, review rounds, and dispatch are owned by Oratorio.
+This page collects the configuration, task files, template variables, and tools for DotCraft native Automations. DotCraft native Automations covers local tasks only.
 
 ## Configuration Fields
 

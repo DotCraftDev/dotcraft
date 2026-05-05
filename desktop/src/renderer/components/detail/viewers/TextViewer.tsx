@@ -14,6 +14,7 @@ import MonacoEditor, { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import { useT } from '../../../contexts/LocaleContext'
 import { detectLanguage } from './languageDetect'
+import { getMonacoTheme, useDocumentThemeMode } from './viewerTheme'
 
 const MAX_READ_BYTES = 5 * 1024 * 1024 // 5 MB
 
@@ -32,6 +33,7 @@ interface TextState {
 
 export function TextViewer({ absolutePath }: TextViewerProps): JSX.Element {
   const t = useT()
+  const themeMode = useDocumentThemeMode()
   const [state, setState] = useState<TextState>({ status: 'idle', text: '', truncated: false })
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export function TextViewer({ absolutePath }: TextViewerProps): JSX.Element {
               horizontalScrollbarSize: 8
             }
           }}
-          theme="vs-dark"
+          theme={getMonacoTheme(themeMode)}
           height="100%"
           loading={
             <div style={{ padding: '24px', color: 'var(--text-secondary)', fontSize: '13px' }}>

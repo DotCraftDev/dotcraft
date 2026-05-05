@@ -1,8 +1,6 @@
 # Automations 指南
 
-Automations 是 DotCraft 内置的本地任务系统。它从当前工作区的 `.craft/tasks/` 读取任务文件，按计划或手动触发 Agent，支持线程绑定、模板、重试、活动展示和 `CompleteLocalTask` 完成路径。
-
-GitHub Issue、Pull Request、PR 审查轮次、评论和长时间派发不再由 DotCraft 内置 Automations 处理，这些能力由 Oratorio 通过 DotCraft 插件系统提供。
+DotCraft 原生 Automations 仅覆盖本地任务。它从当前工作区的 `.craft/tasks/` 读取任务文件，按计划或手动触发 Agent，支持线程绑定、模板、重试、活动展示和 `CompleteLocalTask` 完成路径。
 
 ## 创建本地任务
 

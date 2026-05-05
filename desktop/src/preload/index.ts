@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, shell } from 'electron'
+import { resolveThemeMode, type ThemeMode } from '../shared/theme'
 import {
   TITLE_BAR_OVERLAY_HEIGHT,
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
@@ -34,7 +35,6 @@ export type BrowserUseApprovalResponseAction = 'allowOnce' | 'allowDomain' | 'bl
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
-export type ThemeMode = 'dark' | 'light'
 export type EditorId =
   | 'explorer'
   | 'vs'
@@ -57,7 +57,7 @@ export interface EditorInfo {
 function readInitialTheme(): ThemeMode {
   const arg = process.argv.find((value) => value.startsWith('--dotcraft-initial-theme='))
   const raw = arg?.slice('--dotcraft-initial-theme='.length)
-  return raw === 'light' ? 'light' : 'dark'
+  return resolveThemeMode(raw)
 }
 
 const initialTheme = readInitialTheme()

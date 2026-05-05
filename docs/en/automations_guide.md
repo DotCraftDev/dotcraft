@@ -1,8 +1,6 @@
 # Automations Guide
 
-Automations is DotCraft's built-in local task system. It reads task files from `.craft/tasks/` in the current workspace, runs Agents manually or on a schedule, and keeps thread binding, templates, retries, activity display, and the `CompleteLocalTask` completion path.
-
-GitHub Issues, Pull Requests, PR review rounds, comments, and long-running dispatch are no longer handled by DotCraft native Automations. Those capabilities are owned by Oratorio through DotCraft's plugin system.
+DotCraft native Automations covers local tasks only. It reads task files from `.craft/tasks/` in the current workspace, runs Agents manually or on a schedule, and keeps thread binding, templates, retries, activity display, and the `CompleteLocalTask` completion path.
 
 ## Create a Local Task
 

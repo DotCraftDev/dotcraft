@@ -1,8 +1,6 @@
 # DotCraft Automations Lifecycle
 
-DotCraft native Automations is a local-task orchestrator. It watches local task files in the current workspace, dispatches Agents for runnable tasks, preserves scheduling and thread binding, and records completion through `CompleteLocalTask`.
-
-GitHub issue/PR orchestration, review rounds, comments, PR review drafts, GitHub writes, and long-running dispatch are owned by Oratorio. DotCraft native Automations does not read removed built-in GitHub config, workflow files, old review files, or old GitHub automation state.
+DotCraft native Automations covers local tasks only. It watches local task files in the current workspace, dispatches Agents for runnable tasks, preserves scheduling and thread binding, and records completion through `CompleteLocalTask`.
 
 ## Scope
 

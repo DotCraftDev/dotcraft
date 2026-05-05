@@ -30,4 +30,4 @@ Copy the local task folder into your workspace `.craft/tasks/` directory and kee
 }
 ```
 
-GitHub issue and pull request orchestration is provided by Oratorio, not by these native Automations samples.
+DotCraft native Automations covers local tasks only.

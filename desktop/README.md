@@ -65,8 +65,8 @@ npx electron-builder --win   # or --mac / --linux
 **Automations** (sidebar **Automations**, only if the server reports this capability):
 
 1. **New task** — Title, description, **Agent workspace** (`Project` = repo folder, `Isolated` = separate sandbox), and **Tool policy** (workspace-scoped tools vs full auto). Submit creates a task; the server-side orchestrator runs it according to server rules.
-2. Filter tabs **All / Local / GitHub** limit the task list by source; GitHub tasks appear in the same Automations view as local tasks.
-3. Select a task and use **Review** or **View** depending on its status to open the review panel: live or historical agent activity for that task; approve or reject when the task waits for review.
+2. The task list shows local tasks, reusable templates, schedule state, manual run controls, and delete actions.
+3. Select a task to open the activity panel for live or historical agent output, thread binding, and completion summary.
 
 **Shortcuts** — `Ctrl+B` sidebar, `Ctrl+Shift+B` detail panel (may vary by platform).
 
